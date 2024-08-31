@@ -235,7 +235,14 @@
 							nl += obj['timestamp'] + ' '
 						}
 						if (obj['level']) {
-							nl += obj['level'] + ' '
+							let lvl = obj['level']
+							if (lvl == 'ERROR') {
+								nl += '\x1b[31mERROR\x1b[0m '
+							} else if (lvl == 'INFO') {
+								nl += '\x1b[32mINFO\x1b[0m '
+							} else {
+								nl += obj['level'] + ' '
+							}
 						}
 						if (obj['message']) {
 							nl += obj['message'] + ' '
