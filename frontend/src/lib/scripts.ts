@@ -113,16 +113,21 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['powershell', 'PowerShell'],
 	['php', 'PHP'],
 	['rust', 'Rust'],
-	['docker', 'Docker'],
+	['docker', 'Docker']
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
 		return langs
 	} else {
 		let ls = langs.filter((lang) => lang !== 'nativets')
-		if (!ls.includes('bunnative')) {
-			ls.push('bunnative')
-		}
+
+		//those languages are newer and may not be in the saved list
+		let nl = ['bunnative', 'rust']
+		nl.forEach((lang) => {
+			if (!ls.includes(lang)) {
+				ls.push(lang)
+			}
+		})
 		return ls
 	}
 }
