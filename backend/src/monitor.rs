@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::{NaiveDateTime, Utc};
 use rsmq_async::MultiplexedRsmq;
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
@@ -42,10 +43,11 @@ use windmill_common::{
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
     users::truncate_token,
-    utils::{now_from_db, rd_string, report_critical_error},
+    utils::{now_from_db, rd_string, report_critical_error, Mode},
     worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
+        WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
@@ -336,6 +338,195 @@ pub async fn monitor_mem() {
     });
 }
 
+async fn sleep_until_next_minute_start_plus_one_s() {
+    let now = Utc::now();
+    let next_minute = now + Duration::from_secs(60 - now.timestamp() as u64 % 60 + 1);
+    tokio::time::sleep(tokio::time::Duration::from_secs(
+        next_minute.timestamp() as u64 - now.timestamp() as u64,
+    ))
+    .await;
+}
+
+use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
+async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
+    let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
+    let rd_dir = tokio::fs::read_dir(log_dir).await;
+    if let Ok(mut log_files) = rd_dir {
+        let mut highest_file: Option<String> = None;
+        let mut second_highest_file: Option<String> = None;
+        while let Ok(Some(file)) = log_files.next_entry().await {
+            let file_name = file
+                .file_name()
+                .to_str()
+                .map(|x| x.to_string())
+                .unwrap_or_default();
+            if file_name > highest_file.clone().unwrap_or_default() {
+                second_highest_file = highest_file;
+                highest_file = Some(file_name);
+            }
+        }
+        (highest_file, second_highest_file)
+    } else {
+        tracing::error!(
+            "Error reading log files: {TMP_WINDMILL_LOGS_SERVICE}, {:#?}",
+            rd_dir.unwrap_err()
+        );
+        (None, None)
+    }
+}
+
+fn get_worker_group(mode: &Mode) -> Option<String> {
+    let worker_group = WORKER_GROUP.clone();
+    if worker_group.is_empty() || mode == &Mode::Server || mode == &Mode::Indexer {
+        None
+    } else {
+        Some(worker_group)
+    }
+}
+
+pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+    let db = db.clone();
+    let hostname = hostname.to_string();
+    let mode = mode.clone();
+    let worker_group = get_worker_group(&mode);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        sleep_until_next_minute_start_plus_one_s().await;
+        loop {
+            interval.tick().await;
+            let (_, snd_highest_file) = find_two_highest_files(&hostname).await;
+            send_log_file_to_object_store(
+                &hostname,
+                &mode,
+                &worker_group,
+                &db,
+                snd_highest_file,
+                false,
+            )
+            .await;
+        }
+    });
+}
+
+pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+    tracing::info!("Sending current log file to object store");
+    let (highest_file, _) = find_two_highest_files(hostname).await;
+    let worker_group = get_worker_group(&mode);
+    send_log_file_to_object_store(hostname, mode, &worker_group, db, highest_file, true).await;
+}
+
+fn get_now_and_str() -> (NaiveDateTime, String) {
+    let ts = Utc::now().naive_utc();
+    (
+        ts,
+        ts.format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+            .to_string(),
+    )
+}
+
+async fn send_log_file_to_object_store(
+    hostname: &str,
+    mode: &Mode,
+    worker_group: &Option<String>,
+    db: &Pool<Postgres>,
+    snd_highest_file: Option<String>,
+    use_now: bool,
+) {
+    if let Some(highest_file) = snd_highest_file {
+        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
+        let (ts, ts_str) = if use_now {
+            get_now_and_str()
+        } else {
+            highest_file
+                .split(".")
+                .last()
+                .and_then(|x| {
+                    NaiveDateTime::parse_from_str(
+                        x,
+                        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
+                    )
+                    .ok()
+                    .map(|y| (y, x.to_string()))
+                })
+                .unwrap_or_else(get_now_and_str)
+        };
+
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM log_file WHERE hostname = $1 AND log_ts = $2)",
+            hostname,
+            ts
+        )
+        .fetch_one(db)
+        .await;
+
+        match exists {
+            Ok(Some(true)) => {
+                return;
+            }
+            Err(e) => {
+                tracing::error!("Error checking if log file exists: {:?}", e);
+                return;
+            }
+            _ => (),
+        }
+
+        let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
+            .join(hostname)
+            .join(&highest_file);
+
+        #[cfg(feature = "parquet")]
+        let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+        #[cfg(feature = "parquet")]
+        if let Some(s3_client) = s3_client {
+            //read file as byte stream
+            let bytes = tokio::fs::read(&path).await;
+            if let Err(e) = bytes {
+                tracing::error!("Error reading log file: {:?}", e);
+                return;
+            }
+            let path = object_store::path::Path::from_url_path(format!(
+                "{}{hostname}/{highest_file}",
+                windmill_common::tracing_init::LOGS_SERVICE
+            ));
+            if let Err(e) = path {
+                tracing::error!("Error creating log file path: {:?}", e);
+                return;
+            }
+            if let Err(e) = s3_client.put(&path.unwrap(), bytes.unwrap().into()).await {
+                tracing::error!("Error sending logs to object store: {:?}", e);
+            }
+        }
+
+        let (ok_lines, err_lines) = read_log_counters(ts_str);
+
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7)", 
+            hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64)
+            .execute(db)
+            .await {
+            tracing::error!("Error inserting log file: {:?}", e);
+        }
+    }
+}
+
+fn read_log_counters(ts_str: String) -> (usize, usize) {
+    let counters = windmill_common::tracing_init::LOG_COUNTING_BY_MIN.read();
+    let mut ok_lines = 0;
+    let mut err_lines = 0;
+    if let Ok(ref c) = counters {
+        let counter = c.get(&ts_str);
+        if let Some(counter) = counter {
+            ok_lines = counter.non_error_count;
+            err_lines = counter.error_count;
+        } else {
+            println!("no counter found for {ts_str}");
+        }
+    } else {
+        println!("Error reading log counters 2");
+    }
+    (ok_lines, err_lines)
+}
+
 pub async fn load_keep_job_dir(db: &DB) {
     let value = load_value_from_global_settings(db, KEEP_JOB_DIR_SETTING).await;
     match value {
@@ -469,6 +660,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             .await
                             {
                                 tracing::error!("Error deleting  custom concurrency key: {:?}", e);
+                            }
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval ",
+                                job_retention_secs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting log file: {:?}", e);
                             }
                         }
                     }

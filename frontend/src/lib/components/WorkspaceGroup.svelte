@@ -870,7 +870,7 @@
 	<div class="text-xs"
 		>{pluralize(activeWorkers, 'worker')}
 		{#if vcpus_memory?.vcpus}
-			- {vcpus_memory?.vcpus} vCPUs{/if}{#if vcpus_memory?.memory}
+			- {vcpus_memory?.vcpus / 1000} vCPUs{/if}{#if vcpus_memory?.memory}
 			- {vcpus_memory?.memory} MB{/if}</div
 	>
 	<div class="flex gap-2 items-center justify-end flex-row my-2">

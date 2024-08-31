@@ -39,7 +39,7 @@
 
 	type MenuItem = {
 		label: string
-		onClick?: () => void
+		onClick?: (e?: Event) => void
 		href?: string
 		icon?: any
 	}
