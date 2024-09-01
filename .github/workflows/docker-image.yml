@@ -561,7 +561,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail:${{ steps.git_hash.outputs.GIT_HASH }}
           path: "/static_frontend/."
 
-      - uses: reggionick/s3-deploy@v3
+      - uses: reggionick/s3-deploy@v4
         if: github.event_name != 'pull_request'
         with:
           folder: ${{ steps.extract.outputs.destination }}
