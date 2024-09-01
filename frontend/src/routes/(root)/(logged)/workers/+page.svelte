@@ -19,7 +19,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, FileJson, LineChart, List, Plus, Search } from 'lucide-svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
@@ -303,7 +303,7 @@
 							icon: List
 						}}
 						on:click={() => {
-							openSearchWithPrefilledText('#')
+							openSearchWithPrefilledText('!')
 						}}
 					>
 						Service logs
