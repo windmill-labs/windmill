@@ -742,7 +742,7 @@ fn add_outstanding_wait_time(
 
     tokio::spawn(async move {
             match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
-                Ok(()) => tracing::warn!("This job waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
+                Ok(()) => tracing::warn!("job {job_id} waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
                 Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
             }
     }.in_current_span());
