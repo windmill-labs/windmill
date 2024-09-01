@@ -506,8 +506,9 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
 
     let result = WrappedError { error: e };
     tracing::error!(
-        "job {} did not succeed: {}",
+        "job {} in {} did not succeed: {}",
         queued_job.id,
+        queued_job.workspace_id,
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
     let _ = add_completed_job(
