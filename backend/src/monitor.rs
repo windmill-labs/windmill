@@ -472,14 +472,14 @@ async fn send_log_file_to_object_store(
             _ => (),
         }
 
-        let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
-            .join(hostname)
-            .join(&highest_file);
-
         #[cfg(feature = "parquet")]
         let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
+            let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
+                .join(hostname)
+                .join(&highest_file);
+
             //read file as byte stream
             let bytes = tokio::fs::read(&path).await;
             if let Err(e) = bytes {
