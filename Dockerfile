@@ -70,7 +70,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-COPY --from=frontend /frontend /frontend
+RUN mkdir -p /frontend
+
+COPY --from=frontend /frontend/build /frontend/build
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml
 COPY .git/ .git/
 
