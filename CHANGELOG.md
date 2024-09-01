@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.389.0](https://github.com/windmill-labs/windmill/compare/v1.388.0...v1.389.0) (2024-09-01)
+
+
+### Features
+
+* service logs ([#4244](https://github.com/windmill-labs/windmill/issues/4244)) ([2fe48df](https://github.com/windmill-labs/windmill/commit/2fe48df720b102255832dc6438d5d64f3443207a))
+
+
+### Bug Fixes
+
+* prevent duplicate worker alerts ([#4309](https://github.com/windmill-labs/windmill/issues/4309)) ([8e30928](https://github.com/windmill-labs/windmill/commit/8e30928a78c20daef81bc4f98487ab601ecc9b58))
+
 ## [1.388.0](https://github.com/windmill-labs/windmill/compare/v1.387.1...v1.388.0) (2024-08-30)
 
 
