@@ -1450,14 +1450,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 started = true
             }
 
-            tokio::select! {
-                biased;
-                _ = killpill_rx.recv() => {
-                    println!("received killpill for worker {}", i_worker);
-                    job_completed_tx.0.send(SendResult::Kill).await.unwrap();
-                    break
-                },
-                Some(same_worker_job) = same_worker_rx.recv() => {
+            if let Ok(_) = killpill_rx.try_recv() {
+                println!("received killpill for worker {}", i_worker);
+                job_completed_tx.0.send(SendResult::Kill).await.unwrap();
+                break
+            }
+            
+            if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                     tracing::debug!("received {} from same worker channel", same_worker_job.job_id);
                     let r = sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
                         .bind(same_worker_job.job_id)
@@ -1471,64 +1470,62 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     } else {
                         r
                     }
-                },
-                (job, timer, suspend_first) = async {
-                    let pull_time = Instant::now();
-                    let suspend_first = if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
-                        last_checked_suspended = Instant::now();
-                        true
-                    } else { false };
-                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time, suspend_first)).await
-                } => {
-                    add_time!(timing, loop_start, "post pull");
-                    // tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
-                    let duration_pull_s = timer.elapsed().as_secs_f64();
-                    let err_pull = job.is_ok();
-                    let empty = job.as_ref().is_ok_and(|x| x.is_none());
-                    suspend_first_success = suspend_first && !empty;
-                    if !agent_mode && duration_pull_s > 0.5 {
-                        tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
-                        #[cfg(feature = "prometheus")]
-                        if empty {
-                            if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
-                                wp.inc();
-                            }
-                        } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
-                            wp.inc();
-                        }
+            } else {
 
-                    } else if !agent_mode && duration_pull_s > 0.1 {
-                        tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
-                        #[cfg(feature = "prometheus")]
-                        if empty {
-                            if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
-                                wp.inc();
-                            }
-                        } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
-                            wp.inc();
-                        }
-                    }
-
+                let pull_time = Instant::now();
+                let suspend_first = if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
+                    last_checked_suspended = Instant::now();
+                    true
+                } else { false };
+                let (job, timer, suspend_first) = pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time, suspend_first)).await;
+                add_time!(timing, loop_start, "post pull");
+                // tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
+                let duration_pull_s = timer.elapsed().as_secs_f64();
+                let err_pull = job.is_ok();
+                let empty = job.as_ref().is_ok_and(|x| x.is_none());
+                suspend_first_success = suspend_first && !empty;
+                if !agent_mode && duration_pull_s > 0.5 {
+                    tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
-                    if let Ok(j) = job.as_ref() {
-                        if j.is_some() {
-                            if let Some(wp) = worker_pull_duration_counter.as_ref() {
-                                wp.inc_by(duration_pull_s);
-                            }
-                            if let Some(wp) = worker_pull_duration.as_ref() {
-                                wp.observe(duration_pull_s);
-                            }
-                        } else {
-                            if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
-                                wp.inc_by(duration_pull_s);
-                            }
-                            if let Some(wp) = worker_pull_duration_empty.as_ref() {
-                                wp.observe(duration_pull_s);
-                            }
+                    if empty {
+                        if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
+                            wp.inc();
+                        }
+                    } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
+                        wp.inc();
+                    }
+
+                } else if !agent_mode && duration_pull_s > 0.1 {
+                    tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
+                    #[cfg(feature = "prometheus")]
+                    if empty {
+                        if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
+                            wp.inc();
+                        }
+                    } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
+                        wp.inc();
+                    }
+                }
+
+                #[cfg(feature = "prometheus")]
+                if let Ok(j) = job.as_ref() {
+                    if j.is_some() {
+                        if let Some(wp) = worker_pull_duration_counter.as_ref() {
+                            wp.inc_by(duration_pull_s);
+                        }
+                        if let Some(wp) = worker_pull_duration.as_ref() {
+                            wp.observe(duration_pull_s);
+                        }
+                    } else {
+                        if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
+                            wp.inc_by(duration_pull_s);
+                        }
+                        if let Some(wp) = worker_pull_duration_empty.as_ref() {
+                            wp.observe(duration_pull_s);
                         }
                     }
-                    job
-                },
+                }
+                job
             }
         };
 
