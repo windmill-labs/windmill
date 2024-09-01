@@ -1248,7 +1248,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 ) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' 
+                "UPDATE queue SET running = false, started_at = null
                 WHERE last_ping < now() - ($1 || ' seconds')::interval
                  AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
@@ -1261,11 +1261,23 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
+        let base_url = BASE_URL.read().await.clone();
         for r in restarted {
+            let last_ping = if let Some(x) = r.last_ping {
+                format!("last ping at {x}")
+            } else {
+                "no last ping".to_string()
+            };
+            let url = format!("{}/run/{}?workspace={}", base_url, r.id, r.workspace_id,);
             let error_message = format!(
-                "Zombie job detected, restarting it: {} {} {:?}",
-                r.id, r.workspace_id, r.last_ping
+                "Zombie job {} on {} ({}) detected, restarting it, {}",
+                r.id, r.workspace_id, url, last_ping
             );
+
+            let _ = sqlx::query!("
+                INSERT INTO job_logs (job_id, logs) VALUES ($1,'Restarted job after not receiving job''s ping for too long the ' || now() || '\n\n') 
+                ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE job_logs.job_id = $1", r.id)
+                .execute(db).await;
             tracing::error!(error_message);
             report_critical_error(error_message, db.clone()).await;
         }

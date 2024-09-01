@@ -18,7 +18,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
+	import { AlertTriangle, FileJson, LineChart, List, Plus, Search } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
@@ -237,6 +237,9 @@
 
 		return [worker_group[0], filteredWorkerGroup]
 	}
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 </script>
 
 {#if $superadmin}
@@ -290,6 +293,20 @@
 						}}
 					>
 						Queue metrics
+					</Button>
+				</div>
+				<div>
+					<Button
+						size="xs"
+						color="dark"
+						startIcon={{
+							icon: List
+						}}
+						on:click={() => {
+							openSearchWithPrefilledText('#')
+						}}
+					>
+						Service logs
 					</Button>
 				</div>
 			</div>
