@@ -42,7 +42,7 @@ use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::build_crypt;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{WorkspaceDeploymentUISettings, WorkspaceGitSyncSettings};
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -97,6 +97,7 @@ pub fn workspaced_service() -> Router {
             post(edit_large_file_storage_config),
         )
         .route("/edit_git_sync_config", post(edit_git_sync_config))
+        .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
         .route(
@@ -167,8 +168,9 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
+    pub large_file_storage: Option<serde_json::Value>,  // effectively: DatasetsStorage
+    pub git_sync: Option<serde_json::Value>,            // effectively: WorkspaceGitSyncSettings
+    pub deploy_ui: Option<serde_json::Value>,           // effectively: WorkspaceDeploymentUISettings
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
@@ -1053,6 +1055,74 @@ async fn edit_git_sync_config(
 }
 
 #[derive(Deserialize)]
+struct EditDeployUIConfig {
+    deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn edit_deploy_ui_config(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_new_config): Json<EditDeployUIConfig>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Deployment UI is only available on Windmill Enterprise Edition".to_string(),
+    ));
+}
+
+
+#[cfg(feature = "enterprise")]
+async fn edit_deploy_ui_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDeployUIConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_deploy_ui_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("deployment_ui_settings", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
+        let serialized_config = serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
+            .map_err(|err| Error::InternalErr(err.to_string()))?;
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
+            serialized_config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET deploy_ui = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit deployment UI config for workspace {}", &w_id))
+}
+
+
+
+#[derive(Deserialize)]
 pub struct EditDefaultApp {
     pub default_app_path: Option<String>,
 }
@@ -1350,6 +1420,7 @@ async fn get_encryption_key(
 #[derive(Deserialize)]
 struct SetEncryptionKeyRequest {
     new_key: String,
+    skip_reencrypt: Option<bool>,
 }
 
 async fn set_encryption_key(
@@ -1375,37 +1446,40 @@ async fn set_encryption_key(
     )
     .execute(&db)
     .await?;
-    let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
-    let mut truncated_new_key = request.new_key.clone();
-    truncated_new_key.truncate(8);
-    tracing::warn!(
-        "Re-encrypting all secrets for workspace {}. New key is {}***",
-        w_id,
-        truncated_new_key
-    );
+    if !request.skip_reencrypt.unwrap_or(false) {
+        let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
-    let all_variables = sqlx::query!(
-        "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_all(&db)
-    .await?;
-
-    for variable in all_variables {
-        if !variable.is_secret {
-            continue;
-        }
-        let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
-        let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
-        sqlx::query!(
-            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
-            new_encrypted_value,
+        let mut truncated_new_key = request.new_key.clone();
+        truncated_new_key.truncate(8);
+        tracing::warn!(
+            "Re-encrypting all secrets for workspace {}. New key is {}***",
             w_id,
-            variable.path
+            truncated_new_key
+        );
+
+        let all_variables = sqlx::query!(
+            "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
+            w_id
         )
-        .execute(&db)
+        .fetch_all(&db)
         .await?;
+
+        for variable in all_variables {
+            if !variable.is_secret {
+                continue;
+            }
+            let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+            let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
+            sqlx::query!(
+                "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+                new_encrypted_value,
+                w_id,
+                variable.path
+            )
+            .execute(&db)
+            .await?;
+        }
     }
 
     return Ok(());
@@ -2312,6 +2386,7 @@ struct ArchiveQueryParams {
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
+    include_key: Option<bool>,
     default_ts: Option<String>,
 }
 
@@ -2406,6 +2481,7 @@ struct SimplifiedSettings {
     git_sync: Option<Value>,
     default_app: Option<String>,
     default_scripts: Option<Value>,
+    name: String,
 }
 
 async fn tarball_workspace(
@@ -2424,6 +2500,7 @@ async fn tarball_workspace(
         include_users,
         include_groups,
         include_settings,
+        include_key,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
@@ -2491,7 +2568,7 @@ async fn tarball_workspace(
                 ScriptLang::Mssql => "ms.sql",
                 ScriptLang::Graphql => "gql",
                 ScriptLang::Nativets => "fetch.ts",
-                ScriptLang::Bun => {
+                ScriptLang::Bun | ScriptLang::Bunnative => {
                     if default_ts.as_ref().is_some_and(|x| x == "bun") {
                         "ts"
                     } else {
@@ -2499,6 +2576,7 @@ async fn tarball_workspace(
                     }
                 }
                 ScriptLang::Php => "php",
+                ScriptLang::Rust => "rs",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -2572,7 +2650,10 @@ async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-            "SELECT * FROM flow WHERE workspace_id = $1 AND archived = false",
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+            FROM flow
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.workspace_id = $1 AND flow.archived = false",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -2589,9 +2670,9 @@ async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
             sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND path NOT LIKE 'u/%/secret_arg/%'"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
             } else {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND path NOT LIKE  'u/%/secret_arg/%'"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
             })
             .bind(&w_id)
             .fetch_all(&mut *tx)
@@ -2762,17 +2843,42 @@ async fn tarball_workspace(
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
                 large_file_storage, 
-                git_sync, 
+                git_sync,
                 default_app,
-                default_scripts 
+                default_scripts,
+                workspace.name
             FROM workspace_settings
+            LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
             WHERE workspace_id = $1"#,
             &w_id
         ).fetch_one(&mut *tx).await?;
 
-        let settings_str = &to_string_without_metadata(&settings, true, None).unwrap();
+        let settings_str = serde_json::to_value(settings)
+            .map(|v| serde_json::to_string_pretty(&v).ok())
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InternalErr("Error serializing settings".to_string()))?;
+
         archive
             .write_to_archive(&settings_str, "settings.json")
+            .await?;
+    }
+
+    if include_key.unwrap_or(false) {
+        let key = sqlx::query_scalar!(
+            "SELECT key FROM workspace_key WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let key_json = serde_json::to_value(key)
+            .map(|v| serde_json::to_string_pretty(&v).ok())
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InternalErr("Error serializing enryption key".to_string()))?;
+        archive
+            .write_to_archive(&key_json, "encryption_key.json")
             .await?;
     }
 
@@ -2970,7 +3076,10 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET workspace_id = $1 WHERE workspace_id = $2",
+        "INSERT INTO flow 
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
+            FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -2978,12 +3087,16 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE flow_version SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &old_id)
+        .execute(&mut *tx)
+        .await?;
 
     // have to duplicate group_ with new workspace id because of foreign key constraint
     sqlx::query!(
@@ -3006,6 +3119,14 @@ async fn change_workspace_id(
     sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &old_id)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!(
+        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE input SET workspace_id = $1 WHERE workspace_id = $2",

@@ -108,10 +108,10 @@
 						</Cell>
 						<Cell>
 							<div class="flex flex-row gap-2 items-center">
-								<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-48">
+								<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-52">
 									{username}
 									{#if parameters && 'end_user' in parameters}
-										<span> (end user: {parameters.end_user})</span>
+										<span> ({parameters.end_user})</span>
 									{/if}
 								</div>
 								<Button

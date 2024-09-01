@@ -4,11 +4,10 @@
 	import { classNames, displayDate, emptyString } from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import AppPreview from './AppPreview.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { Pencil, ArrowRight, X } from 'lucide-svelte'
+	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
 
 	export let appPath: string | undefined
 	let loading: boolean = false
@@ -24,11 +23,9 @@
 	$: selectedVersion !== undefined && loadValue(selectedVersion.version)
 
 	async function loadVersions() {
-		console.log('loading versions')
 		if (appPath === undefined) {
 			return
 		}
-		console.log('loading versions')
 
 		loading = true
 		versions = await AppService.getAppHistoryByPath({
@@ -181,7 +178,12 @@
 							</Button>
 						</div>
 					</div>
-					<AppPreview noBackend app={selected.value} context={{}} />
+
+					{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default noBackend app={selected.value} context={{}} />
+					{/await}
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}

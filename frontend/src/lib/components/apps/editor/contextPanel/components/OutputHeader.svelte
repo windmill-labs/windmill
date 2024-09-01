@@ -8,6 +8,7 @@
 	import IdEditor from './IdEditor.svelte'
 	import type { AppComponent } from '../../component'
 	import type { Runnable } from '$lib/components/apps/inputType'
+	import DocLink from '../../settingsPanel/DocLink.svelte'
 
 	export let id: string
 	export let name: string
@@ -263,6 +264,16 @@
 			{/if}
 		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
+			{#if ['ctx', 'state'].includes(id)}
+				<DocLink
+					docLink={id === 'state'
+						? 'https://www.windmill.dev/docs/apps/outputs#state'
+						: id === 'ctx'
+						? 'https://www.windmill.dev/docs/apps/outputs#app-context'
+						: ''}
+					size="xs2"
+				/>
+			{/if}
 			{name}
 			<div class={classNames('bg-surface-secondary rounded-sm')}>
 				{#if !open}

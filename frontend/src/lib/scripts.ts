@@ -1,12 +1,15 @@
 import { get } from 'svelte/store'
+import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
 
-export function scriptLangToEditorLang(lang: Script['language'] | undefined) {
+export function scriptLangToEditorLang(
+	lang: Script['language'] | 'bunnative' | 'frontend' | undefined
+) {
 	if (lang == 'deno') {
 		return 'typescript'
-	} else if (lang == 'bun') {
+	} else if (lang == 'bun' || lang == 'bunnative' || lang == 'frontend') {
 		return 'typescript'
 	} else if (lang == 'nativets') {
 		return 'typescript'
@@ -30,6 +33,8 @@ export function scriptLangToEditorLang(lang: Script['language'] | undefined) {
 		return 'powershell'
 	} else if (lang == 'php') {
 		return 'php'
+	} else if (lang == 'rust') {
+		return 'rust'
 	} else if (lang == 'graphql') {
 		return 'graphql'
 	} else if (lang == undefined) {
@@ -87,17 +92,18 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	if (path.startsWith('hub/')) {
 		return hubBaseUrl + '/from_version/' + path.substring(4)
 	} else {
-		return `/scripts/get/${path}?workspace=${get(workspaceStore)}`
+		return `${base}/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}
 }
 
-const scriptLanguagesArray: [SupportedLanguage | 'docker', string][] = [
+const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [
 	['bun', 'TypeScript (Bun)'],
 	['python3', 'Python'],
 	['deno', 'TypeScript (Deno)'],
 	['bash', 'Bash'],
 	['go', 'Go'],
 	['nativets', 'REST'],
+	['bunnative', 'REST'],
 	['postgresql', 'PostgreSQL'],
 	['mysql', 'MySQL'],
 	['bigquery', 'BigQuery'],
@@ -106,8 +112,26 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker', string][] = [
 	['graphql', 'GraphQL'],
 	['powershell', 'PowerShell'],
 	['php', 'PHP'],
+	['rust', 'Rust'],
 	['docker', 'Docker']
 ]
+export function processLangs(selected: string | undefined, langs: string[]): string[] {
+	if (selected === 'nativets') {
+		return langs
+	} else {
+		let ls = langs.filter((lang) => lang !== 'nativets')
+
+		//those languages are newer and may not be in the saved list
+		let nl = ['bunnative', 'rust']
+		nl.forEach((lang) => {
+			if (!ls.includes(lang)) {
+				ls.push(lang)
+			}
+		})
+		return ls
+	}
+}
+
 export const defaultScriptLanguages = Object.fromEntries(scriptLanguagesArray)
 
 export async function getScriptByPath(path: string): Promise<{

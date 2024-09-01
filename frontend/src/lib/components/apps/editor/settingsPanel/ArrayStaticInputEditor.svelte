@@ -8,6 +8,7 @@
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
+	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
 
 	export let componentInput: StaticInput<any[]> & { loading?: boolean }
 	export let subFieldType: InputType | undefined = undefined
@@ -192,11 +193,23 @@
 		componentInput.value = reorderedValues
 	}
 
-	let items = (Array.isArray(componentInput.value) ? componentInput.value : [])
-		.filter((x) => x != undefined)
-		.map((item, index) => {
-			return { value: item, id: generateRandomString() }
-		})
+	let items = getItems(componentInput)
+
+	function getItems(componentInput: StaticInput<any[]> & { loading?: boolean }) {
+		return (Array.isArray(componentInput.value) ? componentInput.value : [])
+			.filter((x) => x != undefined)
+			.map((item) => {
+				return { value: item, id: generateRandomString() }
+			})
+	}
+
+	function clearTableOnComponentReset(value: any[] | undefined) {
+		if (Array.isArray(value) && value.length === 0 && items.length > 0) {
+			items = []
+		}
+	}
+
+	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
 
 	$: items != undefined && handleItemsChange()
 
@@ -287,11 +300,14 @@
 	{/if}
 	{#if subFieldType === 'db-explorer'}
 		{#if componentInput.loading}
-			<div class="flex flex-row gap-2 w-full items-center text-xs">
-				<Loader2 class="animate-spin" size={14} />
-				Loading columns defintions...
+			<div class="flex flex-row gap-2 w-full items-center">
+				<div class="flex flex-row gap-2 w-full items-center text-xs">
+					<Loader2 class="animate-spin" size={14} />
+					Loading columns defintions...
+				</div>
 			</div>
 		{/if}
+		<RefreshDatabaseStudioTable {id} />
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
 		<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>

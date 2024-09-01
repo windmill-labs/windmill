@@ -4,11 +4,11 @@
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { ConfigService, WorkspaceService, type Workspace } from '$lib/gen'
+	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, pluralize } from '$lib/utils'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
@@ -17,6 +17,7 @@
 	import Label from './Label.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import YAML from 'yaml'
+	import Toggle from './Toggle.svelte'
 
 	export let name: string
 	export let config:
@@ -29,9 +30,29 @@
 				init_bash?: string
 				additional_python_paths?: string[]
 				pip_local_dependencies?: string[]
+				min_alive_workers_alert_threshold?: number
 		  }
 	export let activeWorkers: number
 	export let customTags: string[] | undefined
+	export let workers: [string, WorkerPing[]][]
+
+	$: vcpus_memory = computeVCpuAndMemory(workers)
+
+	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
+		let vcpus = 0
+		let memory = 0
+		for (const [_, pings] of workers) {
+			for (const ping of pings) {
+				if (ping.vcpus) {
+					vcpus += ping.vcpus
+				}
+				if (ping.memory_usage) {
+					memory += ping.memory_usage
+				}
+			}
+		}
+		return { vcpus, memory }
+	}
 
 	let nconfig: {
 		dedicated_worker?: string
@@ -43,6 +64,7 @@
 		env_vars_allowlist?: string[]
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
+		min_alive_workers_alert_threshold?: number
 	} = {}
 
 	function loadNConfig() {
@@ -93,7 +115,8 @@
 		'flow',
 		'other',
 		'bun',
-		'php'
+		'php',
+		'rust'
 	]
 	const nativeTags = [
 		'nativets',
@@ -327,17 +350,17 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags)
 
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to all tags <Tooltip
-									>{(defaultTagPerWorkspace
+									>{(defaultTagPerWorkspace && workspaceTag
 										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
 										: defaultTags.concat(nativeTags)
 									).join(', ')}</Tooltip
@@ -349,13 +372,13 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to all tags minus native ones <Tooltip
 									>{(defaultTagPerWorkspace
@@ -370,16 +393,16 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-											: nativeTags
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+												: nativeTags
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to native tags <Tooltip
-									>{(defaultTagPerWorkspace
+									>{(defaultTagPerWorkspace && workspaceTag
 										? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 										: nativeTags
 									).join(', ')}</Tooltip
@@ -392,8 +415,7 @@
 									noInputStyles
 									hideArrow={true}
 									items={workspaces.map((w) => w.id)}
-									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary ' +
-										(!workspaceTag ? '!border-red-600/60 !dark:border-red-400/70' : '')}
+									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
 									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
 									className="!font-gray-600 !font-primary !bg-surface-primary"
 									create
@@ -446,6 +468,42 @@
 					{/if}
 				{/if}
 			</Section>
+			{#if nconfig !== undefined}
+				<div class="mt-8" />
+				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
+					<Toggle
+						size="sm"
+						options={{
+							right: 'Send an alert when the number of alive workers falls below a given threshold'
+						}}
+						checked={nconfig?.min_alive_workers_alert_threshold !== undefined ?? false}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
+								dirty = true
+							}
+						}}
+						disabled{!$enterpriseLicense}
+					/>
+					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
+						<div class="flex flex-row items-center justify-between">
+							<div class="flex flex-row items-center text-sm gap-2">
+								<p>Triggered when number of workers in group is lower than</p>
+								<input
+									type="number"
+									class="!w-14 text-center"
+									disabled={!$enterpriseLicense}
+									min="1"
+									bind:value={nconfig.min_alive_workers_alert_threshold}
+									on:change={(ev) => {
+										dirty = true
+									}}
+								/>
+							</div>
+						</div>
+					{/if}
+				</Section>
+			{/if}
 		{:else if selected == 'dedicated'}
 			{#if nconfig?.dedicated_worker != undefined}
 				<input
@@ -770,6 +828,13 @@
 						variant="contained"
 						color="dark"
 						on:click={async () => {
+							if (
+								nconfig?.min_alive_workers_alert_threshold &&
+								nconfig?.min_alive_workers_alert_threshold < 1
+							) {
+								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
+								return
+							}
 							customEnvVars.forEach((envvar) => {
 								if (
 									nconfig.env_vars_static !== undefined &&
@@ -801,81 +866,89 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex gap-2 items-center justify-end flex-row my-2">
-	{#if $superadmin}
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				dirty = false
-				loadNConfig()
-				drawer.openDrawer()
-			}}
-			startIcon={{ icon: config == undefined ? Plus : Settings }}
-		>
-			<div class="flex flex-row gap-1 items-center">
-				{config == undefined ? 'Create' : 'Edit'} config
-			</div>
-		</Button>
-
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				navigator.clipboard.writeText(
-					YAML.stringify({
-						name,
-						...config
-					})
-				)
-				sendUserToast('Worker config copied to clipboard as YAML')
-			}}
-			startIcon={{ icon: Copy }}
-		>
-			Copy config
-		</Button>
-
-		{#if config}
+<div class=" flex items-center justify-between pt-1">
+	<div class="text-xs"
+		>{pluralize(activeWorkers, 'worker')}
+		{#if vcpus_memory?.vcpus}
+			- {vcpus_memory?.vcpus / 1000} vCPUs{/if}{#if vcpus_memory?.memory}
+			- {vcpus_memory?.memory} MB{/if}</div
+	>
+	<div class="flex gap-2 items-center justify-end flex-row my-2">
+		{#if $superadmin}
 			<Button
 				color="light"
 				size="xs"
 				on:click={() => {
-					if (!$enterpriseLicense) {
-						sendUserToast('Worker Management UI is an EE feature', true)
-					} else {
-						openDelete = true
-					}
+					dirty = false
+					loadNConfig()
+					drawer.openDrawer()
 				}}
-				startIcon={{ icon: Trash }}
-				btnClasses="text-red-400"
+				startIcon={{ icon: config == undefined ? Plus : Settings }}
 			>
-				Delete config
+				<div class="flex flex-row gap-1 items-center">
+					{config == undefined ? 'Create' : 'Edit'} config
+				</div>
+			</Button>
+
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					navigator.clipboard.writeText(
+						YAML.stringify({
+							name,
+							...config
+						})
+					)
+					sendUserToast('Worker config copied to clipboard as YAML')
+				}}
+				startIcon={{ icon: Copy }}
+			>
+				Copy config
+			</Button>
+
+			{#if config}
+				<Button
+					color="light"
+					size="xs"
+					on:click={() => {
+						if (!$enterpriseLicense) {
+							sendUserToast('Worker Management UI is an EE feature', true)
+						} else {
+							openDelete = true
+						}
+					}}
+					startIcon={{ icon: Trash }}
+					btnClasses="text-red-400"
+				>
+					Delete config
+				</Button>
+			{/if}
+
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					loadNConfig()
+
+					openClean = true
+				}}
+				btnClasses="text-red-400"
+				startIcon={{ icon: RefreshCcwIcon }}
+			>
+				Clean cache
+			</Button>
+		{:else if config}
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					loadNConfig()
+					drawer.openDrawer()
+				}}
+			>
+				<div class="flex flex-row gap-1 items-center"> config </div>
 			</Button>
 		{/if}
-
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				loadNConfig()
-
-				openClean = true
-			}}
-			btnClasses="text-red-400"
-			startIcon={{ icon: RefreshCcwIcon }}
-		>
-			Clean cache
-		</Button>
-	{:else if config}
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				loadNConfig()
-				drawer.openDrawer()
-			}}
-		>
-			<div class="flex flex-row gap-1 items-center"> config </div>
-		</Button>
-	{/if}
+	</div>
 </div>

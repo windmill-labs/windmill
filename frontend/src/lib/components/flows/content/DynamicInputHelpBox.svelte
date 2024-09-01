@@ -27,7 +27,7 @@
 		role="alert"
 		id="dynamic-input-help-box"
 	>
-		Single javascript expression. The following functions and objects are available:
+		Single JavaScript expression. The following functions and objects are available:
 		<ul class="ml-4">
 			<li><b>{'results.<id>'}</b>: the result of step at id 'id'</li>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>

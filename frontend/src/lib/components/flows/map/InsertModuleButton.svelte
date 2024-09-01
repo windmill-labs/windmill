@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
 	import StepGen from '$lib/components/copilot/StepGen.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -16,6 +18,7 @@
 	export let disableAi = false
 
 	$: !open && (funcDesc = '')
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
 <Menu
@@ -26,15 +29,21 @@
 	placement="bottom-center"
 	let:close
 >
-	<button
-		title="Add step"
-		slot="trigger"
-		id={`flow-editor-add-step-${index}`}
-		type="button"
-		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-	>
-		<Cross class="mx-[5px]" size={15} />
-	</button>
+	<svelte:fragment slot="trigger">
+		<button
+			title="Add step"
+			id={`flow-editor-add-step-${index}`}
+			type="button"
+			class={twMerge(
+				'w-6 h-6 flex items-center justify-center',
+				'border border-gray-300 dark:border-gray-500',
+				'text-primary text-sm',
+				'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
+			)}
+		>
+			<Cross size={14} />
+		</button>
+	</svelte:fragment>
 	<div id="flow-editor-insert-module">
 		<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} {disableAi} />
 
@@ -52,7 +61,7 @@
 					<Code size={14} />
 					Action
 				</button>
-				{#if trigger}
+				{#if customUi?.triggers != false && trigger}
 					<button
 						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 						on:pointerdown={() => {
@@ -128,17 +137,19 @@
 					Branch to all
 				</button>
 
-				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'flow')
-					}}
-					role="menuitem"
-				>
-					<BarsStaggered size={14} />
-					Flow
-				</button>
+				{#if customUi?.flowNode != false}
+					<button
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap flex flex-row gap-2 items-center"
+						on:pointerdown={() => {
+							close()
+							dispatch('new', 'flow')
+						}}
+						role="menuitem"
+					>
+						<BarsStaggered size={14} />
+						Flow
+					</button>
+				{/if}
 				{#if stop}
 					<button
 						class="w-full text-left py-2 px-3 hover:bg-surface-hover inline-flex gap-2.5"

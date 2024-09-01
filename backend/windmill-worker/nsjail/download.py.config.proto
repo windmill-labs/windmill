@@ -37,6 +37,7 @@ mount {
     src: "/lib64"
     dst: "/lib64"
 	is_bind: true
+    mandatory: false
 }
 
 mount {

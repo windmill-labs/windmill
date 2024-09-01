@@ -23,16 +23,12 @@
 	export let password: boolean = false
 	export let noExtra = false
 	export let dateFormat: string | undefined
-	export let enumLabels: Record<string, string> = {}
+	export let enumLabels: Record<string, string> | undefined = undefined
 	export let overrideAllowKindChange: boolean = true
 	export let originalType: string | undefined = undefined
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind(
-		enum_,
-		contentEncoding,
-		pattern,
-		format
-	)
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' | 'date-time' =
+		computeKind(enum_, contentEncoding, pattern, format)
 
 	const allowKindChange = overrideAllowKindChange || originalType === 'string'
 
@@ -55,6 +51,15 @@
 		// 'jsonpointer',
 	]
 
+	const FIELD_SETTINGS = [
+		['None', 'none'],
+		['File', 'base64', 'Encoded as Base 64'],
+		['Enum', 'enum'],
+		['Datetime', 'date-time'],
+		['Format', 'format'],
+		['Pattern', 'pattern']
+	]
+
 	$: format =
 		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : format
 	$: pattern = patternStr == '' ? undefined : patternStr
@@ -62,7 +67,7 @@
 
 	$: {
 		if (format == 'email') {
-			pattern = '^[\\w-.]+@([\\w-]+\\.)+[\\w-]{2,4}$'
+			pattern = '^[\\w-+.]+@([\\w-]+\\.)+[\\w-]{2,4}$'
 		}
 	}
 
@@ -93,6 +98,9 @@
 	]
 
 	function onEnumKeyChange(oldKey: string, newKey: string) {
+		if (enumLabels === undefined) {
+			enumLabels = {}
+		}
 		if (oldKey !== newKey) {
 			enumLabels[newKey] = enumLabels[oldKey]
 			delete enumLabels[oldKey]
@@ -108,6 +116,9 @@
 				if (e.detail != 'enum') {
 					enum_ = undefined
 				}
+				if (e.detail == 'date-time') {
+					format = 'date-time'
+				}
 				if (e.detail == 'none') {
 					pattern = undefined
 					format = undefined
@@ -119,7 +130,7 @@
 				}
 			}}
 		>
-			{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
+			{#each FIELD_SETTINGS as x}
 				<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
 			{/each}
 		</ToggleButtonGroup>
@@ -200,6 +211,9 @@
 								placeholder="Optional title..."
 								on:input={(event) => {
 									if (event?.currentTarget.value === '') {
+										if (enumLabels === undefined) {
+											enumLabels = {}
+										}
 										delete enumLabels[e]
 									}
 								}}
@@ -252,8 +266,7 @@
 		{#if format == 'date'}
 			<div class="mt-1" />
 
-			<div class="grid grid-cols-3 gap-2"
-				>x
+			<div class="grid grid-cols-3 gap-2">
 				<Label label="Date format passed to script" class="col-span-2">
 					<svelte:fragment slot="header">
 						<Tooltip light>

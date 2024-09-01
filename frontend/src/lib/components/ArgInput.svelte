@@ -1,6 +1,11 @@
 <script lang="ts">
 	import type { EnumType, SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, debounce, emptyString } from '$lib/utils'
+	import {
+		setInputCat as computeInputCat,
+		debounce,
+		emptyString,
+		getSchemaFromProperties
+	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
@@ -30,6 +35,8 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
+	import DynSelect from './DynSelect.svelte'
+	import type { Script } from '$lib/gen'
 
 	export let label: string = ''
 	export let value: any
@@ -47,12 +54,15 @@
 	export let disabled = false
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
+				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined = undefined
+
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let nestedRequired: string[] | undefined = undefined
@@ -79,6 +89,11 @@
 	export let editor: SimpleEditor | undefined = undefined
 	export let orderEditable = false
 	export let shouldDispatchChanges: boolean = false
+	export let helperScript:
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+		| undefined = undefined
+	export let otherArgs: Record<string, any> = {}
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -372,7 +387,7 @@
 															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 															multiple={false}
 														/>
-													{:else if itemsType?.type == 'object'}
+													{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
 														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 													{:else if Array.isArray(itemsType?.enum)}
 														<ArgEnum
@@ -392,6 +407,36 @@
 															enum_={itemsType?.enum ?? []}
 															enumLabels={extra['enumLabels']}
 														/>
+													{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+														<ObjectResourceInput
+															value={v ? `$res:${v}` : undefined}
+															bind:path={v}
+															format={'resource-' + itemsType?.resourceType}
+															defaultValue={undefined}
+														/>
+													{:else if itemsType?.type == 'resource'}
+														<JsonEditor
+															bind:editor
+															on:focus={(e) => {
+																dispatch('focus')
+															}}
+															on:blur={(e) => {
+																dispatch('blur')
+															}}
+															code={JSON.stringify(v, null, 2)}
+															bind:value={v}
+														/>
+													{:else if itemsType?.type === 'object' && itemsType?.properties}
+														<div class="p-8 border rounded-md w-full">
+															<SchemaForm
+																{onlyMaskPassword}
+																{disablePortal}
+																{disabled}
+																noDelete
+																schema={getSchemaFromProperties(itemsType?.properties)}
+																bind:args={v}
+															/>
+														</div>
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
 													{/if}
@@ -427,7 +472,20 @@
 										if (value == undefined || !Array.isArray(value)) {
 											value = []
 										}
-										value = value.concat('')
+										if (itemsType?.type == 'number') {
+											value = value.concat(0)
+										} else if (
+											itemsType?.type == 'object' ||
+											(itemsType?.type == 'resource' &&
+												!(
+													itemsType?.resourceType &&
+													resourceTypes?.includes(itemsType?.resourceType)
+												))
+										) {
+											value = value.concat({})
+										} else {
+											value = value.concat('')
+										}
 									}}
 									id="arg-input-add-item"
 									startIcon={{ icon: Plus }}
@@ -450,6 +508,14 @@
 						/>
 					</div>
 				</div>
+			{:else if inputCat == 'dynselect'}
+				<DynSelect
+					name={label}
+					args={otherArgs}
+					{helperScript}
+					bind:value
+					entrypoint={format.substring('dynselect_'.length)}
+				/>
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
@@ -459,6 +525,7 @@
 					{disablePortal}
 					{format}
 					bind:value
+					bind:editor
 					{showSchemaExplorer}
 				/>
 			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
@@ -604,7 +671,7 @@
 							/>
 						{/if}
 					</div>
-				{:else if properties && Object.keys(properties).length > 0}
+				{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
 					<div class="p-4 pl-8 border rounded-md w-full">
 						{#if orderEditable}
 							<SchemaFormDnd
@@ -714,7 +781,11 @@
 						multiple={false}
 					/>
 					{#if value?.length}
-						<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div>
+						<div class="text-2xs text-tertiary mt-1"
+							>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
+								2
+							)}MB)</div
+						>
 					{/if}
 				</div>
 			{:else if inputCat == 'resource-string'}

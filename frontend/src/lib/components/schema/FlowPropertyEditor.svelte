@@ -20,7 +20,7 @@
 	import Popup from '../common/popup/Popup.svelte'
 	import { deepEqual } from 'fast-equals'
 
-	export let format: string = ''
+	export let format: string | undefined = undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
 	export let oneOf: SchemaProperty[] | undefined = undefined
@@ -74,9 +74,11 @@
 			) {
 				// update schema if not exists or order changed
 				schema.oneOf = getOneOfWithoutLabel(oneOf)
+				schema = schema
 			}
 		} else if (!oneOf) {
 			schema.oneOf = undefined
+			schema = schema
 		}
 	}
 	$: oneOfUpdate(oneOf)
@@ -85,6 +87,7 @@
 		if (order && !deepEqual(order, schema.order)) {
 			// update from external reordering
 			schema.order = order
+			schema = schema
 		}
 	}
 	$: orderUpdate(order)
@@ -106,8 +109,6 @@
 		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
 	}
 
-	console.log('initial schema', schema)
-
 	function schemaUpdate(changedSchema: typeof schema) {
 		if (
 			!deepEqual(changedSchema, {
@@ -117,9 +118,9 @@
 				oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
 			})
 		) {
-			properties = changedSchema.properties
-			order = changedSchema.order
-			requiredProperty = changedSchema.required
+			properties = structuredClone(changedSchema.properties)
+			order = structuredClone(changedSchema.order)
+			requiredProperty = structuredClone(changedSchema.required)
 			oneOf = changedSchema.oneOf?.map((v) => {
 				return {
 					...v,
@@ -132,8 +133,7 @@
 					}
 				}
 			})
-
-			dispatch('schemaChange')
+			dispatch('schemaChange', { properties, order, requiredProperty, oneOf })
 		}
 	}
 
@@ -174,6 +174,9 @@
 			variantName = ''
 		}
 	}
+
+	let initialObjectSelected =
+		Object.keys(schema?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
 </script>
 
 <div class="flex flex-col gap-2">
@@ -297,7 +300,7 @@
 		{/if}
 	{:else if type === 'object' && format !== 'resource-s3_object'}
 		<Tabs
-			selected="resource"
+			selected={initialObjectSelected}
 			on:selected={(e) => {
 				if (e.detail === 'custom-object') {
 					format = ''

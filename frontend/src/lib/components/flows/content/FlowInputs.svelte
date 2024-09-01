@@ -3,7 +3,7 @@
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
@@ -14,9 +14,10 @@
 	import { Check, Code, Zap } from 'lucide-svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import { defaultScripts } from '$lib/stores'
-	import { defaultScriptLanguages } from '$lib/scripts'
+	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -34,7 +35,7 @@
 	let pick_existing: 'workspace' | 'hub' = 'hub'
 	let filter = ''
 
-	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 		.map((l) => [defaultScriptLanguages[l], l])
 		.filter(
 			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
@@ -53,6 +54,8 @@
 		}
 		return kind == 'script' && !failureModule
 	}
+
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
@@ -161,7 +164,10 @@
 		{/if}
 		<h3 class="pb-2 pt-4 flex gap-x-8 flex-wrap">
 			<div>
-				Inline new <span class="text-blue-500 dark:text-blue-400">{kind == 'script' ? 'action' : kind}</span> script
+				Inline new <span class="text-blue-500 dark:text-blue-400"
+					>{kind == 'script' ? 'action' : kind}</span
+				>
+				script
 				<Tooltip
 					documentationLink={kind === 'script'
 						? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
@@ -190,7 +196,7 @@
 			<div class="pb-2" />
 		{/if}
 		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
-			{#each langs as [label, lang] (lang)}
+			{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
 				{#if displayLang(lang, kind)}
 					<FlowScriptPicker
 						id={`flow-editor-action-script-${lang}`}
@@ -215,7 +221,6 @@
 									return
 								}
 							}
-							console.log(lang, kind)
 							dispatch('new', {
 								language: lang == 'docker' ? 'bash' : lang,
 								kind,
@@ -229,7 +234,9 @@
 		</div>
 
 		<h3 class="mb-2 mt-6"
-			>Use pre-made <span class="text-blue-500 dark:text-blue-400">{kind == 'script' ? 'action' : kind}</span> script</h3
+			>Use pre-made <span class="text-blue-500 dark:text-blue-400"
+				>{kind == 'script' ? 'action' : kind}</span
+			> script</h3
 		>
 		{#if pick_existing == 'hub'}
 			<PickHubScript bind:filter {kind} on:pick>

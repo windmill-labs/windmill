@@ -6,9 +6,9 @@
 	import { ResourceService, VariableService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
@@ -23,7 +23,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import FormatOnSave from './FormatOnSave.svelte'
 
 	import {
 		DollarSign,
@@ -42,10 +41,12 @@
 	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
-	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import Popover from './Popover.svelte'
+	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
+	import type { EditorBarUi } from './custom_ui'
+	import EditorSettings from './EditorSettings.svelte'
 
-	export let lang: SupportedLanguage | undefined
+	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
 	export let websocketAlive: {
 		pyright: boolean
@@ -57,7 +58,8 @@
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
+		'script'
 	export let collabMode = false
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
@@ -66,13 +68,14 @@
 	export let args: Record<string, any>
 	export let noHistory = false
 	export let saveToWorkspace = false
+	export let customUi: EditorBarUi = {}
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
 	let resourcePicker: ItemPicker
 	let resourceTypePicker: ItemPicker
 	let variableEditor: VariableEditor
-	let resourceEditor: ResourceEditor
+	let resourceEditor: ResourceEditorDrawer
 	let showContextVarPicker = false
 	let showVarPicker = false
 	let showResourcePicker = false
@@ -85,8 +88,10 @@
 		'go',
 		'deno',
 		'bun',
+		'bunnative',
 		'nativets',
-		'php'
+		'php',
+		'rust'
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -95,8 +100,10 @@
 		'go',
 		'deno',
 		'bun',
+		'bunnative',
 		'nativets',
-		'php'
+		'php',
+		'rust'
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -105,8 +112,10 @@
 		'go',
 		'deno',
 		'bun',
+		'bunnative',
 		'nativets',
-		'php'
+		'php',
+		'rust'
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -308,13 +317,14 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
 <ItemPicker
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
 		if (!editor) return
 		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
-		} else if (lang === 'bun' || lang == 'nativets') {
+		} else if (lang === 'bun' || lang === 'bunnative' || lang == 'nativets') {
 			editor.insertAtCursor(`process.env["${name}"]`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import os')) {
@@ -352,7 +362,7 @@
 				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
-		} else if (lang === 'bun') {
+		} else if (lang === 'bun' || lang === 'bunnative') {
 			const code = editor.getCode()
 			if (!code.includes(`import * as wmill from`)) {
 				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
@@ -422,7 +432,7 @@ $var = json_decode(curl_exec($ch));`)
 				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
-		} else if (lang === 'bun') {
+		} else if (lang === 'bun' || lang === 'bunnative') {
 			const code = editor.getCode()
 			if (!code.includes(`import * as wmill from`)) {
 				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
@@ -477,7 +487,7 @@ $res = json_decode(curl_exec($ch));`)
 			variant="border"
 			color="blue"
 			size="sm"
-			href="/resources?connect_app=undefined"
+			href="{base}/resources?connect_app=undefined"
 		>
 			Add Resource
 		</Button>
@@ -498,7 +508,7 @@ $res = json_decode(curl_exec($ch));`)
 			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
+<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
@@ -508,7 +518,7 @@ $res = json_decode(curl_exec($ch));`)
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		/>
 		<div class="flex items-center gap-0.5">
-			{#if showContextVarPicker}
+			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
 					title="Add context variable"
 					color="light"
@@ -521,7 +531,7 @@ $res = json_decode(curl_exec($ch));`)
 					>+Context Var
 				</Button>
 			{/if}
-			{#if showVarPicker}
+			{#if showVarPicker && customUi?.variable != false}
 				<Button
 					title="Add variable"
 					color="light"
@@ -551,7 +561,7 @@ $res = json_decode(curl_exec($ch));`)
 				</Button>
 			{/if}
 
-			{#if showResourceTypePicker}
+			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
 					title="Add resource type"
 					btnClasses="!font-medium text-tertiary"
@@ -579,37 +589,41 @@ $res = json_decode(curl_exec($ch));`)
 				Reset
 			</Button>
 
-			{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
-				<Button
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={() => editor?.reloadWebsocket()}
-					startIcon={{
-						icon: RotateCw,
-						classes: websocketAlive[lang] == false ? 'animate-spin' : ''
-					}}
-					title="Reload assistants"
-				>
-					{#if !iconOnly}
-						Assistants
-					{/if}
-					<span class="-my-1">
-						{#if lang == 'deno'}
-							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-						{:else if lang == 'go'}
-							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-						{:else if lang == 'python3'}
-							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-							<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
-						{:else if lang == 'bash'}
-							(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+			{#if customUi?.assistants != false}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+					<Button
+						btnClasses="!font-medium text-tertiary"
+						size="xs"
+						spacingSize="md"
+						color="light"
+						on:click={() => editor?.reloadWebsocket()}
+						startIcon={{
+							icon: RotateCw,
+							classes: websocketAlive[lang] == false ? 'animate-spin' : ''
+						}}
+						title="Reload assistants"
+					>
+						{#if !iconOnly}
+							Assistants
 						{/if}
-					</span>
-				</Button>
+						<span class="-my-1">
+							{#if lang == 'deno'}
+								(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+							{:else if lang == 'go'}
+								(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+							{:else if lang == 'python3'}
+								(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+								<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+							{:else if lang == 'bash'}
+								(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span
+								>)
+							{/if}
+						</span>
+					</Button>
+				{/if}
 			{/if}
-			{#if collabMode}
+
+			{#if collabMode && customUi?.multiplayer != false}
 				<div class="flex items-center px-3">
 					<Toggle
 						options={{ right: '' }}
@@ -643,11 +657,11 @@ $res = json_decode(curl_exec($ch));`)
 				</div>
 			{/if}
 
-			<FormatOnSave />
+			{#if customUi?.aiGen != false}
+				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+			{/if}
 
-			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
-
-			<CodeCompletionStatus />
+			<EditorSettings {customUi} />
 		</div>
 	</div>
 
@@ -666,7 +680,7 @@ $res = json_decode(curl_exec($ch));`)
 				History
 			</Button>
 		{/if}
-		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
+		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS && customUi?.library != false}
 			<Button
 				btnClasses="!font-medium text-tertiary"
 				size="xs"

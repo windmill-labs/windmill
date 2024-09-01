@@ -4,6 +4,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
 	import { BROWSER } from 'esm-env'
+	import { base } from '$lib/base'
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
@@ -28,7 +29,7 @@
 
 	export let noEditor: boolean
 
-	const { selectedId, flowStore, initialPath, previewArgs, pathStore, schedule } =
+	const { selectedId, flowStore, initialPath, previewArgs, pathStore, schedule, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
@@ -51,22 +52,33 @@
 		<div class="h-full flex-1">
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>
-				{#if !noEditor}
+				{#if !noEditor && customUi?.settingsTabs?.schedule != false}
 					<Tab value="settings-schedule" active={$schedule.enabled}>Schedule</Tab>
 				{/if}
-				<Tab value="settings-same-worker" active={$flowStore.value.same_worker}>
-					Shared Directory
-				</Tab>
-				<Tab value="settings-early-stop" active={Boolean($flowStore.value.skip_expr)}>
-					Early Stop
-				</Tab>
-				<Tab value="settings-early-return" active={Boolean($flowStore.value.early_return)}>
-					Early Return
-				</Tab>
-				<Tab value="settings-worker-group">Worker Group</Tab>
-				<Tab value="settings-concurrency">Concurrency</Tab>
-				<Tab value="settings-cache" active={Boolean($flowStore.value.cache_ttl)}>Cache</Tab>
-
+				{#if customUi?.settingsTabs?.sharedDiretory != false}
+					<Tab value="settings-same-worker" active={$flowStore.value.same_worker}>
+						Shared Directory
+					</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.earlyStop != false}
+					<Tab value="settings-early-stop" active={Boolean($flowStore.value.skip_expr)}>
+						Early Stop
+					</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.earlyReturn != false}
+					<Tab value="settings-early-return" active={Boolean($flowStore.value.early_return)}>
+						Early Return
+					</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.workerGroup != false}
+					<Tab value="settings-worker-group">Worker Group</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.concurrency != false}
+					<Tab value="settings-concurrency">Concurrency</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.cache != false}
+					<Tab value="settings-cache" active={Boolean($flowStore.value.cache_ttl)}>Cache</Tab>
+				{/if}
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full overflow-auto">
 						<Section label="Metadata">
@@ -198,10 +210,11 @@
 												>
 											</li>
 											<li>
-												2. <a href="/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
+												2. <a href="{base}/apps/add?nodraft=true" target="_blank"> App Editor</a> for
+												customized-UIs
 											</li>
 											<li>
-												3. <a href="/schedules" target="_blank">Scheduling</a>
+												3. <a href="{base}/schedules" target="_blank">Scheduling</a>
 											</li>
 											<li>
 												4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
@@ -271,7 +284,7 @@
 												<img
 													class="shadow-lg border rounded"
 													alt="static button"
-													src="/trigger_button.png"
+													src="{base}/trigger_button.png"
 												/>
 											</li></ul
 										>
@@ -431,8 +444,15 @@
 											class="small-editor"
 											extraLib={`declare const flow_input = ${JSON.stringify(
 												schemaToObject(asSchema($flowStore.schema), $previewArgs)
-											)};`}
+											)};
+											declare const WM_SCHEDULED_FOR: string;`}
 										/>
+										<div class="text-xs text-tertiary mt-2">
+											You can use the variable `flow_input` to access the inputs of the flow. <br
+											/>The variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for
+											which you can use to stop early non fresh jobs:
+											<pre>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</pre>
+										</div>
 									</div>
 								{:else}
 									<textarea disabled rows="3" class="min-h-[80px]" />

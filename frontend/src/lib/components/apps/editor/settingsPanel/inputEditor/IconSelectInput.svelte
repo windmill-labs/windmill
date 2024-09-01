@@ -1,9 +1,10 @@
 <script lang="ts">
-	import type { StaticInput } from '../../../inputType'
 	import { Loader2 } from 'lucide-svelte'
 	import { ClearableInput, Popup } from '../../../../common'
 	import { AllIcons } from './icons'
-	export let componentInput: StaticInput<string>
+	import type { ComputeConfig } from 'svelte-floating-ui'
+
+	export let value: string | undefined = ''
 
 	let loading = false
 	let items: string[]
@@ -27,28 +28,28 @@
 	}
 
 	function select(label: string) {
-		componentInput.value = label
+		value = label
 
 		const elem = document.activeElement as HTMLElement
 		if (elem.blur) {
 			elem.blur()
 		}
 	}
-</script>
 
-<Popup
-	let:close
-	floatingConfig={{
+	export let floatingConfig: ComputeConfig = {
 		strategy: 'absolute',
 		placement: 'bottom-end'
-	}}
->
+	}
+	export let shouldUsePortal: boolean = true
+</script>
+
+<Popup let:close {floatingConfig} {shouldUsePortal}>
 	<svelte:fragment slot="button">
 		<div class="relative">
 			<ClearableInput
 				readonly
-				value={componentInput.value}
-				on:change={({ detail }) => (componentInput.value = detail)}
+				{value}
+				on:change={({ detail }) => (value = detail)}
 				on:focus={getData}
 				class="!pr-6"
 			/>
@@ -84,7 +85,7 @@
 							}}
 							class="w-full center-center flex-col font-normal p-1
 									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
-									{label === componentInput.value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
+									{label === value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
 						>
 							<img
 								class="dark:invert"

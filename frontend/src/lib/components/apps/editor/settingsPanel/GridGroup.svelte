@@ -6,6 +6,7 @@
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import GroupManagementDrawer from '../componentsPanel/GroupManagementDrawer.svelte'
 	import { Plus } from 'lucide-svelte'
+	import { Alert } from '$lib/components/common'
 
 	export let groupFields: RichConfigurations | undefined
 	export let item: GridItem
@@ -44,7 +45,10 @@
 			right: 'container is a component group',
 			rightTooltip: `Group fields allow inner components to depend on the group fields which make the container a
 		group of component that is encapsulated. Inside the group, it is possible to retrieve the values
-		using \`group.<x />\` where x is the group field name`
+		using \`group.x\` where x is the group field name.
+
+		Group fields are mutable by frontend scripts, so  \`group.x = 42\` can be used to set the value inside the group and
+			 \`a.group.x = 42\` outside of it.`
 		}}
 	/>
 </div>
@@ -111,6 +115,14 @@
 				/>
 			</div>
 		</div>
+
+		<div class="mt-2" />
+		<Alert size="xs" title="Group fields are mutable" type="info">
+			You may set the value of a group field in a frontend script within the group using: <code
+				>group.x = 42</code
+			>
+			and externally using <code>{item.id}.group.x = 42</code>
+		</Alert>
 	</PanelSection>
 {/if}
 

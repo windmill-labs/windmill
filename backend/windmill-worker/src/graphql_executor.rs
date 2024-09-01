@@ -5,6 +5,7 @@ use futures::TryStreamExt;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use windmill_common::jobs::QueuedJob;
+use windmill_common::worker::to_raw_value;
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
@@ -64,13 +65,18 @@ pub async fn do_graphql(
         .args;
     if let Some(job_args) = job_args {
         for arg in &sig {
-            variables.insert(
-                arg.name.clone(),
-                job_args
-                    .get(&arg.name)
-                    .map(|x| x.to_owned())
-                    .unwrap_or_default(),
-            );
+            match job_args.get(&arg.name) {
+                Some(x) => {
+                    variables.insert(arg.name.clone(), x.to_owned());
+                }
+                None if arg.default.is_some() => {
+                    variables.insert(
+                        arg.name.clone(),
+                        to_raw_value(arg.default.as_ref().unwrap()),
+                    );
+                }
+                _ => {}
+            }
         }
     }
 

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.353.0
+  version: 1.389.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -103,6 +103,15 @@ components:
               type: string
           required:
             - expr
+        stop_after_all_iters_if:
+          type: object
+          properties:
+            skip_if_stopped:
+              type: boolean
+            expr:
+              type: string
+          required:
+            - expr
         sleep:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
@@ -138,6 +147,8 @@ components:
             self_approval_disabled:
               type: boolean
             hide_cancel:
+              type: boolean
+            continue_on_disapprove_timeout:
               type: boolean
         priority:
           type: number
@@ -481,6 +492,10 @@ components:
           type: array
           items:
             type: string
+        flow_jobs_success:
+          type: array
+          items:
+            type: boolean
         branch_chosen:
           type: object
           properties:

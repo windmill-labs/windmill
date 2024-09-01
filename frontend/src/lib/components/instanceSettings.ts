@@ -45,6 +45,14 @@ export const settings: Record<string, Setting[]> = {
 					: false
 		},
 		{
+			label: 'Email domain',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			key: 'email_domain',
+			fieldType: 'text',
+			storage: 'setting',
+			placeholder: 'mail.windmill.com'
+		},
+		{
 			label: 'Request Size Limit In MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -112,9 +120,9 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Critical Error Channels',
+			label: 'Critical Alert Channels',
 			description:
-				'Channels to send critical errors to. SMTP must be configured for the email channel.',
+				'Channels to send critical alerts to. SMTP must be configured for the email channel.',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',

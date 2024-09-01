@@ -17,10 +17,20 @@
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
-
+	import HighlightTheme from '../HighlightTheme.svelte'
+	import { base } from '$lib/base'
 	let userSettings: UserSettings
 
-	export let webhooks: {
+	export let token: string
+	export let args: any
+	export let scopes: string[] = []
+	export let isFlow: boolean = false
+	export let hash: string | undefined = undefined
+	export let path: string
+
+	let selectedTab: string = 'rest'
+
+	let webhooks: {
 		async: {
 			hash?: string
 			path: string
@@ -31,10 +41,39 @@
 			get_path?: string
 		}
 	}
-	export let token: string
-	export let args: any
-	export let scopes: string[] = []
-	export let isFlow: boolean = false
+
+	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
+
+	function computeScriptWebhooks(hash: string | undefined, path: string) {
+		let webhookBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
+		return {
+			async: {
+				hash: `${webhookBase}/run/h/${hash}`,
+				path: `${webhookBase}/run/p/${path}`
+			},
+			sync: {
+				hash: `${webhookBase}/run_wait_result/h/${hash}`,
+				path: `${webhookBase}/run_wait_result/p/${path}`,
+				get_path: `${webhookBase}/run_wait_result/p/${path}`
+			}
+		}
+	}
+
+	function computeFlowWebhooks(path: string) {
+		let webhooksBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
+
+		let urlAsync = `${webhooksBase}/run/f/${path}`
+		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
+		return {
+			async: {
+				path: urlAsync
+			},
+			sync: {
+				path: urlSync,
+				get_path: urlSync
+			}
+		}
+	}
 
 	let webhookType: 'async' | 'sync' = DEFAULT_WEBHOOK_TYPE
 	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'path'
@@ -182,6 +221,8 @@ done`
 	}
 </script>
 
+<HighlightTheme />
+
 <UserSettings
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {
@@ -262,7 +303,7 @@ done`
 	</div>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<Tabs selected="rest">
+	<Tabs bind:selected={selectedTab}>
 		<Tab value="rest" size="xs">REST</Tab>
 		{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 			<Tab value="curl" size="xs">Curl</Tab>

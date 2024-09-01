@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import type { ActionKind } from '$lib/common'
 
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -9,7 +9,9 @@
 		AuditService,
 		ResourceService,
 		UserService,
-		type ListableResource
+		ScriptService,
+		FlowService,
+		AppService
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -18,7 +20,7 @@
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	let usernames: string[]
-	let resources: ListableResource[]
+	let resources: string[]
 	let loading: boolean = false
 
 	export let logs: AuditLog[] = []
@@ -82,9 +84,24 @@
 	}
 
 	async function loadResources() {
-		resources = await ResourceService.listResource({
+		const r = await ResourceService.listResource({
 			workspace: $workspaceStore!
 		})
+		const sPaths = await ScriptService.listScriptPaths({
+			workspace: $workspaceStore!
+		})
+		const fPaths = await FlowService.listFlowPaths({
+			workspace: $workspaceStore!
+		})
+		const a = await AppService.listApps({
+			workspace: $workspaceStore!
+		})
+		resources = r
+			.map((r) => r.path)
+			.concat(sPaths)
+			.concat(fPaths)
+			.concat(a.map((a) => a.path))
+			.sort()
 	}
 
 	$: {
@@ -324,7 +341,7 @@
 
 		<AutoComplete
 			noInputStyles
-			items={resources?.map((r) => r.path) ?? []}
+			items={resources}
 			value={resource}
 			bind:selectedItem={resource}
 			inputClassName="!h-[34px] py-1 !text-xs !w-48"

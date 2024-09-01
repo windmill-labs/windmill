@@ -6,6 +6,8 @@
 	import AppConnectInner from './AppConnectInner.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
+	let expressOAuthSetup = false
+
 	let drawer: Drawer
 	let resourceType = ''
 	let step = 1
@@ -16,12 +18,17 @@
 	let appConnectInner: AppConnectInner | undefined = undefined
 
 	let rtToLoad: string | undefined = ''
-	export async function open(rt?: string) {
+	export async function open(rt?: string, express?: boolean) {
+		expressOAuthSetup = express ?? false
 		rtToLoad = rt
 		drawer.openDrawer?.()
 	}
 
-	$: appConnectInner?.open(rtToLoad)
+	$: appConnectInner && onRtToLoadChange(rtToLoad)
+
+	function onRtToLoadChange(rtToLoad: string | undefined) {
+		appConnectInner?.open(rtToLoad, expressOAuthSetup)
+	}
 
 	const dispatch = createEventDispatcher()
 

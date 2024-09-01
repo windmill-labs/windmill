@@ -48,13 +48,17 @@ import {
 	UploadCloud,
 	AlertTriangle,
 	Clock,
-	CalendarClock
+	CalendarClock,
+	AppWindow,
+	PanelTop,
+	RefreshCw
 } from 'lucide-svelte'
 import type {
 	Aligned,
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	OneOfConfiguration,
 	RichConfiguration,
 	RichConfigurations,
 	StaticRichConfigurations
@@ -146,22 +150,27 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'> & {
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
 	license: string
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
@@ -173,6 +182,10 @@ export type SelectComponent = BaseComponent<'selectcomponent'> &
 		onSelect?: string[]
 	}
 export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
+	RecomputeOthersSource & {
+		onSelect?: string[]
+	}
+export type ResourceConnectComponent = BaseComponent<'userresourcecomponent'> &
 	RecomputeOthersSource & {
 		onSelect?: string[]
 	}
@@ -239,6 +252,7 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {
@@ -260,6 +274,23 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 }
 
 export type AlertComponent = BaseComponent<'alertcomponent'>
+
+export type NavbarItem = {
+	path: OneOfConfiguration
+	label: RichConfiguration
+	caption?: string
+	disabled: RichConfiguration
+	hidden: RichConfiguration
+	icon?: string
+}
+
+export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
+	navbarItems: NavbarItem[]
+}
+
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+
+export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 
 export type TypedComponent =
 	| DBExplorerComponent
@@ -335,6 +366,11 @@ export type TypedComponent =
 	| AggridInfiniteComponent
 	| AggridInfiniteComponentEe
 	| MultiSelectComponentV2
+	| NavBarComponent
+	| DateSelectComponent
+	| JobIdDisplayComponent
+	| RecomputeAllComponent
+	| ResourceConnectComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -347,7 +383,18 @@ export function getRecommendedDimensionsByComponent(
 	componentType: AppComponent['type'],
 	column: number
 ): Size {
-	const size = components[componentType].dims.split('-')[column === 3 ? 0 : 1].split(':')
+	return processDimension(components[componentType].dims, column)
+}
+
+export function processDimension(
+	dimension: AppComponentDimensions | undefined,
+	column: number
+): Size {
+	if (!dimension) {
+		return { w: 1, h: 1 }
+	}
+
+	const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 	return { w: +size[0], h: +size[1] }
 }
 
@@ -377,6 +424,7 @@ export type PresetComponentConfig = {
 	targetComponent: keyof typeof components
 	configuration: object
 	type: string
+	dims?: AppComponentDimensions
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -726,6 +774,12 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -829,6 +883,12 @@ const aggridinfinitecomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -959,7 +1019,7 @@ export const components = {
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-					tooltip: 'Job id to display logs from'
+					tooltip: 'Job id to display status from'
 				}
 			}
 		}
@@ -1101,6 +1161,12 @@ export const components = {
 					fieldType: 'text',
 
 					tooltip: 'Tooltip text if not empty'
+				},
+				disableNoText: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Remove the "No text" placeholder'
 				}
 			}
 		}
@@ -1274,7 +1340,7 @@ export const components = {
 		}
 	},
 	formcomponent: {
-		name: 'Submit form',
+		name: 'Submit Form',
 		icon: FormInput,
 		documentationLink: `${documentationBaseUrl}/submit_form`,
 		dims: '3:5-6:5' as AppComponentDimensions,
@@ -2045,6 +2111,13 @@ This is a paragraph.
 
 					tooltip: 'Preselect first item in the options if no default value is set'
 				},
+				nativeHtmlSelect: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Use a native html select instead of the Windmill select component'
+				},
 				fullWidth: {
 					type: 'static',
 					fieldType: 'boolean',
@@ -2160,7 +2233,7 @@ This is a paragraph.
 		}
 	},
 	resourceselectcomponent: {
-		name: 'Resource Select',
+		name: 'Static Resource Select',
 		icon: List,
 		documentationLink: `${documentationBaseUrl}/resource_select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
@@ -2189,6 +2262,38 @@ This is a paragraph.
 					value: true,
 
 					tooltip: 'Set the width of the options popup to 100% of the select width'
+				},
+				disabled: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
+				}
+			}
+		}
+	},
+	userresourcecomponent: {
+		name: 'User Resource Input',
+		icon: List,
+		documentationLink: `${documentationBaseUrl}/resource_select`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			input: { style: '', class: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				resourceType: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'postgresql'
+				},
+				expressOauthSetup: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'If enabled, skip some steps while adding oauth resources: No scopes to set prior to OAuth sign-in,  and no path to set after OAuth sign-in'
 				},
 				disabled: {
 					type: 'static',
@@ -3328,7 +3433,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	conditionalwrapper: {
-		name: 'Conditional tabs',
+		name: 'Conditional Tabs',
 		icon: Split,
 		documentationLink: `${documentationBaseUrl}/conditional_tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -3356,7 +3461,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	statcomponent: {
-		name: 'Statistic card',
+		name: 'Statistic Card',
 		icon: FileBarChart,
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
@@ -3762,6 +3867,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					value: true,
 					tooltip: 'Allow visible footer for pagination and download'
+				},
+				customActionsHeader: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Custom header for the actions columns'
 				}
 			},
 			componentInput: undefined
@@ -3835,6 +3946,176 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				}
 			}
 		}
+	},
+	navbarcomponent: {
+		name: 'Navbar',
+		icon: AppWindow,
+		documentationLink: `${documentationBaseUrl}/navbar`,
+		dims: '12:1-12:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			image: { class: '', style: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Title'
+				},
+				borderColor: {
+					type: 'static',
+					value: '#555',
+					fieldType: 'color'
+				},
+				logo: {
+					type: 'oneOf',
+					selected: 'no',
+					labels: {
+						yes: 'Use logo',
+						no: 'No logo'
+					},
+					configuration: {
+						yes: {
+							source: {
+								type: 'static',
+								value: '/logo.svg',
+								fieldType: 'text',
+								fileUpload: {
+									accept: 'image/*',
+									convertTo: 'base64'
+								}
+							},
+							sourceKind: {
+								fieldType: 'select',
+								type: 'static',
+								selectOptions: selectOptions.imageSourceKind,
+								value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+							},
+							altText: {
+								type: 'static',
+								value: '',
+								fieldType: 'text',
+								tooltip: "This text will appear if the image can't be loaded for any reason"
+							}
+						},
+						no: {}
+					}
+				} as const,
+				orientation: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'horizontal',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				}
+			}
+		}
+	},
+	dateselectcomponent: {
+		name: 'Date Select',
+		icon: Calendar,
+		documentationLink: `${documentationBaseUrl}/date_select`,
+		dims: '3:4-6:4' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			verticalAlignment: 'center',
+
+			configuration: {
+				enableDay: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableMonth: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableYear: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'date'
+				},
+
+				orientation: {
+					type: 'static',
+					value: 'horizontal',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				},
+				locale: {
+					type: 'static',
+					value: 'en-US',
+					fieldType: 'select',
+					selectOptions: selectOptions.localeOptions,
+					tooltip: 'Format on the month names'
+				}
+			}
+		}
+	},
+	jobiddisplaycomponent: {
+		name: 'Rich Result by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/rich_result_by_job_id`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display result from'
+				},
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Result'
+				},
+				hideDetails: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				}
+			}
+		}
+	},
+	recomputeallcomponent: {
+		name: 'Recompute all',
+		icon: RefreshCw,
+		documentationLink: `${documentationBaseUrl}/recompute_all`,
+		dims: '4:1-6:1' as AppComponentDimensions,
+		customCss: {
+			container: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {},
+			menuItems: true
+		}
 	}
 } as const
 
@@ -3860,6 +4141,14 @@ export const presetComponents = {
 			}
 		},
 		type: 'invisibletabscomponent'
+	},
+	topbarcomponent: {
+		name: 'Top Bar',
+		icon: PanelTop,
+		targetComponent: 'containercomponent' as const,
+		configuration: {},
+		type: 'topbarcomponent',
+		dims: '6:2-12:2' as AppComponentDimensions
 	}
 }
 

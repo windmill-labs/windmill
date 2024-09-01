@@ -22,7 +22,7 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use serde::Serialize;
 use windmill_common::auth::JWT_SECRET;
-use windmill_common::worker::{PriorityTags, WORKER_CONFIG};
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -75,7 +75,9 @@ async fn initialize_tracing() {
     use std::sync::Once;
 
     static ONCE: Once = Once::new();
-    ONCE.call_once(windmill_common::tracing_init::initialize_tracing);
+    ONCE.call_once(|| {
+        let _ = windmill_common::tracing_init::initialize_tracing("test");
+    });
 }
 
 /// it's important this is unique between tests as there is one prometheus registry and
@@ -122,10 +124,13 @@ impl ApiServer {
         let task = tokio::task::spawn(windmill_api::run_server(
             db.clone(),
             None,
+            None,
+            None,
             addr,
             rx,
             port_tx,
             false,
+            format!("http://localhost:{}", addr.port()),
         ));
 
         _port_rx.await.unwrap();
@@ -369,7 +374,7 @@ mod suspend_resume {
         server.close().await.unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by Some(\"ruben\")"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ruben"}}),
             result
         );
     }
@@ -430,7 +435,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.json_result().unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by None"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by unknown"}}),
             result
         );
     }
@@ -899,7 +904,7 @@ impl RunJob {
             tx,
             "test-workspace",
             payload,
-            hm_args.into(),
+            windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
@@ -1005,8 +1010,12 @@ fn spawn_test_worker(
         {
             let mut wc = WORKER_CONFIG.write().await;
             (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            (*wc).priority_tags_sorted =
-                vec![PriorityTags { priority: 0, tags: (*wc).worker_tags.clone() }]
+            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
+                priority: 0,
+                tags: (*wc).worker_tags.clone(),
+            }];
+            windmill_common::worker::make_suspended_pull_query(&wc).await;
+            windmill_common::worker::make_pull_query(&wc).await;
         }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
@@ -1106,6 +1115,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     }
                     .into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1145,6 +1155,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             }
                             .into(),
                             stop_after_if: Default::default(),
+                            stop_after_all_iters_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
                             retry: None,
@@ -1159,6 +1170,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     }
                     .into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1263,6 +1275,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrency_time_window_s: None,
                     }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1312,6 +1325,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrency_time_window_s: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
+                                stop_after_all_iters_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
@@ -1347,6 +1361,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrency_time_window_s: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
+                                stop_after_all_iters_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
@@ -1362,6 +1377,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         ],
                     }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1404,6 +1420,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrency_time_window_s: None,
                     }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1724,6 +1741,41 @@ func main(derp string) (string, error) {
     .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_rust_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+fn main(world: String) -> Result<String, String> {
+    println!("Which world to greet today?");
+    Ok(format!("Hello {}!", world))
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rust,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("world", json!("Hyrule"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("Hello Hyrule!"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2660,7 +2712,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     in_test_worker(&db, listen_first_job, port).await;
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all")
+        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
         .await
         .unwrap()
         .into_inner()
@@ -2938,6 +2990,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         no_flow_overlap: None,
         summary: None,
         tag: None,
+        paused_until: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3002,6 +3055,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
+                paused_until: None,
             },
         )
         .await
@@ -3081,6 +3135,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         no_flow_overlap: None,
         summary: None,
         tag: None,
+        paused_until: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3146,6 +3201,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
+                paused_until: None,
             },
         )
         .await

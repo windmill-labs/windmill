@@ -18,13 +18,14 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
-	import { initRequiredInputFilled } from '../utils'
+	import { initFlowStepWarnings } from '../utils'
+	import { dfs } from '../dfs'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
 	export let enableAi = false
 
-	const { selectedId, schedule, flowStateStore, flowInputsStore } =
+	const { selectedId, schedule, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
@@ -65,9 +66,10 @@
 
 		if ($flowInputsStore) {
 			$flowInputsStore[module?.id] = {
-				requiredInputsFilled: initRequiredInputFilled(
+				flowStepWarnings: await initFlowStepWarnings(
 					module?.value,
-					$flowStateStore[module?.id]?.schema
+					$flowStateStore[module?.id]?.schema,
+					dfs($flowStore.value.modules, (fm) => fm.id)
 				)
 			}
 		}
@@ -147,9 +149,10 @@
 
 					if ($flowInputsStore) {
 						$flowInputsStore[module.id] = {
-							requiredInputsFilled: initRequiredInputFilled(
+							flowStepWarnings: await initFlowStepWarnings(
 								module.value,
-								$flowStateStore[module.id].schema
+								$flowStateStore[module.id].schema,
+								dfs($flowStore.value.modules, (fm) => fm.id)
 							)
 						}
 					}

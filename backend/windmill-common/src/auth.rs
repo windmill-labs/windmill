@@ -24,6 +24,7 @@ pub struct JWTAuthClaims {
     pub label: Option<String>,
     pub workspace_id: String,
     pub exp: usize,
+    pub job_id: Option<String>,
 }
 
 #[derive(Deserialize)]

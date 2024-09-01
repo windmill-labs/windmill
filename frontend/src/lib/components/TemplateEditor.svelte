@@ -14,9 +14,9 @@
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
 	import { buildWorkerDefinition } from './build_workers'
-	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 
@@ -414,7 +414,9 @@
 	let jsLoader: NodeJS.Timeout | undefined = undefined
 
 	async function loadMonaco() {
-		await initializeVscode()
+		console.log('init template')
+		await initializeVscode('templateEditor')
+		console.log('initialized')
 		initialized = true
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
@@ -477,7 +479,7 @@
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor.getContentHeight())
 				if (divEl) {
-					divEl.style.height = `${contentHeight}px`
+					divEl.style.height = `${contentHeight + 2}px`
 				}
 				try {
 					editor.layout({ width, height: contentHeight })
@@ -626,7 +628,7 @@
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} border template rounded min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
 	bind:clientWidth={width}
 />
 

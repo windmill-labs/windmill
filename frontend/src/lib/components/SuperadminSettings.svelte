@@ -4,9 +4,10 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$app/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
@@ -21,6 +22,7 @@
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	let drawer: Drawer
 	let filter = ''
 
@@ -38,7 +40,7 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		goto(hashRemoved)
+		gotoUrl(hashRemoved)
 	}
 
 	let users: GlobalUserInfo[] = []
@@ -71,6 +73,21 @@
 		sendUserToast('Automatic username creation enabled')
 		listUsers()
 	}
+
+	async function updateName(name: string | undefined, email: string) {
+		try {
+			await UserService.globalUserUpdate({
+				email,
+				requestBody: {
+					name
+				}
+			})
+			sendUserToast('User updated')
+			listUsers()
+		} catch (e) {
+			sendUserToast('Error updating user', true)
+		}
+	}
 </script>
 
 <SearchItems
@@ -96,7 +113,7 @@
 					variant="border"
 					color="dark"
 					target="_blank"
-					href="/?workspace=admins"
+					href="{base}/?workspace=admins"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace
@@ -221,15 +238,18 @@
 														</td>
 														<td>
 															<div class="flex flex-row gap-x-1 justify-end">
-																{#if automateUsernameCreation && username}
-																	<ChangeInstanceUsername
-																		{username}
-																		{email}
-																		on:renamed={() => {
-																			listUsers()
-																		}}
-																	/>
-																{/if}
+																<InstanceNameEditor
+																	value={name}
+																	{username}
+																	{email}
+																	on:save={(e) => {
+																		updateName(e.detail, email)
+																	}}
+																	on:renamed={() => {
+																		listUsers()
+																	}}
+																	{automateUsernameCreation}
+																/>
 																<Button
 																	color="light"
 																	variant="contained"
@@ -238,7 +258,6 @@
 																	btnClasses="text-red-500"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
-																			console.log(email)
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
 																			listUsers()

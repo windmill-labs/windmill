@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import { Button } from '../common'
 
 	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
@@ -36,12 +37,16 @@
 
 	// props
 	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage | 'frontend' | undefined
+	export let lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
 	export let editor: Editor | SimpleEditor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
 	export let args: Record<string, any>
 	export let transformer = false
+
+	$: if (lang == 'bunnative') {
+		lang = 'bun'
+	}
 
 	// state
 	let funcDesc = ''
@@ -70,6 +75,7 @@
 			if (mode === 'edit') {
 				await copilot(
 					{
+						// @ts-ignore
 						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						code: editor?.getCode() || '',
@@ -83,6 +89,7 @@
 			} else {
 				await copilot(
 					{
+						// @ts-ignore
 						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						dbSchema: dbSchema,
@@ -486,7 +493,7 @@
 			{:else}
 				<p class="text-sm">
 					Enable Windmill AI in the <a
-						href="/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=openai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

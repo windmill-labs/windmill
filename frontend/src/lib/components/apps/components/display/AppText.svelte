@@ -30,6 +30,12 @@
 		configuration
 	)
 
+	$: editorMode && onEditorMode()
+
+	function onEditorMode() {
+		autosize()
+		setTimeout(() => autosize(), 50)
+	}
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -131,6 +137,7 @@
 				el.style.cssText = 'height:auto; padding:0'
 				el.style.cssText = 'height:' + el.scrollHeight + 'px'
 			}
+			// console.log(el, el?.scrollHeight)
 		}, 0)
 	}
 </script>
@@ -163,7 +170,6 @@
 			if (!editorMode) {
 				editorMode = true
 				document.getElementById(`text-${id}`)?.focus()
-				autosize()
 			}
 		}}
 		on:keydown|stopPropagation
@@ -172,7 +178,7 @@
 			<AlignWrapper {verticalAlignment}>
 				<textarea
 					class={twMerge(
-						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0',
+						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !ring-0 !p-0',
 						css?.text?.class,
 						'wm-text',
 						classes,
@@ -204,7 +210,9 @@
 					<div
 						class="text-ternary bg-surface-primary flex justify-center items-center h-full w-full"
 					>
-						No text
+						{#if resolvedConfig?.disableNoText === false}
+							No text
+						{/if}
 					</div>
 				{:else}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -212,7 +220,7 @@
 						class="flex flex-wrap gap-2 pb-0.5 w-full {$mode === 'dnd' &&
 						(componentInput?.type == 'template' || componentInput?.type == 'templatev2')
 							? 'cursor-text'
-							: ''}"
+							: 'overflow-auto'}"
 					>
 						<svelte:element
 							this={component}
@@ -230,11 +238,11 @@
 							style={css?.text?.style}
 						>
 							{String(result)}
+							{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
+								<Tooltip>{resolvedConfig.tooltip}</Tooltip>
+							{/if}
 						</svelte:element>
 
-						{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
-							<Tooltip>{resolvedConfig.tooltip}</Tooltip>
-						{/if}
 						{#if resolvedConfig.copyButton && result}
 							<div class="flex">
 								<Button

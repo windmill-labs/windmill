@@ -6,10 +6,11 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import { Button } from './common'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
+	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
@@ -17,9 +18,11 @@
 	export let value: string | undefined = initialValue
 	export let valueType: string | undefined = undefined
 	export let resourceType: string | undefined = undefined
+	export let disabled = false
 	export let disablePortal = false
 	export let showSchemaExplorer = false
 	export let selectFirst = false
+	export let expressOAuthSetup = false
 
 	let valueSelect =
 		initialValue || value
@@ -36,30 +39,42 @@
 
 	let collection = valueSelect ? [valueSelect] : []
 
-	async function loadResources(resourceType: string | undefined) {
-		const nc = (
-			await ResourceService.listResource({
-				workspace: $workspaceStore!,
-				resourceType
-			})
-		)
-			.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
-			.map((x) => ({
-				value: x.path,
-				label: x.path,
-				type: x.resource_type
-			}))
+	export async function askNewResource() {
+		appConnect?.open?.(resourceType, expressOAuthSetup)
+	}
 
-		// TODO check if this is needed
-		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
-			nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
+	let loading = true
+	async function loadResources(resourceType: string | undefined) {
+		loading = true
+		try {
+			const nc = (
+				await ResourceService.listResource({
+					workspace: $workspaceStore!,
+					resourceType
+				})
+			)
+				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
+				.map((x) => ({
+					value: x.path,
+					label: x.path,
+					type: x.resource_type
+				}))
+
+			// TODO check if this is needed
+			if (!nc.find((x) => x.value == value) && (initialValue || value)) {
+				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
+			}
+			collection = nc
+			if (collection.length == 1 && selectFirst && valueSelect == undefined) {
+				value = collection[0].value
+				valueType = collection[0].type
+				valueSelect = collection[0]
+			}
+		} catch (e) {
+			sendUserToast('Failed to load resource types', true)
+			console.error(e)
 		}
-		collection = nc
-		if (collection.length == 1 && selectFirst && valueSelect == undefined) {
-			value = collection[0].value
-			valueType = collection[0].type
-			valueSelect = collection[0]
-		}
+		loading = false
 	}
 
 	$: $workspaceStore && loadResources(resourceType)
@@ -67,7 +82,7 @@
 	$: dispatch('change', value)
 
 	let appConnect: AppConnect
-	let resourceEditor: ResourceEditor
+	let resourceEditor: ResourceEditorDrawer
 
 	let darkMode: boolean = false
 </script>
@@ -88,7 +103,7 @@
 	bind:this={appConnect}
 />
 
-<ResourceEditor
+<ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
@@ -101,58 +116,72 @@
 />
 
 <div class="flex flex-col w-full items-start">
-	<div class="flex flex-row gap-x-1 w-full">
-		<Select
-			portal={!disablePortal}
-			value={valueSelect}
-			on:change={(e) => {
-				value = e.detail.value
-				valueType = e.detail.type
-				valueSelect = e.detail
-			}}
-			on:clear={() => {
-				value = undefined
-				valueType = undefined
-				valueSelect = undefined
-			}}
-			items={collection}
-			class="text-clip grow min-w-0"
-			placeholder="{resourceType ?? 'any'} resource"
-			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={darkMode
-				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		/>
-
-		{#if value && value != ''}
-			<Button
-				variant="border"
-				size="xs"
-				on:click={() => resourceEditor?.initEdit?.(value ?? '')}
-				startIcon={{ icon: Pen }}
-				iconOnly
+	<div class="flex flex-row gap-x-1 w-full items-center">
+		{#if collection?.length > 0}
+			<Select
+				{disabled}
+				portal={!disablePortal}
+				value={valueSelect}
+				on:change={(e) => {
+					value = e.detail.value
+					valueType = e.detail.type
+					valueSelect = e.detail
+				}}
+				on:clear={() => {
+					value = undefined
+					valueType = undefined
+					valueSelect = undefined
+				}}
+				items={collection}
+				class="text-clip grow min-w-0"
+				placeholder="{resourceType ?? 'any'} resource"
+				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+				containerStyles={darkMode
+					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			/>
+		{:else if !loading}
+			<div class="text-2xs text-tertiary mr-2">0 found</div>
 		{/if}
 
-		{#if resourceType?.includes(',')}
-			{#each resourceType.split(',') as rt}
+		{#if !loading}
+			{#if value && value != ''}
 				<Button
+					{disabled}
 					color="light"
 					variant="border"
 					size="xs"
-					on:click={() => appConnect?.open?.(rt)}
-					startIcon={{ icon: Plus }}>{rt}</Button
+					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					startIcon={{ icon: Pen }}
+					iconOnly
+				/>
+			{/if}
+
+			{#if resourceType?.includes(',')}
+				{#each resourceType.split(',') as rt}
+					<Button
+						{disabled}
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => appConnect?.open?.(rt)}
+						startIcon={{ icon: Plus }}>{rt}</Button
+					>
+				{/each}
+			{:else}
+				<Button
+					{disabled}
+					color="light"
+					variant="border"
+					size="xs"
+					on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
+					startIcon={{ icon: Plus }}
+					iconOnly={collection?.length > 0}
+					>{#if collection?.length == 0}
+						Add a {resourceType} resource
+					{/if}</Button
 				>
-			{/each}
-		{:else}
-			<Button
-				color="light"
-				variant="border"
-				size="xs"
-				on:click={() => appConnect?.open?.(resourceType)}
-				startIcon={{ icon: Plus }}
-				iconOnly
-			/>
+			{/if}
 		{/if}
 
 		<Button

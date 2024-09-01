@@ -3,36 +3,27 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import {
-		Building,
-		ClipboardCopy,
-		GitBranchPlus,
-		Repeat,
-		Square,
-		ArrowDown,
-		GitBranch
-	} from 'lucide-svelte'
+	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
-	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import FlowJobsMenu from './FlowJobsMenu.svelte'
 
 	export let mod: FlowModule
-	export let trigger: boolean
 	export let insertable: boolean
-	export let insertableEnd = false
 	export let annotation: string | undefined = undefined
-	export let branchable: boolean = false
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
-	export let disableAi: boolean = false
-	export let wrapperId: string | undefined = undefined
+
 	export let retries: number | undefined = undefined
+	export let flowJobs:
+		| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
+		| undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -48,12 +39,13 @@
 		select: string
 		newBranch: { module: FlowModule }
 		move: { module: FlowModule } | undefined
+		selectedIteration: { index: number; id: string }
 	}>()
 
 	$: itemProps = {
 		selected: $selectedId === mod.id,
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
-		earlyStop: mod.stop_after_if != undefined,
+		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),
@@ -64,46 +56,9 @@
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
 	}
-	let openMenu: boolean | undefined = undefined
-	let openMenu2: boolean | undefined = undefined
 </script>
 
 {#if mod}
-	{#if insertable}
-		<div
-			class="{openMenu
-				? 'z-20'
-				: ''} w-[27px] absolute -top-[35px] left-[50%] right-[50%] -translate-x-1/2"
-		>
-			{#if moving}
-				<button
-					title="Add branch"
-					on:click={() => {
-						dispatch('insert', { modules, index: idx, detail: 'move' })
-					}}
-					type="button"
-					disabled={wrapperId === moving}
-					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-				>
-					<ClipboardCopy class="m-[5px]" size={15} />
-				</button>
-			{:else}
-				<InsertModuleButton
-					{disableAi}
-					bind:open={openMenu}
-					{trigger}
-					on:insert={(e) => {
-						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
-					}}
-					on:new={(e) => {
-						dispatch('insert', { modules, index: idx, detail: e.detail })
-					}}
-					index={idx}
-					{modules}
-				/>
-			{/if}
-		</div>
-	{/if}
 	<div class="relative">
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">
@@ -123,15 +78,29 @@
 				{annotation}
 			</div>
 		{/if}
+		{#if flowJobs && !insertable && (mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow')}
+			<div class="absolute right-8 z-50 -top-5">
+				<FlowJobsMenu
+					on:selectedIteration={(e) => {
+						dispatch('selectedIteration', e.detail)
+					}}
+					flowJobsSuccess={flowJobs.flowJobsSuccess}
+					flowJobs={flowJobs.flowJobs}
+					selected={flowJobs.selected}
+					index={idx}
+				/>
+			</div>
+		{/if}
 
 		<div class={moving == mod.id ? 'opacity-50' : ''}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
-					label={mod.summary ||
-						`${mod.value.type == 'forloopflow' ? 'For' : 'While'} loop ${
-							mod.value.parallel ? '(parallel)' : ''
-						} ${mod.value.skip_failures ? '(skip failures)' : ''}`}
+					label={`${
+						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
+					}  ${mod.value.parallel ? '(parallel)' : ''} ${
+						mod.value.skip_failures ? '(skip failures)' : ''
+					}`}
 					id={mod.id}
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
@@ -223,55 +192,4 @@
 			{/if}
 		</div>
 	</div>
-	{#if insertable && insertableEnd}
-		<div
-			class="{openMenu2
-				? 'z-20'
-				: ''} w-[27px] absolute top-[49px] left-[50%] right-[50%] -translate-x-1/2"
-		>
-			{#if moving}
-				<button
-					title="Add branch"
-					on:click={() => {
-						dispatch('insert', { modules, index: idx + 1, detail: 'move' })
-					}}
-					type="button"
-					disabled={wrapperId === moving}
-					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-				>
-					<ClipboardCopy class="m-[5px]" size={15} />
-				</button>
-			{:else}
-				<InsertModuleButton
-					{disableAi}
-					bind:open={openMenu2}
-					{trigger}
-					on:insert={(e) => {
-						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
-					}}
-					on:new={(e) => {
-						dispatch('insert', { modules, index: idx + 1, detail: e.detail })
-					}}
-					index={idx + 1}
-					{modules}
-				/>
-			{/if}
-		</div>
-	{/if}
-
-	{#if insertable && branchable}
-		<div class="w-[27px] absolute top-[45px] left-[60%] right-[40%] -translate-x-1/2">
-			<button
-				title="Add branch"
-				on:click={() => {
-					dispatch('newBranch', { module: mod })
-				}}
-				type="button"
-				id="add-branch-button"
-				class=" text-primary bg-surface border mx-[1px] rotate-180 dark:border-gray-500 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-			>
-				<GitBranchPlus class="m-[5px]" size={15} />
-			</button>
-		</div>
-	{/if}
 {/if}

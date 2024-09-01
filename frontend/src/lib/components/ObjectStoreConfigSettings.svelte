@@ -148,7 +148,7 @@
 			<span class="text-tertiary text-2xs"
 				>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
 			>
-			<input type="password" bind:value={bucket_config.secret_key} />
+			<input type="password" autocomplete="new-password" bind:value={bucket_config.secret_key} />
 		</label>
 		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm">Endpoint</span>
@@ -174,7 +174,7 @@
 		</label>
 		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm">Access Key</span>
-			<input type="password" bind:value={bucket_config.accessKey} />
+			<input type="password" autocomplete="new-password" bind:value={bucket_config.accessKey} />
 		</label>
 		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm"

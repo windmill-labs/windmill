@@ -6017,10 +6017,10 @@ export type ListScriptsData = {
 	firstParentHash?: string;
 	/**
 	 * (default false)
-	 * hide the scripts without an exported main function
+	 * include scripts without an exported main function
 	 *
 	 */
-	hideWithoutMain?: boolean;
+	includeWithoutMain?: boolean;
 	/**
 	 * (default regardless)
 	 * if true show only the templates
@@ -10651,10 +10651,10 @@ export type $OpenApiTs = {
 				firstParentHash?: string;
 				/**
 				 * (default false)
-				 * hide the scripts without an exported main function
+				 * include scripts without an exported main function
 				 *
 				 */
-				hideWithoutMain?: boolean;
+				includeWithoutMain?: boolean;
 				/**
 				 * (default regardless)
 				 * if true show only the templates
@@ -15268,8 +15268,8 @@ export declare class ScriptService {
 	 * are
 	 * ed.
 	 *
-	 * @param data.hideWithoutMain (default false)
-	 * hide the scripts without an exported main function
+	 * @param data.includeWithoutMain (default false)
+	 * include scripts without an exported main function
 	 *
 	 * @param data.isTemplate (default regardless)
 	 * if true show only the templates

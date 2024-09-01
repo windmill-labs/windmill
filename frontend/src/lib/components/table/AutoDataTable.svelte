@@ -54,24 +54,16 @@
 
 	let activeSorting: ActiveSorting | undefined = undefined
 
-	function computeData(
-		structuredObjects: Array<Record<string, any>>,
+	function sortObjects(
 		activeSorting: ActiveSorting | undefined,
-		search: string
-	): Array<Record<string, any>> {
-		let objects = structuredObjects
-		if (search != undefined && search != '') {
-			objects = objects.filter((obj) =>
-				Object.values(obj.rowData).some((value) =>
-					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
-				)
-			)
-		}
+		objects: Array<Record<string, any>>,
+		getRowData: boolean
+	) {
 		if (activeSorting) {
-			objects = objects.sort((a, b) => {
+			return objects.sort((a, b) => {
 				if (!activeSorting) return 0
-				const valA = a.rowData[activeSorting.column]
-				const valB = b.rowData[activeSorting.column]
+				const valA = (getRowData ? a.rowData : a)?.[activeSorting.column]
+				const valB = (getRowData ? b.rowData : b)?.[activeSorting.column]
 				const isAsc = activeSorting.direction === 'asc'
 				if (valA == undefined || valA == null) {
 					return isAsc ? -1 : 1
@@ -85,8 +77,26 @@
 					return valA > valB ? -1 : 1
 				}
 			})
+		} else {
+			return objects
 		}
-		return objects
+	}
+	function computeData(
+		structuredObjects: Array<Record<string, any>>,
+		activeSorting: ActiveSorting | undefined,
+		search: string
+	): Array<Record<string, any>> {
+		let objects = structuredObjects
+		if (search != undefined && search != '') {
+			objects = objects.filter((obj) =>
+				Object.values(obj.rowData).some((value) =>
+					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
+				)
+			)
+		} else {
+			objects = [...objects]
+		}
+		return sortObjects(activeSorting, objects, true)
 	}
 
 	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
@@ -155,7 +165,7 @@
 <DarkModeObserver bind:darkMode />
 
 <div class="w-full" bind:clientWidth={wrapperWidth}>
-	<div class="flex flex-col gap-2 py-2 my-2" style={`max-width: ${wrapperWidth}px;`}>
+	<div class="flex flex-col gap-2 py-1 my-1" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center gap-2">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
 				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs" />
@@ -170,7 +180,7 @@
 					getContent={() => {
 						return convertJsonToCsv(
 							selection.length > 0
-								? structuredObjects
+								? sortObjects(activeSorting, structuredObjects, true)
 										.filter(({ _id }) => selection.includes(_id))
 										.map((obj) =>
 											colSelection.length == 0
@@ -182,8 +192,8 @@
 												  )
 										)
 								: colSelection.length == 0
-								? objects
-								: objects.map((obj) =>
+								? sortObjects(activeSorting, objects, false)
+								: sortObjects(activeSorting, objects, false).map((obj) =>
 										Object.fromEntries(
 											Object.entries(obj).filter(([key, _]) => colSelection.includes(key))
 										)

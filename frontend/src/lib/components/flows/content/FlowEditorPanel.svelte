@@ -8,7 +8,8 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { initRequiredInputFilled } from '../utils'
+	import { initFlowStepWarnings } from '../utils'
+	import { dfs } from '../dfs'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -27,23 +28,28 @@
 		}
 	}
 
-	onMount(() => {
-		$flowStore?.value?.modules?.forEach((module) => {
+	async function initWarnings() {
+		for (const module of $flowStore?.value?.modules) {
 			if (!module) {
-				return
+				continue
 			}
 
-			if (!$flowStateStore) {
+			if (!$flowInputsStore) {
 				$flowInputsStore = {}
 			}
 
-			$flowInputsStore![module?.id] = {
-				requiredInputsFilled: initRequiredInputFilled(
+			$flowInputsStore[module?.id] = {
+				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
-					$flowStateStore?.[module?.id]?.schema ?? {}
+					$flowStateStore?.[module?.id]?.schema ?? {},
+					dfs($flowStore.value.modules, (fm) => fm.id)
 				)
 			}
-		})
+		}
+	}
+
+	onMount(() => {
+		initWarnings()
 	})
 </script>
 

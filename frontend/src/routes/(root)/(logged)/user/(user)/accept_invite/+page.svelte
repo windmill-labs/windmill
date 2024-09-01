@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
@@ -79,7 +80,7 @@
 		</label>
 	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="border" size="sm" href="/user/workspaces"
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<button

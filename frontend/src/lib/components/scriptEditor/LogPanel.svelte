@@ -8,6 +8,7 @@
 		type WorkflowStatus
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -63,6 +64,8 @@
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
+
+	let forceJson = false
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
@@ -110,7 +113,7 @@
 							duration={previewJob?.['duration_ms']}
 							mem={previewJob?.['mem_peak']}
 							content={previewJob?.logs}
-							isLoading={previewIsLoading}
+							isLoading={previewJob?.['running'] == false && previewIsLoading}
 							tag={previewJob?.tag}
 						/>
 					</Pane>
@@ -119,6 +122,7 @@
 							<div class="relative w-full h-full p-2">
 								<div class="relative">
 									<DisplayResult
+										bind:forceJson
 										workspaceId={previewJob?.workspace_id}
 										jobId={previewJob?.id}
 										result={previewJob.result}
@@ -177,7 +181,7 @@
 								<Cell first>
 									<a
 										class="pr-3"
-										href="/run/{id}?workspace={workspace ?? $workspaceStore}"
+										href="{base}/run/{id}?workspace={workspace ?? $workspaceStore}"
 										target="_blank">{id.substring(30)}</a
 									>
 								</Cell>

@@ -33,6 +33,7 @@
 		Calendar,
 		CheckCircle,
 		Code,
+		CornerDownLeft,
 		DiffIcon,
 		Pen,
 		Plus,
@@ -56,26 +57,40 @@
 	import MetadataGen from './copilot/MetadataGen.svelte'
 	import ScriptSchedules from './ScriptSchedules.svelte'
 	import { writable } from 'svelte/store'
-	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
+	import {
+		type ScriptSchedule,
+		loadScriptSchedule,
+		defaultScriptLanguages,
+		processLangs
+	} from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import CustomPopover from './CustomPopover.svelte'
+	import Summary from './Summary.svelte'
+	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 
 	export let script: NewScript
+	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
-	export let template: 'docker' | 'script' = 'script'
+	export let template: 'docker' | 'bunnative' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
+	export let neverShowMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedScript: NewScriptWithDraft | undefined = undefined
 	export let searchParams: URLSearchParams = new URLSearchParams()
 	export let disableHistoryChange = false
+	export let replaceStateFn: (url: string) => void = (url) =>
+		window.history.replaceState(null, '', url)
+	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 
 	let metadataOpen =
-		showMeta ||
-		(initialPath == '' &&
-			searchParams.get('state') == undefined &&
-			searchParams.get('collab') == undefined)
+		!neverShowMeta &&
+		(showMeta ||
+			(initialPath == '' &&
+				searchParams.get('state') == undefined &&
+				searchParams.get('collab') == undefined))
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
@@ -109,11 +124,14 @@
 		editor?.setCode(code)
 	}
 
-	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+	$: langs = processLangs(
+		script.language,
+		$defaultScripts?.order ?? Object.keys(defaultScriptLanguages)
+	)
 		.map((l) => [defaultScriptLanguages[l], l])
 		.filter(
 			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker'][]
+		) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
 
 	const scriptKindOptions: {
 		value: Script['kind']
@@ -162,7 +180,7 @@
 		})
 	}
 
-	$: !disableHistoryChange && window.history.replaceState(null, '', '#' + encodeState(script))
+	$: !disableHistoryChange && replaceStateFn('#' + encodeState(script))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -171,7 +189,7 @@
 	function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
 	) {
 		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
@@ -203,7 +221,7 @@
 		}
 	}
 
-	async function editScript(stay: boolean): Promise<void> {
+	async function editScript(stay: boolean, deploymentMsg?: string): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -244,7 +262,8 @@
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
-					no_main_func: script.no_main_func
+					no_main_func: script.no_main_func,
+					deployment_message: deploymentMsg || undefined
 				}
 			})
 
@@ -408,7 +427,7 @@
 
 	function computeDropdownItems(initialPath: string) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
-			initialPath != ''
+			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
 						{
 							label: 'Deploy & Stay here',
@@ -453,6 +472,19 @@
 	let dirtyPath = false
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
+
+	let deploymentMsg = ''
+	let msgInput: HTMLInputElement | undefined = undefined
+
+	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
+		if (lang == 'docker') {
+			return 'bash'
+		}
+		if (lang == 'bunnative') {
+			return 'bun'
+		}
+		return lang
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -561,6 +593,7 @@
 										{#each langs as [label, lang] (lang)}
 											{@const isPicked =
 												(lang == script.language && template == 'script') ||
+												(template == 'bunnative' && lang == 'bunnative') ||
 												(template == 'docker' && lang == 'docker')}
 											<Popover
 												disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
@@ -593,10 +626,12 @@
 																return
 															}
 															template = 'docker'
+														} else if (lang == 'bunnative') {
+															template = 'bunnative'
 														} else {
 															template = 'script'
 														}
-														let language = lang == 'docker' ? 'bash' : lang
+														let language = langToLanguage(lang)
 														//
 														initContent(language, script.kind, template)
 														script.language = language
@@ -990,7 +1025,7 @@
 	<div class="flex flex-col h-screen">
 		<div class="flex h-12 items-center px-4">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
-				<div class="flex flex-row gap-2">
+				<div class="flex flex-row gap-2 grow max-w-md">
 					<div class="center-center">
 						<button
 							on:click={async () => {
@@ -1000,14 +1035,7 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="min-w-32 lg:min-w-64 w-full max-w-md">
-						<input
-							type="text"
-							placeholder="Script summary"
-							class="text-sm w-full font-semibold"
-							bind:value={script.summary}
-						/>
-					</div>
+					<Summary bind:value={script.summary} />
 				</div>
 
 				<div class="gap-4 flex">
@@ -1026,32 +1054,34 @@
 							{$scheduleStore.cron ?? ''}
 						</Button>
 					{/if}
-					<div class="flex justify-start w-full border rounded-md overflow-hidden">
-						<div>
-							<button
-								on:click={async () => {
-									metadataOpen = true
-								}}
-							>
-								<Badge
-									color="gray"
-									class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+					{#if customUi?.topBar?.path != false}
+						<div class="flex justify-start w-full border rounded-md overflow-hidden">
+							<div>
+								<button
+									on:click={async () => {
+										metadataOpen = true
+									}}
 								>
-									<Pen size={12} class="mr-2" /> Path
-								</Badge>
-							</button>
+									<Badge
+										color="gray"
+										class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+									>
+										<Pen size={12} class="mr-2" /> Path
+									</Badge>
+								</button>
+							</div>
+							<input
+								type="text"
+								readonly
+								value={script.path}
+								size={script.path?.length || 50}
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								on:focus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
 						</div>
-						<input
-							type="text"
-							readonly
-							value={script.path}
-							size={script.path?.length || 50}
-							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-							on:focus={({ currentTarget }) => {
-								currentTarget.select()
-							}}
-						/>
-					</div>
+					{/if}
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
@@ -1082,17 +1112,19 @@
 							<span class="hidden lg:flex"> Diff </span>
 						</div>
 					</Button>
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							metadataOpen = true
-						}}
-						startIcon={{ icon: Settings }}
-					>
-						<span class="hidden lg:flex"> Settings </span>
-					</Button>
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							on:click={() => {
+								metadataOpen = true
+							}}
+							startIcon={{ icon: Settings }}
+						>
+							<span class="hidden lg:flex"> Settings </span>
+						</Button>
+					{/if}
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1105,23 +1137,54 @@
 					>
 						<span class="hidden lg:flex"> Draft </span>
 					</Button>
-					<Button
-						loading={loadingSave}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => editScript(false)}
-						dropdownItems={computeDropdownItems(initialPath)}
-					>
-						Deploy
-					</Button>
+
+					<CustomPopover appearTimeout={0} focusEl={msgInput}>
+						<Button
+							loading={loadingSave}
+							size="xs"
+							disabled={!fullyLoaded}
+							startIcon={{ icon: Save }}
+							on:click={() => editScript(false)}
+							dropdownItems={computeDropdownItems(initialPath)}
+						>
+							Deploy
+						</Button>
+						<svelte:fragment slot="overlay">
+							<div class="flex flex-row gap-2 min-w-72">
+								<input
+									type="text"
+									placeholder="Deployment message"
+									bind:value={deploymentMsg}
+									bind:this={msgInput}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') {
+											editScript(false, deploymentMsg)
+										}
+									}}
+								/>
+								<Button
+									size="xs"
+									on:click={() => editScript(false, deploymentMsg)}
+									endIcon={{ icon: CornerDownLeft }}
+									loading={loadingSave}
+								>
+									Deploy
+								</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
 				</div>
 			</div>
 		</div>
 
 		<ScriptEditor
+			{customUi}
 			collabMode
 			edit={initialPath != ''}
 			on:format={() => {
+				saveDraft()
+			}}
+			on:saveDraft={() => {
 				saveDraft()
 			}}
 			bind:editor

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString, getSchemaFromProperties } from '$lib/utils'
 	import { Button } from './common'
 	import { createEventDispatcher, tick } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -21,6 +21,8 @@
 	import Password from './Password.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import FileUpload from './common/fileUpload/FileUpload.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -39,10 +41,12 @@
 	export let enum_: EnumType = undefined
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
+				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -92,18 +96,15 @@
 
 	$: render && changeDefaultValue(inputCat, defaultValue)
 
-	$: rawValue && evalRawValueToValue()
+	$: (rawValue || inputCat === 'object') && evalRawValueToValue()
 
 	$: validateInput(pattern, value, required)
 
-	$: {
-		if (inputCat === 'object') {
-			evalValueToRaw()
-		}
-	}
-
 	function evalRawValueToValue() {
-		if (rawValue) {
+		if (!rawValue || rawValue === '') {
+			value = undefined
+			error = ''
+		} else {
 			try {
 				value = JSON.parse(rawValue)
 				error = ''
@@ -113,9 +114,14 @@
 		}
 	}
 
+	// Only used for object inputCat
 	export function evalValueToRaw() {
 		if (value) {
 			rawValue = JSON.stringify(value, null, 4)
+		} else {
+			// If value is undefined, set rawValue to empty object
+			// This is to prevent the textarea from being empty
+			rawValue = ''
 		}
 	}
 
@@ -174,8 +180,21 @@
 		}
 	}
 
+	let prevDefaultValue: any = undefined
+	let defaultChange = 0
+
 	async function changeDefaultValue(inputCat, defaultValue) {
-		value = defaultValue
+		if (
+			value == null ||
+			value == undefined ||
+			deepEqual(value, prevDefaultValue) ||
+			(prevDefaultValue != undefined && !deepEqual(defaultValue, prevDefaultValue))
+		) {
+			value = defaultValue
+			defaultChange += 1
+		}
+		prevDefaultValue = structuredClone(defaultValue)
+
 		if (value == null || value == undefined) {
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
@@ -199,6 +218,18 @@
 		value = undefined
 		valid = true
 		error = ''
+	}
+
+	function addItemByItemsType() {
+		if (value == undefined || !Array.isArray(value)) {
+			value = []
+		}
+
+		if (itemsType?.type === 'object') {
+			value = value.concat({})
+		} else {
+			value = value.concat('')
+		}
 	}
 </script>
 
@@ -246,11 +277,9 @@
 								dispatch('focus')
 							}}
 							type="number"
-							class={twMerge(
-								valid && error == ''
-									? ''
-									: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'
-							)}
+							class={valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 							min={extra['min']}
@@ -262,12 +291,9 @@
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						class={twMerge(
-							valid && error == ''
-								? ''
-								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30',
-							'w-full'
-						)}
+						class={valid && error == ''
+							? ''
+							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 						bind:checked={value}
 					/>
 					{#if type == 'boolean' && value == undefined}
@@ -328,12 +354,24 @@
 														<option>{e}</option>
 													{/each}
 												</select>
+											{:else if itemsType?.type == 'resource' && itemsType?.resourceType}
+												<LightweightResourcePicker
+													bind:value={v}
+													resourceType={itemsType?.resourceType}
+												/>
+											{:else if itemsType?.type === 'object' && itemsType?.properties}
+												<div class="p-8 border rounded-md w-full">
+													<LightweightSchemaForm
+														schema={getSchemaFromProperties(itemsType?.properties)}
+														bind:args={v}
+													/>
+												</div>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2 flex items-center h-6"
 												aria-label="Clear"
 												on:click={() => {
 													value = value.filter((el) => el != v)
@@ -357,10 +395,7 @@
 									size="sm"
 									btnClasses="mt-1"
 									on:click={() => {
-										if (value == undefined || !Array.isArray(value)) {
-											value = []
-										}
-										value = value.concat('')
+										addItemByItemsType()
 									}}
 									startIcon={{ icon: Plus }}
 								>
@@ -371,6 +406,27 @@
 								{(value ?? []).length} item{(value ?? []).length != 1 ? 's' : ''}
 							</span>
 						{/if}
+					</div>
+				{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
+						.replace('resource-', '')
+						.replace('_', '')
+						.toLowerCase() == 's3object'}
+					<div class="flex flex-col w-full gap-1">
+						<FileUpload
+							allowMultiple={false}
+							randomFileKey={true}
+							on:addition={(evt) => {
+								value = {
+									s3: evt.detail?.path ?? ''
+								}
+							}}
+							on:deletion={(evt) => {
+								value = {
+									s3: ''
+								}
+							}}
+							defaultValue={defaultValue?.s3}
+						/>
 					</div>
 				{:else if inputCat == 'resource-object'}
 					<LightweightObjectResourceInput {format} bind:value />
@@ -445,11 +501,13 @@
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
-					{#if format === 'date'}
-						<DateInput bind:value dateFormat={extra['dateFormat']} />
-					{:else}
-						<DateTimeInput useDropdown bind:value />
-					{/if}
+					{#key defaultChange}
+						{#if format === 'date'}
+							<DateInput bind:value dateFormat={extra['dateFormat']} />
+						{:else}
+							<DateTimeInput useDropdown bind:value />
+						{/if}
+					{/key}
 				{:else if inputCat == 'base64'}
 					<div class="flex flex-col my-6 w-full">
 						<input
@@ -458,7 +516,10 @@
 							multiple={false}
 						/>
 						{#if value?.length}
-							<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div
+							<div class="text-2xs text-tertiary mt-1"
+								>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
+									2
+								)}MB)</div
 							>
 						{/if}
 					</div>
@@ -497,7 +558,7 @@
 								<Password bind:password={value} />
 							{:else}
 								<textarea
-									rows={extra?.['rows'] || 1}
+									rows={extra?.['minRows'] || 1}
 									bind:this={el}
 									on:focus={(e) => {
 										dispatch('focus')

@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, ScriptService, type Script } from '$lib/gen'
+	import { base } from '$lib/base'
 	import {
-		defaultIfEmptyString,
-		emptyString,
-		encodeState,
-		canWrite,
-		truncateHash
-	} from '$lib/utils'
+		JobService,
+		ScriptService,
+		WorkspaceService,
+		type Script,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
+	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { hubBaseUrlStore, runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -26,7 +29,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	import { sendUserToast } from '$lib/toast'
@@ -67,6 +70,8 @@
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
+	import Star from '$lib/components/Star.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -83,18 +88,12 @@
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
 	$: loading = !script
+
+	let previousHash: string | undefined = undefined
 	$: if ($workspaceStore) {
-		loadScript($page.params.hash)
-	}
-	$: webhooks = {
-		async: {
-			hash: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
-			path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
-		},
-		sync: {
-			hash: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
-			path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`,
-			get_path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
+		if (previousHash != $page.params.hash) {
+			previousHash = $page.params.hash
+			loadScript($page.params.hash)
 		}
 	}
 
@@ -143,12 +142,23 @@
 		}
 	}
 	let schedule: ScriptSchedule | undefined = undefined
+	let starred: boolean | undefined = undefined
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
-			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
+			script = await ScriptService.getScriptByHash({
+				workspace: $workspaceStore!,
+				hash,
+				withStarredInfo: true
+			})
+			starred = script.starred
 		} catch {
-			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash })
+			script = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: hash,
+				withStarredInfo: true
+			})
+			starred = script.starred
 			hash = script.hash
 		}
 		can_write =
@@ -208,11 +218,16 @@
 		}
 	}
 
-	let args = undefined
-
-	if ($runFormStore) {
-		args = $runFormStore
-		$runFormStore = undefined
+	let args: Record<string, any> | undefined = undefined
+	let hash = window.location.hash
+	if (hash.length > 1) {
+		try {
+			let searchParams = new URLSearchParams(hash.slice(1))
+			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			args = Object.fromEntries(params)
+		} catch (e) {
+			console.error('Was not able to transform hash as args', e)
+		}
 	}
 
 	let moveDrawer: MoveDrawer
@@ -231,7 +246,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `/scripts/add?template=${script.path}`,
+					href: `${base}/scripts/add?template=${script.path}`,
 					size: 'xs',
 					color: 'light',
 					startIcon: GitFork
@@ -246,7 +261,7 @@
 		buttons.push({
 			label: `View runs`,
 			buttonProps: {
-				href: `/runs/${script.path}`,
+				href: `${base}/runs/${script.path}`,
 				size: 'xs',
 				color: 'light',
 				startIcon: Play
@@ -307,7 +322,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						href: `${base}/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
 						size: 'xs',
@@ -324,7 +339,22 @@
 	}
 	$: mainButtons = getMainButtons(script, args, topHash, can_write)
 
-	function getMenuItems(script: Script | undefined) {
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
+
+	function getMenuItems(
+		script: Script | undefined,
+		deployUiSettings: WorkspaceDeployUISettings | undefined
+	) {
 		if (!script || $userStore?.operator) return []
 
 		const menuItems: any = []
@@ -353,13 +383,15 @@
 			}
 		})
 
-		menuItems.push({
-			label: 'Deploy to staging/prod',
-			Icon: Server,
-			onclick: () => {
-				deploymentDrawer.openDrawer(script?.path ?? '', 'script')
-			}
-		})
+		if (isDeployable('script', script?.path ?? '', deployUiSettings)) {
+			menuItems.push({
+				label: 'Deploy to staging/prod',
+				Icon: Server,
+				onclick: () => {
+					deploymentDrawer.openDrawer(script?.path ?? '', 'script')
+				}
+			})
+		}
 
 		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB) {
 			menuItems.push({
@@ -455,7 +487,7 @@
 
 {#if script}
 	<Drawer bind:open={versionsDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)}>
+		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
 			<ScriptVersionHistory
 				scriptPath={script.path}
 				openDetails
@@ -477,13 +509,24 @@
 			<svelte:fragment slot="header">
 				<DetailPageHeader
 					{mainButtons}
-					menuItems={getMenuItems(script)}
+					menuItems={getMenuItems(script, deployUiSettings)}
 					title={defaultIfEmptyString(script.summary, script.path)}
 					bind:errorHandlerMuted={script.ws_error_handler_muted}
 					errorHandlerKind="script"
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
 				>
+					{#if $workspaceStore}
+						<Star
+							kind="script"
+							path={script.path}
+							{starred}
+							workspace_id={$workspaceStore}
+							on:starred={() => {
+								starred = !starred
+							}}
+						/>
+					{/if}
 					{#if script.codebase}
 						<Badge
 							>bundle<Tooltip
@@ -550,7 +593,7 @@
 									<div class="mt-2" />
 									<Alert type="warning" title="Not HEAD">
 										This hash is not HEAD (latest non-archived version at this path) :
-										<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
+										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
 											>Go to the HEAD of this path</a
 										>
 									</Alert>
@@ -595,7 +638,6 @@
 						runAction={runScript}
 						bind:args
 						schedulable={true}
-						isFlow={false}
 						bind:this={runForm}
 					/>
 
@@ -607,7 +649,8 @@
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
 						<span class="text-sm text-tertiary">
-							Edited <TimeAgo withDate date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+							Edited <TimeAgo withDate date={script.created_at || ''} /> by {script.created_by ||
+								'unknown'}
 						</span>
 						<Badge small color="gray">
 							{truncateHash(script?.hash ?? '')}
@@ -641,7 +684,21 @@
 				{/if}
 			</svelte:fragment>
 			<svelte:fragment slot="webhooks">
-				<WebhooksPanel bind:token scopes={[`run:script/${script?.path}`]} {webhooks} {args} />
+				<WebhooksPanel
+					bind:token
+					scopes={[`run:script/${script?.path}`]}
+					hash={script.hash}
+					path={script.path}
+					{args}
+				/>
+			</svelte:fragment>
+			<svelte:fragment slot="email">
+				<EmailTriggerPanel
+					bind:token
+					scopes={[`run:script/${script?.path}`]}
+					hash={script.hash}
+					path={script.path}
+				/>
 			</svelte:fragment>
 			<svelte:fragment slot="schedule">
 				<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />

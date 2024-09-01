@@ -6,15 +6,21 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use gethostname::gethostname;
+use anyhow::Context;
 use git_version::git_version;
+use monitor::{send_current_log_file_to_object_store, send_logs_to_object_store};
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::fs::DirBuilder;
+use tokio::{
+    fs::{create_dir_all, DirBuilder, File},
+    io::AsyncReadExt,
+};
+use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
@@ -23,17 +29,18 @@ use windmill_common::ee::schedule_key_renewal;
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
+    scripts::ScriptLang,
     stats_ee::schedule_stats,
-    utils::{rd_string, Mode},
-    worker::{reload_custom_tags_setting, WORKER_GROUP},
+    utils::{hostname, rd_string, Mode},
+    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 
@@ -54,18 +61,19 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    BUN_CACHE_DIR, BUN_TAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
+    BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, monitor_db, monitor_pool, reload_base_url_setting,
-    reload_bunfig_install_scopes_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
-    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_pip_index_url_setting,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
+    reload_base_url_setting, reload_bunfig_install_scopes_setting,
+    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
     reload_worker_config,
 };
@@ -111,6 +119,46 @@ pub fn main() -> anyhow::Result<()> {
     create_and_run_current_thread_inner(windmill_main())
 }
 
+async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
+    let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
+    let mut file = File::open(&file_path)
+        .await
+        .with_context(|| format!("Could not open {}, make sure it exists", &file_path))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).await?;
+    let paths = serde_json::from_str::<HashMap<String, String>>(&contents).with_context(|| {
+        format!(
+            "Could not parse {}, make sure it is a valid JSON object with string keys and values",
+            &file_path
+        )
+    })?;
+
+    create_dir_all(HUB_CACHE_DIR).await?;
+
+    for path in paths.values() {
+        tracing::info!("Caching hub script at {path}");
+        let res = get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+        if res.language.is_some_and(|x| x == ScriptLang::Deno) {
+            let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
+            create_dir_all(&job_dir).await?;
+            let _ = windmill_worker::generate_deno_lock(
+                &Uuid::nil(),
+                &res.content,
+                &mut 0,
+                &mut None,
+                "/tmp/windmill/",
+                None,
+                "global",
+                "global",
+                "",
+            )
+            .await?;
+            tokio::fs::remove_dir_all(job_dir).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
@@ -118,8 +166,10 @@ async fn windmill_main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", "info")
     }
 
+    let hostname = hostname();
+
     #[cfg(not(feature = "flamegraph"))]
-    windmill_common::tracing_init::initialize_tracing();
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname);
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     tracing::info!("jemalloc enabled");
@@ -141,6 +191,9 @@ async fn windmill_main() -> anyhow::Result<()> {
             {
                 tracing::warn!("Embeddings are not enabled, ignoring...");
             }
+
+            cache_hub_scripts(std::env::args().nth(2)).await?;
+
             return Ok(());
         }
         "-v" | "--version" | "version" => {
@@ -149,6 +202,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
         _ => {}
     }
+
+    let mut enable_standalone_indexer: bool = false;
 
     let mode = std::env::var("MODE")
         .map(|x| x.to_lowercase())
@@ -174,7 +229,20 @@ async fn windmill_main() -> anyhow::Result<()> {
                 }
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
-            } else {
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    panic!("Indexer mode requires the tantivy feature flag");
+                }
+                #[cfg(feature = "tantivy")]
+                Mode::Indexer
+            } else if &x == "standalone+search"{
+                    enable_standalone_indexer = true;
+                    tracing::info!("Binary is in 'standalone' mode with search enabled");
+                    Mode::Standalone
+            }
+            else {
                 if &x != "standalone" {
                     tracing::error!("mode not recognized, defaulting to standalone: {x}");
                 } else {
@@ -188,7 +256,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    let num_workers = if mode == Mode::Server {
+    let num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -209,7 +277,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         .unwrap_or(false)
         && (mode == Mode::Server || mode == Mode::Standalone);
 
-    let server_bind_address: IpAddr = if server_mode {
+    let indexer_mode = mode == Mode::Indexer;
+
+    let server_bind_address: IpAddr = if server_mode || indexer_mode {
         std::env::var("SERVER_BIND_ADDR")
             .ok()
             .and_then(|x| x.parse().ok())
@@ -248,7 +318,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     tracing::info!("Connecting to database...");
-    let db = windmill_common::connect_db(server_mode).await?;
+    let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
@@ -302,10 +372,10 @@ Windmill Community Edition {GIT_VERSION}
 
     let worker_mode = num_workers > 0;
 
-    if server_mode || worker_mode {
+    if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
-        let port = if server_mode {
+        let port = if server_mode || indexer_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
         } else {
             port_var.unwrap_or(0)
@@ -330,6 +400,8 @@ Windmill Community Edition {GIT_VERSION}
 
         monitor_pool(&db).await;
 
+        send_logs_to_object_store(&db, &hostname, &mode);
+
         #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
         if !worker_mode {
             monitor_mem().await;
@@ -346,15 +418,49 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
+        #[cfg(feature = "tantivy")]
+        let should_index_jobs =
+            mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
+
+        #[cfg(feature = "tantivy")]
+        let (index_reader, index_writer) = if should_index_jobs {
+            let (r, w) = windmill_indexer::indexer_ee::init_index().await?;
+            (Some(r), Some(w))
+        } else {
+            (None, None)
+        };
+
+        #[cfg(feature = "tantivy")]
+        let indexer_f = {
+            let indexer_rx = killpill_rx.resubscribe();
+            let index_writer2 = index_writer.clone();
+            async {
+                if let Some(index_writer) = index_writer2 {
+                    windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
+                        .await;
+                }
+                Ok(())
+            }
+        };
+
+        #[cfg(not(feature = "tantivy"))]
+        let (index_reader, index_writer) = (None, None);
+
+        #[cfg(not(feature = "tantivy"))]
+        let indexer_f = async { Ok(()) as anyhow::Result<()> };
+
         let server_f = async {
             if !is_agent {
                 windmill_api::run_server(
                     db.clone(),
                     rsmq2,
+                    index_reader,
+                    index_writer,
                     addr,
                     server_killpill_rx,
                     base_internal_tx,
                     server_mode,
+                    base_internal_url.clone(),
                 )
                 .await?;
             } else {
@@ -381,6 +487,7 @@ Windmill Community Edition {GIT_VERSION}
                         base_internal_url.clone(),
                         rsmq.clone(),
                         mode.clone() == Mode::Agent,
+                        hostname.clone(),
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -461,9 +568,14 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
                                                     if let Err(e) = load_tag_per_workspace_enabled(&db).await {
-                                                        tracing::error!("Error loading default tag per workpsace: {e:#}");
+                                                        tracing::error!("Error loading default tag per workspace: {e:#}");
                                                     }
                                                 },
+                                                DEFAULT_TAGS_WORKSPACES_SETTING => {
+                                                    if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
+                                                        tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
+                                                    }
+                                                }
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
                                                 },
@@ -496,14 +608,12 @@ Windmill Community Edition {GIT_VERSION}
                                                     load_require_preexisting_user(&db).await;
                                                 },
                                                 EXPOSE_METRICS_SETTING  => {
-                                                    if worker_mode {
-                                                        tracing::info!("Metrics setting changed, restarting");
-                                                        // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
-                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                        if let Err(e) = tx.send(()) {
-                                                            tracing::error!(error = %e, "Could not send killpill to server");
-                                                        }
+                                                    tracing::info!("Metrics setting changed, restarting");
+                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..40);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill to server");
                                                     }
                                                 },
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -597,10 +707,19 @@ Windmill Community Edition {GIT_VERSION}
             schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
-        futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
+        futures::try_join!(
+            shutdown_signal,
+            workers_f,
+            monitor_f,
+            server_f,
+            metrics_f,
+            indexer_f
+        )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
+    send_current_log_file_to_object_store(&db, &hostname, &mode).await;
+
     tracing::info!("Exiting connection pool");
     tokio::select! {
         _ = db.close() => {
@@ -672,6 +791,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
     agent_mode: bool,
+    hostname: String,
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
     for _ in 0..num_workers {
@@ -682,10 +802,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         tracing::info!("Received killpill, exiting");
         return Ok(());
     }
-    let hostname = gethostname()
-        .to_str()
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| rd_string(5));
     let instance_name = hostname
         .clone()
         .replace(" ", "")
@@ -716,9 +832,11 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
         BUN_CACHE_DIR,
-        BUN_TAR_CACHE_DIR,
+        BUN_DEPSTAR_CACHE_DIR,
+        BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
+        RUST_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
     ] {
@@ -729,6 +847,10 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
             .expect("could not create initial worker dir");
     }
 
+    tracing::info!(
+        "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
+        *windmill_worker::SLEEP_QUEUE
+    );
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -741,7 +863,9 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let hostname = hostname.clone();
 
         handles.push(tokio::spawn(async move {
-            tracing::info!(worker = %worker_name, "starting worker");
+            if num_workers > 1 {
+                tracing::info!(worker = %worker_name, "starting worker {i}");
+            }
 
             let f = windmill_worker::run_worker(
                 &db1,

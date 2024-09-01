@@ -46,6 +46,10 @@ import {
   readConfigFile,
 } from "./conf.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
+import fs from "node:fs";
+import { type Tarball } from "npm:@ayonli/jsext/archive";
+
+import { execSync } from "node:child_process";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -150,18 +154,53 @@ export async function handleFile(
     const codebase =
       language == "bun" ? findCodebase(path, codebases) : undefined;
 
-    let bundleContent: string | undefined = undefined;
+    let bundleContent: string | Tarball | undefined = undefined;
 
     if (codebase) {
-      const esbuild = await import("npm:esbuild");
-      log.info(`Starting building the bundle for ${path}`);
-      const out = await esbuild.build({
-        entryPoints: [path],
-        format: "esm",
-        bundle: true,
-        write: false,
-      });
-      bundleContent = out.outputFiles[0].text;
+      if (codebase.customBundler) {
+        log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
+        bundleContent = execSync(
+          codebase.customBundler + " " + path
+        ).toString();
+        log.info("Custom bundler executed");
+      } else {
+        const esbuild = await import("npm:esbuild");
+
+        log.info(`Starting building the bundle for ${path}`);
+        const out = await esbuild.build({
+          entryPoints: [path],
+          format: "cjs",
+          bundle: true,
+          write: false,
+          external: codebase.external,
+          inject: codebase.inject,
+          define: codebase.define,
+          platform: "node",
+          packages: "bundle",
+          target: "node20.15.1",
+        });
+        bundleContent = out.outputFiles[0].text;
+      }
+      if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+        const archiveNpm = await import("npm:@ayonli/jsext/archive");
+
+        log.info(
+          `Using the following asset configuration: ${JSON.stringify(
+            codebase.assets
+          )}`
+        );
+        const tarball = new archiveNpm.Tarball();
+        tarball.append(
+          new File([bundleContent], "main.js", { type: "text/plain" })
+        );
+        for (const asset of codebase.assets) {
+          const data = fs.readFileSync(asset.from);
+          const blob = new Blob([data], { type: "text/plain" });
+          const file = new File([blob], asset.to);
+          tarball.append(file);
+        }
+        bundleContent = tarball;
+      }
       log.info(`Finished building the bundle for ${path}`);
     }
     const typed = (
@@ -186,7 +225,7 @@ export async function handleFile(
     try {
       remote = await ScriptService.getScriptByPath({
         workspace: workspaceId,
-        path: remotePath.replaceAll(SEP, "/"),
+        path: remotePath,
       });
       log.debug(`Script ${remotePath} exists on remote`);
     } catch {
@@ -265,7 +304,8 @@ export async function handleFile(
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore
-            typed.concurrency_key == remote["concurrency_key"])
+            typed.concurrency_key == remote["concurrency_key"] &&
+            typed.codebase == remote.codebase)
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -296,22 +336,58 @@ export async function handleFile(
   return false;
 }
 
+async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
+  // Create a reader from the stream
+  const reader = stream.getReader();
+  const chunks = [];
+
+  // Read the data from the stream
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      // If stream is finished, break the loop
+      break;
+    }
+
+    // Push the chunk to the array
+    chunks.push(value);
+  }
+
+  // Create a Blob from the chunks
+  const blob = new Blob(chunks);
+  return blob;
+}
+
 async function createScript(
-  bundleContent: string | undefined,
+  bundleContent: string | Tarball | undefined,
   workspaceId: string,
   body: NewScript,
   workspace: Workspace
 ) {
   if (!bundleContent) {
-    // no parent hash
-    await ScriptService.createScript({
-      workspace: workspaceId,
-      requestBody: body,
-    });
+    try {
+      // no parent hash
+      await ScriptService.createScript({
+        workspace: workspaceId,
+        requestBody: body,
+      });
+    } catch (e) {
+      throw Error(
+        `Script creation for ${body.path} with parent ${
+          body.parent_hash
+        }  was not successful: ${e.body ?? e.message}`
+      );
+    }
   } else {
     const form = new FormData();
     form.append("script", JSON.stringify(body));
-    form.append("file", bundleContent);
+    form.append(
+      "file",
+      typeof bundleContent == "string"
+        ? bundleContent
+        : await streamToBlob(bundleContent.stream())
+    );
 
     const url =
       workspace.remote +
@@ -429,6 +505,7 @@ export const exts = [
   ".sql",
   ".gql",
   ".ps1",
+  ".php",
 ];
 
 export function removeExtensionToPath(path: string): string {
@@ -440,7 +517,13 @@ export function removeExtensionToPath(path: string): string {
   throw new Error("Invalid extension: " + path);
 }
 
-async function list(opts: GlobalOptions & { showArchived?: boolean }) {
+async function list(
+  opts: GlobalOptions & {
+    showArchived?: boolean;
+    includeWithoutMain?: boolean;
+    includeDraftOnly?: boolean;
+  }
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -453,6 +536,8 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
       page,
       perPage,
       showArchived: opts.showArchived ?? false,
+      includeWithoutMain: opts.includeWithoutMain ?? false,
+      includeDraftOnly: opts.includeDraftOnly ?? true,
     });
     page += 1;
     total.push(...res);

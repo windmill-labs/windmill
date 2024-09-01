@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.353.0
+  version: 1.389.0
   title: Windmill API
 
   contact:
@@ -114,6 +114,16 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Username"
         - $ref: "#/components/parameters/Operation"
+        - name: operations
+          in: query
+          description: comma separated list of exact operations to include
+          schema:
+            type: string
+        - name: exclude_operations
+          in: query
+          description: comma separated list of operations to exclude
+          schema:
+            type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 
@@ -332,6 +342,8 @@ paths:
               properties:
                 is_super_admin:
                   type: boolean
+                name:
+                  type: string
       responses:
         "200":
           description: user updated
@@ -429,6 +441,44 @@ paths:
             text/plain:
               schema:
                 type: string
+  /users/overwrite:
+    post:
+      summary: global overwrite users (require super admin and EE)
+      operationId: globalUsersOverwrite
+      tags:
+        - user
+      requestBody:
+        description: List of users
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportedUser"
+      responses:
+        "200":
+          description: Success message
+          content:
+            text/plain:
+              schema:
+                type: string
+  
+  /users/export:
+    get:
+      summary: global export users (require super admin and EE)
+      operationId: globalUsersExport
+      tags:
+        - user
+      responses:
+        "200":
+          description: exported users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportedUser"
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -797,6 +847,12 @@ paths:
       operationId: renewLicenseKey
       tags:
         - setting
+      parameters:
+        - name: license_key
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: status
@@ -811,6 +867,12 @@ paths:
       operationId: createCustomerPortalSession
       tags:
         - setting
+      parameters:
+        - name: license_key
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: url to portal
@@ -839,6 +901,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  
+  /settings/list_global:
+    get:
+      summary: list global settings
+      operationId: listGlobalSettings
+      tags:
+        - setting
+      responses:
+        "200":
+          description: list of settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GlobalSetting"
 
   /users/email:
     get:
@@ -1442,6 +1521,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
+                  deploy_ui:
+                    $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   default_app:
                     type: string
                   default_scripts:
@@ -1831,6 +1912,32 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/edit_deploy_ui_config:
+    post:
+      summary: edit workspace deploy ui settings
+      operationId: editWorkspaceDeployUISettings
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace deploy UI settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deploy_ui_settings:
+                  $ref: "#/components/schemas/WorkspaceDeployUISettings"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/workspaces/edit_default_app:
     post:
       summary: edit default app for workspace
@@ -1961,6 +2068,8 @@ paths:
               properties:
                 new_key:
                   type: string
+                skip_reencrypt:
+                  type: boolean
               required:
                 - new_key
 
@@ -2377,6 +2486,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: variable list
@@ -3502,17 +3613,24 @@ paths:
         - name: show_archived
           description: |
             (default false)
-            show also the archived files.
+            show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are 
             ed.
           in: query
           schema:
             type: boolean
-        - name: hide_without_main
+        - name: include_without_main
           description: |
             (default false)
-            hide the scripts without an exported main function
+            include scripts without an exported main function
+          in: query
+          schema:
+            type: boolean
+        - name: include_draft_only
+          description: |
+            (default false)
+            include scripts that have no deployed version
           in: query
           schema:
             type: boolean
@@ -3536,6 +3654,13 @@ paths:
           description: |
             (default false)
             show only the starred items
+          in: query
+          schema:
+            type: boolean
+        - name: with_deployment_msg
+          description: |
+            (default false)
+            include deployment message
           in: query
           schema:
             type: boolean
@@ -3801,6 +3926,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -3936,6 +4065,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptHash"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -4261,7 +4394,7 @@ paths:
         - name: show_archived
           description: |
             (default false)
-            show also the archived files.
+            show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are displayed.
           in: query
@@ -4271,6 +4404,20 @@ paths:
           description: |
             (default false)
             show only the starred items
+          in: query
+          schema:
+            type: boolean
+        - name: include_draft_only
+          description: |
+            (default false)
+            include items that have no deployed version
+          in: query
+          schema:
+            type: boolean
+        - name: with_deployment_msg
+          description: |
+            (default false)
+            include deployment message
           in: query
           schema:
             type: boolean
@@ -4291,6 +4438,84 @@ paths:
                         draft_only:
                           type: boolean
 
+  /w/{workspace}/flows/history/p/{path}:
+    get:
+      summary: get flow history by path
+      operationId: getFlowHistory
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - flow
+      responses:
+        "200":
+          description: Flow history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowVersion"
+
+  /w/{workspace}/flows/get/v/{version}/p/{path}:
+    get:
+      summary: get flow version
+      operationId: getFlowVersion
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - type: string
+          name: version
+          in: path
+          required: true
+          schema:
+            type: number
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - flow
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/history_update/v/{version}/p/{path}:
+    post:
+      summary: update flow history
+      operationId: updateFlowHistory
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - type: string
+          name: version
+          in: path
+          required: true
+          schema:
+            type: number
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Flow deployment message
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deployment_msg:
+                  type: string
+              required:
+                - deployment_msg
+      tags:
+        - flow
+      responses:
+        "200":
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /w/{workspace}/flows/get/{path}:
     get:
       summary: get flow by path
@@ -4300,6 +4525,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow details
@@ -4627,6 +4856,20 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: include_draft_only
+          description: |
+            (default false)
+            include items that have no deployed version
+          in: query
+          schema:
+            type: boolean
+        - name: with_deployment_msg
+          description: |
+            (default false)
+            include deployment message
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All apps
@@ -4703,6 +4946,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: app details
@@ -5402,6 +5649,8 @@ paths:
                 properties:
                   database_length:
                     type: integer
+                  suspended:
+                    type: integer
                 required:
                   - database_length
 
@@ -5581,7 +5830,9 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
@@ -5695,6 +5946,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+
+  /w/{workspace}/jobs_u/get_args/{id}:
+    get:
+      summary: get job args
+      operationId: getJobArgs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job args
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
@@ -5869,7 +6137,7 @@ paths:
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
-      summary: cancel queued job
+      summary: cancel queued or running job
       operationId: cancelQueuedJob
       tags:
         - job
@@ -6679,6 +6947,44 @@ paths:
             text/plain:
               schema:
                 type: string
+  /groups/export:
+    get:
+      summary: export instance groups
+      operationId: exportInstanceGroups
+      tags:
+        - group
+      responses:
+        "200":
+          description: exported instance groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportedInstanceGroup"
+
+  /groups/overwrite:
+    post:
+      summary: overwrite instance groups
+      operationId: overwriteInstanceGroups
+      tags:
+        - group
+      requestBody:
+        description: overwrite instance groups
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportedInstanceGroup"
+      responses:
+        "200":
+          description: success message
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/groups/list:
     get:
@@ -7267,6 +7573,22 @@ paths:
               schema:
                 type: string
 
+  /configs/list:
+    get:
+      summary: list configs
+      operationId: listConfigs
+      tags:
+        - config
+      responses:
+        "200":
+          description: list of configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Config"
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -7518,6 +7840,14 @@ paths:
           required: true
           schema:
             type: string
+        - name: input
+          in: query
+          schema:
+            type: boolean
+        - name: allow_large
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: args
@@ -8273,6 +8603,71 @@ paths:
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
 
+  /service_logs/list_files:
+    get:
+      summary: list log files ordered by timestamp
+      operationId: listLogFiles
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - name: with_error
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: time
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hostname:
+                      type: string
+                    mode:
+                      type: string
+                    worker_group:
+                      type: string
+                    log_ts:
+                      type: string
+                      format: date-time
+                    file_path:
+                      type: string
+                    ok_lines:
+                      type: integer
+                    err_lines:
+                      type: integer
+                    json_fmt:
+                      type: boolean
+                  required:
+                    - hostname
+                    - mode
+                    - log_ts
+                    - file_path
+                    - json_fmt
+
+  /service_logs/get_log_file/{path}:
+    get:
+      summary: get log file by path
+      operationId: getLogFile
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Path"            
+      responses:
+        "200":
+          description: log stream
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /concurrency_groups/list:
     get:
       summary: List all concurrency groups
@@ -8351,6 +8746,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -8394,6 +8790,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
+
+  /srch/w/{workspace}/index/search/job:
+    get:
+      summary: Search through jobs with a string query
+      operationId: searchJobsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        dancer:
+                          type: string
+                  hits:
+                    description: the jobs that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobSearchHit"
+
 
 components:
   securitySchemes:
@@ -8607,11 +9039,27 @@ components:
       schema:
         type: string
         format: date-time
+    Before:
+      name: before
+      description: filter on started before (inclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
     CreatedOrStartedAfter:
       name: created_or_started_after
       description:
         filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedOrStartedAfterCompletedJob:
+      name: created_or_started_after_completed_jobs
+      description:
+        filter on created_at for non non started job and started_at otherwise
+        after (exclusive) timestamp but only for the completed jobs
       in: query
       schema:
         type: string
@@ -8670,13 +9118,6 @@ components:
     After:
       name: after
       description: filter on created after (exclusive) timestamp
-      in: query
-      schema:
-        type: string
-        format: date-time
-    Before:
-      name: before
-      description: filter on created before (exclusive) timestamp
       in: query
       schema:
         type: string
@@ -8811,6 +9252,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         kind:
           type: string
@@ -8909,6 +9351,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         kind:
           type: string
@@ -8989,8 +9432,6 @@ components:
           type: string
         name:
           type: string
-        args:
-          type: object
         created_by:
           type: string
         created_at:
@@ -9128,6 +9569,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         email:
           type: string
@@ -9243,6 +9685,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         is_skipped:
           type: boolean
@@ -9459,6 +9902,9 @@ components:
           type: boolean
         is_refreshed:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
       required:
         - workspace_id
         - path
@@ -9497,6 +9943,9 @@ components:
           type: integer
         is_oauth:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
       required:
         - path
         - value
@@ -9775,7 +10224,8 @@ components:
               graphql,
               nativets,
               bun,
-              php
+              php,
+              rust,
             ]
         tag:
           type: string
@@ -9988,6 +10438,9 @@ components:
           type: boolean
         tag:
           type: string
+        paused_until:
+          type: string
+          format: date-time
       required:
         - path
         - edited_by
@@ -10063,6 +10516,9 @@ components:
           type: string
         tag:
           type: string
+        paused_until:
+          type: string
+          format: date-time
       required:
         - path
         - schedule
@@ -10105,6 +10561,9 @@ components:
           type: string
         tag:
           type: string
+        paused_until:
+          type: string
+          format: date-time
       required:
         - schedule
         - timezone
@@ -10193,9 +10652,9 @@ components:
           type: string
         wm_version:
           type: string
-        current_job_id:
+        last_job_id:
           type: string
-        current_job_workspace_id:
+        last_job_workspace_id:
           type: string
         occupancy_rate:
           type: number
@@ -10557,6 +11016,20 @@ components:
       required:
         - version
 
+    FlowVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        deployment_msg:
+          type: string
+      required:
+        - id
+        - created_at
+
     SlackToken:
       type: object
       properties:
@@ -10736,6 +11209,25 @@ components:
           items:
             $ref: "#/components/schemas/GitRepositorySettings"
 
+    WorkspaceDeployUISettings:
+      type: object
+      properties:
+        include_path:
+          type: array
+          items:
+            type: string
+        include_type:
+          type: array
+          items:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+              - resource
+              - variable
+              - secret
+
     WorkspaceDefaultScripts:
       type: object
       properties:
@@ -10863,7 +11355,8 @@ components:
               graphql,
               nativets,
               bun,
-              php
+              php,
+              rust,
             ]
       required:
         - raw_code
@@ -10898,3 +11391,75 @@ components:
       required:
         - jobs
         - obscured_jobs
+    
+    ExportedUser:
+      type: object
+      properties:
+        email:
+          type: string
+        password_hash:
+          type: string
+        super_admin:
+          type: boolean
+        verified:
+          type: boolean
+        name:
+          type: string
+        company:
+          type: string
+        first_time_user:
+          type: boolean
+        username:
+          type: string
+      required:
+        - email
+        - super_admin
+        - verified
+        - first_time_user
+
+    GlobalSetting:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: object
+      required:
+        - name
+        - value
+
+    Config:
+      type: object
+      properties:
+        name:
+          type: string
+        config:
+          type: object
+      required:
+        - name
+    
+    ExportedInstanceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+        id:
+          type: string
+        scim_display_name:
+          type: string
+        external_id:
+          type: string
+      required:
+        - name
+
+    JobSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string

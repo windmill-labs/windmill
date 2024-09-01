@@ -7,8 +7,9 @@ use std::{
     time::Duration,
 };
 
+use chrono::{NaiveDateTime, Utc};
 use rsmq_async::MultiplexedRsmq;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -21,6 +22,8 @@ use windmill_api::{
     oauth2_ee::{build_oauth_clients, OAuthClient},
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::worker_groups_alerts;
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -28,24 +31,26 @@ use windmill_common::{
     flow_status::FlowStatusModule,
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
     jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
-    stats_ee::get_user_usage,
+    tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{now_from_db, rd_string},
+    utils::{now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
-        WORKER_CONFIG,
+        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
+        WORKER_GROUP,
     },
-    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
@@ -105,8 +110,6 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
-
-    static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 }
 
 pub async fn initial_load(
@@ -126,6 +129,10 @@ pub async fn initial_load(
 
     if let Err(e) = load_tag_per_workspace_enabled(db).await {
         tracing::error!("Error loading default tag per workpsace: {e:#}");
+    }
+
+    if let Err(e) = load_tag_per_workspace_workspaces(db).await {
+        tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
     }
 
     if server_mode {
@@ -199,6 +206,28 @@ pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
             DEFAULT_TAGS_PER_WORKSPACE.store(t, Ordering::Relaxed)
+        }
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
+    let workspaces = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await;
+
+    match workspaces {
+        Ok(Some(serde_json::Value::Array(t))) => {
+            let workspaces = t
+                .iter()
+                .filter_map(|x| x.as_str())
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>();
+            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
+            *w = Some(workspaces);
+        }
+        Ok(None) => {
+            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
+            *w = None;
         }
         _ => (),
     };
@@ -310,6 +339,195 @@ pub async fn monitor_mem() {
     });
 }
 
+async fn sleep_until_next_minute_start_plus_one_s() {
+    let now = Utc::now();
+    let next_minute = now + Duration::from_secs(60 - now.timestamp() as u64 % 60 + 1);
+    tokio::time::sleep(tokio::time::Duration::from_secs(
+        next_minute.timestamp() as u64 - now.timestamp() as u64,
+    ))
+    .await;
+}
+
+use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
+async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
+    let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
+    let rd_dir = tokio::fs::read_dir(log_dir).await;
+    if let Ok(mut log_files) = rd_dir {
+        let mut highest_file: Option<String> = None;
+        let mut second_highest_file: Option<String> = None;
+        while let Ok(Some(file)) = log_files.next_entry().await {
+            let file_name = file
+                .file_name()
+                .to_str()
+                .map(|x| x.to_string())
+                .unwrap_or_default();
+            if file_name > highest_file.clone().unwrap_or_default() {
+                second_highest_file = highest_file;
+                highest_file = Some(file_name);
+            }
+        }
+        (highest_file, second_highest_file)
+    } else {
+        tracing::error!(
+            "Error reading log files: {TMP_WINDMILL_LOGS_SERVICE}, {:#?}",
+            rd_dir.unwrap_err()
+        );
+        (None, None)
+    }
+}
+
+fn get_worker_group(mode: &Mode) -> Option<String> {
+    let worker_group = WORKER_GROUP.clone();
+    if worker_group.is_empty() || mode == &Mode::Server || mode == &Mode::Indexer {
+        None
+    } else {
+        Some(worker_group)
+    }
+}
+
+pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+    let db = db.clone();
+    let hostname = hostname.to_string();
+    let mode = mode.clone();
+    let worker_group = get_worker_group(&mode);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        sleep_until_next_minute_start_plus_one_s().await;
+        loop {
+            interval.tick().await;
+            let (_, snd_highest_file) = find_two_highest_files(&hostname).await;
+            send_log_file_to_object_store(
+                &hostname,
+                &mode,
+                &worker_group,
+                &db,
+                snd_highest_file,
+                false,
+            )
+            .await;
+        }
+    });
+}
+
+pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+    tracing::info!("Sending current log file to object store");
+    let (highest_file, _) = find_two_highest_files(hostname).await;
+    let worker_group = get_worker_group(&mode);
+    send_log_file_to_object_store(hostname, mode, &worker_group, db, highest_file, true).await;
+}
+
+fn get_now_and_str() -> (NaiveDateTime, String) {
+    let ts = Utc::now().naive_utc();
+    (
+        ts,
+        ts.format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+            .to_string(),
+    )
+}
+
+async fn send_log_file_to_object_store(
+    hostname: &str,
+    mode: &Mode,
+    worker_group: &Option<String>,
+    db: &Pool<Postgres>,
+    snd_highest_file: Option<String>,
+    use_now: bool,
+) {
+    if let Some(highest_file) = snd_highest_file {
+        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
+        let (ts, ts_str) = if use_now {
+            get_now_and_str()
+        } else {
+            highest_file
+                .split(".")
+                .last()
+                .and_then(|x| {
+                    NaiveDateTime::parse_from_str(
+                        x,
+                        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
+                    )
+                    .ok()
+                    .map(|y| (y, x.to_string()))
+                })
+                .unwrap_or_else(get_now_and_str)
+        };
+
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM log_file WHERE hostname = $1 AND log_ts = $2)",
+            hostname,
+            ts
+        )
+        .fetch_one(db)
+        .await;
+
+        match exists {
+            Ok(Some(true)) => {
+                return;
+            }
+            Err(e) => {
+                tracing::error!("Error checking if log file exists: {:?}", e);
+                return;
+            }
+            _ => (),
+        }
+
+        #[cfg(feature = "parquet")]
+        let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+        #[cfg(feature = "parquet")]
+        if let Some(s3_client) = s3_client {
+            let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
+                .join(hostname)
+                .join(&highest_file);
+
+            //read file as byte stream
+            let bytes = tokio::fs::read(&path).await;
+            if let Err(e) = bytes {
+                tracing::error!("Error reading log file: {:?}", e);
+                return;
+            }
+            let path = object_store::path::Path::from_url_path(format!(
+                "{}{hostname}/{highest_file}",
+                windmill_common::tracing_init::LOGS_SERVICE
+            ));
+            if let Err(e) = path {
+                tracing::error!("Error creating log file path: {:?}", e);
+                return;
+            }
+            if let Err(e) = s3_client.put(&path.unwrap(), bytes.unwrap().into()).await {
+                tracing::error!("Error sending logs to object store: {:?}", e);
+            }
+        }
+
+        let (ok_lines, err_lines) = read_log_counters(ts_str);
+
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)", 
+            hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
+            .execute(db)
+            .await {
+            tracing::error!("Error inserting log file: {:?}", e);
+        }
+    }
+}
+
+fn read_log_counters(ts_str: String) -> (usize, usize) {
+    let counters = windmill_common::tracing_init::LOG_COUNTING_BY_MIN.read();
+    let mut ok_lines = 0;
+    let mut err_lines = 0;
+    if let Ok(ref c) = counters {
+        let counter = c.get(&ts_str);
+        if let Some(counter) = counter {
+            ok_lines = counter.non_error_count;
+            err_lines = counter.error_count;
+        } else {
+            println!("no counter found for {ts_str}");
+        }
+    } else {
+        println!("Error reading log counters 2");
+    }
+    (ok_lines, err_lines)
+}
+
 pub async fn load_keep_job_dir(db: &DB) {
     let value = load_value_from_global_settings(db, KEEP_JOB_DIR_SETTING).await;
     match value {
@@ -382,6 +600,21 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
+    let deleted_expired_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE expires_at IS NOT NULL AND expires_at < now() RETURNING path",
+    )
+    .fetch_all(db)
+    .await;
+
+    match deleted_expired_variables {
+        Ok(res) => {
+            if res.len() > 0 {
+                tracing::info!("deleted {} expired variables {:?}", res.len(), res)
+            }
+        }
+        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
@@ -428,6 +661,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             .await
                             {
                                 tracing::error!("Error deleting  custom concurrency key: {:?}", e);
+                            }
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval ",
+                                job_retention_secs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting log file: {:?}", e);
                             }
                         }
                     }
@@ -651,6 +893,16 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     std_env_var: &str,
     lock: Arc<RwLock<Option<T>>>,
 ) -> error::Result<()> {
+    let force_value = std::env::var(format!("FORCE_{}", std_env_var))
+        .ok()
+        .and_then(|x| x.parse::<T>().ok());
+
+    if let Some(force_value) = force_value {
+        let mut l = lock.write().await;
+        *l = Some(force_value);
+        return Ok(());
+    }
+
     let q = load_value_from_global_settings(db, setting_name).await?;
 
     let mut value = std::env::var(std_env_var)
@@ -786,9 +1038,10 @@ pub async fn monitor_db(
         }
     };
 
-    let save_usage_metrics_f = async {
-        if !initial_load && server_mode {
-            save_usage_metrics(&db).await;
+    let worker_groups_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode {
+            worker_groups_alerts(&db).await;
         }
     };
 
@@ -796,8 +1049,8 @@ pub async fn monitor_db(
         expired_items_f,
         zombie_jobs_f,
         expose_queue_metrics_f,
-        save_usage_metrics_f,
-        verify_license_key_f
+        verify_license_key_f,
+        worker_groups_alerts_f
     );
 }
 
@@ -871,89 +1124,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     }
 }
 
-#[derive(Serialize)]
-struct WorkerUsage {
-    worker: String,
-    worker_instance: String,
-    vcpus: Option<i64>,
-    memory: Option<i64>,
-}
-
-pub async fn save_usage_metrics(db: &Pool<Postgres>) {
-    let tx = db.begin().await;
-
-    if let Ok(mut tx) = tx {
-        let last_check = sqlx::query_scalar!(
-            "SELECT created_at FROM metrics WHERE id = 'author_count' ORDER BY created_at DESC LIMIT 1"
-        )
-        .fetch_optional(db)
-        .await
-        .unwrap_or(Some(chrono::Utc::now()));
-
-        let random_nb = rand::random::<i64>();
-
-        // save author and operator count every ~24 hours
-        if last_check
-            .map(|last_check| {
-                chrono::Utc::now() - last_check
-                    > chrono::Duration::hours(24) - chrono::Duration::minutes(random_nb % 60)
-            })
-            .unwrap_or(true)
-        {
-            let user_usage = get_user_usage(&mut *tx).await.ok();
-
-            if let Some(user_usage) = user_usage {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ('author_count', $1), ('operator_count', $2)",
-                    serde_json::json!(user_usage.author_count.unwrap_or(0)),
-                    serde_json::json!(user_usage.operator_count.unwrap_or(0))
-                )
-                .execute(&mut *tx)
-                .await
-                .ok();
-            }
-
-            // clean metrics older than 6 months (including worker usage)
-            sqlx::query!(
-                "DELETE FROM metrics 
-                WHERE (id = 'author_count' OR id = 'operator_count' OR id = 'worker_usage') AND created_at < NOW() - INTERVAL '6 month'"
-            )
-            .execute(&mut *tx)
-            .await
-            .ok();
-        }
-
-        // save worker usage every ~60 minutes
-        if last_check
-            .map(|last_check| {
-                chrono::Utc::now() - last_check
-                    > chrono::Duration::minutes(60) - chrono::Duration::seconds(random_nb % 300)
-            })
-            .unwrap_or(true)
-        {
-            let worker_usage = sqlx::query_as!(
-                WorkerUsage,
-                "SELECT worker, worker_instance, vcpus, memory FROM worker_ping WHERE ping_at > NOW() - INTERVAL '2 minutes'"
-            )
-            .fetch_all(&mut *tx)
-            .await
-            .ok();
-
-            if let Some(worker_usage) = worker_usage {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ('worker_usage', $1)",
-                    serde_json::json!(worker_usage)
-                )
-                .execute(&mut *tx)
-                .await
-                .ok();
-            }
-        }
-
-        tx.commit().await.ok();
-    }
-}
-
 pub async fn reload_server_config(db: &Pool<Postgres>) {
     let config = load_server_config(&db).await;
     if let Err(e) = config {
@@ -1004,6 +1174,8 @@ pub async fn reload_worker_config(
 
             let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
+            make_suspended_pull_query(&config).await;
+            make_pull_query(&config).await;
             *wc = config
         }
     }
@@ -1076,7 +1248,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 ) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' 
+                "UPDATE queue SET running = false, started_at = null
                 WHERE last_ping < now() - ($1 || ' seconds')::interval
                  AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
@@ -1089,13 +1261,25 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
+        let base_url = BASE_URL.read().await.clone();
         for r in restarted {
-            tracing::error!(
-                "Zombie job detected, restarting it: {} {} {:?}",
-                r.id,
-                r.workspace_id,
-                r.last_ping
+            let last_ping = if let Some(x) = r.last_ping {
+                format!("last ping at {x}")
+            } else {
+                "no last ping".to_string()
+            };
+            let url = format!("{}/run/{}?workspace={}", base_url, r.id, r.workspace_id,);
+            let error_message = format!(
+                "Zombie job {} on {} ({}) detected, restarting it, {}",
+                r.id, r.workspace_id, url, last_ping
             );
+
+            let _ = sqlx::query!("
+                INSERT INTO job_logs (job_id, logs) VALUES ($1,'Restarted job after not receiving job''s ping for too long the ' || now() || '\n\n') 
+                ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE job_logs.job_id = $1", r.id)
+                .execute(db).await;
+            tracing::error!(error_message);
+            report_critical_error(error_message, db.clone()).await;
         }
     }
 
@@ -1198,11 +1382,12 @@ async fn handle_zombie_flows(
                 .get(0)
                 .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
         }) {
-            tracing::error!(
+            let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
-                flow.id,
-                flow.workspace_id
+                flow.id, flow.workspace_id
             );
+            tracing::error!(error_message);
+            report_critical_error(error_message, db.clone()).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
@@ -1214,13 +1399,16 @@ async fn handle_zombie_flows(
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
-            cancel_zombie_flow_job(
-                db,
-                flow,
-                &rsmq,
-                format!("Flow {} cancelled as it was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})", id),
-            )
-            .await?;
+            let reason = format!(
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
+                if flow.is_flow_step && flow.parent_job.is_some() {
+                    format!("Flow was cancelled because subflow {id}")
+                } else {
+                    format!("Flow {id} was cancelled because it")
+                }
+            );
+            report_critical_error(reason.clone(), db.clone()).await;
+            cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
         }
     }
 
@@ -1280,7 +1468,7 @@ async fn cancel_zombie_flow_job(
         tx,
         db,
         rsmq.clone(),
-        false,
+        true,
         false,
     )
     .await?;

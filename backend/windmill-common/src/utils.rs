@@ -6,14 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-#[cfg(feature = "enterprise")]
-use crate::ee::trigger_critical_error_channels;
 use crate::ee::LICENSE_KEY_ID;
+#[cfg(feature = "enterprise")]
+use crate::ee::{send_critical_error, send_recovered_critical_error};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
 use crate::DB;
 use anyhow::Context;
+use gethostname::gethostname;
 use git_version::git_version;
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
@@ -53,6 +54,13 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn hostname() -> String {
+    gethostname()
+        .to_str()
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| rd_string(5))
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -96,7 +104,7 @@ pub async fn query_elems_from_hub(
     reqwest::header::HeaderMap,
     axum::body::Body,
 )> {
-    let response = http_get_from_hub(http_client, url, false, query_params, db).await?;
+    let response = http_get_from_hub(http_client, url, false, query_params, Some(db)).await?;
 
     let status = response.status();
 
@@ -112,9 +120,18 @@ pub async fn http_get_from_hub(
     url: &str,
     plain: bool,
     query_params: Option<Vec<(&str, String)>>,
-    db: &Pool<Postgres>,
+    db: Option<&Pool<Postgres>>,
 ) -> Result<reqwest::Response> {
-    let uid = get_uid(db).await;
+    let uid = match db {
+        Some(db) => match get_uid(db).await {
+            Ok(uid) => Some(uid),
+            Err(err) => {
+                tracing::info!("No valid uid found: {}", err);
+                None
+            }
+        },
+        None => None,
+    };
 
     let mut request = http_client.get(url).header(
         "Accept",
@@ -125,10 +142,8 @@ pub async fn http_get_from_hub(
         },
     );
 
-    if let Ok(uid) = uid {
+    if let Some(uid) = uid {
         request = request.header("X-uid", uid);
-    } else {
-        tracing::info!("No valid uid found: {}", uid.err().unwrap())
     }
 
     if let Some(query_params) = query_params {
@@ -183,6 +198,19 @@ pub enum Mode {
     Agent,
     Server,
     Standalone,
+    Indexer,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Worker => write!(f, "worker"),
+            Mode::Agent => write!(f, "agent"),
+            Mode::Server => write!(f, "server"),
+            Mode::Standalone => write!(f, "standalone"),
+            Mode::Indexer => write!(f, "indexer"),
+        }
+    }
 }
 
 pub async fn send_email(
@@ -237,8 +265,35 @@ pub async fn send_email(
     return Ok(());
 }
 
-pub async fn report_critical_error(error_message: String) -> () {
+pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
+
+    if let Err(err) = sqlx::query!(
+        "INSERT INTO alerts (alert_type, message) VALUES ('critical_error', $1)",
+        error_message
+    )
+    .execute(&_db)
+    .await
+    {
+        tracing::error!("Failed to save critical error to database: {}", err);
+    }
+
     #[cfg(feature = "enterprise")]
-    trigger_critical_error_channels(error_message).await;
+    send_critical_error(error_message).await;
+}
+
+pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
+    tracing::info!("RECOVERED CRITICAL ERROR: {message}");
+
+    if let Err(err) = sqlx::query!(
+        "INSERT INTO alerts (alert_type, message) VALUES ('recovered_critical_error', $1)",
+        message
+    )
+    .execute(&_db)
+    .await
+    {
+        tracing::error!("Failed to save critical error to database: {}", err);
+    }
+    #[cfg(feature = "enterprise")]
+    send_recovered_critical_error(message).await;
 }

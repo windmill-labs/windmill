@@ -1,4 +1,6 @@
 <script lang="ts">
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	export let code: string | undefined
 	export let value: any = undefined
@@ -7,6 +9,7 @@
 	export let small = false
 
 	$: tooBig = code && code?.length > 1000000
+
 	function parseJson() {
 		try {
 			if (code == '') {

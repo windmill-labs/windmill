@@ -65,6 +65,9 @@ export function findCodebase(
   path: string,
   codebases: SyncCodebase[]
 ): SyncCodebase | undefined {
+  if (!path.endsWith(".ts")) {
+    return;
+  }
   for (const c of codebases) {
     let included = false;
     let excluded = false;
@@ -95,6 +98,7 @@ export function findCodebase(
     }
   }
 }
+
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
@@ -163,7 +167,9 @@ export async function FSFSElement(
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
 
-        return await addCodebaseDigestIfRelevant(localP, content, codebases);
+        const r = await addCodebaseDigestIfRelevant(localP, content, codebases);
+        // console.log(r);
+        return r;
       },
     };
   }
@@ -292,7 +298,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
   const seen_names = new Set<string>();
   function assignPath(
     summary: string | undefined,
-    language: RawScript["language"]
+    language: RawScript["language"] | "frontend" | "bunnative"
   ): [string, string] {
     let name;
 
@@ -313,7 +319,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
 
     let ext;
     if (language == "python3") ext = "py";
-    else if (language == defaultTs) ext = "ts";
+    else if (language == defaultTs || language == "bunnative") ext = "ts";
     else if (language == "bun") ext = "bun.ts";
     else if (language == "deno") ext = "deno.ts";
     else if (language == "go") ext = "go";
@@ -441,6 +447,8 @@ function ZipFSElement(
                 "!inline " +
                 removeSuffix(p.replaceAll(SEP, "/"), ".json") +
                 ".lock";
+            } else if (parsed["lock"] == "") {
+              parsed["lock"] = "";
             } else {
               parsed["lock"] = undefined;
             }
@@ -576,6 +584,7 @@ export async function elementsToMap(
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
+    if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
@@ -628,6 +637,7 @@ interface Skips {
   includeUsers?: boolean | undefined;
   includeGroups?: boolean | undefined;
   includeSettings?: boolean | undefined;
+  includeKey?: boolean | undefined;
 }
 
 async function compareDynFSElement(
@@ -709,30 +719,32 @@ async function compareDynFSElement(
 
 function getOrderFromPath(p: string) {
   const typ = getTypeStrFromPath(p);
-  if (typ == "folder") {
+  if (typ == "settings") {
     return 0;
-  } else if (typ == "resource-type") {
+  } else if (typ == "folder") {
     return 1;
-  } else if (typ == "resource") {
+  } else if (typ == "resource-type") {
     return 2;
-  } else if (typ == "script") {
+  } else if (typ == "resource") {
     return 3;
-  } else if (typ == "flow") {
+  } else if (typ == "script") {
     return 4;
-  } else if (typ == "app") {
+  } else if (typ == "flow") {
     return 5;
-  } else if (typ == "schedule") {
+  } else if (typ == "app") {
     return 6;
-  } else if (typ == "variable") {
+  } else if (typ == "schedule") {
     return 7;
-  } else if (typ == "user") {
+  } else if (typ == "variable") {
     return 8;
-  } else if (typ == "group") {
+  } else if (typ == "user") {
     return 9;
-  } else if (typ == "settings") {
+  } else if (typ == "group") {
     return 10;
-  } else {
+  } else if (typ == "encryption_key") {
     return 11;
+  } else {
+    return 12;
   }
 }
 
@@ -752,7 +764,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
-    if (typ == "resource-type" || typ == "settings") {
+    if (
+      typ == "resource-type" ||
+      typ == "settings" ||
+      typ == "encryption_key"
+    ) {
       return p.includes(SEP);
     } else {
       return (
@@ -840,7 +856,7 @@ export async function ignoreF(wmillconf: {
   };
 }
 
-async function pull(opts: GlobalOptions & SyncOptions) {
+export async function pull(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
 
   if (opts.stateful) {
@@ -868,6 +884,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
+      opts.includeKey,
       opts.defaultTs
     ))!,
     !opts.json,
@@ -1108,7 +1125,7 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & SyncOptions) {
+export async function push(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
@@ -1144,6 +1161,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
+      opts.includeKey,
       opts.defaultTs
     ))!,
     !opts.json,
@@ -1428,6 +1446,7 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1465,6 +1484,7 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"

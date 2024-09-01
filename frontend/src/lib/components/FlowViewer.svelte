@@ -1,16 +1,12 @@
 <script lang="ts">
-	import Highlight from 'svelte-highlight'
-	import json from 'svelte-highlight/languages/json'
 	import type { FlowValue } from '$lib/gen'
-	import { Tab, Tabs, TabContent, Button } from './common'
+	import { Tab, Tabs, TabContent } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import { copyToClipboard } from '../utils'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 
-	import { Clipboard } from 'lucide-svelte'
-	import YAML from 'yaml'
-	import { yaml } from 'svelte-highlight/languages'
+	import HighlightTheme from './HighlightTheme.svelte'
+	import FlowViewerInner from './FlowViewerInner.svelte'
 
 	export let flow: {
 		summary: string
@@ -21,19 +17,11 @@
 	export let initialOpen: number | undefined = undefined
 	export let noSide = false
 
-	$: flowFiltered = {
-		summary: flow.summary,
-		description: flow.description,
-		value: flow.value,
-		schema: flow.schema
-	}
-
 	export let noGraph: boolean = false
 
 	export let tab: 'ui' | 'raw' | 'schema' = noGraph ? 'schema' : 'ui'
 	export let noSummary = false
-
-	let rawType: 'json' | 'yaml' = 'yaml'
+	export let noGraphDownload = false
 
 	let open: { [id: number]: boolean } = {}
 	if (initialOpen) {
@@ -44,6 +32,8 @@
 		return x as any
 	}
 </script>
+
+<HighlightTheme />
 
 <Tabs bind:selected={tab}>
 	{#if !noGraph}
@@ -84,40 +74,12 @@
 				{:else}
 					<div class="text-secondary text-xs italic mb-4">No inputs</div>
 				{/if}
-				<FlowGraphViewer download {noSide} {flow} overflowAuto />
+
+				<FlowGraphViewer download={!noGraphDownload} {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
-		<TabContent value="raw"
-			><Tabs bind:selected={rawType} wrapperClass="mt-4">
-				<Tab value="yaml">YAML</Tab>
-				<Tab value="json">JSON</Tab>
-				<svelte:fragment slot="content">
-					<div class="relative pt-2">
-						<Button
-							on:click={() =>
-								copyToClipboard(
-									rawType === 'yaml'
-										? YAML.stringify(flowFiltered)
-										: JSON.stringify(flowFiltered, null, 4)
-								)}
-							color="light"
-							variant="border"
-							size="xs"
-							startIcon={{ icon: Clipboard }}
-							btnClasses="absolute top-2 right-2 w-min"
-						>
-							Copy content
-						</Button>
-						<Highlight
-							class="overflow-auto px-1"
-							language={rawType === 'yaml' ? yaml : json}
-							code={rawType === 'yaml'
-								? YAML.stringify(flowFiltered)
-								: JSON.stringify(flowFiltered, null, 4)}
-						/>
-					</div>
-				</svelte:fragment>
-			</Tabs>
+		<TabContent value="raw">
+			<FlowViewerInner {flow} />
 		</TabContent>
 		<TabContent value="schema">
 			<div class="my-4" />

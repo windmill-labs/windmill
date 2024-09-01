@@ -21,7 +21,7 @@
 	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowRetries from './FlowRetries.svelte'
-	import { getStepPropPicker } from '../previousResults'
+	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
 
@@ -30,7 +30,6 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
-	import { schemaToObject } from '$lib/schema'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -45,7 +44,9 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import { initRequiredInputFilled, setRequiredInputFilled } from '../utils'
+	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
+	import { debounce } from '$lib/utils'
+	import { dfs } from '../dfs'
 
 	const {
 		selectedId,
@@ -54,7 +55,8 @@
 		flowStore,
 		pathStore,
 		saveDraft,
-		flowInputsStore
+		flowInputsStore,
+		customUi
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -102,22 +104,7 @@
 	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker = failureModule
-		? {
-				pickableProperties: {
-					flow_input: schemaToObject($flowStore.schema as any, $previewArgs),
-					priorIds: {},
-					previousId: undefined,
-					hasResume: false
-				},
-				extraLib: `
-				declare const error: {
-					message: string
-					name: string
-					stack: string
-				}
-				
-				`
-		  }
+		? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
 		: getStepPropPicker(
 				$flowStateStore,
 				parentModule,
@@ -144,8 +131,12 @@
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
 				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
-					$flowInputsStore![flowModule?.id] = {
-						requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+					$flowInputsStore[flowModule?.id] = {
+						flowStepWarnings: await initFlowStepWarnings(
+							flowModule.value,
+							schema ?? {},
+							dfs($flowStore.value.modules, (fm) => fm.id)
+						)
 					}
 				}
 			} else {
@@ -192,21 +183,33 @@
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
 
-	function setFlowInput(argName: string) {
-		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
-			$flowInputsStore[flowModule.id] = {}
-		}
+	$: $selectedId && onSelectedIdChange()
 
+	function onSelectedIdChange() {
+		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
+			reload(flowModule)
+		}
+	}
+
+	let debouncedWarning = debounce((argName: string) => {
 		if ($flowInputsStore) {
-			const requiredInputsFilled = setRequiredInputFilled(
+			computeFlowStepWarning(
 				argName,
 				flowModule.value,
-				$flowInputsStore[flowModule.id].requiredInputsFilled ?? {},
-				$flowStateStore[$selectedId]?.schema
-			)
-
-			$flowInputsStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
+				$flowStateStore[$selectedId]?.schema ?? {},
+				dfs($flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
+			).then((flowStepWarnings) => {
+				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
+			})
 		}
+	}, 100)
+
+	function setFlowInput(argName: string) {
+		if ($flowInputsStore && flowModule.id && $flowInputsStore?.[flowModule.id] === undefined) {
+			$flowInputsStore[flowModule.id] = {}
+		}
+		debouncedWarning(argName)
 	}
 </script>
 
@@ -263,6 +266,7 @@
 			{#if flowModule.value.type === 'rawscript' && !noEditor}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
+						customUi={customUi?.editorBar}
 						{validCode}
 						{editor}
 						{diffEditor}
@@ -330,10 +334,12 @@
 										)}
 									/>
 									<DiffEditor
+										open={false}
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
-										class="hidden h-full"
+										defaultLang={scriptLangToEditorLang(flowModule.value.language)}
+										class="h-full"
 									/>
 								{/key}
 							{/if}
@@ -360,7 +366,7 @@
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div
-							class={advancedSelected === 'runtime' ? 'h-[calc(100%-64px)]' : 'h-[calc(100%-32px)]'}
+							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
 								<div class="h-full overflow-auto" id="flow-editor-step-input">
@@ -400,7 +406,12 @@
 									{#if !$selectedId.includes('failure')}
 										<Tab value="runtime">Runtime</Tab>
 										<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
-										<Tab value="early-stop" active={Boolean(flowModule.stop_after_if)}>
+										<Tab
+											value="early-stop"
+											active={Boolean(
+												flowModule.stop_after_if || flowModule.stop_after_all_iters_if
+											)}
+										>
 											Early Stop
 										</Tab>
 										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>

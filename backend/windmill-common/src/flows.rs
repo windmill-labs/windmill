@@ -20,7 +20,7 @@ use crate::{
     scripts::{Schema, ScriptHash, ScriptLang},
 };
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct Flow {
     pub workspace_id: String,
     pub path: String,
@@ -38,12 +38,25 @@ pub struct Flow {
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_none_or_false")]
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FlowWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub flow: Flow,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
+}
+
+fn is_none_or_false(b: &Option<bool>) -> bool {
+    b.is_none() || !b.unwrap()
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -52,8 +65,8 @@ pub struct ListableFlow {
     pub path: String,
     pub summary: String,
     pub description: String,
-    pub edited_by: String,
-    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub edited_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
@@ -62,6 +75,9 @@ pub struct ListableFlow {
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 #[derive(Deserialize, sqlx::FromRow)]
@@ -73,7 +89,6 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
-    pub ws_error_handler_muted: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
     pub deployment_message: Option<String>,
@@ -207,6 +222,12 @@ pub struct Suspend {
     pub self_approval_disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hide_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "false_or_empty")]
+    pub continue_on_disapprove_timeout: Option<bool>,
+}
+
+fn false_or_empty(v: &Option<bool>) -> bool {
+    v.is_none() || v.as_ref().is_some_and(|x| !x)
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -223,6 +244,8 @@ pub struct FlowModule {
     pub value: Box<serde_json::value::RawValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_after_all_iters_if: Option<StopAfterIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -404,7 +427,7 @@ pub enum FlowModuleValue {
         lock: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         path: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "is_none_or_empty")]
         tag: Option<String>,
         language: ScriptLang,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -415,6 +438,10 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
     },
     Identity,
+}
+
+fn is_none_or_empty(expr: &Option<String>) -> bool {
+    expr.is_none() || expr.as_ref().unwrap().is_empty()
 }
 
 #[derive(Deserialize)]
@@ -551,6 +578,8 @@ pub struct ListFlowQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub starred_only: Option<bool>,
+    pub include_draft_only: Option<bool>,
+    pub with_deployment_msg: Option<bool>,
 }
 
 pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
@@ -562,6 +591,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             id: format!("{}-v", modules[modules.len() - 1].id),
             value: crate::worker::to_raw_value(&FlowModuleValue::Identity),
             stop_after_if: None,
+            stop_after_all_iters_if: None,
             summary: Some("Virtual module needed for suspend/sleep when last module".to_string()),
             mock: None,
             retry: None,

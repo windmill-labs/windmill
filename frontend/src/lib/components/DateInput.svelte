@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { format, isValid } from 'date-fns'
+	import { format, isValid, parse } from 'date-fns'
+	import { sendUserToast } from '$lib/toast'
 
 	export let value: string | undefined = undefined
 	export let autofocus: boolean | null = false
@@ -8,18 +9,46 @@
 	export let maxDate: string | undefined = undefined
 	export let dateFormat: string | undefined = 'dd-MM-yyyy'
 
-	let date: string | undefined = undefined
+	let date: string | undefined = computeDate(value)
 
 	const dispatch = createEventDispatcher()
+
+	const defaultDateFormat = 'dd-MM-yyyy'
+	const defaultHtmlDateFormat = 'yyyy-MM-dd'
+	function computeDate(value: string | undefined) {
+		if (dateFormat === undefined) {
+			dateFormat = defaultDateFormat
+		}
+		if (value && value.length > 0) {
+			try {
+				let date = parse(value, dateFormat, new Date())
+				if (date.toString() === 'Invalid Date') {
+					console.debug('falling back to default html date format')
+					date = parse(value, defaultHtmlDateFormat, new Date())
+				}
+				const res = format(date, defaultHtmlDateFormat)
+				return res
+			} catch (error) {
+				sendUserToast(
+					`Failed to parse date: ${value} with format ${dateFormat} and ${defaultHtmlDateFormat}`,
+					true
+				)
+				console.error(`Failed to parse date: ${value}`, error)
+				return undefined
+			}
+		} else {
+			return undefined
+		}
+	}
 
 	function updateValue(newDate: string | undefined) {
 		if (newDate && isValid(new Date(newDate))) {
 			if (dateFormat === undefined) {
-				dateFormat = 'dd-MM-yyyy'
+				dateFormat = defaultDateFormat
 			}
 
 			try {
-				let dateFromValue: Date | undefined = newDate ? new Date(newDate) : undefined
+				let dateFromValue: Date | undefined = newDate ? new Date(newDate + 'T00:00:00') : undefined
 
 				if (dateFromValue === undefined) {
 					return

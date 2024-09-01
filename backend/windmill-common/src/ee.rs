@@ -1,3 +1,4 @@
+use crate::db::DB;
 use crate::ee::LicensePlan::Community;
 #[cfg(feature = "enterprise")]
 use crate::error;
@@ -26,7 +27,10 @@ pub async fn get_license_plan() -> LicensePlan {
 #[serde(untagged)]
 pub enum CriticalErrorChannel {}
 
-pub async fn trigger_critical_error_channels(_error_message: String) {}
+#[cfg(feature = "enterprise")]
+pub async fn send_critical_error(_error_message: String) {}
+#[cfg(feature = "enterprise")]
+pub async fn send_recovered_critical_error(_error_message: String) {}
 
 #[cfg(feature = "enterprise")]
 pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
@@ -34,7 +38,11 @@ pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::d
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::DB) -> String {
+pub async fn renew_license_key(
+    _http_client: &reqwest::Client,
+    _db: &crate::db::DB,
+    _key: Option<String>,
+) -> String {
     // Implementation is not open source
     "".to_string()
 }
@@ -42,7 +50,11 @@ pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::
 #[cfg(feature = "enterprise")]
 pub async fn create_customer_portal_session(
     _http_client: &reqwest::Client,
+    _key: Option<String>,
 ) -> error::Result<String> {
     // Implementation is not open source
     Ok("".to_string())
 }
+
+#[cfg(feature = "enterprise")]
+pub async fn worker_groups_alerts(_db: &DB) {}

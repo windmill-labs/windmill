@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 
 	import { Button, FileInput } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { LayoutDashboard, Plus } from 'lucide-svelte'
+	import { LayoutDashboard, Loader2, Plus } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
 	import { RawAppService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -49,7 +49,7 @@
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
-		href="/apps/add?nodraft=true"
+		href="{base}/apps/add?nodraft=true"
 		color="marine"
 		dropdownItems={[
 			{
@@ -84,12 +84,16 @@
 		title={'Import low-code app from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
 		on:close={() => drawer?.toggleDrawer?.()}
 	>
-		<SimpleEditor
-			bind:code={pendingRaw}
-			lang={importType}
-			class="h-full"
-			fixedOverflowWidgets={false}
-		/>
+		{#await import('$lib/components/SimpleEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				bind:code={pendingRaw}
+				lang={importType}
+				class="h-full"
+				fixedOverflowWidgets={false}
+			/>
+		{/await}
 		<svelte:fragment slot="actions">
 			<Button size="sm" on:click={importRaw}>Import</Button>
 		</svelte:fragment>

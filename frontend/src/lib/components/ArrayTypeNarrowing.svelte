@@ -3,50 +3,101 @@
 	import { Button } from './common'
 	import { fade } from 'svelte/transition'
 	import Label from './Label.svelte'
+	import ResourceTypePicker from './ResourceTypePicker.svelte'
+	import Badge from './common/badge/Badge.svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import EditableSchemaDrawer from './schema/EditableSchemaDrawer.svelte'
+	import type { SchemaProperty } from '$lib/common'
 
+	export let canEditResourceType: boolean = false
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
+				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined
 
-	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | undefined =
+	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | 'resource' | undefined =
 		itemsType?.type != 'string'
 			? itemsType?.type
 			: Array.isArray(itemsType?.enum)
 			? 'enum'
 			: 'string'
+
+	let schema = {
+		properties: itemsType?.properties || {},
+		order: Object.keys(itemsType?.properties || {}),
+		required: Object.values(itemsType?.properties || {}).map((p) => p.required)
+	}
+
+	function updateItemsType() {
+		itemsType = {
+			...itemsType,
+			properties: schema.properties,
+			type: 'object'
+		}
+	}
 </script>
 
-<Label label="Items type">
-	<select
-		bind:value={selected}
-		on:change={() => {
-			if (selected == 'enum') {
-				itemsType = { type: 'string', enum: [] }
-			} else if (selected == 'string') {
-				itemsType = { type: 'string' }
-			} else if (selected == 'number') {
-				itemsType = { type: 'number' }
-			} else if (selected == 'object') {
-				itemsType = { type: 'object' }
-			} else if (selected == 'bytes') {
-				itemsType = { type: 'string', contentEncoding: 'base64' }
-			} else {
-				itemsType = undefined
-			}
-		}}
-		id="array-type-narrowing"
+{#if canEditResourceType}
+	<Label label="Items type">
+		<select
+			bind:value={selected}
+			on:change={() => {
+				if (selected == 'enum') {
+					itemsType = { type: 'string', enum: [] }
+				} else if (selected == 'string') {
+					itemsType = { type: 'string' }
+				} else if (selected == 'number') {
+					itemsType = { type: 'number' }
+				} else if (selected == 'object') {
+					itemsType = { ...itemsType, type: 'object' }
+				} else if (selected == 'bytes') {
+					itemsType = { type: 'string', contentEncoding: 'base64' }
+				} else if (selected == 'resource') {
+					itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
+				} else {
+					itemsType = undefined
+				}
+			}}
+			id="array-type-narrowing"
+		>
+			<option value="string"> Items are strings</option>
+			<option value="enum">Items are strings from an enum</option>
+			<option value="object"> Items are objects (JSON)</option>
+			<option value="resource"> Items are resources</option>
+			<option value="number">Items are numbers</option>
+			<option value="bytes">Items are bytes</option>
+		</select>
+	</Label>
+{:else if itemsType?.resourceType}
+	<Label label="Resource type">
+		<Badge color="blue">
+			{itemsType?.resourceType}
+		</Badge>
+	</Label>
+{/if}
+
+{#if itemsType?.type === 'resource'}
+	<Alert
+		type="warning"
+		title="Value"
+		size="xs"
+		tooltip="Learn how to use the SDK to get the resource by using the path."
+		documentationLink="https://www.windmill.dev/docs/code_editor/add_variables_resources#fetching-them-from-within-a-script-by-using-the-wmill-client-in-the-respective-language"
 	>
-		<option value="string"> Items are strings</option>
-		<option value="enum">Items are strings from an enum</option>
-		<option value="object"> Items are objects (JSON)</option>
-		<option value="number">Items are numbers</option>
-		<option value="bytes">Items are bytes</option>
-	</select>
-</Label>
+		The value passed is the path of the resource, not the resource itself. You can use the SDK to
+		get the resource by using the path.
+	</Alert>
+{/if}
+
+{#if canEditResourceType && itemsType?.type == 'resource'}
+	<ResourceTypePicker bind:value={itemsType.resourceType} />
+{/if}
+
 {#if Array.isArray(itemsType?.enum)}
 	<label for="input" class="text-secondary text-xs">
 		Enums
@@ -96,4 +147,13 @@
 			</Button>
 		</div>
 	</label>
+{/if}
+
+{#if selected === 'object'}
+	<EditableSchemaDrawer
+		bind:schema
+		on:change={() => {
+			updateItemsType()
+		}}
+	/>
 {/if}

@@ -1,22 +1,18 @@
 <script lang="ts">
-	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
-	import { copyToClipboard } from '$lib/utils'
-	import { CalendarCheck2, Clipboard, Terminal, Webhook } from 'lucide-svelte'
-	import { Highlight } from 'svelte-highlight'
-	import { yaml } from 'svelte-highlight/languages'
-	import json from 'svelte-highlight/languages/json'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import YAML from 'yaml'
+	import { Tabs, Tab, TabContent } from '$lib/components/common'
+	import { CalendarCheck2, MailIcon, Terminal, Webhook } from 'lucide-svelte'
 
-	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import HighlightTheme from '../HighlightTheme.svelte'
+	import FlowViewerInner from '../FlowViewerInner.svelte'
+
+	export let triggerSelected: 'webhooks' | 'email' | 'schedule' | 'cli' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let hasStepDetails: boolean = false
 
 	export let isOperator: boolean = false
 
 	export let selected: string
-
-	let rawType: 'json' | 'yaml' = 'yaml'
 
 	$: if (hasStepDetails) {
 		selected = 'flow_step'
@@ -25,6 +21,8 @@
 	// When we no longer have a selected flow step, switch to saved inputs
 	$: !hasStepDetails && selected === 'flow_step' && (selected = 'saved_inputs')
 </script>
+
+<HighlightTheme />
 
 <Splitpanes horizontal class="h-full">
 	<Pane size={100}>
@@ -63,6 +61,12 @@
 											Schedules
 										</span>
 									</Tab>
+									<Tab value="email">
+										<span class="flex flex-row gap-2 items-center">
+											<MailIcon size={14} />
+											Email
+										</span>
+									</Tab>
 									<Tab value="cli">
 										<span class="flex flex-row gap-2 items-center">
 											<Terminal size={14} />
@@ -75,6 +79,8 @@
 									<div class="h-full overflow-auto">
 										{#if triggerSelected === 'webhooks'}
 											<slot name="webhooks" />
+										{:else if triggerSelected === 'email'}
+											<slot name="email" />
 										{:else if triggerSelected === 'schedule'}
 											<slot name="schedule" />
 										{:else if triggerSelected === 'cli'}
@@ -86,36 +92,7 @@
 						</Splitpanes>
 					</TabContent>
 					<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto">
-						<Tabs bind:selected={rawType} wrapperClass="mt-4">
-							<Tab value="yaml">YAML</Tab>
-							<Tab value="json">JSON</Tab>
-							<svelte:fragment slot="content">
-								<div class="relative pt-2">
-									<Button
-										on:click={() =>
-											copyToClipboard(
-												rawType === 'yaml'
-													? YAML.stringify(flow_json)
-													: JSON.stringify(flow_json, null, 4)
-											)}
-										color="light"
-										variant="border"
-										size="xs"
-										startIcon={{ icon: Clipboard }}
-										btnClasses="absolute top-2 right-2 w-min"
-									>
-										Copy content
-									</Button>
-									<Highlight
-										class="overflow-auto px-1"
-										language={rawType === 'yaml' ? yaml : json}
-										code={rawType === 'yaml'
-											? YAML.stringify(flow_json)
-											: JSON.stringify(flow_json, null, 4)}
-									/>
-								</div>
-							</svelte:fragment>
-						</Tabs>
+						<FlowViewerInner flow={flow_json} />
 					</TabContent>
 					<TabContent value="flow_step" class="flex flex-col flex-1 h-full">
 						<slot name="flow_step" />

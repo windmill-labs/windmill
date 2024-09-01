@@ -6,8 +6,83 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Continue on disapproval/timeout',
+		href: 'https://www.windmill.dev/changelog/continue-on-disapproval',
+		date: '2024-08-14'
+	},
+	{
+		label: 'Nativets runtime supports npm packages and relative imports',
+		href: 'https://www.windmill.dev/changelog/native-runtime-imports',
+		date: '2024-07-29'
+	},
+	{
+		label: 'App bar as components',
+		href: 'https://www.windmill.dev/changelog/app-bar-components',
+		date: '2024-07-29'
+	},
+	{
+		label: 'TypeScript Bun scripts are automatically pre-bundled',
+		href: 'https://www.windmill.dev/changelog/pre-bundle-bun-scripts',
+		date: '2024-07-26'
+	},
+	{
+		label: 'Dynamic Select',
+		href: 'https://www.windmill.dev/changelog/dynamic-select',
+		date: '2024-07-22'
+	},
+	{
+		label: 'Flow Status Viewer improvements',
+		href: 'https://www.windmill.dev/changelog/flow-status-viewer',
+		date: '2024-07-14'
+	},
+	{
+		label: 'Navbar Component',
+		href: 'https://www.windmill.dev/changelog/navbar',
+		date: '2024-07-05'
+	},
+	{
+		label: 'Flow Versioning',
+		href: 'https://www.windmill.dev/changelog/flow-versioning',
+		date: '2024-07-04'
+	},
+	{
+		label: 'OneOf Inputs',
+		href: 'https://www.windmill.dev/changelog/oneof-inputs',
+		date: '2024-06-17'
+	},
+	{
+		label: 'Tracking relative imports to avoid dependency hell',
+		href: 'https://www.windmill.dev/changelog/track-relative-imports',
+		date: '2024-06-10'
+	},
+	{
+		label: 'Windmill Customer Portal',
+		href: 'https://www.windmill.dev/changelog/customer-portal',
+		date: '2024-06-04'
+	},
+	{
+		label: 'Secondary Storage',
+		href: 'https://www.windmill.dev/changelog/secondary-storage',
+		date: '2024-05-31'
+	},
+	{
+		label: 'Allow User Resources in Apps with a toggle',
+		href: 'https://www.windmill.dev/changelog/user-resources-in-apps',
+		date: '2024-05-27'
+	},
+	{
+		label: 'Windmill AI now supports GPT-4o',
+		href: 'https://www.windmill.dev/changelog/windmill-ai-gpt-4o',
+		date: '2024-05-27'
+	},
+	{
 		label: 'Concurrency Limit Observability',
 		href: 'https://www.windmill.dev/changelog/concurrency-limit-observability',
+		date: '2024-05-15'
+	},
+	{
+		label: 'Full Height Components',
+		href: 'https://www.windmill.dev/changelog/full-height-components',
 		date: '2024-05-15'
 	},
 	{

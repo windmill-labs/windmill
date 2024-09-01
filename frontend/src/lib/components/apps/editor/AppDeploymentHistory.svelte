@@ -5,11 +5,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 
-	let appPath: string | undefined = undefined
+	export let appPath: string | undefined = undefined
 	let historyBrowserDrawerOpen = false
 
-	export function open(appPath: string) {
-		appPath = appPath
+	export function open() {
 		historyBrowserDrawerOpen = true
 	}
 

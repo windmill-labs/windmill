@@ -4,11 +4,18 @@ import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { Schedule } from './scheduleUtils'
+import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 
 export type FlowInput = Record<
 	string,
 	{
-		requiredInputsFilled?: Record<string, boolean>
+		flowStepWarnings?: Record<
+			string,
+			{
+				message: string
+				type: 'error' | 'warning'
+			}
+		>
 	}
 >
 
@@ -32,5 +39,6 @@ export type FlowEditorContext = {
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
 	initialPath: string
-	flowInputsStore: Writable<FlowInput | undefined>
+	flowInputsStore: Writable<FlowInput>
+	customUi: FlowBuilderWhitelabelCustomUi
 }

@@ -10,6 +10,7 @@
 	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
+	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import AnsiUp from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -25,6 +26,8 @@
 	export let tag: string | undefined
 	export let small = false
 	export let drawerOpen = false
+	export let noMaxH = false
+	export let noAutoScroll = false
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -95,10 +98,6 @@
 		return content
 	}
 
-	$: if (content != undefined && isLoading) {
-		isLoading = false
-	}
-
 	$: truncatedContent && scrollToBottom()
 
 	$: html = ansi_up.ansi_to_html(
@@ -147,17 +146,19 @@
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button
-				href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-				download="windmill_logs_{jobId}.txt"
-				color="light"
-				size="xs"
-				startIcon={{
-					icon: Download
-				}}
-			>
-				Download
-			</Button>
+			{#if jobId}
+				<Button
+					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+					download="windmill_logs_{jobId}.txt"
+					color="light"
+					size="xs"
+					startIcon={{
+						icon: Download
+					}}
+				>
+					Download
+				</Button>
+			{/if}
 
 			<Button
 				on:click={() => copyToClipboard(content)}
@@ -189,28 +190,32 @@
 <div class="relative w-full h-full {wrapperClass}">
 	<div
 		bind:this={div}
-		class="w-full h-full overflow-auto relative bg-surface-secondary max-h-screen"
+		class="w-full h-full overflow-auto relative bg-surface-secondary {noMaxH ? '' : 'max-h-screen'}"
 	>
 		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
-				<div class="flex items-center">
-					<a
-						class="text-primary pb-0.5"
-						target="_blank"
-						href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-						download="windmill_logs_{jobId}.txt"
-						><Download size="14" />
-					</a>
-				</div>
+				{#if jobId}
+					<div class="flex items-center">
+						<a
+							class="text-primary pb-0.5"
+							target="_blank"
+							href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+							download="windmill_logs_{jobId}.txt"
+							><Download size="14" />
+						</a>
+					</div>
+				{/if}
 				<button on:click={logViewer.openDrawer}><Expand size="12" /></button>
-				<div
-					class="{small ? '' : 'py-2'} pr-2 {small
-						? '!text-2xs'
-						: '!text-xs'} flex gap-2 text-tertiary items-center"
-				>
-					Auto scroll
-					<input class="windmillapp" type="checkbox" bind:checked={scroll} />
-				</div>
+				{#if !noAutoScroll}
+					<div
+						class="{small ? '' : 'py-2'} pr-2 {small
+							? '!text-2xs'
+							: '!text-xs'} flex gap-2 text-tertiary items-center"
+					>
+						Auto scroll
+						<input class="windmillapp" type="checkbox" bind:checked={scroll} />
+					</div>
+				{/if}
 			</div>
 		</div>
 		{#if isLoading}

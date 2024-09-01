@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.78-slim-bookworm
+ARG RUST_IMAGE=rust:1.80-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -41,6 +41,7 @@ COPY /typescript-client/docs/ /frontend/static/tsdocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
+ARG VITE_BASE_URL ""
 RUN npm run build
 
 
@@ -58,7 +59,9 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev clang libclang-dev cmake
+RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
@@ -67,7 +70,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-COPY --from=frontend /frontend /frontend
+RUN mkdir -p /frontend
+
+COPY --from=frontend /frontend/build /frontend/build
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml
 COPY .git/ .git/
 
@@ -75,21 +80,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
-
-FROM ${DEBIAN_IMAGE} as downloader
-
-ARG TARGETPLATFORM
-
-SHELL ["/bin/bash", "-c"]
-
-RUN apt update -y
-RUN apt install -y unzip curl
-
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.44.1/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.44.1/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
-
-
-RUN unzip deno.zip && rm deno.zip
 
 FROM ${PYTHON_IMAGE}
 
@@ -106,14 +96,17 @@ ARG WITH_HELM=true
 
 RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
-    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* && \
     dpkg --install 'pwsh.deb' && \
     rm 'pwsh.deb'; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /opt/microsoft/powershell/7 && \
     tar zxf powershell.tar.gz -C /opt/microsoft/powershell/7 && \
     chmod +x /opt/microsoft/powershell/7/pwsh && \
@@ -141,13 +134,13 @@ RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
     'amd64') \
-    targz='go1.21.6.linux-amd64.tar.gz'; \
+    targz='go1.22.5.linux-amd64.tar.gz'; \
     ;; \
     'arm64') \
-    targz='go1.21.6.linux-arm64.tar.gz'; \
+    targz='go1.22.5.linux-arm64.tar.gz'; \
     ;; \
     'armhf') \
-    targz='go1.21.6.linux-armv6l.tar.gz'; \
+    targz='go1.22.5.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
@@ -157,7 +150,8 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
-RUN apt-get -y update && apt-get install -y curl nodejs awscli
+RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
@@ -169,10 +163,9 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
+COPY --from=denoland/deno:1.46.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=downloader --chmod=755 /deno /usr/bin/deno
-
-COPY --from=oven/bun:1.1.8 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.25 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
@@ -180,11 +173,16 @@ COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
+ENV RUSTUP_HOME="/usr/local/rustup"
+ENV CARGO_HOME="/usr/local/cargo"
+
 WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
-RUN windmill cache
+COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
+
+RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
 
 EXPOSE 8000
 

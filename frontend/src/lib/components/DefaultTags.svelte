@@ -6,6 +6,7 @@
 	import DefaultTagsInner from './DefaultTagsInner.svelte'
 
 	export let defaultTagPerWorkspace: boolean | undefined = undefined
+	export let defaultTagWorkspaces: string[] | undefined = undefined
 
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
@@ -24,5 +25,5 @@
 			>
 		</Button>
 	</svelte:fragment>
-	<DefaultTagsInner bind:defaultTagPerWorkspace />
+	<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
 </Popup>

@@ -14,7 +14,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -28,11 +27,13 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { ResourceType } from '$lib/gen'
-	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
+	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+
 	import { convert } from '@redocly/json-to-json-schema'
 	import {
 		Braces,
@@ -50,6 +51,7 @@
 	import { onMount } from 'svelte'
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
+	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -80,7 +82,7 @@
 		schema: emptySchema(),
 		description: ''
 	}
-	let resourceEditor: ResourceEditor | undefined
+	let resourceEditor: ResourceEditorDrawer | undefined
 	let shareModal: ShareModal
 	let appConnect: AppConnect
 	let supabaseConnect: SupabaseConnect
@@ -324,6 +326,18 @@
 			types: false
 		}
 	}
+
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 </script>
 
 <ConfirmationModal
@@ -748,13 +762,17 @@
 														resourceEditor?.initEdit?.(path)
 													}
 												},
-												{
-													displayName: 'Deploy to prod/staging',
-													icon: FileUp,
-													action: () => {
-														deploymentDrawer.openDrawer(path, 'resource')
-													}
-												},
+												...(isDeployable('resource', path, deployUiSettings)
+													? [
+															{
+																displayName: 'Deploy to prod/staging',
+																icon: FileUp,
+																action: () => {
+																	deploymentDrawer.openDrawer(path, 'resource')
+																}
+															}
+													  ]
+													: []),
 												{
 													displayName: 'Delete',
 													disabled: !canWrite,
@@ -895,7 +913,7 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<ResourceEditor bind:this={resourceEditor} on:refresh={loadResources} />
+<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
 
 <ShareModal
 	bind:this={shareModal}

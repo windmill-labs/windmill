@@ -1,8 +1,14 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext, GridItem } from '../../types'
+	import { dfs, findGridItem } from '../appUtils'
 
 	export let type: string
+	export let id: string
+
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const tables = [
 		'aggridcomponent',
@@ -17,26 +23,71 @@
 		description: string
 	}[] = []
 
+	function addContextVariable(label: string, description: string): void {
+		if (!contextVariables.some((variable) => variable.label === label)) {
+			contextVariables.push({ label, description })
+		}
+	}
+
 	if (tables.includes(type)) {
-		contextVariables.push({
-			label: 'row',
-			description: 'The current row of a table. Row is an object with keys index and value.'
-		})
+		addContextVariable(
+			'row',
+			'The current row of a table. Row is an object with keys index and value.'
+		)
 	} else if (type === 's3fileinputcomponent' || type === 'fileinputcomponent') {
-		contextVariables.push({
-			label: 'file',
-			description: 'The current file being processed.'
-		})
+		addContextVariable('file', 'The current file being processed.')
 	} else if (type === 'containercomponent') {
-		contextVariables.push({
-			label: 'group',
-			description: 'The group name of the container.'
-		})
+		addContextVariable('group', 'The group name of the container.')
 	} else if (type === 'listcomponent') {
-		contextVariables.push({
-			label: 'iter',
-			description: 'The current iteration of the list. Iter is an object with keys index and value.'
+		addContextVariable(
+			'iter',
+			'The current iteration of the list. Iter is an object with keys index and value.'
+		)
+	}
+
+	function addGridItemContext(parentId: string) {
+		if (!parentId) return
+		const gridItem = findGridItem($app, parentId)
+		addParentContextVariable(gridItem)
+	}
+
+	function processParents(parents: string[]) {
+		parents.forEach((parentId) => {
+			if (parentId) {
+				const parsedParentId = parentId?.includes('-') ? parentId.split('-')[0] : parentId
+				addGridItemContext(parsedParentId)
+			}
 		})
+	}
+
+	function findParentsContextVariables(id: string): void {
+		if (!id) return
+		const allParents = dfs($app.grid, id, $app.subgrids ?? {})
+
+		if (!allParents) return
+
+		// Remove last element as it is the current component
+		allParents.pop()
+
+		processParents(allParents)
+	}
+
+	findParentsContextVariables(id)
+
+	function addParentContextVariable(parent: GridItem | undefined) {
+		if (parent?.data?.type === 'containercomponent') {
+			addContextVariable('group', 'The group name of the container.')
+		} else if (parent?.data?.type === 'listcomponent') {
+			addContextVariable(
+				'iter',
+				'The current iteration of the list. Iter is an object with keys index and value.'
+			)
+		} else if (parent?.data?.type && tables.includes(parent?.data?.type)) {
+			addContextVariable(
+				'row',
+				'The current row of a table. Row is an object with keys index and value.'
+			)
+		}
 	}
 </script>
 

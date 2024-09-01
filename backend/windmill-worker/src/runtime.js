@@ -29,6 +29,7 @@ globalThis.atob = base64.atob;
 globalThis.btoa = base64.btoa;
 globalThis.fetch = fetch.fetch;
 globalThis.Request = request.Request;
+globalThis.Response = response.Response;
 globalThis.Blob = file.Blob;
 globalThis.URL = url.URL;
 globalThis.FormData = formData.FormData;

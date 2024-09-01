@@ -17,6 +17,7 @@ use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, JOB_TOKEN, KEEP_JOB_DIR};
 use anyhow::Context;
+use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
@@ -47,7 +48,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_queued_job,
-    handle_maybe_scheduled_job, CanceledBy, PushIsolationLevel, WrappedError,
+    handle_maybe_scheduled_job, CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -56,7 +57,6 @@ use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTrans
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion<
-    'a,
     R: rsmq_async::RsmqConnection + Send + Sync + Clone,
 >(
     db: &DB,
@@ -65,7 +65,7 @@ pub async fn update_flow_status_after_job_completion<
     job_id_for_status: &Uuid,
     w_id: &str,
     success: bool,
-    result: &'a RawValue,
+    result: Arc<Box<RawValue>>,
     unrecoverable: bool,
     same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
@@ -105,7 +105,7 @@ pub async fn update_flow_status_after_job_completion<
             &nrec.job_id_for_status,
             w_id,
             nrec.success,
-            nrec.result.as_ref(),
+            nrec.result,
             false,
             same_worker_tx.clone(),
             worker_dir,
@@ -127,7 +127,9 @@ pub async fn update_flow_status_after_job_completion<
                     &nrec.job_id_for_status,
                     w_id,
                     false,
-                    &to_raw_value(&Json(&WrappedError { error: json!(e.to_string()) })),
+                    Arc::new(to_raw_value(&Json(&WrappedError {
+                        error: json!(e.to_string()),
+                    }))),
                     true,
                     same_worker_tx.clone(),
                     worker_dir,
@@ -147,7 +149,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
     job_id_for_status: Uuid,
     success: bool,
-    result: Box<RawValue>,
+    result: Arc<Box<RawValue>>,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
 }
@@ -160,13 +162,17 @@ pub struct SkipIfStopped {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
+#[derive(Deserialize)]
+struct RecoveryObject {
+    recover: Option<bool>,
+}
+
 #[derive(sqlx::FromRow, Deserialize)]
 pub struct RowFlowStatus {
     pub flow_status: sqlx::types::Json<Box<serde_json::value::RawValue>>,
 }
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal<
-    'a,
     R: rsmq_async::RsmqConnection + Send + Sync + Clone,
 >(
     db: &DB,
@@ -175,7 +181,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     job_id_for_status: &Uuid,
     w_id: &str,
     mut success: bool,
-    result: &'a RawValue,
+    result: Arc<Box<RawValue>>,
     unrecoverable: bool,
     same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
@@ -226,22 +232,27 @@ pub async fn update_flow_status_after_job_completion_internal<
         //     "UPDATE FLOW STATUS 2: {module_index:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (skip_loop_failures, parallelism) = if matches!(
+        let (is_loop, skip_loop_failures, parallelism) = if matches!(
             module_status,
             FlowStatusModule::InProgress { iterator: Some(_), .. }
         ) {
             let (loop_failures, parallelism) =
                 compute_skip_loop_failures_and_parallelism(flow, old_status.step, db).await?;
-            (loop_failures.unwrap_or(false), parallelism)
+            (true, loop_failures.unwrap_or(false), parallelism)
         } else {
-            (false, None)
+            (false, false, None)
         };
+
+        let is_branch_all = matches!(
+            module_status,
+            FlowStatusModule::InProgress { branchall: Some(_), .. }
+        );
 
         // 0 length flows are not failure steps
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let (mut stop_early, skip_if_stop_early, continue_on_error) = if let Some(se) =
+        let (mut stop_early, mut skip_if_stop_early, continue_on_error) = if let Some(se) =
             stop_early_override
         {
             //do not stop early if module is a flow step
@@ -258,7 +269,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         } else if is_failure_step {
             (false, false, false)
         } else {
-            let row = sqlx::query(
+            let r = sqlx::query_as::<_, SkipIfStopped>(
             "SELECT 
                     raw_flow->'modules'->$1::int->'stop_after_if'->>'expr' as stop_early_expr,
                     (raw_flow->'modules'->$1::int->'stop_after_if'->>'skip_if_stopped')::bool as skip_if_stopped,
@@ -272,21 +283,33 @@ pub async fn update_flow_status_after_job_completion_internal<
             .fetch_one(db)
             .await
             .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
-            let r = SkipIfStopped::from_row(&row)?;
 
             let stop_early = success
+                && !is_branch_all
                 && if let Some(expr) = r.stop_early_expr.clone() {
+                    let all_iters = match &module_status {
+                        FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. }
+                            if expr.contains("all_iters") =>
+                        {
+                            Some(Arc::new(
+                                retrieve_flow_jobs_results(db, w_id, flow_jobs).await?,
+                            ))
+                        }
+                        _ => None,
+                    };
                     compute_bool_from_expr(
                         expr,
-                        Arc::new(
+                        Marc::new(
                             r.args
                                 .map(|x| x.0)
                                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
                                 .to_owned(),
                         ),
-                        Arc::new(result.to_owned()),
+                        result.clone(),
+                        all_iters,
                         None,
                         Some(client),
+                        None,
                         None,
                     )
                     .await?
@@ -303,10 +326,18 @@ pub async fn update_flow_status_after_job_completion_internal<
         let skip_branch_failure = match module_status {
             FlowStatusModule::InProgress {
                 branchall: Some(BranchAllStatus { branch, .. }),
+                parallel,
                 ..
-            } => compute_skip_branchall_failure(flow, old_status.step, *branch, db)
-                .await?
-                .unwrap_or(false),
+            } => compute_skip_branchall_failure(
+                flow,
+                job_id_for_status,
+                old_status.step,
+                *branch,
+                *parallel,
+                db,
+            )
+            .await?
+            .unwrap_or(false),
             _ => false,
         };
 
@@ -318,10 +349,22 @@ pub async fn update_flow_status_after_job_completion_internal<
                 branchall,
                 parallel,
                 flow_jobs: Some(jobs),
+                flow_jobs_success,
                 ..
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
                     (Some(Iterator { itered, .. }), _) => {
+                        set_success_in_flow_job_success(
+                            flow_jobs_success,
+                            jobs,
+                            job_id_for_status,
+                            &old_status,
+                            flow,
+                            success,
+                            &mut tx,
+                        )
+                        .await?;
+
                         let nindex = sqlx::query_scalar!(
                             "UPDATE queue
                             SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb)
@@ -345,6 +388,16 @@ pub async fn update_flow_status_after_job_completion_internal<
                         (nindex, itered.len() as i32)
                     }
                     (_, Some(BranchAllStatus { len, .. })) => {
+                        set_success_in_flow_job_success(
+                            flow_jobs_success,
+                            jobs,
+                            job_id_for_status,
+                            &old_status,
+                            flow,
+                            success,
+                            &mut tx,
+                        )
+                        .await?;
                         let nindex = sqlx::query_scalar!(
                             "UPDATE queue
                             SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb)
@@ -368,6 +421,16 @@ pub async fn update_flow_status_after_job_completion_internal<
                     )))?,
                 };
                 if nindex == len {
+                    let mut flow_jobs_success = flow_jobs_success.clone();
+                    if let Some(flow_job_success) = flow_jobs_success.as_mut() {
+                        let position = jobs.iter().position(|x| x == job_id_for_status);
+                        if let Some(position) = position {
+                            if position < flow_job_success.len() {
+                                flow_job_success[position] = Some(success);
+                            }
+                        }
+                    }
+
                     let new_status = if skip_loop_failures
                         || sqlx::query_scalar!(
                             "SELECT success FROM completed_job WHERE id = ANY($1)",
@@ -388,6 +451,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
                             flow_jobs: Some(jobs.clone()),
+                            flow_jobs_success: flow_jobs_success.clone(),
                             branch_chosen: None,
                             approvers: vec![],
                             failed_retries: vec![],
@@ -398,6 +462,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
                             flow_jobs: Some(jobs.clone()),
+                            flow_jobs_success: flow_jobs_success.clone(),
                             branch_chosen: None,
                             failed_retries: vec![],
                         }
@@ -426,7 +491,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                     if parallelism.is_some() {
                         sqlx::query!(
-                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2",
+                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2 AND (flow_status->'step')::int = 0",
                             flow,
                             nindex
                         )
@@ -470,18 +535,49 @@ pub async fn update_flow_status_after_job_completion_internal<
             }
             FlowStatusModule::InProgress {
                 iterator: Some(windmill_common::flow_status::Iterator { index, itered, .. }),
+                flow_jobs_success,
+                flow_jobs,
                 while_loop,
                 ..
             } if (*while_loop
                 || (*index + 1 < itered.len()) && (success || skip_loop_failures))
                 && !stop_early =>
             {
+                if let Some(jobs) = flow_jobs {
+                    set_success_in_flow_job_success(
+                        flow_jobs_success,
+                        jobs,
+                        job_id_for_status,
+                        &old_status,
+                        flow,
+                        success,
+                        &mut tx,
+                    )
+                    .await?;
+                }
+
                 (false, None)
             }
             FlowStatusModule::InProgress {
                 branchall: Some(BranchAllStatus { branch, len, .. }),
+                flow_jobs_success,
+                flow_jobs,
                 ..
-            } if branch.to_owned() < len - 1 && (success || skip_branch_failure) => (false, None),
+            } if branch.to_owned() < len - 1 && (success || skip_branch_failure) => {
+                if let Some(jobs) = flow_jobs {
+                    set_success_in_flow_job_success(
+                        flow_jobs_success,
+                        jobs,
+                        job_id_for_status,
+                        &old_status,
+                        flow,
+                        success,
+                        &mut tx,
+                    )
+                    .await?;
+                }
+                (false, None)
+            }
             _ => {
                 if stop_early
                     && matches!(
@@ -492,18 +588,21 @@ pub async fn update_flow_status_after_job_completion_internal<
                     // if we're stopping early inside a loop, we just want to break the loop instead
                     stop_early = false;
                 }
-                let (flow_jobs, branch_chosen) = match module_status {
-                    FlowStatusModule::InProgress { flow_jobs, branch_chosen, .. } => {
-                        (flow_jobs.clone(), branch_chosen.clone())
+
+                let flow_jobs = module_status.flow_jobs();
+                let branch_chosen = module_status.branch_chosen();
+                let mut flow_jobs_success = module_status.flow_jobs_success();
+
+                if let (Some(flow_job_success), Some(flow_jobs)) =
+                    (flow_jobs_success.as_mut(), flow_jobs.as_ref())
+                {
+                    let position = flow_jobs.iter().position(|x| x == job_id_for_status);
+                    if let Some(position) = position {
+                        if position < flow_job_success.len() {
+                            flow_job_success[position] = Some(success);
+                        }
                     }
-                    FlowStatusModule::Success { flow_jobs, branch_chosen, .. } => {
-                        (flow_jobs.clone(), branch_chosen.clone())
-                    }
-                    FlowStatusModule::Failure { flow_jobs, branch_chosen, .. } => {
-                        (flow_jobs.clone(), branch_chosen.clone())
-                    }
-                    _ => (None, None),
-                };
+                }
                 if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
                     success = true;
                     (
@@ -512,6 +611,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
                             flow_jobs,
+                            flow_jobs_success,
                             branch_chosen,
                             approvers: vec![],
                             failed_retries: old_status.retry.failed_jobs.clone(),
@@ -537,7 +637,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             .map(|x| serde_json::from_value::<Retry>(x).ok())
                             .flatten()
                             .unwrap_or_default();
-                        tracing::error!("UPDATE FLOW STATUS 2: {retry:#?} ");
+                        tracing::info!("update flow status  on rety: {retry:#?} ");
                         next_retry(&retry, &old_status.retry).is_none()
                     } else {
                         false
@@ -548,6 +648,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
                             flow_jobs,
+                            flow_jobs_success,
                             branch_chosen,
                             failed_retries: old_status.retry.failed_jobs.clone(),
                         }),
@@ -646,10 +747,54 @@ pub async fn update_flow_status_after_job_completion_internal<
         let nresult = match &new_status {
             Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
             | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
-                retrieve_flow_jobs_results(db, w_id, jobs).await?
+                Arc::new(retrieve_flow_jobs_results(db, w_id, jobs).await?)
             }
-            _ => result.to_owned(),
+            _ => result.clone(),
         };
+
+        match &new_status {
+            Some(FlowStatusModule::Success { .. }) if is_loop || is_branch_all => {
+                let r_after_all_iters = sqlx::query_as::<_, SkipIfStopped>(
+                    "SELECT
+                            raw_flow->'modules'->$1::int->'stop_after_all_iters_if'->>'expr' as stop_early_expr,
+                            (raw_flow->'modules'->$1::int->'stop_after_all_iters_if'->>'skip_if_stopped')::bool as skip_if_stopped,
+                            NULL as continue_on_error,
+                            args
+                        FROM queue
+                        WHERE id = $2"
+                    )
+                    .bind(old_status.step)
+                    .bind(flow)
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
+                if let Some(expr) = r_after_all_iters.stop_early_expr {
+                    let should_stop = compute_bool_from_expr(
+                        expr,
+                        Marc::new(
+                            r_after_all_iters
+                                .args
+                                .map(|x| x.0)
+                                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
+                                .to_owned(),
+                        ),
+                        nresult.clone(),
+                        None,
+                        None,
+                        Some(client),
+                        None,
+                        None,
+                    )
+                    .await?;
+
+                    if should_stop {
+                        stop_early = should_stop;
+                        skip_if_stop_early = r_after_all_iters.skip_if_stopped.unwrap_or(false);
+                    }
+                }
+            }
+            _ => {}
+        }
 
         if old_status.retry.fail_count > 0
             && matches!(&new_status, Some(FlowStatusModule::Success { .. }))
@@ -679,8 +824,9 @@ pub async fn update_flow_status_after_job_completion_internal<
         let module = get_module(&flow_job, module_index);
 
         // tracing::error!(
-        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler}", flow_job.canceled
+        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler} is_failure_step {is_failure_step}", flow_job.canceled
         // );
+
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.canceled => false,
@@ -721,6 +867,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             old_status.cleanup_module,
         )
     };
+
+    let flow_job = Arc::new(flow_job);
 
     let done = if !should_continue_flow {
         {
@@ -792,7 +940,13 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                 save_in_cache(db, client, &flow_job, cached_res_path, &nresult).await;
             }
-            let success = success && !is_failure_step && !skip_error_handler;
+            fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
+                let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
+                return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
+            }
+            let success = success
+                && (!is_failure_step || result_has_recover_true(nresult.clone()))
+                && !skip_error_handler;
             if success {
                 add_completed_job(
                     db,
@@ -829,10 +983,10 @@ pub async fn update_flow_status_after_job_completion_internal<
     } else {
         tracing::debug!(id = %flow_job.id,  "start handle flow");
         match handle_flow(
-            &flow_job,
+            flow_job.clone(),
             db,
             client,
-            Some(nresult.to_owned()),
+            Some(nresult.clone()),
             same_worker_tx.clone(),
             worker_dir,
             rsmq.clone(),
@@ -871,21 +1025,23 @@ pub async fn update_flow_status_after_job_completion_internal<
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
 
-        if let Some(parent_job) = flow_job.parent_job {
-            tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
+        if flow_job.is_flow_step {
+            if let Some(parent_job) = flow_job.parent_job {
+                tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
 
-            return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
-                flow: parent_job,
-                job_id_for_status: flow,
-                success: success && !is_failure_step,
-                result: nresult,
-                stop_early_override: if stop_early {
-                    Some(skip_if_stop_early)
-                } else {
-                    None
-                },
-                skip_error_handler: skip_error_handler || is_failure_step,
-            }));
+                return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
+                    flow: parent_job,
+                    job_id_for_status: flow,
+                    success: success && !is_failure_step,
+                    result: nresult.clone(),
+                    stop_early_override: if stop_early {
+                        Some(skip_if_stop_early)
+                    } else {
+                        None
+                    },
+                    skip_error_handler: skip_error_handler || is_failure_step,
+                }));
+            }
         }
         Ok(None)
     } else {
@@ -893,12 +1049,44 @@ pub async fn update_flow_status_after_job_completion_internal<
     }
 }
 
+async fn set_success_in_flow_job_success<'c, R: rsmq_async::RsmqConnection + Send>(
+    flow_jobs_success: &Option<Vec<Option<bool>>>,
+    flow_jobs: &Vec<Uuid>,
+    job_id_for_status: &Uuid,
+    old_status: &FlowStatus,
+    flow: Uuid,
+    success: bool,
+    tx: &mut QueueTransaction<'c, R>,
+) -> error::Result<()> {
+    let flow_jobs_success = flow_jobs_success.clone();
+
+    if flow_jobs_success.is_some() {
+        let position = flow_jobs.iter().position(|x| x == job_id_for_status);
+        if let Some(position) = position {
+            sqlx::query!(
+            "UPDATE queue SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4) WHERE id = $2",
+            old_status.step as i32,
+            flow,
+            position as i32,
+            json!(success)
+        )
+        .execute(tx)
+        .await.map_err(|e| {
+            Error::InternalErr(format!(
+                "error while setting flow_jobs_success: {e:#}"
+            ))
+        })?;
+        }
+    }
+    Ok(())
+}
+
 async fn retrieve_flow_jobs_results(
     db: &DB,
     w_id: &str,
     job_uuids: &Vec<Uuid>,
 ) -> error::Result<Box<RawValue>> {
-    let results = sqlx::query(
+    let results = sqlx::query_as::<_, BranchResults>(
         "SELECT result, id
         FROM completed_job
         WHERE id = ANY($1) AND workspace_id = $2",
@@ -908,10 +1096,7 @@ async fn retrieve_flow_jobs_results(
     .fetch_all(db)
     .await?
     .into_iter()
-    .map(|r| {
-        let br = BranchResults::from_row(&r).unwrap();
-        (br.id, br.result.to_owned())
-    })
+    .map(|br| (br.id, br.result))
     .collect::<HashMap<_, _>>();
 
     let results = job_uuids
@@ -964,17 +1149,41 @@ async fn compute_skip_loop_failures_and_parallelism(
 
 async fn compute_skip_branchall_failure<'c>(
     flow: Uuid,
+    job: &Uuid,
     step: i32,
     branch: usize,
+    parallel: bool,
     db: &DB,
 ) -> Result<Option<bool>, Error> {
+    let branch = if parallel {
+        sqlx::query_scalar!("SELECT script_path FROM completed_job WHERE id = $1", job)
+            .fetch_one(db)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!("error during retrieval of branchall index: {e:#}"))
+            })?
+            .map(|p| {
+                BRANCHALL_INDEX_RE
+                    .captures(&p)
+                    .map(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
+                    .flatten()
+                    .ok_or(Error::InternalErr(format!(
+                        "could not parse branchall index from path: {p}"
+                    )))
+            })
+            .ok_or_else(|| {
+                Error::InternalErr(format!("no branchall script path found for job {job}"))
+            })??
+    } else {
+        branch as i32
+    };
     sqlx::query_as(
         "SELECT (raw_flow->'modules'->$1->'value'->'branches'->$2->>'skip_failure')::bool
         FROM queue
         WHERE id = $3",
     )
     .bind(step)
-    .bind(branch as i32)
+    .bind(branch)
     .bind(flow)
     .fetch_one(db)
     .await
@@ -1036,14 +1245,19 @@ fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
 
 async fn compute_bool_from_expr(
     expr: String,
-    flow_args: Arc<HashMap<String, Box<RawValue>>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
     result: Arc<Box<RawValue>>,
+    all_iters: Option<Arc<Box<RawValue>>>,
     by_id: Option<IdContext>,
     client: Option<&AuthedClient>,
     resumes: Option<(Arc<Box<RawValue>>, Arc<Box<RawValue>>, Arc<Box<RawValue>>)>,
+    ctx: Option<Vec<(String, String)>>,
 ) -> error::Result<bool> {
     let mut context = HashMap::with_capacity(if resumes.is_some() { 7 } else { 3 });
     context.insert("result".to_string(), result.clone());
+    if let Some(all_iters) = all_iters {
+        context.insert("all_iters".to_string(), all_iters);
+    }
     context.insert("previous_result".to_string(), result.clone());
 
     if let Some(resumes) = resumes {
@@ -1058,6 +1272,7 @@ async fn compute_bool_from_expr(
         Some(flow_args),
         client,
         by_id,
+        ctx,
     )
     .await?
     .get()
@@ -1131,7 +1346,7 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
-    flow_args: Arc<HashMap<String, Box<RawValue>>>,
+    flow_args: Marc<HashMap<String, Box<RawValue>>>,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -1167,6 +1382,7 @@ async fn transform_input(
                     Some(flow_args.clone()),
                     Some(client),
                     Some(by_id.clone()),
+                    None,
                 )
                 .await
                 .map_err(|e| {
@@ -1184,10 +1400,10 @@ async fn transform_input(
 
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    flow_job: &QueuedJob,
+    flow_job: Arc<QueuedJob>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
-    last_result: Option<Box<RawValue>>,
+    last_result: Option<Arc<Box<RawValue>>>,
     same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     rsmq: Option<R>,
@@ -1219,7 +1435,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             if let Err(err) = handle_maybe_scheduled_job(
                 rsmq.clone(),
                 db,
-                flow_job,
+                &flow_job,
                 &schedule,
                 flow_job.script_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
@@ -1246,7 +1462,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         flow,
         db,
         client,
-        last_result.to_owned(),
+        last_result,
         same_worker_tx,
         worker_dir,
         rsmq,
@@ -1281,6 +1497,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<usize>().ok());
 
     static ref CRASH_STEP_COUNTER: AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    static ref BRANCHALL_INDEX_RE: regex::Regex = regex::Regex::new(r"/branchall-(\d+)$").unwrap();
 }
 
 #[inline(always)]
@@ -1294,15 +1512,19 @@ fn potentially_crash_for_testing() {
     }
 }
 
+// static
+lazy_static::lazy_static! {
+    pub static ref EHM: HashMap<String, Box<RawValue>> = HashMap::new();
+}
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    flow_job: &QueuedJob,
+    flow_job: Arc<QueuedJob>,
     mut status: FlowStatus,
     flow: FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
-    last_job_result: Option<Box<RawValue>>,
+    last_job_result: Option<Arc<Box<RawValue>>>,
     same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     rsmq: Option<R>,
@@ -1323,7 +1545,14 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .cloned()
         .unwrap_or_else(|| status.failure_module.module_status.clone());
 
-    let flow_job_args = flow_job.get_args();
+    let fj: mappable_rc::Marc<QueuedJob> = flow_job.clone().into();
+    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
+        if let Some(args) = &x.args {
+            &args.0
+        } else {
+            &EHM
+        }
+    });
 
     // if this is an empty module of if the module has already been completed, successfully, update the parent flow
     if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
@@ -1332,7 +1561,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 flow: flow_job.id,
                 success: true,
                 result: if flow.modules.is_empty() {
-                    to_raw_value(&flow_job_args)
+                    to_raw_value(arc_flow_job_args.as_ref())
                 } else {
                     // it has to be an empty for loop event
                     serde_json::from_str("[]").unwrap()
@@ -1351,8 +1580,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
         return Ok(());
     }
-
-    let arc_flow_job_args = Arc::new(flow_job_args.clone());
 
     if i == 0 {
         if !flow_job.is_flow_step && flow_job.schedule_path.is_some() {
@@ -1406,8 +1633,13 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 arc_flow_job_args.clone(),
                 Arc::new(to_raw_value(&json!("{}"))),
                 None,
+                None,
                 Some(client),
                 None,
+                Some(vec![(
+                    windmill_common::variables::WM_SCHEDULED_FOR.to_string(),
+                    flow_job.scheduled_for.to_string(),
+                )]),
             )
             .await?;
             if skip {
@@ -1436,7 +1668,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     // Compute and initialize last_job_result
     let arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
-        Arc::new(last_job_result.unwrap_or(to_raw_value(&json!("{}"))))
+        last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
     } else if i == 0 {
         // if it's the first job executed in the flow, pass the flow args
         Arc::new(to_raw_value(&flow_job.args))
@@ -1445,7 +1677,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         // having last_job_result empty can happen either when the job was suspended and is being restarted, or if it's a
         // flow restart from a specific step
         if last_job_result.is_some() {
-            Arc::new(last_job_result.unwrap())
+            last_job_result.unwrap()
         } else {
             match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status).await? {
                 None => Arc::new(to_raw_value(&json!("{}"))),
@@ -1480,25 +1712,19 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .await
             .context("lock flow in queue")?;
 
-            let resumes = sqlx::query(
+            let resumes = sqlx::query_as::<_, ResumeRow>(
                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
             )
             .bind(last)
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
-            .map(|x| ResumeRow::from_row(&x))
             .collect::<Vec<_>>();
 
-            resume_messages.extend(
-                resumes
-                    .iter()
-                    .map(|r| to_raw_value(&r.as_ref().map(|x| x.value.clone()).ok())),
-            );
+            resume_messages.extend(resumes.iter().map(|r| to_raw_value(&r.value)));
             approvers.extend(resumes.iter().map(|r| {
-                r.as_ref()
-                    .ok()
-                    .and_then(|x| x.approver.clone())
+                r.approver
+                    .clone()
                     .as_deref()
                     .unwrap_or_else(|| "anonymous")
                     .to_string()
@@ -1529,6 +1755,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                     Some(arc_flow_job_args.clone()),
                                     None,
                                     None,
+                                    None
                                 )
                                 .await
                                 .map_err(|e| {
@@ -1565,10 +1792,27 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .await?;
             }
 
-            let is_disapproved = resumes
-                .iter()
-                .find(|x| x.as_ref().is_ok_and(|x| !x.approved));
-            if is_disapproved.is_none() && resume_messages.len() >= required_events as usize {
+            let is_disapproved = resumes.iter().find(|x| !x.approved);
+            let can_be_resumed =
+                is_disapproved.is_none() && resume_messages.len() >= required_events as usize;
+            let disapproved_or_timeout_but_continue = !can_be_resumed
+                && (is_disapproved.is_some()
+                    || !matches!(
+                        &status_module,
+                        FlowStatusModule::WaitingForPriorSteps { .. }
+                    ))
+                && suspend.continue_on_disapprove_timeout.unwrap_or(false);
+
+            if can_be_resumed || disapproved_or_timeout_but_continue {
+                if disapproved_or_timeout_but_continue {
+                    let js = if let Some(disapproved) = is_disapproved.as_ref() {
+                        json!({"error": {"message": format!("Disapproved by {}", disapproved.approver.clone().unwrap_or_else( || "unknown".to_string())), "name": "SuspendedDisapproved"}})
+                    } else {
+                        json!({"error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
+                    };
+
+                    resume_messages.push(to_raw_value(&js));
+                }
                 sqlx::query(
                     "UPDATE queue
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
@@ -1578,11 +1822,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .bind(json!(resumes
                     .into_iter()
                     .map(|r| Approval {
-                        resume_id: r.as_ref().map(|x| x.resume_id).unwrap_or_default() as u16,
+                        resume_id: r.resume_id as u16,
                         approver: r
-                            .as_ref()
-                            .ok()
-                            .and_then(|x| x.approver.clone())
+                            .approver.clone()
                             .unwrap_or_else(|| "unknown".to_string())
                     })
                     .collect::<Vec<_>>()))
@@ -1643,8 +1885,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let (logs, error_name) = if let Some(disapprover) = is_disapproved {
                     (
                         format!(
-                            "Disapproved by {:?}",
-                            disapprover.as_ref().unwrap().approver
+                            "Disapproved by {}",
+                            disapprover
+                                .approver
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string())
                         ),
                         "SuspendedDisapproved",
                     )
@@ -1688,7 +1933,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .with_context(|| format!("no module at index {}", status.step))?;
 
     let current_id = &module.id;
-    let previous_id = if i >= 1 {
+    let mut previous_id = if i >= 1 {
         flow.modules.get(i - 1).map(|m| m.id.clone()).unwrap()
     } else {
         String::new()
@@ -1722,6 +1967,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                 expr.to_string(),
                                 context,
                                 Some(arc_flow_job_args.clone()),
+                                None,
                                 None,
                                 None,
                             )
@@ -1806,7 +2052,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                  * In that case, `i` will index past `flow.modules`.  The above should handle that and
                  * re-run the failure module. */
                 i = flow.modules.len();
-
+                previous_id = current_id.clone();
                 module = flow
                     .failure_module
                     .as_ref()
@@ -1841,80 +2087,83 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     drop(resume_messages);
 
-    let args: windmill_common::error::Result<_> = if module.mock.is_some()
-        && module.mock.as_ref().unwrap().enabled
-    {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "previous_result".to_string(),
-            to_raw_value(
-                &module
-                    .mock
-                    .as_ref()
-                    .unwrap()
-                    .return_value
-                    .clone()
-                    .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
-            ),
-        );
-        Ok(hm)
-    } else if let Some(id) = get_args_from_id {
-        let row = sqlx::query("SELECT args FROM completed_job WHERE id = $1 AND workspace_id = $2")
+    let args: windmill_common::error::Result<_> =
+        if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
+            let mut hm = HashMap::new();
+            hm.insert(
+                "previous_result".to_string(),
+                to_raw_value(
+                    &module
+                        .mock
+                        .as_ref()
+                        .unwrap()
+                        .return_value
+                        .clone()
+                        .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
+                ),
+            );
+            Ok(Marc::new(hm))
+        } else if let Some(id) = get_args_from_id {
+            let row = sqlx::query_as::<_, RawArgs>(
+                "SELECT args FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            )
             .bind(id)
             .bind(&flow_job.workspace_id)
             .fetch_optional(db)
             .await?;
-        if let Some(row) = row {
-            RawArgs::from_row(&row)
-                .map(|x| x.args.map(|x| x.0).unwrap_or_else(HashMap::new))
-                .map_err(|e| error::Error::InternalErr(format!("Impossible to build args: {e:#}")))
+            if let Some(raw_args) = row {
+                Ok(Marc::new(
+                    raw_args.args.map(|x| x.0).unwrap_or_else(HashMap::new),
+                ))
+            } else {
+                Ok(Marc::new(HashMap::new()))
+            }
         } else {
-            Ok(HashMap::new())
-        }
-    } else {
-        match &module.get_value() {
-            Ok(
-                FlowModuleValue::Script { input_transforms, .. }
-                | FlowModuleValue::RawScript { input_transforms, .. }
-                | FlowModuleValue::Flow { input_transforms, .. },
-            ) => {
-                let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
-                transform_context = Some(ctx);
-                let by_id = transform_context.as_ref().unwrap();
-                transform_input(
-                    arc_flow_job_args.clone(),
-                    arc_last_job_result.clone(),
-                    input_transforms,
-                    resumes.clone(),
-                    resume.clone(),
-                    approvers.clone(),
-                    by_id,
-                    client,
+            match &module.get_value() {
+                Ok(
+                    FlowModuleValue::Script { input_transforms, .. }
+                    | FlowModuleValue::RawScript { input_transforms, .. }
+                    | FlowModuleValue::Flow { input_transforms, .. },
+                ) => {
+                    let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
+                    transform_context = Some(ctx);
+                    let by_id = transform_context.as_ref().unwrap();
+                    transform_input(
+                        arc_flow_job_args.clone(),
+                        arc_last_job_result.clone(),
+                        input_transforms,
+                        resumes.clone(),
+                        resume.clone(),
+                        approvers.clone(),
+                        by_id,
+                        client,
+                    )
+                    .await
+                    .map(Marc::new)
+                }
+                Ok(FlowModuleValue::Identity) => serde_json::from_str(
+                    &serde_json::to_string(&PreviousResult {
+                        previous_result: Some(&arc_last_job_result),
+                    })
+                    .unwrap(),
                 )
-                .await
-            }
-            Ok(FlowModuleValue::Identity) => serde_json::from_str(
-                &serde_json::to_string(&PreviousResult {
-                    previous_result: Some(&arc_last_job_result),
-                })
-                .unwrap(),
-            )
-            .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
+                .map(Marc::new)
+                .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
 
-            Ok(_) => Ok(flow_job_args),
-            Err(e) => {
-                return Err(error::Error::InternalErr(format!(
-                    "module was not convertible to acceptable value {e:?}"
-                )))
+                Ok(_) => Ok(arc_flow_job_args.clone()),
+                Err(e) => {
+                    return Err(error::Error::InternalErr(format!(
+                        "module was not convertible to acceptable value {e:?}"
+                    )))
+                }
             }
-        }
-    };
+        };
     tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow job args computed");
 
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
         arc_last_job_result.clone(),
-        flow_job,
+        &flow_job,
         &flow,
         transform_context,
         db,
@@ -1943,6 +2192,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 id: status_module.id(),
                 job: Uuid::nil(),
                 flow_jobs: Some(vec![]),
+                flow_jobs_success: Some(vec![]),
                 branch_chosen: None,
                 approvers: vec![],
                 failed_retries: vec![],
@@ -1973,7 +2223,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     };
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
-
+    let nargs = args.as_ref();
     for i in (0..len).into_iter() {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
@@ -1990,7 +2240,23 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         let payload_tag = match &job_payloads {
             ContinuePayload::SingleJob(payload) => payload.clone(),
             ContinuePayload::BranchAllJobs(payloads) => payloads[i].clone(),
-            ContinuePayload::ForloopJobs { payload, .. } => payload.clone(),
+            ContinuePayload::ForloopJobs { flow_value, delete_after_use, .. } => {
+                let mut fv = flow_value.clone();
+
+                if let Some(failure_module) = fv.failure_module.as_mut() {
+                    failure_module.id_append(&format!("{}-{i}", &status.step.to_string()));
+                }
+                JobPayloadWithTag {
+                    payload: JobPayload::RawFlow {
+                        value: fv,
+                        path: Some(format!("{}/forloop-{i}", flow_job.script_path())),
+                        restarted_from: None,
+                    },
+                    tag: None,
+                    delete_after_use: delete_after_use.clone(),
+                    timeout: None,
+                }
+            }
         };
 
         // compute job-to-be-pushed priority
@@ -2005,19 +2271,20 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             None
         };
 
-        let transform_inp;
+        let marc;
+        let me;
         let args = match &next_status {
             NextStatus::AllFlowJobs {
                 branchall: Some(BranchAllStatus { .. }),
                 iterator: None,
                 ..
-            } => args.as_ref().map(|args| args.clone()),
+            } => nargs,
             NextStatus::NextLoopIteration {
                 next: ForloopNextIteration { new_args, .. },
                 simple_input_transforms,
             } => {
-                let mut args = if let Ok(args) = args.as_ref() {
-                    args.clone()
+                let mut args = if let Ok(args) = nargs {
+                    args.as_ref().clone()
                 } else {
                     HashMap::new()
                 };
@@ -2027,8 +2294,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status).await?;
-                    transform_inp = transform_input(
-                        Arc::new(args),
+                    let ti = transform_input(
+                        Marc::new(args),
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -2037,10 +2304,23 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         &ctx,
                         client,
                     )
-                    .await;
-                    transform_inp.as_ref().map(|args| args.clone())
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(
+                            format!("could not transform input using an expr: {e}",),
+                        )
+                    })
+                    .map(Marc::new);
+                    if let Ok(ti) = ti {
+                        marc = ti;
+                        Ok(&marc)
+                    } else {
+                        me = ti.unwrap_err();
+                        Err(&me)
+                    }
                 } else {
-                    Ok(args)
+                    marc = Marc::new(args);
+                    Ok(&marc)
                 }
             }
             NextStatus::AllFlowJobs {
@@ -2050,7 +2330,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } => {
                 if let Ok(args) = args.as_ref() {
                     let mut hm = HashMap::new();
-                    for (k, v) in args {
+                    for (k, v) in args.iter() {
                         hm.insert(k.to_string(), v.to_owned());
                     }
                     insert_iter_arg(
@@ -2060,8 +2340,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     );
                     if let Some(input_transforms) = simple_input_transforms {
                         let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
-                        transform_inp = transform_input(
-                            Arc::new(hm),
+                        let ti = transform_input(
+                            Marc::new(hm),
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
@@ -2070,20 +2350,45 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                             &ctx,
                             client,
                         )
-                        .await;
-                        transform_inp.as_ref().map(|args| args.clone())
+                        .await
+                        .map_err(|e| {
+                            Error::ExecutionErr(format!(
+                                "could not transform input using an expr: {e}"
+                            ))
+                        })
+                        .map(Marc::new);
+                        if let Ok(ti) = ti {
+                            marc = ti;
+                            Ok(&marc)
+                        } else {
+                            me = ti.unwrap_err();
+                            Err(&me)
+                        }
                     } else {
-                        Ok(hm)
+                        marc = Marc::new(hm);
+                        Ok(&marc)
                     }
                 } else {
-                    args.as_ref().map(|args| args.clone())
+                    nargs
                 }
             }
-            _ => args.as_ref().map(|args| args.clone()),
+            _ => nargs,
         };
-        let (ok, err) = match args {
-            Ok(v) => (Some(v), None),
-            Err(e) => (None, Some(e)),
+
+        let push_args;
+        let err;
+        let ov;
+
+        match args {
+            Ok(v) => {
+                ov = v;
+                push_args = PushArgs::from(ov.as_ref());
+                err = None;
+            }
+            Err(e) => {
+                push_args = PushArgs::from(&*EHM);
+                err = Some(e);
+            }
         };
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
@@ -2127,10 +2432,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             tx2,
             &flow_job.workspace_id,
             payload_tag.payload,
-            windmill_queue::PushArgs {
-                args: ok.unwrap_or_else(|| serde_json::from_str("{}").unwrap()),
-                extra: HashMap::new(),
-            },
+            push_args,
             &flow_job.created_by,
             &flow_job.email,
             flow_job.permissioned_as.to_owned(),
@@ -2143,7 +2445,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            if flow_job.tag == "flow" {
+            if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
                 payload_tag.tag
             } else {
                 Some(flow_job.tag.clone())
@@ -2220,17 +2522,29 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let first_uuid = uuids[0];
     let new_status = match next_status {
         NextStatus::NextLoopIteration {
-            next: ForloopNextIteration { index, itered, mut flow_jobs, while_loop, .. },
+            next:
+                ForloopNextIteration {
+                    index,
+                    itered,
+                    mut flow_jobs,
+                    while_loop,
+                    mut flow_jobs_success,
+                    ..
+                },
             ..
         } => {
             let uuid = one_uuid?;
 
             flow_jobs.push(uuid);
 
+            if let Some(flow_jobs_success) = &mut flow_jobs_success {
+                flow_jobs_success.push(None);
+            }
             FlowStatusModule::InProgress {
                 job: uuid,
                 iterator: Some(windmill_common::flow_status::Iterator { index, itered }),
                 flow_jobs: Some(flow_jobs),
+                flow_jobs_success,
                 branch_chosen: None,
                 branchall: None,
                 id: status_module.id(),
@@ -2241,6 +2555,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
             job: flow_job.id,
             iterator,
+            flow_jobs_success: Some(vec![None; uuids.len()]),
             flow_jobs: Some(uuids.clone()),
             branch_chosen: None,
             branchall,
@@ -2248,14 +2563,22 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             parallel: true,
             while_loop: false,
         },
-        NextStatus::NextBranchStep(NextBranch { mut flow_jobs, status, .. }) => {
+        NextStatus::NextBranchStep(NextBranch {
+            mut flow_jobs,
+            status,
+            mut flow_jobs_success,
+            ..
+        }) => {
             let uuid = one_uuid?;
             flow_jobs.push(uuid);
-
+            if let Some(flow_jobs_success) = &mut flow_jobs_success {
+                flow_jobs_success.push(None);
+            }
             FlowStatusModule::InProgress {
                 job: uuid,
                 iterator: None,
                 flow_jobs: Some(flow_jobs),
+                flow_jobs_success,
                 branch_chosen: None,
                 branchall: Some(status),
                 id: status_module.id(),
@@ -2268,6 +2591,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             job: one_uuid?,
             iterator: None,
             flow_jobs: None,
+            flow_jobs_success: None,
             branch_chosen: Some(branch),
             branchall: None,
             id: status_module.id(),
@@ -2289,7 +2613,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             WHERE id = $3",
             json!(FlowStatusModuleWParent {
                 parent_module: Some(current_id.clone()),
-                module_status: new_status.clone()
+                module_status: new_status
             }),
             json!(i),
             flow_job.id
@@ -2410,6 +2734,7 @@ struct ForloopNextIteration {
     index: usize,
     itered: Vec<Box<RawValue>>,
     flow_jobs: Vec<Uuid>,
+    flow_jobs_success: Option<Vec<Option<bool>>>,
     new_args: Iter,
     while_loop: bool,
 }
@@ -2424,6 +2749,7 @@ enum ForLoopStatus {
 struct NextBranch {
     status: BranchAllStatus,
     flow_jobs: Vec<Uuid>,
+    flow_jobs_success: Option<Vec<Option<bool>>>,
 }
 
 #[derive(Debug)]
@@ -2451,7 +2777,7 @@ struct JobPayloadWithTag {
 }
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
-    ForloopJobs { n: usize, payload: JobPayloadWithTag },
+    ForloopJobs { n: usize, flow_value: FlowValue, delete_after_use: bool },
     BranchAllJobs(Vec<JobPayloadWithTag>),
 }
 
@@ -2480,7 +2806,7 @@ fn insert_iter_arg(
 }
 
 async fn compute_next_flow_transform(
-    arc_flow_job_args: Arc<HashMap<String, Box<RawValue>>>,
+    arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
     flow_job: &QueuedJob,
     flow: &FlowValue,
@@ -2572,11 +2898,13 @@ async fn compute_next_flow_transform(
         FlowModuleValue::WhileloopFlow { modules, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
             let is_simple = is_simple_modules(modules, flow);
-            let flow_jobs = match status_module {
-                FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
-                    flow_jobs.clone()
-                }
-                _ => vec![],
+            let (flow_jobs, flow_jobs_success) = match status_module {
+                FlowStatusModule::InProgress {
+                    flow_jobs: Some(flow_jobs),
+                    flow_jobs_success,
+                    ..
+                } => (flow_jobs.clone(), flow_jobs_success.clone()),
+                _ => (vec![], Some(vec![])),
             };
             let next_loop_idx = flow_jobs.len();
             next_loop_iteration(
@@ -2585,7 +2913,8 @@ async fn compute_next_flow_transform(
                 ForloopNextIteration {
                     index: next_loop_idx,
                     itered: vec![],
-                    flow_jobs: flow_jobs.clone(),
+                    flow_jobs: flow_jobs,
+                    flow_jobs_success: flow_jobs_success,
                     new_args: Iter {
                         index: next_loop_idx as i32,
                         value: windmill_common::worker::to_raw_value(&next_loop_idx),
@@ -2664,30 +2993,23 @@ async fn compute_next_flow_transform(
                         // } else {
 
                         let continue_payload = {
-                            let payload = {
-                                JobPayloadWithTag {
-                                    payload: JobPayload::RawFlow {
-                                        value: FlowValue {
-                                            modules: (*modules).clone(),
-                                            failure_module: flow.failure_module.clone(),
-                                            same_worker: flow.same_worker,
-                                            concurrent_limit: None,
-                                            concurrency_time_window_s: None,
-                                            skip_expr: None,
-                                            cache_ttl: None,
-                                            priority: None,
-                                            early_return: None,
-                                            concurrency_key: None,
-                                        },
-                                        path: Some(format!("{}/forloop", flow_job.script_path())),
-                                        restarted_from: None,
-                                    },
-                                    tag: None,
-                                    delete_after_use: delete_after_use,
-                                    timeout: None,
-                                }
+                            let flow_value = FlowValue {
+                                modules: (*modules).clone(),
+                                failure_module: flow.failure_module.clone(),
+                                same_worker: flow.same_worker,
+                                concurrent_limit: None,
+                                concurrency_time_window_s: None,
+                                skip_expr: None,
+                                cache_ttl: None,
+                                priority: None,
+                                early_return: None,
+                                concurrency_key: None,
                             };
-                            ContinuePayload::ForloopJobs { n: itered.len(), payload }
+                            ContinuePayload::ForloopJobs {
+                                n: itered.len(),
+                                flow_value,
+                                delete_after_use,
+                            }
                         };
                         Ok(NextFlowTransform::Continue(
                             continue_payload,
@@ -2726,9 +3048,11 @@ async fn compute_next_flow_transform(
                             b.expr.to_string(),
                             arc_flow_job_args.clone(),
                             arc_last_job_result.clone(),
+                            None,
                             Some(idcontext.clone()),
                             Some(client),
                             Some((resumes.clone(), resume.clone(), approvers.clone())),
+                            None,
                         )
                         .await?;
 
@@ -2793,7 +3117,7 @@ async fn compute_next_flow_transform(
             ))
         }
         FlowModuleValue::BranchAll { branches, parallel, .. } => {
-            let (branch_status, flow_jobs) = match status_module {
+            let (branch_status, flow_jobs, flow_jobs_success) = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
@@ -2811,7 +3135,7 @@ async fn compute_next_flow_transform(
                                             flow.failure_module.clone()
                                         {
                                             failure_module
-                                                .id_append(&format!("{}/{i}", status.step));
+                                                .id_append(&format!("{}-{i}", status.step,));
                                             fm = Some(failure_module);
                                         }
                                         let mut modules = b.modules.clone();
@@ -2851,16 +3175,22 @@ async fn compute_next_flow_transform(
                             },
                         ));
                     } else {
-                        (BranchAllStatus { branch: 0, len: branches.len() }, vec![])
+                        (
+                            BranchAllStatus { branch: 0, len: branches.len() },
+                            vec![],
+                            Some(vec![]),
+                        )
                     }
                 }
                 FlowStatusModule::InProgress {
                     branchall: Some(BranchAllStatus { branch, len }),
                     flow_jobs: Some(flow_jobs),
+                    flow_jobs_success,
                     ..
                 } if !*parallel => (
                     BranchAllStatus { branch: branch + 1, len: len.clone() },
                     flow_jobs.clone(),
+                    flow_jobs_success.clone(),
                 ),
 
                 _ => Err(Error::BadRequest(format!(
@@ -2880,7 +3210,7 @@ async fn compute_next_flow_transform(
             add_virtual_items_if_necessary(&mut modules);
             let mut fm = flow.failure_module.clone();
             if let Some(mut failure_module) = flow.failure_module.clone() {
-                failure_module.id_append(&format!("{}/{}", status.step, branch_status.branch));
+                failure_module.id_append(&format!("{}-{}", status.step, branch_status.branch));
                 fm = Some(failure_module);
             }
             Ok(NextFlowTransform::Continue(
@@ -2909,7 +3239,11 @@ async fn compute_next_flow_transform(
                     delete_after_use: delete_after_use,
                     timeout: None,
                 }),
-                NextStatus::NextBranchStep(NextBranch { status: branch_status, flow_jobs }),
+                NextStatus::NextBranchStep(NextBranch {
+                    status: branch_status,
+                    flow_jobs,
+                    flow_jobs_success,
+                }),
             ))
         }
     }
@@ -2928,7 +3262,7 @@ async fn next_loop_iteration(
 ) -> Result<NextFlowTransform, Error> {
     let mut fm = flow.failure_module.clone();
     if let Some(mut failure_module) = flow.failure_module.clone() {
-        failure_module.id_append(&format!("{}/{}", status.step, ns.index));
+        failure_module.id_append(&format!("{}-{}", status.step, ns.index));
         fm = Some(failure_module);
     }
     let mut modules = (*modules).clone();
@@ -2991,6 +3325,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].cache_ttl.is_none()
         && modules[0].retry.is_none()
         && modules[0].stop_after_if.is_none()
+        && modules[0].stop_after_all_iters_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
         && flow.failure_module.is_none();
     is_simple
@@ -3007,7 +3342,7 @@ async fn next_forloop_status(
     resumes: Arc<Box<RawValue>>,
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
-    arc_flow_job_args: Arc<HashMap<String, Box<RawValue>>>,
+    arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     client: &AuthedClient,
     parallel: &bool,
 ) -> Result<ForLoopStatus, Error> {
@@ -3037,6 +3372,7 @@ async fn next_forloop_status(
                         Some(arc_flow_job_args),
                         Some(client),
                         Some(by_id),
+                        None,
                     )
                     .await?
                 }
@@ -3059,6 +3395,7 @@ async fn next_forloop_status(
                     index: 0,
                     itered,
                     flow_jobs: vec![],
+                    flow_jobs_success: Some(vec![]),
                     new_args: iter,
                     while_loop: false,
                 })
@@ -3070,6 +3407,7 @@ async fn next_forloop_status(
         FlowStatusModule::InProgress {
             iterator: Some(windmill_common::flow_status::Iterator { itered, index }),
             flow_jobs: Some(flow_jobs),
+            flow_jobs_success,
             ..
         } if !*parallel => {
             let itered_new = if itered.is_empty() {
@@ -3095,6 +3433,7 @@ async fn next_forloop_status(
                             Some(arc_flow_job_args),
                             Some(client),
                             Some(by_id),
+                            None,
                         )
                         .await?
                     }
@@ -3118,6 +3457,7 @@ async fn next_forloop_status(
                 index,
                 itered: itered_new.clone(),
                 flow_jobs: flow_jobs.clone(),
+                flow_jobs_success: flow_jobs_success.clone(),
                 new_args: Iter { index: index as i32, value: next.to_owned() },
                 while_loop: false,
             })
@@ -3214,7 +3554,7 @@ async fn script_to_payload(
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
-        script_path_to_payload(script_path, &db, &flow_job.workspace_id).await?
+        script_path_to_payload(script_path, db, &flow_job.workspace_id).await?
     } else {
         let hash = script_hash.clone().unwrap();
         let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;

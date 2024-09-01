@@ -94,7 +94,7 @@ export async function getResource(
 }
 
 /**
- * Get a resource value by path
+ * Get the true root job id
  * @param jobId job id to get the root job id from (default to current job)
  * @returns root job id
  */
@@ -120,6 +120,21 @@ export async function runScript(
   }
 
   const jobId = await runScriptAsync(path, hash_, args);
+  return await waitJob(jobId, verbose);
+}
+
+export async function runFlow(
+  path: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  args = args || {};
+
+  if (verbose) {
+    console.info(`running \`${path}\` synchronously with args:`, args);
+  }
+
+  const jobId = await runFlowAsync(path, args, null, false);
   return await waitJob(jobId, verbose);
 }
 
@@ -253,6 +268,53 @@ export async function runScriptAsync(
     body: JSON.stringify(args),
   }).then((res) => res.text());
 }
+
+export async function runFlowAsync(
+  path: string | null,
+  args: Record<string, any> | null,
+  scheduledInSeconds: number | null = null,
+  flowOutlivesParent: boolean = true
+): Promise<string> {
+  // Create a script job and return its job id.
+
+  args = args || {};
+  const params: Record<string, any> = {};
+
+  if (scheduledInSeconds) {
+    params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  if (!flowOutlivesParent) {
+    let parentJobId = getEnv("WM_JOB_ID");
+    if (parentJobId !== undefined) {
+      params["parent_job"] = parentJobId;
+    }
+  }
+
+  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+  if (rootJobId != undefined && rootJobId != "") {
+    params["root_job"] = rootJobId;
+  }
+
+  let endpoint: string;
+  if (path) {
+    endpoint = `/w/${getWorkspace()}/jobs/run/f/${path}`;
+  } else {
+    throw new Error("path must be provided");
+  }
+  let url = new URL(OpenAPI.BASE + endpoint);
+  url.search = new URLSearchParams(params).toString();
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OpenAPI.TOKEN}`,
+    },
+    body: JSON.stringify(args),
+  }).then((res) => res.text());
+}
+
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`

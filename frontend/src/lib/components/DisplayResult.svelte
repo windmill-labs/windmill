@@ -2,6 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
+	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -14,7 +15,8 @@
 		InfoIcon,
 		ArrowDownFromLine
 	} from 'lucide-svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -31,6 +33,7 @@
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -41,6 +44,8 @@
 	export let hideAsJson: boolean = false
 	export let noControls: boolean = false
 	export let drawerOpen = false
+	export let nodeId: string | undefined = undefined
+	export let language: string | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -65,6 +70,7 @@
 		| 'plain'
 		| 'markdown'
 		| 'map'
+		| 'nondisplayable'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -116,9 +122,13 @@
 	let is_render_all = false
 	let download_as_csv = false
 	function inferResultKind(result: any) {
-		if (result == 'WINDMILL_TOO_BIG') {
-			largeObject = true
-			return 'json'
+		try {
+			if (result == 'WINDMILL_TOO_BIG') {
+				largeObject = true
+				return 'json'
+			}
+		} catch (err) {
+			return 'nondisplayable'
 		}
 
 		if (result !== undefined) {
@@ -240,7 +250,12 @@
 	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
-		return JSON.stringify(result ?? null, null, 4) ?? 'null'
+		try {
+			// console.log(result)
+			return JSON.stringify(result ?? null, null, 4) ?? 'null'
+		} catch (e) {
+			return 'error stringifying object: ' + e.toString()
+		}
 	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string }) {
@@ -341,6 +356,7 @@
 	let seeS3PreviewFileFromList = ''
 </script>
 
+<HighlightTheme />
 {#if is_render_all}
 	<div class="flex flex-col w-full gap-6">
 		{#if !noControls}
@@ -366,23 +382,22 @@
 				{filename}
 				{disableExpand}
 				{jobId}
+				{nodeId}
 				{workspaceId}
 				forceJson={globalForceJson}
 				hideAsJson={true}
 			/>
 		{/each}</div
 	>
-{:else}
-	<div
+{:else if resultKind == 'nondisplayable'}<div class="text-red-400">Non displayable object</div
+	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
 			: 'min-h-[200px]'}"
-	>
-		{#if result != undefined && length != undefined && largeObject != undefined}
-			<div class="flex justify-between items-center w-full">
-				<div class="text-tertiary text-sm">
-					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}
-						<ToggleButtonGroup
+		>{#if result != undefined && length != undefined && largeObject != undefined}<div
+				class="flex justify-between items-center w-full"
+				><div class="text-tertiary text-sm">
+					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
@@ -401,6 +416,17 @@
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
+						<a
+							download="{filename ?? 'result'}.json"
+							class="-mt-1 text-current"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+						>
+							<Download size={14} />
+						</a>
 						<Popover
 							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 						>
@@ -521,13 +547,24 @@
 					</div>
 				{:else if !forceJson && resultKind == 'error' && result?.error}
 					<div class="flex flex-col items-start">
-						<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
+						<span class="text-red-500 pt-2 font-semibold !text-xs whitespace-pre-wrap"
 							>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 									.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 						>
-						<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
+						<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
+							>{result.error.stack ?? ''}</pre
+						>
 						<slot />
 					</div>
+					{#if language == 'bun'}
+						<div class="pt-20" />
+						<Alert size="xs" type="info" title="Seeing an odd error?">
+							Bun script are bundled for performance reasons. If you see an odd error that doesn't
+							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
+							> at the top of your script to disable bundling and feel free to mention it to the Windmill's
+							team.
+						</Alert>
+					{/if}
 				{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
 						<Button
 							color="green"
@@ -599,15 +636,26 @@
 								</button>
 							{/if}
 						</div>
-						{#if typeof result?.s3 == 'string' && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
-							{#key result.s3}
-								<ParqetTableRenderer
-									disable_download={result?.disable_download}
-									{workspaceId}
-									s3resource={result?.s3}
-									storage={result?.storage}
-								/>
-							{/key}
+						{#if typeof result?.s3 === 'string'}
+							{#if result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv')}
+								{#key result.s3}
+									<ParqetTableRenderer
+										disable_download={result?.disable_download}
+										{workspaceId}
+										s3resource={result?.s3}
+										storage={result?.storage}
+									/>
+								{/key}
+							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
+								<div class="h-full mt-2">
+									<img
+										alt="preview rendered"
+										class="w-auto h-full"
+										src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind == 's3object-list'}
@@ -656,6 +704,25 @@
 											>open table preview <ArrowDownFromLine />
 										</button>
 									{/if}
+								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+									{#if seeS3PreviewFileFromList == s3object?.s3}
+										<div class="h-full mt-2">
+											<img
+												alt="preview rendered"
+												class="w-auto h-full"
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										</div>
+									{:else}
+										<button
+											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											on:click={() => {
+												seeS3PreviewFileFromList = s3object?.s3
+											}}
+											>open image preview <ArrowDownFromLine />
+										</button>
+									{/if}
 								{/if}
 							{/each}
 						</div>
@@ -678,7 +745,9 @@
 							><a
 								download="{filename ?? 'result'}.json"
 								href={workspaceId && jobId
-									? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									? nodeId
+										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							>
 								Download {filename ? '' : 'as JSON'}
@@ -713,7 +782,7 @@
 					{/if}
 				{:else}
 					<Highlight
-						class={forceJson ? '' : 'h-full w-full'}
+						class={forceJson ? 'pt-1' : 'h-full w-full'}
 						language={json}
 						code={toJsonStr(result).replace(/\\n/g, '\n')}
 					/>
@@ -742,7 +811,9 @@
 					<Button
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
-							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							? nodeId
+								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						startIcon={{ icon: Download }}
 						color="light"
@@ -767,6 +838,7 @@
 					{requireHtmlApproval}
 					{filename}
 					{jobId}
+					{nodeId}
 					{workspaceId}
 					{hideAsJson}
 					{forceJson}

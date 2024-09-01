@@ -10,6 +10,7 @@ use crate::{
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
+    utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -46,13 +47,13 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
-        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang,
+        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
     },
     users::username_to_permissioned_as,
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
-    worker::to_raw_value,
+    worker::{get_annotation, to_raw_value},
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -226,8 +227,12 @@ async fn list_scripts(
         .limit(per_page)
         .clone();
 
-    if authed.is_operator || lq.hide_without_main.unwrap_or(false) {
+    if !lq.include_without_main.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("o.no_main_func IS NOT TRUE");
+    }
+
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
+        sqlb.and_where("draft_only IS NOT TRUE");
     }
 
     if lq.show_archived.unwrap_or(false) {
@@ -274,6 +279,13 @@ async fn list_scripts(
     }
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
+    }
+
+    if lq.with_deployment_msg.unwrap_or(false) {
+        sqlb.join("deployment_metadata dm")
+            .left()
+            .on("dm.script_hash = o.hash")
+            .fields(&["dm.deployment_msg"]);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -341,13 +353,16 @@ async fn create_snapshot_script(
     let mut script_hash = None;
     let mut tx = None;
     let mut uploaded = false;
+
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
         if name == "script" {
-            let ns = Some(serde_json::from_slice(&data).map_err(to_anyhow)?);
+            let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
+            let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
+
             let (new_hash, ntx) = create_script_internal(
-                ns.unwrap(),
+                ns,
                 w_id.clone(),
                 authed.clone(),
                 db.clone(),
@@ -356,7 +371,8 @@ async fn create_snapshot_script(
                 webhook.clone(),
             )
             .await?;
-            script_hash = Some(new_hash.to_string());
+            let nh = new_hash.to_string();
+            script_hash = Some(if is_tar { format!("{nh}.tar") } else { nh });
             tx = Some(ntx);
         }
         if name == "file" {
@@ -511,7 +527,8 @@ async fn create_script_internal<'c>(
                 )));
             };
 
-            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
+            let ScriptWithStarred { script: ps, .. } =
+                get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash, None).await?;
 
             if ps.path != ns.path {
                 require_owner_of_path(&authed, &ps.path)?;
@@ -556,10 +573,14 @@ async fn create_script_internal<'c>(
         .as_ref()
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
-    let lock = if !(ns.language == ScriptLang::Python3
+    let lock = if ns.codebase.is_some() {
+        Some(String::new())
+    } else if !(ns.language == ScriptLang::Python3
         || ns.language == ScriptLang::Go
         || ns.language == ScriptLang::Bun
+        || ns.language == ScriptLang::Bunnative
         || ns.language == ScriptLang::Deno
+        || ns.language == ScriptLang::Rust
         || ns.language == ScriptLang::Php)
     {
         Some(String::new())
@@ -567,12 +588,24 @@ async fn create_script_internal<'c>(
         ns.lock
             .and_then(|e| if e.is_empty() { None } else { Some(e) })
     };
-    let needs_lock_gen = lock.is_none();
+
+    let needs_lock_gen = lock.is_none() && codebase.is_none();
     let envs = ns.envs.as_ref().map(|x| x.as_slice());
     let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
         None
     } else {
         envs
+    };
+
+    let lang = if &ns.language == &ScriptLang::Bun || &ns.language == &ScriptLang::Bunnative {
+        let anns = get_annotation(&ns.content);
+        if anns.native_mode {
+            ScriptLang::Bunnative
+        } else {
+            ScriptLang::Bun
+        }
+    } else {
+        ns.language.clone()
     };
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
@@ -593,7 +626,7 @@ async fn create_script_internal<'c>(
         ns.is_template.unwrap_or(false),
         extra_perms,
         lock,
-        ns.language.clone() as ScriptLang,
+        lang as ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
         ns.draft_only,
@@ -734,7 +767,7 @@ async fn create_script_internal<'c>(
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
             },
-            args.into(),
+            windmill_queue::PushArgs::from(&args),
             &authed.username,
             &authed.email,
             permissioned_as,
@@ -787,7 +820,8 @@ pub async fn get_full_hub_script_by_path(
     Extension(db): Extension<DB>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, &db).await?,
+        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, Some(&db))
+            .await?,
     ))
 }
 
@@ -795,19 +829,40 @@ async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Script> {
+    Query(query): Query<WithStarredInfoQuery>,
+) -> JsonResult<ScriptWithStarred> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let script_o = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE path = $1 AND workspace_id = $2 \
-         AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-         workspace_id = $2)",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let script_o = if query.with_starred_info.unwrap_or(false) {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT s.*, favorite.path IS NOT NULL as starred
+            FROM script s
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'script' 
+                AND favorite.workspace_id = s.workspace_id 
+                AND favorite.path = s.path 
+                AND favorite.usr = $3
+            WHERE s.path = $1
+                AND s.workspace_id = $2
+                AND s.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+        )
+        .bind(path)
+        .bind(w_id)
+        .bind(&authed.username)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
+             workspace_id = $2)",
+        )
+        .bind(path)
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    };
     tx.commit().await?;
 
     let script = not_found_if_none(script_o, "Script", path)?;
@@ -1065,13 +1120,33 @@ async fn get_script_by_hash_internal<'c>(
     db: &mut Transaction<'c, Postgres>,
     workspace_id: &str,
     hash: &ScriptHash,
-) -> Result<Script> {
-    let script_o =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(hash)
-            .bind(workspace_id)
-            .fetch_optional(&mut **db)
-            .await?;
+    with_starred_info_for_username: Option<&str>,
+) -> Result<ScriptWithStarred> {
+    let script_o = if let Some(username) = with_starred_info_for_username {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT s.*, favorite.path IS NOT NULL as starred
+            FROM script s
+            LEFT JOIN favorite 
+            ON favorite.favorite_kind = 'script' 
+                AND favorite.workspace_id = s.workspace_id 
+                AND favorite.path = s.path 
+                AND favorite.usr = $1 
+            WHERE s.hash = $2 AND s.workspace_id = $3",
+        )
+        .bind(&username)
+        .bind(hash)
+        .bind(workspace_id)
+        .fetch_optional(&mut **db)
+        .await?
+    } else {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT *, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
+        )
+        .bind(hash)
+        .bind(workspace_id)
+        .fetch_optional(&mut **db)
+        .await?
+    };
 
     let script = not_found_if_none(script_o, "Script", hash.to_string())?;
     Ok(script)
@@ -1080,9 +1155,23 @@ async fn get_script_by_hash_internal<'c>(
 async fn get_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
-) -> JsonResult<Script> {
+    Query(query): Query<WithStarredInfoQuery>,
+    Extension(authed): Extension<ApiAuthed>,
+) -> JsonResult<ScriptWithStarred> {
     let mut tx = db.begin().await?;
-    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    let r = get_script_by_hash_internal(
+        &mut tx,
+        &w_id,
+        &hash,
+        query.with_starred_info.and_then(|x| {
+            if x {
+                Some(authed.username.as_str())
+            } else {
+                None
+            }
+        }),
+    )
+    .await?;
     tx.commit().await?;
 
     Ok(Json(r))
@@ -1096,10 +1185,10 @@ async fn raw_script_by_hash(
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
-    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await?;
     tx.commit().await?;
 
-    Ok(r.content)
+    Ok(r.script.content)
 }
 
 #[derive(FromRow, Serialize)]

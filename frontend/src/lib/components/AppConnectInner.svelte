@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
@@ -19,6 +19,7 @@
 	import OauthScopes from './OauthScopes.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
+	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen } from 'lucide-svelte'
@@ -74,18 +75,29 @@
 
 	let pathError = ''
 
-	export async function open(rt?: string) {
+	let expressOAuthSetup = false
+
+	export async function open(rt?: string, express?: boolean) {
+		expressOAuthSetup = express ?? false
 		if (!rt) {
 			loadResourceTypes()
 		}
-		step = 1
+		step = 1 //express && !manual ? 3 : 1
 		value = ''
 		description = ''
 		resourceType = rt ?? ''
 		valueToken = undefined
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
+		if (manual && expressOAuthSetup) {
+			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
+			return
+		}
 		if (rt) {
+			if (!manual && expressOAuthSetup) {
+				await getScopesAndParams()
+				step = 2
+			}
 			next()
 		}
 	}
@@ -153,10 +165,13 @@
 	}
 
 	function popupListener(event) {
+		console.log('popupListener', event.data, event.origin, window.location.origin)
 		let data = event.data
-		if (event.origin !== window.location.origin) {
+		if (event.origin == null || event.origin !== window.location.origin) {
 			return
 		}
+
+		window.removeEventListener('message', popupListener)
 
 		if (data.type === 'error') {
 			sendUserToast(event.data.error, true)
@@ -166,6 +181,10 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			step = 4
+			if (expressOAuthSetup) {
+				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+				next()
+			}
 		}
 	}
 
@@ -200,7 +219,7 @@
 			// if (!newPageOAuth) {
 			// 	window.location.href = url.toString()
 			// } else {
-			window.addEventListener('message', popupListener, { once: true })
+			window.addEventListener('message', popupListener)
 			window.open(url.toString(), '_blank', 'popup=true')
 			step += 1
 
@@ -369,11 +388,11 @@
 			add a schedule to do daily):
 			<p class="mt-4"
 				>1. Go to the "admins" workspaces:
-				<img src="/sync_resource_types.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
 			</p>
 			<p class="mt-4">
 				2: Run the synchronization script:
-				<img src="/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
 			</p>
 		</div>
 	{/if}
@@ -449,7 +468,7 @@
 		</div>
 		{#if apiTokenApps[resourceType].img}
 			<div class="mt-4 w-full overflow-hidden">
-				<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
+				<img class="m-auto max-h-60" alt="connect" src={base + apiTokenApps[resourceType].img} />
 			</div>
 		{/if}
 	{:else if !emptyString(resourceTypeInfo?.description)}

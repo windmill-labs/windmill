@@ -16,6 +16,7 @@
 	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
 	import type { Script } from '$lib/gen'
 	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
+	import RustIcon from '$lib/components/icons/RustIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -26,17 +27,19 @@
 		| 'fetch'
 		| 'docker'
 		| 'powershell'
+		| 'bunnative'
 	export let width = 30
 	export let height = 30
 	export let scale = 1
 
-	const languageLabel: Record<Script['language'], String> = {
+	const languageLabel: Record<Script['language'] | 'bunnative', String> = {
 		python3: 'Python',
 		deno: 'TypeScript',
 		go: 'Go',
 		bash: 'Bash',
 		powershell: 'PowerShell',
 		nativets: 'HTTP',
+		bunnative: 'HTTP',
 		graphql: 'GraphQL',
 		postgresql: 'Postgresql',
 		bigquery: 'BigQuery',
@@ -44,11 +47,12 @@
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',
 		bun: 'TypeScript',
-		php: 'PHP'
+		php: 'PHP',
+		rust: 'Rust'
 	}
 
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell',
+		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative',
 		any
 	> = {
 		go: GoIcon,
@@ -56,6 +60,7 @@
 		deno: TypeScriptIcon,
 		// graphql: TypeScriptIcon,
 		bun: TypeScriptIcon,
+		bunnative: RestIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
@@ -69,7 +74,8 @@
 		postgresql: PostgresIcon,
 		nativets: RestIcon,
 		graphql: GraphqlIcon,
-		php: PHPIcon
+		php: PHPIcon,
+		rust: RustIcon
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

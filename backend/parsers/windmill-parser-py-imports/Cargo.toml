@@ -8,13 +8,18 @@ authors.workspace = true
 name = "windmill_parser_py_imports"
 path = "./src/lib.rs"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+regex-lite.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+regex.workspace = true
+
 [dependencies]
 windmill-parser.workspace = true
 windmill-common.workspace = true
 rustpython-parser.workspace = true
 phf.workspace = true
 itertools.workspace = true
-regex.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 lazy_static.workspace = true
