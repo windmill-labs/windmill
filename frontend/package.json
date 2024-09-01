@@ -50,7 +50,7 @@
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^13.0.0",
-		"svelte": "^4.0.0",
+		"svelte": "^4.2.19",
 		"svelte-awesome-color-picker": "^3.0.4",
 		"svelte-check": "^3.4.3",
 		"svelte-floating-ui": "^1.5.8",
