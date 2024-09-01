@@ -75,8 +75,6 @@ use tokio::{
     time::Instant,
 };
 
-use futures::future::FutureExt;
-
 use rand::Rng;
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
@@ -1477,10 +1475,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     last_checked_suspended = Instant::now();
                     true
                 } else { false };
-                let (job, timer, suspend_first) = pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time, suspend_first)).await;
+                let job = pull(&db, rsmq.clone(), suspend_first).await;
                 add_time!(timing, loop_start, "post pull");
-                // tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
-                let duration_pull_s = timer.elapsed().as_secs_f64();
+                let duration_pull_s = pull_time.elapsed().as_secs_f64();
                 let err_pull = job.is_ok();
                 let empty = job.as_ref().is_ok_and(|x| x.is_none());
                 suspend_first_success = suspend_first && !empty;
