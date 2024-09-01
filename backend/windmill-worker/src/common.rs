@@ -573,7 +573,7 @@ where
                 if i == 1 || i % 10 == 0 {
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
-                    tracing::info!("{worker_name}/{job_id} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
+                    tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     if job_id != Uuid::nil() {
                         sqlx::query!(
                             "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
@@ -592,7 +592,7 @@ where
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }
-                tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                tracing::info!("job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
 
 
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
