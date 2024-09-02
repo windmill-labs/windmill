@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.390.0](https://github.com/windmill-labs/windmill/compare/v1.389.1...v1.390.0) (2024-09-02)
+
+
+### Features
+
+* add yaml editor in flow builder ([71470d7](https://github.com/windmill-labs/windmill/commit/71470d7da9d3c7a52d7c5a206849f2e63ac4fa02))
+
+
+### Bug Fixes
+
+* improve dependency map to handle recusrive loops + handle better flow relative imports ([cdd7349](https://github.com/windmill-labs/windmill/commit/cdd7349f6769a0195f367a1ac27f802287a1f900))
+
 ## [1.389.1](https://github.com/windmill-labs/windmill/compare/v1.389.0...v1.389.1) (2024-09-02)
 
 
