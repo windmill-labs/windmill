@@ -329,6 +329,16 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     relative_imports,
                 )
                 .await?;
+                let already_visited = job
+                    .args
+                    .as_ref()
+                    .map(|x| {
+                        x.get("already_visited")
+                            .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+                            .flatten()
+                    })
+                    .flatten()
+                    .unwrap_or_default();
                 if let Err(e) = trigger_dependents_to_recompute_dependencies(
                     w_id,
                     script_path,
@@ -339,6 +349,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     &job.permissioned_as,
                     db,
                     rsmq,
+                    already_visited,
                 )
                 .await
                 {
@@ -385,6 +396,7 @@ async fn trigger_dependents_to_recompute_dependencies<
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     rsmq: Option<R>,
+    mut already_visited: Vec<String>,
 ) -> error::Result<()> {
     let script_importers = sqlx::query!(
         "SELECT importer_path, importer_kind::text, array_agg(importer_node_id) as importer_node_ids FROM dependency_map
@@ -396,7 +408,12 @@ async fn trigger_dependents_to_recompute_dependencies<
     )
     .fetch_all(db)
     .await?;
+
+    already_visited.push(script_path.to_string());
     for s in script_importers.iter() {
+        if already_visited.contains(&s.importer_path) {
+            continue;
+        }
         let tx: PushIsolationLevel<'_, R> =
             PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
@@ -407,6 +424,10 @@ async fn trigger_dependents_to_recompute_dependencies<
             args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
         }
 
+        args.insert(
+            "already_visited".to_string(),
+            to_raw_value(&already_visited),
+        );
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
@@ -897,8 +918,11 @@ async fn lock_modules<'c>(
                     &Some(e.id.clone()),
                 )
                 .await?;
-                let relative_imports =
-                    extract_relative_imports(&content, &dep_path, &Some(language.clone()));
+                let relative_imports = extract_relative_imports(
+                    &content,
+                    &format!("{dep_path}/flow"),
+                    &Some(language.clone()),
+                );
                 if let Some(relative_imports) = relative_imports {
                     let mut logs = "".to_string();
                     logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", e.id).as_str());
