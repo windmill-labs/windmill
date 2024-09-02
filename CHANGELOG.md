@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.389.1](https://github.com/windmill-labs/windmill/compare/v1.389.0...v1.389.1) (2024-09-02)
+
+
+### Bug Fixes
+
+* fix erronous branchone status in flow viewer ([e311684](https://github.com/windmill-labs/windmill/commit/e311684a668c461538a3456c02c82a1ea6fecbc9))
+* 
 ## [1.389.0](https://github.com/windmill-labs/windmill/compare/v1.388.0...v1.389.0) (2024-09-01)
 
 
