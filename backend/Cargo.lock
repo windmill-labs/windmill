@@ -2597,7 +2597,7 @@ dependencies = [
  "swc_ecma_codegen",
  "swc_ecma_codegen_macros",
  "swc_ecma_loader",
- "swc_ecma_parser 0.146.12",
+ "swc_ecma_parser",
  "swc_ecma_transforms_base",
  "swc_ecma_transforms_classes",
  "swc_ecma_transforms_macros",
@@ -3062,7 +3062,7 @@ dependencies = [
  "swc_atoms",
  "swc_common 0.34.4",
  "swc_ecma_ast 0.115.1",
- "swc_ecma_parser 0.146.12",
+ "swc_ecma_parser",
  "text_lines",
 ]
 
@@ -4712,7 +4712,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -8282,7 +8282,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8571,28 +8571,6 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.144.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0b4193b9c127db1990a5a08111aafe0122bc8b138646807c63f2a6521b7da4"
-dependencies = [
- "either",
- "new_debug_unreachable",
- "num-bigint",
- "num-traits",
- "phf",
- "serde",
- "smallvec",
- "smartstring",
- "stacker",
- "swc_atoms",
- "swc_common 0.33.26",
- "swc_ecma_ast 0.113.7",
- "tracing",
- "typed-arena",
-]
-
-[[package]]
-name = "swc_ecma_parser"
 version = "0.146.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a4e0c2e85f12c63b85c805e923079b04d1fb3e25edd069d638eed5f2098de74"
@@ -8630,7 +8608,7 @@ dependencies = [
  "swc_atoms",
  "swc_common 0.34.4",
  "swc_ecma_ast 0.115.1",
- "swc_ecma_parser 0.146.12",
+ "swc_ecma_parser",
  "swc_ecma_utils",
  "swc_ecma_visit 0.101.0",
  "tracing",
@@ -8699,7 +8677,7 @@ dependencies = [
  "swc_common 0.34.4",
  "swc_config",
  "swc_ecma_ast 0.115.1",
- "swc_ecma_parser 0.146.12",
+ "swc_ecma_parser",
  "swc_ecma_transforms_base",
  "swc_ecma_transforms_macros",
  "swc_ecma_utils",
@@ -9832,7 +9810,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 
@@ -10473,7 +10451,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -10844,7 +10822,7 @@ dependencies = [
  "serde_json",
  "swc_common 0.33.26",
  "swc_ecma_ast 0.113.7",
- "swc_ecma_parser 0.144.3",
+ "swc_ecma_parser",
  "swc_ecma_visit 0.99.1",
  "triomphe",
  "wasm-bindgen",

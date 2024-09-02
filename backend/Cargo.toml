@@ -181,7 +181,7 @@ deno_core = "0.299.0"
 deno_ast = { version = "=0.40.0", features = ["transpiling"] }
 async-recursion = "^1"
 swc_common = "=0.33.26"
-swc_ecma_parser = "=0.144.3"
+swc_ecma_parser = "=0.146.12"
 swc_ecma_ast = "=0.113.7"
 swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
