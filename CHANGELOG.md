@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.389.1](https://github.com/windmill-labs/windmill/compare/v1.389.0...v1.389.1) (2024-09-02)
+
+
+### Bug Fixes
+
+* fix erronous branchone status ([e311684](https://github.com/windmill-labs/windmill/commit/e311684a668c461538a3456c02c82a1ea6fecbc9))
+* frontend/package.json & frontend/package-lock.json to reduce vulnerabilities ([#3918](https://github.com/windmill-labs/windmill/issues/3918)) ([0e91c36](https://github.com/windmill-labs/windmill/commit/0e91c36f5a2f5fdd812a3847fabccdfa386e78e9))
+* frontend/package.json & frontend/package-lock.json to reduce vulnerabilities ([#4314](https://github.com/windmill-labs/windmill/issues/4314)) ([bf9f7d7](https://github.com/windmill-labs/windmill/commit/bf9f7d79ffc33634f331fc7332855d2cbf36dd3d))
+* integration_tests/requirements.txt to reduce vulnerabilities ([#4038](https://github.com/windmill-labs/windmill/issues/4038)) ([059be0c](https://github.com/windmill-labs/windmill/commit/059be0c40de36b3accee0cf2a04e79f7a78cf216))
+* llm/requirements.txt to reduce vulnerabilities ([#3965](https://github.com/windmill-labs/windmill/issues/3965)) ([1289ec6](https://github.com/windmill-labs/windmill/commit/1289ec67be335171f545226e85bb34f894517ddf))
+* llm/requirements.txt to reduce vulnerabilities ([#4313](https://github.com/windmill-labs/windmill/issues/4313)) ([8a105c9](https://github.com/windmill-labs/windmill/commit/8a105c9c673b48817a022a88dacecab5f6004923))
+
 ## [1.389.0](https://github.com/windmill-labs/windmill/compare/v1.388.0...v1.389.0) (2024-09-01)
 
 
