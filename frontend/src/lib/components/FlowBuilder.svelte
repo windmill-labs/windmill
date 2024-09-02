@@ -98,6 +98,7 @@
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
+	export let disableAi: boolean = false
 
 	$: setContext('customUi', customUi)
 
@@ -219,6 +220,7 @@
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
+			dispatch('saveDraftError', error)
 		}
 		loadingDraft = false
 	}
@@ -333,6 +335,7 @@
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
+			dispatch('deployError', err)
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
 		}
@@ -1101,7 +1104,10 @@
 					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
-					<Summary bind:value={$flowStore.summary} />
+					<Summary
+						disabled={customUi?.topBar?.editableSummary == false}
+						bind:value={$flowStore.summary}
+					/>
 
 					<UndoRedo
 						undoProps={{ disabled: $history.index === 0 }}
@@ -1246,7 +1252,7 @@
 							</div>
 						</Button>
 					{/if}
-					{#if customUi?.topBar?.aiBuilder != false}
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false}
 						<FlowCopilotStatus
 							{copilotLoading}
 							bind:copilotStatus
@@ -1310,7 +1316,7 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
-					enableAi={customUi?.stepInputs?.ai != false}
+					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
 					{loading}
 					on:reload={() => {

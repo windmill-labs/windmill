@@ -15,6 +15,7 @@
 	export let hideTimeline = false
 	export let hideDownloadInGraph = false
 	export let hideNodeDefinition = false
+	export let hideJobId = false
 
 	export let isOwner = false
 	export let wideResults = false
@@ -29,7 +30,8 @@
 		retryStatus,
 		hideDownloadInGraph,
 		hideNodeDefinition,
-		hideTimeline
+		hideTimeline,
+		hideJobId
 	})
 
 	function loadOwner(path: string) {
