@@ -16,7 +16,16 @@
 	import { capitalize, classNames } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
-	import { AlertCircle, AlertTriangle, BadgeCheck, Info, Plus, X, BadgeX } from 'lucide-svelte'
+	import {
+		AlertCircle,
+		AlertTriangle,
+		BadgeCheck,
+		Info,
+		Plus,
+		X,
+		BadgeX,
+		Slack
+	} from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
@@ -26,6 +35,8 @@
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
+
+	import { base } from '$lib/base'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -245,6 +256,11 @@
 							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
 							instance.</div
 						>
+					{:else if category == 'Slack'}
+						<div class="text-secondary pb-4 text-xs">
+							Connecting your instance to a Slack workspace enables critical alerts to be sent to a
+							Slack channel.
+						</div>
 					{:else if category == 'Telemetry'}
 						<div class="text-secondary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
@@ -654,21 +670,46 @@
 													{#if $enterpriseLicense && Array.isArray(values[setting.key])}
 														{#each values[setting.key] ?? [] as v, i}
 															<div class="flex max-w-md mt-1 gap-2 w-full items-center">
-																<select>
-																	<option value="email">Email</option>
-																</select>
-																<input
-																	type="email"
-																	placeholder="Email address"
-																	on:input={(e) => {
+																<select
+																	on:change={(e) => {
 																		if (e.target?.['value']) {
 																			values[setting.key][i] = {
-																				email: e.target['value']
+																				[e.target['value']]: ''
 																			}
 																		}
 																	}}
-																	value={v?.email ?? ''}
-																/>
+																	value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
+																>
+																	<option value="email">Email</option>
+																	<option value="slack_channel">Slack</option>
+																</select>
+																{#if v && 'slack_channel' in v}
+																	<input
+																		type="text"
+																		placeholder="Slack channel"
+																		on:input={(e) => {
+																			if (e.target?.['value']) {
+																				values[setting.key][i] = {
+																					slack_channel: e.target['value']
+																				}
+																			}
+																		}}
+																		value={v?.slack_channel ?? ''}
+																	/>
+																{:else}
+																	<input
+																		type="email"
+																		placeholder="Email address"
+																		on:input={(e) => {
+																			if (e.target?.['value']) {
+																				values[setting.key][i] = {
+																					email: e.target['value']
+																				}
+																			}
+																		}}
+																		value={v?.email ?? ''}
+																	/>
+																{/if}
 																<button
 																	transition:fade|local={{ duration: 100 }}
 																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
@@ -706,6 +747,35 @@
 													>
 														Add item
 													</Button>
+												</div>
+											{:else if setting.fieldType == 'slack_connect'}
+												<div class="flex flex-col items-start self-start">
+													{#if values[setting.key] && 'team_name' in values[setting.key]}
+														<div class="text-sm">
+															Connected to <code>{values[setting.key]['team_name']}</code>
+														</div>
+														<Button
+															size="sm"
+															endIcon={{ icon: Slack }}
+															btnClasses="mt-2"
+															variant="border"
+															on:click={async () => {
+																values[setting.key] = undefined
+															}}
+														>
+															Disconnect Slack
+														</Button>
+													{:else}
+														<Button
+															size="xs"
+															color="dark"
+															href="{base}/api/oauth/connect_slack?instance=true"
+															startIcon={{ icon: Slack }}
+															disabled={!$enterpriseLicense}
+														>
+															Connect to Slack
+														</Button>
+													{/if}
 												</div>
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
