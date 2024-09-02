@@ -48,7 +48,7 @@
 			}
 		}
 	}}
-	id={`flow-editor-virtual-${label}`}
+	id={`flow-editor-virtual-${encodeURIComponent(label)}`}
 >
 	<div
 		style={borderColor ? `border-color: ${borderColor};` : ''}
