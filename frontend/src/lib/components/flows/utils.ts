@@ -17,6 +17,7 @@ import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { Schema } from '$lib/common'
 import { parseOutputs } from '$lib/infer'
+import type { ExtendedOpenFlow } from './types'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -69,6 +70,28 @@ export function evalValue(
 		return undefined
 	}
 	return v
+}
+
+export function filteredContentForExport(flow: ExtendedOpenFlow) {
+	let o = {
+		summary: flow.summary,
+		description: flow.description,
+		value: flow.value,
+		schema: flow.schema
+	}
+	if (flow.dedicated_worker) {
+		o['dedicated_worker'] = flow.dedicated_worker
+	}
+	if (flow.visible_to_runner_only) {
+		o['visible_to_runner_only'] = flow.visible_to_runner_only
+	}
+	if (flow.ws_error_handler_muted) {
+		o['ws_error_handler_muted'] = flow.ws_error_handler_muted
+	}
+	if (flow.tag) {
+		o['tag'] = flow.tag
+	}
+	return o
 }
 
 export function cleanInputs(flow: OpenFlow | any): OpenFlow & {

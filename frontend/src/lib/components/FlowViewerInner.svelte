@@ -9,6 +9,7 @@
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import { filteredContentForExport } from './flows/utils'
 
 	export let flow: {
 		summary: string
@@ -17,12 +18,7 @@
 		schema?: any
 	}
 
-	$: flowFiltered = {
-		summary: flow.summary,
-		description: flow.description,
-		value: flow.value,
-		schema: flow.schema
-	}
+	$: flowFiltered = filteredContentForExport(flow)
 
 	let rawType: 'json' | 'yaml' = 'yaml'
 

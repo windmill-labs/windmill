@@ -18,7 +18,7 @@
 
 <div class="flex gap-2 items-center">
 	<div class="max-w-sm grow">
-		{#if workerTags}
+		{#if $workerTags}
 			{#if $workerTags?.length ?? 0 > 0}
 				<select
 					value={tag}
@@ -34,6 +34,9 @@
 						<option value="">reset to default</option>
 					{:else}
 						<option value="" disabled selected>Worker Group Tag</option>
+					{/if}
+					{#if tag && tag != '' && !($workerTags ?? []).includes(tag)}
+						<option value={tag} selected>{tag}</option>
 					{/if}
 					{#each $workerTags ?? [] as tag (tag)}
 						<option value={tag}>{tag}</option>
