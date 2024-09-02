@@ -44,7 +44,7 @@
 		"eslint-plugin-svelte": "^2.33.1",
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.24",
-		"postcss-load-config": "^4.0.1",
+		"postcss-load-config": "^6.0.1",
 		"prettier": "^2.8.8",
 		"prettier-plugin-svelte": "^2.10.1",
 		"simple-svelte-autocomplete": "^2.5.1",
