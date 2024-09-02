@@ -316,6 +316,7 @@
 				dispatch('deploy', newHash)
 			}
 		} catch (error) {
+			dispatch('deployError', error)
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
@@ -411,16 +412,21 @@
 				draft: structuredClone(script)
 			} as NewScriptWithDraft
 
+			let savedAtNewPath = false
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
+				savedAtNewPath = true
 				initialPath = script.path
 				dispatch('saveInitial', script.path)
 			}
+			dispatch('saveDraft', { path: script.path, savedAtNewPath, script })
+
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(
 				`Error while saving the script as a draft: ${error.body || error.message}`,
 				true
 			)
+			dispatch('saveDraftError', error)
 		}
 		loadingDraft = false
 	}
@@ -1035,7 +1041,10 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<Summary bind:value={script.summary} />
+					<Summary
+						disabled={customUi?.topBar?.editableSummary == false}
+						bind:value={script.summary}
+					/>
 				</div>
 
 				<div class="gap-4 flex">
