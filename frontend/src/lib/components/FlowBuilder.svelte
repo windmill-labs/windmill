@@ -81,6 +81,7 @@
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
+	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -1007,6 +1008,7 @@
 	let flowTutorials: FlowTutorials | undefined = undefined
 
 	let jsonViewerDrawer: Drawer | undefined = undefined
+	let yamlEditorDrawer: Drawer | undefined = undefined
 	let flowHistory: FlowHistory | undefined = undefined
 
 	export function triggerTutorial() {
@@ -1049,6 +1051,11 @@
 							displayName: 'Export',
 							icon: FileJson,
 							action: () => jsonViewerDrawer?.openDrawer()
+						},
+						{
+							displayName: 'Edit in YAML',
+							icon: FileJson,
+							action: () => yamlEditorDrawer?.openDrawer()
 						}
 				  ]
 				: [])
@@ -1069,6 +1076,7 @@
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
 		{/if}
+		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
