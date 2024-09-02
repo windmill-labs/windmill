@@ -328,6 +328,7 @@ export default function graphBuilder(
 							branchIndex: -1,
 							modules: module.value.default,
 							eventHandlers: eventHandlers,
+							branchOne: true,
 							...extra
 						},
 						position: { x: -1, y: -1 },

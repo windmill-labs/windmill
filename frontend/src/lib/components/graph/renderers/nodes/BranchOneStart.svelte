@@ -21,7 +21,7 @@
 	}
 
 	$: borderStatus = computeBorderStatus(
-		data.branchIndex,
+		data.branchIndex + 1,
 		'branchone',
 		data.flowModuleStates?.[data.id]
 	)

@@ -5,6 +5,7 @@
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStateColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
+	import { computeBorderStatus } from '../utils'
 
 	export let data: {
 		id: string
@@ -14,7 +15,12 @@
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		offset: number
 		label: string | undefined
+		branchOne: boolean
 	}
+
+	$: borderStatus = data.branchOne
+		? computeBorderStatus(0, 'branchone', data.flowModuleStates?.[data.id])
+		: undefined
 </script>
 
 <NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
@@ -25,7 +31,7 @@
 		selectable={true}
 		selected={false}
 		bgColor={getStateColor(undefined, darkMode)}
-		borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
+		borderColor={getStateColor(borderStatus, darkMode)}
 		on:select={(e) => {
 			data?.eventHandlers?.select(e.detail)
 		}}

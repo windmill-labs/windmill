@@ -938,7 +938,6 @@
 								if (rightColumnSelect != 'node_definition') {
 									rightColumnSelect = 'node_status'
 								}
-								console.log('BAR', e.detail)
 								if (typeof e.detail == 'string') {
 									if (e.detail == 'Input') {
 										selectedNode = 'start'
