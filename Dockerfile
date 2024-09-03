@@ -88,6 +88,7 @@ ARG POWERSHELL_VERSION=7.3.5
 ARG POWERSHELL_DEB_VERSION=7.3.5-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
+ARG GO_VERSION=1.22.5
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -133,14 +134,14 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
-    'amd64') \
-    targz='go1.22.5.linux-amd64.tar.gz'; \
+    "amd64") \
+    targz="go${GO_VERSION}.linux-amd64.tar.gz"; \
     ;; \
-    'arm64') \
-    targz='go1.22.5.linux-arm64.tar.gz'; \
+    "arm64") \
+    targz="go${GO_VERSION}.linux-arm64.tar.gz"; \
     ;; \
-    'armhf') \
-    targz='go1.22.5.linux-armv6l.tar.gz'; \
+    "armhf") \
+    targz="go${GO_VERSION}.linux-armv6l.tar.gz"; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
