@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.390.1](https://github.com/windmill-labs/windmill/compare/v1.390.0...v1.390.1) (2024-09-03)
+
+
+### Bug Fixes
+
+* do not require hasNullParent only if scriptPathExact on runs search ([d172e45](https://github.com/windmill-labs/windmill/commit/d172e45766220c525e91f933f22a32738fa2709e))
+* prevent brute force attacks on tokens by slowing unauthorized response ([acfe778](https://github.com/windmill-labs/windmill/commit/acfe7786152f036f2476f93ab5536571514fa9e3))
+
 ## [1.390.0](https://github.com/windmill-labs/windmill/compare/v1.389.1...v1.390.0) (2024-09-02)
 
 
