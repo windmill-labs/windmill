@@ -8,6 +8,7 @@
 
 #![allow(non_snake_case)]
 
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::db::ApiAuthed;
@@ -145,6 +146,7 @@ pub struct ExpiringAuthCache {
     pub authed: ApiAuthed,
     pub expiry: chrono::DateTime<chrono::Utc>,
 }
+
 pub struct AuthCache {
     cache: Cache<(String, String), ExpiringAuthCache>,
     db: DB,
@@ -502,6 +504,32 @@ pub struct Tokened {
     pub token: String,
 }
 
+struct BruteForceCounter {
+    counter: AtomicU64,
+    last_reset: AtomicI64,
+}
+
+lazy_static! {
+    static ref BRUTE_FORCE_COUNTER: BruteForceCounter =
+        BruteForceCounter { last_reset: AtomicI64::new(0), counter: AtomicU64::new(0) };
+}
+
+impl BruteForceCounter {
+    async fn increment(&self) {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        if self.counter.fetch_add(1, Ordering::Relaxed) > 10000 {
+            tracing::error!(
+                "Brute force attack to find valid token detected, sleeping unauthorized response for 2 seconds"
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        if now - self.last_reset.load(Ordering::Relaxed) > 60 {
+            self.counter.store(0, Ordering::Relaxed);
+            self.last_reset.store(now, Ordering::Relaxed);
+        }
+    }
+}
+
 #[async_trait]
 impl<S> FromRequestParts<S> for Tokened
 where
@@ -526,6 +554,7 @@ where
                 parts.extensions.insert(tokened.clone());
                 Ok(tokened)
             } else {
+                BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
             }
         }
@@ -625,6 +654,7 @@ where
                             && (path_vec.len() < 3
                                 || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
                         {
+                            BRUTE_FORCE_COUNTER.increment().await;
                             return Err((
                                 StatusCode::UNAUTHORIZED,
                                 format!("Unauthorized scoped token: {:?}", authed.scopes),
@@ -640,6 +670,7 @@ where
                     }
                 }
             }
+            BRUTE_FORCE_COUNTER.increment().await;
             Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
         }
     }
