@@ -3,11 +3,7 @@
 
 <script lang="ts">
 	import type { AppInput } from '$lib/components/apps/inputType'
-	import type {
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '$lib/components/apps/types'
+	import type { ComponentCustomCSS, RichConfigurations } from '$lib/components/apps/types'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
@@ -23,7 +19,6 @@
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridinfinitecomponentee'> | undefined = undefined
 	export let actions: TableAction[] = []
-	export let actionsOrder: RichConfiguration | undefined = undefined
 
 	let loaded = false
 	async function load() {
@@ -46,7 +41,6 @@
 		{render}
 		{customCss}
 		{actions}
-		{actionsOrder}
 	/>
 {:else}
 	<Loader2 class="animate-spin" />

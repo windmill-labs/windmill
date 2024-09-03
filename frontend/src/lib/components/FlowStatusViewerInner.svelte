@@ -485,7 +485,7 @@
 
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
-					...($flowStateStore[modId] ?? {}),
+					...(($flowStateStore[modId] as object) ?? {}),
 					previewResult: jobLoaded.args
 				}
 			}

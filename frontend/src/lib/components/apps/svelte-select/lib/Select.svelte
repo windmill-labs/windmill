@@ -582,6 +582,7 @@
 
 <svelte:window on:click={handleClickOutside} on:keydown={handleKeyDown} />
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={twMerge('svelte-select', containerClasses)}
 	class:disabled

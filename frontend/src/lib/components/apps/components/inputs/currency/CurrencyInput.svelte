@@ -202,7 +202,7 @@
 	/>
 </div>
 
-<style>
+<style lang="postcss">
 	input.currencyInput__formatted {
 		border: 1px solid #e2e2e2;
 		padding: 10px;

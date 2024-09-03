@@ -414,7 +414,6 @@
 			<DecisionTreeGraphEditor
 				bind:nodes={componentSettings.item.data.nodes}
 				bind:component={componentSettings.item.data}
-				rebuildOnChange={componentSettings.item.data.nodes}
 			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane

@@ -6,7 +6,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let open: boolean | undefined = undefined
 	export let index: number
 	export let flowJobs: string[] | undefined
 	export let flowJobsSuccess: (boolean | undefined)[] | undefined

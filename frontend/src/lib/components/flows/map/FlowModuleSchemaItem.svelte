@@ -160,6 +160,7 @@
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary
 	border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
 	hover:border-red-700 {selected ? '' : '!hidden'}"
+			title="Delete"
 			on:click|preventDefault|stopPropagation={(event) =>
 				dispatch('delete', { event, id, type: modType })}
 		>
@@ -171,6 +172,7 @@
 border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-blue-400 hover:text-white
 hover:border-blue-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
+			title="Move"
 		>
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
