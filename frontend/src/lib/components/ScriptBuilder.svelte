@@ -1098,29 +1098,31 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							if (!savedScript) {
-								return
-							}
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'normal',
-								deployed: savedScript,
-								draft: savedScript['draft'],
-								current: script
-							})
-						}}
-						disabled={!savedScript || !diffDrawer}
-					>
-						<div class="flex flex-row gap-2 items-center">
-							<DiffIcon size={14} />
-							<span class="hidden lg:flex"> Diff </span>
-						</div>
-					</Button>
+					{#if customUi?.topBar?.diff != false}
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							on:click={() => {
+								if (!savedScript) {
+									return
+								}
+								diffDrawer?.openDrawer()
+								diffDrawer?.setDiff({
+									mode: 'normal',
+									deployed: savedScript,
+									draft: savedScript['draft'],
+									current: script
+								})
+							}}
+							disabled={!savedScript || !diffDrawer}
+						>
+							<div class="flex flex-row gap-2 items-center">
+								<DiffIcon size={14} />
+								<span class="hidden lg:flex"> Diff </span>
+							</div>
+						</Button>
+					{/if}
 					{#if customUi?.topBar?.settings != false}
 						<Button
 							color="light"

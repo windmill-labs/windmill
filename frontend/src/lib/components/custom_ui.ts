@@ -56,6 +56,7 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		settings?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
+		diff?: boolean
 	}
 	editorBar?: EditorBarUi
 }
