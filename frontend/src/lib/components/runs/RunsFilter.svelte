@@ -276,6 +276,7 @@
 							></span
 						>
 
+						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							type="text"
@@ -317,6 +318,7 @@
 							</Tooltip></span
 						>
 
+						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							type="text"
@@ -350,6 +352,7 @@
 						{/if}
 						<span class="text-xs absolute -top-4"> Tag </span>
 
+						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							type="text"
@@ -383,6 +386,7 @@
 						{/if}
 						<span class="text-xs absolute -top-4"> Schedule Path </span>
 
+						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							type="text"
@@ -630,6 +634,7 @@
 										</button>
 									{/if}
 
+									<!-- svelte-ignore a11y-autofocus -->
 									<input
 										autofocus
 										type="text"
@@ -664,6 +669,7 @@
 										</button>
 									{/if}
 
+									<!-- svelte-ignore a11y-autofocus -->
 									<input
 										autofocus
 										type="text"
@@ -698,6 +704,7 @@
 										</button>
 									{/if}
 
+									<!-- svelte-ignore a11y-autofocus -->
 									<input
 										autofocus
 										type="text"

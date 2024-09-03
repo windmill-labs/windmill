@@ -41,7 +41,7 @@
 			$flowInputsStore[module?.id] = {
 				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
-					$flowStateStore?.[module?.id]?.schema ?? {},
+					$flowStateStore?.[module?.id]?.schema,
 					dfs($flowStore.value.modules, (fm) => fm.id)
 				)
 			}

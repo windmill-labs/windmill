@@ -291,7 +291,7 @@
 	</SvelteFlow>
 </div>
 
-<style>
+<style lang="postcss">
 	:global(.svelte-flow__handle) {
 		opacity: 0;
 	}

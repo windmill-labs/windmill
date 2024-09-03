@@ -74,6 +74,7 @@
 				<Calendar size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 				<span class="whitespace-nowrap">
 					Schedule:
+					<!-- svelte-ignore a11y-invalid-attribute -->
 					<a
 						href="#"
 						class="break-words text-blue-600 font-normal"

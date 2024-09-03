@@ -55,6 +55,7 @@
 	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-tertiary">
 		{#each tabs ?? [] as step, index}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 			<li
 				class={classNames(
 					'flex items-center gap-2 px-2 py-1 hover:bg-gray-1200 rounded-md m-0.5',

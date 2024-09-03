@@ -46,6 +46,7 @@
 <div class="h-full overflow-hidden">
 	<FlowCard {noEditor} title="Settings">
 		<div class="h-full flex-1">
+			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>
 				{#if !noEditor && customUi?.settingsTabs?.schedule != false}

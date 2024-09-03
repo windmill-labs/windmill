@@ -602,5 +602,6 @@
 	/* Firefox */
 	input[type='number'] {
 		-moz-appearance: textfield !important;
+		appearance: textfield !important;
 	}
 </style>

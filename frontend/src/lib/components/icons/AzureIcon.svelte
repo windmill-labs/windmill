@@ -3,7 +3,7 @@
 	export let width = '24px'
 </script>
 
-<svg id="azure" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 374.5 377.3" width="20" height="20"
+<svg id="azure" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 374.5 377.3" {width} {height}
 	><style>
 		.st0-azure {
 			fill: #00bef2;

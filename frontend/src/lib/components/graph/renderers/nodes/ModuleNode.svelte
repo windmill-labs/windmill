@@ -86,6 +86,7 @@
 	<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
 		{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
 			<button
+				title="Add branch"
 				class="rounded-full border hover:bg-surface-hover bg-surface p-1"
 				on:click={() => {
 					data?.eventHandlers?.newBranch(data.module)

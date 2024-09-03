@@ -403,7 +403,6 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
-				actionsOrder={component.actionsOrder ?? undefined}
 				{render}
 			/>
 		{:else if component.type === 'aggridinfinitecomponentee'}
@@ -415,7 +414,6 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
-				actionsOrder={component.actionsOrder ?? undefined}
 				{render}
 			/>
 		{:else if component.type === 'textcomponent'}
