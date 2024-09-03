@@ -155,7 +155,12 @@ ENV GO_PATH=/usr/local/go/bin/go
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get autoremove -y \
+    && apt-get clean -y
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
