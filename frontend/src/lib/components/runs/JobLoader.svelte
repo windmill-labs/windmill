@@ -151,10 +151,7 @@
 						: undefined,
 				isSkipped: isSkipped ? undefined : false,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
-				hasNullParent:
-					scriptPathExact != undefined || scriptPathStart != undefined || jobKindsCat != 'all'
-						? true
-						: undefined,
+				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
