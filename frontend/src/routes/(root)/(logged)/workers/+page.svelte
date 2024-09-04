@@ -18,7 +18,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { AlertTriangle, CopyIcon, LineChart, List, Plus, Search } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
@@ -338,9 +338,8 @@
 							<div class="flex items-center gap-2">
 								<Button
 									size="sm"
-									variant="border"
-									startIcon={{ icon: FileJson }}
-									color="dark"
+									color="light"
+									startIcon={{ icon: CopyIcon }}
 									on:click={() => {
 										if (!workerGroups) {
 											return sendUserToast('No worker groups found', true)

@@ -87,6 +87,9 @@ import GoogleCloudIcon from './GoogleCloudIcon.svelte'
 import CaCertificate from './CACertificate.svelte'
 import CurrencyApiIcon from './CurrencyApiIcon.svelte'
 import VismaIcon from './VismaIcon.svelte'
+import JumcloudIcon from './JumcloudIcon.svelte'
+import KeycloakIcon from './KeycloakIcon.svelte'
+import ZitadelIcon from './ZitadelIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -181,7 +184,10 @@ export const APP_TO_ICON_COMPONENT = {
 	gcp_service_account: GoogleCloudIcon,
 	cacertificate: CaCertificate,
 	currencyapi: CurrencyApiIcon,
-	visma: VismaIcon
+	visma: VismaIcon,
+	jumpcloud: JumcloudIcon,
+	keycloak: KeycloakIcon,
+	zitadel: ZitadelIcon
 } as const
 
 export {
@@ -267,5 +273,9 @@ export {
 	IpinfoIcon,
 	GoogleCloudIcon,
 	CaCertificate,
-	CurrencyApiIcon
+	CurrencyApiIcon,
+	VismaIcon,
+	JumcloudIcon,
+	KeycloakIcon,
+	ZitadelIcon
 }
