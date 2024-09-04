@@ -88,6 +88,7 @@
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+	let lastFetchWentToEnd = false
 
 	function loadFromQuery() {
 		path = $page.params.path
@@ -316,6 +317,7 @@
 		maxTs = undefined
 		jobs = undefined
 		completedJobs = undefined
+		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
 		jobIdsToCancel = []
@@ -501,6 +503,13 @@
 
 	function setLookback(lookbackInDays: number) {
 		lookback = lookbackInDays
+	}
+
+	async function loadExtra() {
+		if (jobLoader) {
+			lastFetchWentToEnd = await jobLoader.loadExtraJobs()
+			console.log(lastFetchWentToEnd)
+		}
 	}
 
 	const warnJobLimitMsg =
@@ -739,12 +748,14 @@
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
+					{lastFetchWentToEnd}
 					bind:selectedIds
 					canSelect={!isSelectingJobsToCancel}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
 					jobs={completedJobs}
+					on:loadExtra={loadExtra}
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
@@ -904,7 +915,7 @@
 				</div>
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Max datetime</span>
+						<span class="text-xs absolute -top-4">Max</span>
 						<input
 							type="text"
 							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
@@ -936,6 +947,7 @@
 				<Button size="xs" color="light" variant="border" on:click={reset}>Reset</Button>
 				<ManuelDatePicker
 					on:loadJobs={() => {
+						lastFetchWentToEnd = false
 						jobLoader?.loadJobs(minTs, maxTs, true, true)
 					}}
 					bind:minTs
@@ -966,6 +978,8 @@
 							{isSelectingJobsToCancel}
 							bind:selectedIds
 							bind:selectedWorkspace
+							bind:lastFetchWentToEnd
+							on:loadExtra={loadExtra}
 							on:filterByPath={filterByPath}
 							on:filterByUser={filterByUser}
 							on:filterByFolder={filterByFolder}
@@ -1102,11 +1116,13 @@
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
+					{lastFetchWentToEnd}
 					bind:selectedIds
 					canSelect={!isSelectingJobsToCancel}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
+					on:loadExtra={loadExtra}
 					jobs={completedJobs}
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
@@ -1236,7 +1252,7 @@
 			<div class="flex flex-row gap-1 w-full max-w-lg items-center">
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Min datetime</span>
+						<span class="text-xs absolute -top-4">Min</span>
 
 						<input
 							type="text"
@@ -1270,7 +1286,7 @@
 				</div>
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Max datetime</span>
+						<span class="text-xs absolute -top-4">Max</span>
 						<input
 							class="min-w-10"
 							type="text"
@@ -1303,6 +1319,7 @@
 				<Button size="xs" color="light" variant="border" on:click={reset}>Reset</Button>
 				<ManuelDatePicker
 					on:loadJobs={() => {
+						lastFetchWentToEnd = false
 						jobLoader?.loadJobs(minTs, maxTs, true, true)
 					}}
 					bind:this={manualDatePicker}
@@ -1330,6 +1347,8 @@
 				{isSelectingJobsToCancel}
 				bind:selectedIds
 				bind:selectedWorkspace
+				bind:lastFetchWentToEnd
+				on:loadExtra={loadExtra}
 				on:select={() => {
 					if (!isSelectingJobsToCancel) runDrawer.openDrawer()
 				}}

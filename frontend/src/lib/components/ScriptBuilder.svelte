@@ -1034,6 +1034,7 @@
 				<div class="flex flex-row gap-2 grow max-w-md">
 					<div class="center-center">
 						<button
+							disabled={customUi?.topBar?.settings == false}
 							on:click={async () => {
 								metadataOpen = true
 							}}
