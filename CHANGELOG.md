@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.391.0](https://github.com/windmill-labs/windmill/compare/v1.390.1...v1.391.0) (2024-09-04)
+
+
+### Features
+
+* add slack as a critical alert channel ([#4319](https://github.com/windmill-labs/windmill/issues/4319)) ([a7a08cf](https://github.com/windmill-labs/windmill/commit/a7a08cf9f3b40f6d90d1a1f72ad5ab6e6212b6b9))
+
+
+### Bug Fixes
+
+* improve wm_labels indices + UX nits ([ce70693](https://github.com/windmill-labs/windmill/commit/ce7069375481652f88e0417828a0a17a8f429957))
+
 ## [1.390.1](https://github.com/windmill-labs/windmill/compare/v1.390.0...v1.390.1) (2024-09-03)
 
 
