@@ -101,7 +101,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$WITH_GIT" = "true" ]; then \
-    apt-get install -y git \
+    apt-get update  -y\
+    && apt-get install -y git; \
     else echo 'Building the image without git'; fi;
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
