@@ -18,6 +18,7 @@ export interface Setting {
 		| 'license_key'
 		| 'object_store_config'
 		| 'critical_error_channels'
+		| 'slack_connect'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
 	error?: string
@@ -122,7 +123,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Critical Alert Channels',
 			description:
-				'Channels to send critical alerts to. SMTP must be configured for the email channel.',
+				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel.',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
@@ -227,6 +228,15 @@ export const settings: Record<string, Setting[]> = {
 			key: 'smtp_tls_implicit',
 			fieldType: 'boolean',
 			storage: 'config'
+		}
+	],
+	Slack: [
+		{
+			label: 'Slack',
+			key: 'slack',
+			fieldType: 'slack_connect',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'SCIM/SAML': [
