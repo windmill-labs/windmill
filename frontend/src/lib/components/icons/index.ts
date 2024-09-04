@@ -87,7 +87,7 @@ import GoogleCloudIcon from './GoogleCloudIcon.svelte'
 import CaCertificate from './CACertificate.svelte'
 import CurrencyApiIcon from './CurrencyApiIcon.svelte'
 import VismaIcon from './VismaIcon.svelte'
-import JumcloudIcon from './JumcloudIcon.svelte'
+import JumpCloudIcon from './JumpCloudIcon.svelte'
 import KeycloakIcon from './KeycloakIcon.svelte'
 import ZitadelIcon from './ZitadelIcon.svelte'
 
@@ -185,7 +185,7 @@ export const APP_TO_ICON_COMPONENT = {
 	cacertificate: CaCertificate,
 	currencyapi: CurrencyApiIcon,
 	visma: VismaIcon,
-	jumpcloud: JumcloudIcon,
+	jumpcloud: JumpCloudIcon,
 	keycloak: KeycloakIcon,
 	zitadel: ZitadelIcon
 } as const
@@ -275,7 +275,7 @@ export {
 	CaCertificate,
 	CurrencyApiIcon,
 	VismaIcon,
-	JumcloudIcon,
+	JumpCloudIcon,
 	KeycloakIcon,
 	ZitadelIcon
 }
