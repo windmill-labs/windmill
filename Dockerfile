@@ -102,7 +102,7 @@ RUN apt-get update \
 
 RUN if [ "$WITH_GIT" = "true" ]; then \
     apt-get update  -y \
-    && apt-get install -y git
+    && apt-get install -y git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*; \
     else echo 'Building the image without git'; fi;
