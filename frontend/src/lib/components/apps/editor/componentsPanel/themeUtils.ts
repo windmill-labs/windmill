@@ -83,12 +83,17 @@ export async function resolveTheme(
 	if (theme?.type === 'inlined') {
 		css = theme.css
 	} else if (theme?.type === 'path' && theme.path && workspace) {
-		let loadedCss = await ResourceService.getResourceValue({
-			workspace: workspace,
-			path: theme.path
-		})
+		let loadedCss: any = { value: '' }
+		try {
+			loadedCss = await ResourceService.getResourceValue({
+				workspace: workspace,
+				path: theme.path
+			})
+		} catch (e) {
+			console.error('Error loading theme', e)
+		}
 
-		css = (loadedCss as any).value ?? ''
+		css = (loadedCss as any)?.['value'] ?? ''
 	}
 	return css
 }
