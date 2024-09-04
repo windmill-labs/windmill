@@ -5856,6 +5856,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/CreatedBefore"
+        - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
@@ -9055,6 +9057,20 @@ components:
       in: query
       schema:
         type: string
+    CreatedBefore:
+      name: created_before
+      description: filter on created before (inclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedAfter:
+      name: created_after
+      description: filter on created after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
     StartedBefore:
       name: started_before
       description: filter on started before (inclusive) timestamp

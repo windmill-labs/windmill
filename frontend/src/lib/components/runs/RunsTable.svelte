@@ -19,6 +19,7 @@
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
 	// const loadMoreQuantity: number = 100
+	export let lastFetchWentToEnd = false
 
 	function getTime(job: Job): string | undefined {
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
@@ -156,9 +157,12 @@
 	$: isSelectingJobsToCancel && (allSelected = selectedIds.length === cancelableJobCount)
 	$: isSelectingJobsToCancel && (cancelableJobCount = jobs?.filter(isJobCancelable).length ?? 0)
 
-	function jobCountString(jobCount: number) {
+	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
+		if (jobCount === undefined) {
+			return ''
+		}
 		const jc = jobCount
-		const isTruncated = jc >= 1000
+		const isTruncated = jc >= 1000 && !lastFetchWentToEnd
 
 		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
@@ -201,14 +205,14 @@
 			{#if showExternalJobs && externalJobs.length > 0}
 				<div class="w-1/12 text-2xs">
 					<div class="flex flex-row">
-						{jobs && jobCountString(jobs.length + externalJobs.length)}<Tooltip
-							>{externalJobs.length} jobs obscured</Tooltip
-						>
+						{jobs
+							? jobCountString(jobs.length + externalJobs.length, lastFetchWentToEnd)
+							: ''}<Tooltip>{externalJobs.length} jobs obscured</Tooltip>
 					</div>
 				</div>
 			{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
 				<div class="w-1/12 text-2xs flex flex-row">
-					{jobs && jobCountString(jobs.length)}
+					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 					<Popover>
 						<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
 						<svelte:fragment slot="text">
@@ -218,9 +222,11 @@
 					</Popover>
 				</div>
 			{:else}
-				<div class="w-1/12 text-2xs">{jobs && jobCountString(jobs.length)}</div>
+				<div class="w-1/12 text-2xs"
+					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
+				>
 			{/if}
-			<div class="w-4/12 text-xs font-semibold">Timestamp</div>
+			<div class="w-4/12 text-xs font-semibold" />
 			<div class="w-4/12 text-xs font-semibold">Path</div>
 			{#if containsLabel}
 				<div class="w-3/12 text-xs font-semibold">Label</div>
@@ -297,6 +303,16 @@
 					</div>
 				{/if}
 			</div>
+			<div slot="footer"
+				>{#if !lastFetchWentToEnd && jobs && jobs.length >= 1000}
+					<button
+						class="text-xs text-blue-600 text-center w-full pb-2"
+						on:click={() => {
+							dispatch('loadExtra')
+						}}>Load next 1000 jobs</button
+					>
+				{/if}</div
+			>
 		</VirtualList>
 	{/if}
 </div>
