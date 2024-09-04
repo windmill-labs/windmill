@@ -4136,6 +4136,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: skip_preprocessor
+          description: skip the preprocessor
+          in: query
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -5410,6 +5415,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: skip_preprocessor
+          description: skip the preprocessor
+          in: query
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -9295,6 +9305,8 @@ components:
           type: boolean
         codebase:
           type: string
+        has_preprocessor:
+          type: boolean
 
       required:
         - hash
@@ -9312,6 +9324,7 @@ components:
         - kind
         - starred
         - no_main_func
+        - has_preprocessor
 
 
     NewScript:
@@ -9392,6 +9405,8 @@ components:
           type: boolean
         codebase:
           type: string
+        has_preprocessor:
+          type: boolean
       required:
         - path
         - summary
@@ -9653,6 +9668,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "scriptwithpreprocessor",
             ]
         schedule_path:
           type: string
@@ -10190,6 +10206,9 @@ components:
         no_main_func:
           type: boolean
           nullable: true
+        has_preprocessor:
+          type: boolean
+          nullable: true
       required:
         - star_args
         - start_kwargs
@@ -10197,6 +10216,7 @@ components:
         - type
         - error
         - no_main_func
+        - has_preprocessor
 
     Preview:
       type: object

@@ -63,9 +63,17 @@ pub fn parse_python_signature(
 ) -> anyhow::Result<MainArgSignature> {
     let main_name = override_main.unwrap_or("main".to_string());
 
+    let has_preprocessor = !filter_non_main(code, "preprocessor").is_empty();
+
     let filtered_code = filter_non_main(code, &main_name);
     if filtered_code.is_empty() {
-        return Err(anyhow::anyhow!("No main function found".to_string(),));
+        return Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+            has_preprocessor: Some(has_preprocessor),
+        });
     }
     let ast = Suite::parse(&filtered_code, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
@@ -119,6 +127,7 @@ pub fn parse_python_signature(
                 })
                 .collect(),
             no_main_func: Some(false),
+            has_preprocessor: Some(has_preprocessor),
         })
     } else {
         Ok(MainArgSignature {
@@ -126,6 +135,7 @@ pub fn parse_python_signature(
             star_kwargs: false,
             args: vec![],
             no_main_func: Some(true),
+            has_preprocessor: Some(has_preprocessor),
         })
     }
 }
@@ -325,6 +335,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                     },
                 ],
                 no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -389,6 +400,7 @@ def main(test1: str,
                     }
                 ],
                 no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -448,6 +460,7 @@ def main(test1: str,
                     }
                 ],
                 no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -491,6 +504,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                     }
                 ],
                 no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -521,6 +535,59 @@ def main(test1: DynSelect_foo): return
                     oidx: None
                 }],
                 no_main_func: Some(false),
+                has_preprocessor: Some(false)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_6() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def hello(): return
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![],
+                no_main_func: Some(true),
+                has_preprocessor: Some(false)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_7() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def preprocessor(): return
+
+def main(): return
+
+
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![],
+                no_main_func: Some(false),
+                has_preprocessor: Some(true)
             }
         );
 

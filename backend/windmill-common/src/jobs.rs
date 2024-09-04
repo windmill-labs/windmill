@@ -37,6 +37,7 @@ pub enum JobKind {
     AppDependencies,
     Noop,
     DeploymentCallback,
+    ScriptWithPreprocessor,
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -302,6 +303,7 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         language: ScriptLang,
         priority: Option<i16>,
+        apply_preprocessor: bool,
     },
     Code(RawCode),
     Dependencies {
@@ -383,6 +385,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
     script_path: &str,
     db: E,
     w_id: &str,
+    skip_preprocessor: Option<bool>,
 ) -> error::Result<(JobPayload, Option<Tag>, Option<bool>, Option<i32>)> {
     let (job_payload, tag, delete_after_use, script_timeout) = if script_path.starts_with("hub/") {
         (
@@ -404,6 +407,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
             priority,
             delete_after_use,
             script_timeout,
+            has_preprocessor,
         ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
@@ -416,6 +420,8 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 language,
                 dedicated_worker,
                 priority,
+                apply_preprocessor: !skip_preprocessor.unwrap_or(false)
+                    && has_preprocessor.unwrap_or(false),
             },
             tag,
             delete_after_use,
@@ -473,7 +479,7 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>), Error> {
     let (payload, tag, _, _) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id).await?
+        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let r = sqlx::query!(

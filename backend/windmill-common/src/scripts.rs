@@ -64,7 +64,7 @@ impl ScriptLang {
             ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
             ScriptLang::Php => "php",
-            ScriptLang::Rust => "rust"
+            ScriptLang::Rust => "rust",
         }
     }
 }
@@ -191,6 +191,8 @@ pub struct Script {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_preprocessor: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -287,6 +289,7 @@ pub struct NewScript {
     pub visible_to_runner_only: Option<bool>,
     pub no_main_func: Option<bool>,
     pub codebase: Option<String>,
+    pub has_preprocessor: Option<bool>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

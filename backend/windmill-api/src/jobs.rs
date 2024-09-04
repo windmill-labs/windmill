@@ -556,9 +556,10 @@ pub async fn get_path_tag_limits_cache_for_hash<'c, R: rsmq_async::RsmqConnectio
     Option<i16>,
     Option<bool>,
     Option<i32>,
+    Option<bool>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -583,6 +584,7 @@ pub async fn get_path_tag_limits_cache_for_hash<'c, R: rsmq_async::RsmqConnectio
         script.priority,
         script.delete_after_use,
         script.timeout,
+        script.has_preprocessor,
     ))
 }
 
@@ -1040,6 +1042,7 @@ pub struct RunJobQuery {
     pub tag: Option<String>,
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub skip_preprocessor: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -2967,7 +2970,7 @@ pub async fn run_script_by_path_inner(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, _delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -3043,7 +3046,15 @@ pub async fn run_workflow_as_code(
             None,
             run_query.timeout,
         ),
-        JobKind::Script => script_path_to_payload(job.script_path(), &mut tx, &w_id).await?,
+        JobKind::Script => {
+            script_path_to_payload(
+                job.script_path(),
+                &mut tx,
+                &w_id,
+                run_query.skip_preprocessor,
+            )
+            .await?
+        }
         _ => return Err(anyhow::anyhow!("Not supported").into()),
     };
 
@@ -3445,7 +3456,7 @@ pub async fn run_wait_result_job_by_path_get(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
@@ -3568,7 +3579,7 @@ async fn run_wait_result_script_by_path_internal(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
@@ -3638,6 +3649,7 @@ pub async fn run_wait_result_script_by_hash(
         priority,
         delete_after_use,
         timeout,
+        has_preprocessor,
     ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -3663,6 +3675,8 @@ pub async fn run_wait_result_script_by_hash(
             language,
             dedicated_worker,
             priority,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
@@ -4196,6 +4210,7 @@ async fn add_batch_jobs(
                     _priority,
                     _delete_after_use,
                     timeout,
+                    _,
                 ) = get_latest_deployed_hash_for_path(&db, &w_id, &path).await?;
                 (
                     Some(script_hash),
@@ -4444,6 +4459,7 @@ pub async fn run_job_by_hash_inner(
         priority,
         _delete_after_use, // not taken into account in async endpoints
         timeout,
+        has_preprocessor,
     ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
@@ -4469,6 +4485,8 @@ pub async fn run_job_by_hash_inner(
             language,
             dedicated_worker,
             priority,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
         &label_prefix

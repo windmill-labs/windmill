@@ -7,7 +7,12 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file, ROOT_CACHE_DIR, TMP_DIR}
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
+    worker::{
+        get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
+        ROOT_CACHE_DIR, TMP_DIR,
+    },
 };
 
 use anyhow::{Context, Result};
@@ -51,7 +56,7 @@ use windmill_common::{
 
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy,
-    PushArgs, PushIsolationLevel, WrappedError, HTTP_CLIENT,
+    PushArgs, PushIsolationLevel, QueueTransaction, WrappedError, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -80,9 +85,11 @@ use rand::Rng;
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE}, bun_executor::handle_bun_job, common::{
+    bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
+    bun_executor::handle_bun_job,
+    common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
-        read_result, save_in_cache,  NO_LOGS_AT_ALL, SLOW_LOGS,
+        read_result, save_in_cache, NO_LOGS_AT_ALL, SLOW_LOGS,
     },
     deno_executor::handle_deno_job,
     go_executor::handle_go_job,
@@ -90,14 +97,15 @@ use crate::{
     js_eval::{eval_fetch_timeout, transpile_ts},
     mysql_executor::do_mysql,
     pg_executor::do_postgresql,
-    rust_executor::handle_rust_job,
     php_executor::handle_php_job,
     python_executor::handle_python_job,
+    rust_executor::handle_rust_job,
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, worker_lockfiles::{
+    },
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
 
 #[cfg(feature = "enterprise")]
@@ -774,8 +782,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     if let Some(ref netrc) = *NETRC {
         tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
-        write_file(&HOME_ENV, ".netrc", netrc)
-            .expect("could not write netrc");
+        write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
     DirBuilder::new()
@@ -1227,7 +1234,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         killpill_tx2.send(()).unwrap_or_default();
 
                     }
-                    
                 }
                 SendResult::UpdateFlow {
                     flow,
@@ -1386,7 +1392,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
-            let (vcpus, memory) = if *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS {
+            let (vcpus, memory) = if *REFRESH_CGROUP_READINGS
+                && last_reading.elapsed().as_secs() > NUM_SECS_READINGS
+            {
                 last_reading = Instant::now();
                 (get_vcpus(), get_memory())
             } else {
@@ -1451,30 +1459,39 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             if let Ok(_) = killpill_rx.try_recv() {
                 println!("received killpill for worker {}", i_worker);
                 job_completed_tx.0.send(SendResult::Kill).await.unwrap();
-                break
+                break;
             }
-            
-            if let Ok(same_worker_job) = same_worker_rx.try_recv() {
-                    tracing::debug!("received {} from same worker channel", same_worker_job.job_id);
-                    let r = sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                        .bind(same_worker_job.job_id)
-                        .fetch_optional(db)
-                        .await
-                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
-                    if r.is_err() && !same_worker_job.recoverable {
-                        tracing::error!("failed to fetch same_worker job on a non recoverable job, exiting");
-                        job_completed_tx.0.send(SendResult::Kill).await.unwrap();
-                        break;
-                    } else {
-                        r
-                    }
-            } else {
 
+            if let Ok(same_worker_job) = same_worker_rx.try_recv() {
+                tracing::debug!(
+                    "received {} from same worker channel",
+                    same_worker_job.job_id
+                );
+                let r = sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                    .bind(same_worker_job.job_id)
+                    .fetch_optional(db)
+                    .await
+                    .map_err(|_| {
+                        Error::InternalErr("Impossible to fetch same_worker job".to_string())
+                    });
+                if r.is_err() && !same_worker_job.recoverable {
+                    tracing::error!(
+                        "failed to fetch same_worker job on a non recoverable job, exiting"
+                    );
+                    job_completed_tx.0.send(SendResult::Kill).await.unwrap();
+                    break;
+                } else {
+                    r
+                }
+            } else {
                 let pull_time = Instant::now();
-                let suspend_first = if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
-                    last_checked_suspended = Instant::now();
-                    true
-                } else { false };
+                let suspend_first =
+                    if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
+                        last_checked_suspended = Instant::now();
+                        true
+                    } else {
+                        false
+                    };
                 let job = pull(&db, rsmq.clone(), suspend_first).await;
                 add_time!(timing, loop_start, "post pull");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -1491,7 +1508,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
                         wp.inc();
                     }
-
                 } else if !agent_mode && duration_pull_s > 0.1 {
                     tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
@@ -1914,6 +1930,16 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 //     logs: String,
 // ) -> error::Result<()> {
 
+#[derive(Deserialize, Serialize)]
+struct TransformerFlowStatusMetadata {
+    main_job_id: Uuid,
+}
+
+#[derive(Deserialize, Serialize)]
+struct TransformerFlowStatusy {
+    _metadata: TransformerFlowStatusMetadata,
+}
+
 #[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
@@ -2183,13 +2209,14 @@ struct SerializedError {
     step_id: Option<String>,
 }
 fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
-    return to_raw_value(
-        &SerializedError {
-            message: format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()),
-            name: "ExecutionErr".to_string(),
-            step_id,
-        },
-    );
+    return to_raw_value(&SerializedError {
+        message: format!(
+            "ExitCode: {i}, last log lines:\n{}",
+            ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()
+        ),
+        name: "ExecutionErr".to_string(),
+        step_id,
+    });
 }
 
 pub enum SendResult {
@@ -2659,13 +2686,11 @@ async fn process_result(
                         extract_error_value(log_lines, i, job.flow_step_id.clone())
                     }
                 }
-                err @ _ => to_raw_value(
-                    &SerializedError {
-                        message: format!("error during execution of the script:\n{}", err),
-                        name: "ExecutionErr".to_string(),
-                        step_id: job.flow_step_id.clone(),
-                    },
-                ),
+                err @ _ => to_raw_value(&SerializedError {
+                    message: format!("error during execution of the script:\n{}", err),
+                    name: "ExecutionErr".to_string(),
+                    step_id: job.flow_step_id.clone(),
+                }),
             };
 
             // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
@@ -2733,8 +2758,8 @@ pub async fn get_hub_script_content_and_requirements(
         .clone()
         .ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
 
-    let  script = get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db)
-            .await?;
+    let script =
+        get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db).await?;
     Ok(ContentReqLangEnvs {
         content: script.content,
         lockfile: script.lockfile,
@@ -2773,7 +2798,7 @@ pub async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
-            Option<bool>,
+            Option<bool>
         ),
     >(
         "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -2828,7 +2853,7 @@ async fn handle_code_execution_job(
                 Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(format!("{}.tar", job.id)),
                 _ => None,
             };
-            
+
             ContentReqLangEnvs {
                 content: job
                     .raw_code
@@ -2837,12 +2862,13 @@ async fn handle_code_execution_job(
                 lockfile: job.raw_lock.clone(),
                 language: job.language.to_owned(),
                 envs: None,
-                codebase
-        }},
+                codebase,
+            }
+        }
         JobKind::Script_Hub => {
             get_hub_script_content_and_requirements(job.script_path.clone(), Some(db)).await?
         }
-        JobKind::Script => {
+        JobKind::Script | JobKind::ScriptWithPreprocessor => {
             get_script_content_by_hash(
                 &job.script_hash.unwrap_or(ScriptHash(0)),
                 &job.workspace_id,
@@ -3032,6 +3058,7 @@ mount {{
         Some(ScriptLang::Python3) => {
             handle_python_job(
                 requirements_o,
+                matches!(job.job_kind, JobKind::ScriptWithPreprocessor),
                 job_dir,
                 worker_dir,
                 worker_name,
@@ -3067,6 +3094,7 @@ mount {{
             handle_bun_job(
                 requirements_o,
                 codebase,
+                matches!(job.job_kind, JobKind::ScriptWithPreprocessor),
                 mem_peak,
                 canceled_by,
                 job,
@@ -3146,7 +3174,7 @@ mount {{
                 &shared_mount,
             )
             .await
-        },
+        }
         Some(ScriptLang::Rust) => {
             handle_rust_job(
                 mem_peak,
@@ -3162,7 +3190,7 @@ mount {{
                 worker_name,
                 envs,
             )
-                .await
+            .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };

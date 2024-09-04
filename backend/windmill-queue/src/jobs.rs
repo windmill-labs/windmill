@@ -1021,6 +1021,7 @@ pub async fn add_completed_job<
                             .clone()
                             .unwrap_or_else(|| ScriptLang::Deno),
                         priority: queued_job.priority,
+                        apply_preprocessor: false,
                     },
                     queued_job
                         .args
@@ -3112,11 +3113,16 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             language,
             dedicated_worker,
             priority,
+            apply_preprocessor,
         } => (
             Some(hash.0),
             Some(path),
             None,
-            JobKind::Script,
+            if apply_preprocessor {
+                JobKind::ScriptWithPreprocessor
+            } else {
+                JobKind::Script
+            },
             None,
             None,
             Some(language),
@@ -3814,7 +3820,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         let s: String;
         let operation_name = match job_kind {
             JobKind::Preview => "jobs.run.preview",
-            JobKind::Script => {
+            JobKind::Script | JobKind::ScriptWithPreprocessor => {
                 s = ScriptHash(script_hash.unwrap()).to_string();
                 hm.insert("hash", s.as_str());
                 "jobs.run.script"

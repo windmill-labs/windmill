@@ -209,7 +209,8 @@
 				requestBody: args,
 				scheduledFor,
 				invisibleToOwner,
-				tag: overrideTag
+				tag: overrideTag,
+				skipPreprocessor: true
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {

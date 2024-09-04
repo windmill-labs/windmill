@@ -82,6 +82,7 @@ pub mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
+mod triggers;
 mod users;
 mod utils;
 mod variables;
@@ -283,7 +284,9 @@ pub async fn run_server(
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/oidc", oidc_ee::workspaced_service()),
+                        .nest("/oidc", oidc_ee::workspaced_service())
+                        .nest("/triggers", triggers::triggers_workspaced_service())
+                        .nest("/routes", triggers::routes_workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

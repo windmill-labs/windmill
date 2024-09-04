@@ -71,7 +71,8 @@
 			JobService.runScriptByPath({
 				workspace: $workspaceStore!,
 				path: path ?? '',
-				requestBody: args
+				requestBody: args,
+				skipPreprocessor: true
 			})
 		)
 	}

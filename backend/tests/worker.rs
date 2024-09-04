@@ -3285,6 +3285,7 @@ async fn run_deployed_relative_imports(
                 visible_to_runner_only: None,
                 no_main_func: None,
                 codebase: None,
+                has_preprocessor: None,
             },
         )
         .await
@@ -3315,6 +3316,7 @@ async fn run_deployed_relative_imports(
                 dedicated_worker: None,
                 language,
                 priority: None,
+                apply_preprocessor: false,
             })
             .push(&db2)
             .await;

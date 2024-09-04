@@ -94,6 +94,7 @@
 		if (jobKindsCat == 'all') {
 			let kinds: CompletedJob['job_kind'][] = [
 				'script',
+				'scriptwithpreprocessor',
 				'flow',
 				'dependencies',
 				'flowdependencies',
@@ -117,7 +118,7 @@
 			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 			return kinds.join(',')
 		} else {
-			let kinds: CompletedJob['job_kind'][] = ['script', 'flow']
+			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'scriptwithpreprocessor']
 			return kinds.join(',')
 		}
 	}

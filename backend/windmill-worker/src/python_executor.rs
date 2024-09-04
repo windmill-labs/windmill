@@ -234,6 +234,7 @@ pub async fn pip_compile(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<String>,
+    apply_preprocessor: bool,
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
@@ -285,6 +286,24 @@ pub async fn handle_python_job(
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
+    let preprocessor = if apply_preprocessor {
+        let kind = if job.created_by.starts_with("http-route-") {
+            "http-route"
+        } else if job.created_by.starts_with("email-trigger-") {
+            "email-trigger"
+        } else {
+            "default-webhook"
+        };
+        format!(
+            r#"if inner_script.preprocessor is None or not callable(inner_script.preprocessor):
+        raise ValueError("preprocessor is missing or not a function")
+    else:
+        kwargs = inner_script.preprocessor(kwargs, "{kind}")"#
+        )
+    } else {
+        "".to_string()
+    };
+
     let os_main_override = if let Some(main_override) = main_name.as_ref() {
         format!("os.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
     } else {
@@ -308,7 +327,6 @@ with open("args.json") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
 {transforms}
-{spread}
 for k, v in list(args.items()):
     if v == '<function call>':
         del args[k]
@@ -323,6 +341,8 @@ replace_nan = re.compile(r'(?:\bNaN\b|\\*\\u0000)')
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
 try:
+    {preprocessor}
+    {spread}
     res = inner_script.{main_override}(**args)
     typ = type(res)
     if typ.__name__ == 'DataFrame':
@@ -569,12 +589,12 @@ async fn prepare_wrapper(
                 } else {
                     format!(
                         r#"args["{name}"] = kwargs.get("{name}")
-if args["{name}"] is None:
-    del args["{name}"]"#
+    if args["{name}"] is None:
+        del args["{name}"]"#
                     )
                 }
             })
-            .join("\n")
+            .join("\n    ")
     };
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
@@ -1090,11 +1110,6 @@ pub async fn start_worker(
             .map(|x| format!("    {}", x))
             .collect::<Vec<String>>()
             .join("\n");
-        let indented_spread = spread
-            .lines()
-            .map(|x| format!("    {}", x))
-            .collect::<Vec<String>>()
-            .join("\n");
 
         let wrapper_content: String = format!(
             r#"
@@ -1122,7 +1137,7 @@ for line in sys.stdin:
     kwargs = json.loads(line, strict=False)
     args = {{}}
 {indented_transforms}
-{indented_spread}
+    {spread}
     for k, v in list(args.items()):
         if v == '<function call>':
             del args[k]

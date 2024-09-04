@@ -568,6 +568,7 @@
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
 			path: hubPaths.gitSyncTest,
+			skipPreprocessor: true,
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}

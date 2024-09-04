@@ -260,6 +260,8 @@ components:
           type: number
         custom_concurrency_key:
           type: string
+        has_preprocessor:
+          type: boolean
       required:
         - type
         - content

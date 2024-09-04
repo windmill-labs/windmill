@@ -188,6 +188,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     dedicated_worker,
                     language,
                     priority,
+                    apply_preprocessor: false,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

@@ -692,6 +692,7 @@ async fn compute_bundle_local_and_remote_path(
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
     codebase: Option<String>,
+    apply_preprocessor: bool,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -924,14 +925,36 @@ pub async fn handle_bun_job(
             "./main.ts"
         };
 
-        let wrapper_content: String = format!(
+        let preprocessor = if apply_preprocessor {
+            let kind = if job.created_by.starts_with("http-route-") {
+                "http-route"
+            } else if job.created_by.starts_with("email-trigger-") {
+                "email-trigger"
+            } else {
+                "default-webhook"
+            };
+            format!(
+                r#"if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
+        throw new Error("preprocessor is missing or not a function");
+    }}
+    args = await Main.preprocessor(args, "{kind}");"#
+            )
+        } else {
+            "".to_string()
+        };
+
+        let wrapper_content = format!(
             r#"
 import * as Main from "{main_import}";
 
 import * as fs from "fs/promises";
 
-const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
+let args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse);
+
+function argsObjToArr(args) {{
+    const {{ {spread} }} = args;
+    return [ {spread} ];
+}}
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -939,7 +962,9 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res = await Main.{main_name}(...args);
+    {preprocessor}
+    const argsArr = argsObjToArr(args);
+    let res = await Main.{main_name}(...argsArr);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);

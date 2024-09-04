@@ -78,7 +78,8 @@
 				JobService.runScriptByPath({
 					workspace: $workspaceStore!,
 					path: path,
-					requestBody: args
+					requestBody: args,
+					skipPreprocessor: true
 				}),
 			callbacks
 		)
@@ -94,7 +95,8 @@
 				JobService.runScriptByHash({
 					workspace: $workspaceStore!,
 					hash: hash,
-					requestBody: args
+					requestBody: args,
+					skipPreprocessor: true
 				}),
 			callbacks
 		)
