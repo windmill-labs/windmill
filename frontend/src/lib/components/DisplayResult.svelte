@@ -258,11 +258,16 @@
 		}
 	}
 
-	function contentOrRootString(obj: string | { filename: string; content: string }) {
+	function contentOrRootString(obj: string | { filename: string; content: string } | undefined) {
+		if (obj == undefined || obj == null) {
+			return ''
+		}
 		if (typeof obj === 'string') {
 			return obj
+		} else if (typeof obj === 'object') {
+			return obj?.['content']
 		} else {
-			return obj.content
+			return ''
 		}
 	}
 
