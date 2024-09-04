@@ -2587,6 +2587,36 @@ paths:
               schema:
                 type: string
 
+  
+  /oauth/connect_slack_callback:
+    post:
+      summary: connect slack callback instance
+      operationId: connectSlackCallbackInstance
+      tags:
+        - oauth
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: success message
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /oauth/connect_callback/{client_name}:
     post:
       summary: connect callback

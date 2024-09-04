@@ -8,7 +8,7 @@
 
 use crate::ee::LICENSE_KEY_ID;
 #[cfg(feature = "enterprise")]
-use crate::ee::{send_critical_error, send_recovered_critical_error};
+use crate::ee::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
@@ -19,6 +19,7 @@ use git_version::git_version;
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
@@ -28,6 +29,14 @@ pub const DEFAULT_PER_PAGE: usize = 1000;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+
+lazy_static::lazy_static! {
+    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .timeout(std::time::Duration::from_secs(20))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build().unwrap();
+}
 
 #[derive(Deserialize)]
 pub struct Pagination {
@@ -279,7 +288,7 @@ pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     }
 
     #[cfg(feature = "enterprise")]
-    send_critical_error(error_message).await;
+    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError).await;
 }
 
 pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
@@ -295,5 +304,5 @@ pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
         tracing::error!("Failed to save critical error to database: {}", err);
     }
     #[cfg(feature = "enterprise")]
-    send_recovered_critical_error(message).await;
+    send_critical_alert(message, &_db, CriticalAlertKind::RecoveredCriticalError).await;
 }
