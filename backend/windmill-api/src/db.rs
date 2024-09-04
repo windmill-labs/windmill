@@ -136,15 +136,6 @@ impl Migrate for CustomMigrator {
                 migration.version,
                 migration.description
             );
-            if migration.version == 20240424083501 {
-                tracing::info!("Special migration to add index concurrently on job labels 2");
-                sqlx::query!(
-                    "DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs"
-                ).execute(&mut *self.inner).await?;
-                sqlx::query!(
-                    "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON completed_job USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_label';"
-                ).execute(&mut *self.inner).await?;
-            }
             let r = self.inner.apply(migration).await;
             tracing::info!("Finished applying migration {}", migration.version);
             r
@@ -309,9 +300,6 @@ macro_rules! run_windmill_migration {
                     .await?;
                 tx.commit().await?;
                 tracing::info!("released lock for {migration_job_name}");
-
-
-                tracing::info!("Finished applying {migration_job_name} migration");
             } else {
                 tracing::info!("migration {migration_job_name} already done");
 
@@ -479,6 +467,16 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path")
             .execute(db)
             .await?;
+    });
+
+    run_windmill_migration!("fix_labeled_jobs_index", &db, {
+        tracing::info!("Special migration to add index concurrently on job labels 2");
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs")
+            .execute(db)
+            .await?;
+        sqlx::query!(
+        "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON completed_job USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_labels'"
+        ).execute(db).await?;
     });
 
     Ok(())
