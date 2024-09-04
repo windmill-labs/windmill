@@ -12,7 +12,7 @@ export interface Theme {
 
 export const DEFAULT_THEME: string = 'f/app_themes/theme_0'
 
-export function createTheme(workspace: string, theme: Theme): Promise<string> {
+export async function createTheme(workspace: string, theme: Theme): Promise<string> {
 	const createThemeRequest = {
 		workspace,
 		requestBody: {
@@ -21,7 +21,11 @@ export function createTheme(workspace: string, theme: Theme): Promise<string> {
 			value: theme.value || ''
 		}
 	}
-	return ResourceService.createResource(createThemeRequest)
+	try {
+		return await ResourceService.createResource(createThemeRequest)
+	} catch (e) {
+		throw Error(`Error saving theme at resource ${theme.path}, you do not have enough permission`)
+	}
 }
 
 export async function getTheme(

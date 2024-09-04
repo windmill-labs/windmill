@@ -300,3 +300,10 @@
 		</VirtualList>
 	{/if}
 </div>
+
+<style>
+	:global(.virtual-list-wrapper:hover::-webkit-scrollbar) {
+		width: 8px !important;
+		height: 8px !important;
+	}
+</style>
