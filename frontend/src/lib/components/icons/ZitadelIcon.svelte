@@ -3,7 +3,7 @@
 	export let width = '24px'
 </script>
 
-<svg {width} {height} viewBox="0 0 467 467" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+<svg {width} {height} viewBox="0 0 467 467" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
     <g id="zitadel-logo-solo-darkdesign" transform="matrix(0.564847,0,0,0.659318,-1282.85,0)">
         <rect x="2271.15" y="0" width="826.773" height="708.241" style="fill:none;"/>
         <g transform="matrix(4.96737,-1.14029,1.331,4.25561,-5923.46,-2258.26)">
