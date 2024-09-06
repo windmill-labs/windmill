@@ -12,7 +12,7 @@
 
 	/* Chrome, Edge, and Safari */
 	*::-webkit-scrollbar {
-		width: 3px;
+		width: 5px;
 		height: 3px;
 	}
 
@@ -24,7 +24,7 @@
 
 	*::-webkit-scrollbar-thumb {
 		@apply bg-tertiary-inverse dark:bg-tertiary;
-		border-radius: 10px;
+		border-radius: 3px;
 	}
 
 	@font-face {

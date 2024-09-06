@@ -717,10 +717,10 @@ const config = {
 					}
 				},
 				input: {
-					backgroundColor: theme('colors.surface-secondary') + ' !important'
+					backgroundColor: 'rgb(var(--color-surface-secondary)) !important'
 				},
 				textarea: {
-					backgroundColor: theme('colors.surface-secondary') + ' !important'
+					backgroundColor: 'rgb(var(--color-surface-secondary)) !important'
 				}
 			})
 			addComponents({
