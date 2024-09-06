@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.392.0](https://github.com/windmill-labs/windmill/compare/v1.391.0...v1.392.0) (2024-09-06)
+
+
+### Features
+
+* add load more to runs page if nb of jobs &gt;= 1000 ([e30c344](https://github.com/windmill-labs/windmill/commit/e30c344d329e6dcfa6a560eabae00dd31e774e04))
+* schedule success handler ([#4346](https://github.com/windmill-labs/windmill/issues/4346)) ([dbd4292](https://github.com/windmill-labs/windmill/commit/dbd429226051c74acaf61807ffb13ee1c61e46b1))
+
+
+### Bug Fixes
+
+* fix error handler new script if no modules ([32f2d0f](https://github.com/windmill-labs/windmill/commit/32f2d0fc8011943524623917689ff0921ee6d906))
+* improve app reports puppeteer interactions ([df72026](https://github.com/windmill-labs/windmill/commit/df720260b8ebb2b9ccf16dd2ad89d2a13a112c60))
+* increase AI gen timeout + upgrade to 16k gpt4o ([#4340](https://github.com/windmill-labs/windmill/issues/4340)) ([067110e](https://github.com/windmill-labs/windmill/commit/067110e62f1b064268b2c2de07b7832874ace509))
+* make select not reset on user changes in app + app css fix ([8bea2e4](https://github.com/windmill-labs/windmill/commit/8bea2e473df9e59aa0b244f09bee0a84a432cb3d))
+* nativets correct transform resources in args ([50f32c4](https://github.com/windmill-labs/windmill/commit/50f32c4e12b0ece808b810bb7c67255d467a0ab2))
+
 ## [1.391.0](https://github.com/windmill-labs/windmill/compare/v1.390.1...v1.391.0) (2024-09-04)
 
 
