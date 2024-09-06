@@ -3,7 +3,7 @@
         "index": "index.ts"
     },
     "dependencies": {
-        "denoify": "^1.3.1",
+        "denoify": "^1.4.1",
         "openapi-typescript-codegen": "^0.23.0"
     },
     "overrides": {
