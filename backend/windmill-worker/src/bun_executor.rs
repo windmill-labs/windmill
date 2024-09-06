@@ -1093,11 +1093,19 @@ try {{
                 .join("\n"));
         let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
         let started_at = Instant::now();
+        let args = crate::common::build_args_map(job, client, db)
+            .await?
+            .map(sqlx::types::Json);
+        let job_args = if args.is_some() {
+            args.as_ref()
+        } else {
+            job.args.as_ref()
+        };
         let result = crate::js_eval::eval_fetch_timeout(
             env_code,
             inner_content.clone(),
             js_code,
-            job.args.as_ref(),
+            job_args,
             job.id,
             job.timeout,
             db,
