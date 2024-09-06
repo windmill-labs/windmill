@@ -1,5 +1,12 @@
-import getPort from "https://deno.land/x/getport@v2.1.2/mod.ts";
-import { Application, Command, Router, log, open, path } from "./deps.ts";
+import {
+  Application,
+  Command,
+  Router,
+  SEP,
+  getAvailablePort,
+  log,
+  open,
+} from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
@@ -40,7 +47,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     if (paths.length == 0) {
       return;
     }
-    const cpath = (await Deno.realPath(paths[0])).replace(base + path.sep, "");
+    const cpath = (await Deno.realPath(paths[0])).replace(base + SEP, "");
     console.log("Detected change in " + cpath);
     if (!ignore(cpath, false)) {
       const content = await Deno.readTextFile(cpath);
@@ -108,13 +115,13 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     app.use(router.routes());
     app.use(router.allowedMethods());
 
-    const port = getPort(PORT);
+    const port = getAvailablePort({ preferredPort: 3001 });
     const url =
       `${workspace.remote}scripts/dev?workspace=${workspace.workspaceId}&local=true` +
       (port == PORT ? "" : "&port=" + port);
     console.log(`Go to ${url}`);
     try {
-      await open(url);
+      await open.openApp(open.apps.browser, { arguments: [url] });
       log.info("Opened browser for you");
     } catch {
       console.error(`Failed to open browser, please navigate to ${url}`);

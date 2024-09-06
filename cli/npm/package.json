@@ -1,0 +1,37 @@
+{
+  "name": "windmill-cli",
+  "version": "0.0.15",
+  "description": "CLI for Windmill",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/windmill-labs/windmill.git"
+  },
+  "license": "Apache 2.0",
+  "bugs": {
+    "url": "https://github.com/windmill-labs/windmill/issues"
+  },
+  "scripts": {
+    "test": "node test_runner.js"
+  },
+  "bin": {
+    "wmill": "./esm/main.js"
+  },
+  "dependencies": {
+    "@ayonli/jsext": "*",
+    "@oakserver/oak": "12",
+    "diff": "*",
+    "es-main": "*",
+    "esbuild": "*",
+    "gitignore-parser": "*",
+    "jszip": "3.7.1",
+    "minimatch": "*",
+    "open": "*",
+    "windmill-client": "1.364.0",
+    "@deno/shim-deno": "~0.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.0",
+    "picocolors": "^1.0.0"
+  },
+  "_generatedBy": "dnt@dev"
+}

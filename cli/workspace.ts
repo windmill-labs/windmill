@@ -5,7 +5,6 @@ import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import {
   colors,
   Command,
-  DelimiterStream,
   Input,
   log,
   setClient,
@@ -23,47 +22,20 @@ export interface Workspace {
   token: string;
 }
 
-function makeWorkspaceStream(
-  readable: ReadableStream<Uint8Array>
-): ReadableStream<Workspace> {
-  return readable
-    .pipeThrough(new DelimiterStream(new TextEncoder().encode("\n")))
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(
-      new TransformStream({
-        transform(line, controller) {
-          try {
-            if (line.length <= 2) {
-              return;
-            }
-            const workspace = JSON.parse(line) as Workspace;
-            workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
-            controller.enqueue(workspace);
-          } catch {
-            /* ignore */
-          }
-        },
-      })
-    );
-}
-
-export async function getWorkspaceStream() {
-  const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
-    write: false,
-    read: true,
-  });
-  return makeWorkspaceStream(file.readable);
-}
-
 export async function allWorkspaces(): Promise<Workspace[]> {
   try {
-    const workspaceStream = await getWorkspaceStream();
-    const workspaces: Workspace[] = [];
-    for await (const workspace of workspaceStream) {
-      workspaces.push(workspace);
-    }
-
-    return workspaces;
+    const file = (await getRootStore()) + "remotes.ndjson";
+    const txt = await Deno.readTextFile(file);
+    return txt
+      .split("\n")
+      .map((line) => {
+        if (line.length <= 2) {
+          return;
+        }
+        const instance = JSON.parse(line) as Workspace;
+        return instance;
+      })
+      .filter(Boolean) as Workspace[];
   } catch (_) {
     return [];
   }
@@ -95,7 +67,7 @@ export async function getActiveWorkspace(
 export async function getWorkspaceByName(
   workspaceName: string
 ): Promise<Workspace | undefined> {
-  const workspaceStream = await getWorkspaceStream();
+  const workspaceStream = await allWorkspaces();
   for await (const workspace of workspaceStream) {
     if (workspace.name === workspaceName) {
       return workspace;

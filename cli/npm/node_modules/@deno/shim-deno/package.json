@@ -1,0 +1,50 @@
+{
+  "name": "@deno/shim-deno",
+  "version": "0.18.2",
+  "description": "Deno namespace shim for Node.js",
+  "keywords": [
+    "deno namespace",
+    "deno",
+    "polyfill",
+    "ponyfill",
+    "shim"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "author": "Thomas Rory Gummerson <thomas@gummerson.no> (https://trgwii.no/)",
+  "contributors": [
+    "Wojciech Pawlik <woj.pawlik@gmail.com>",
+    "Muthu Kumar <muthukumar@thefeathers.in> (https://mkr.pw)"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/denoland/node_deno_shims.git"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./test-internals": "./dist/deno/internal/test.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "npm run denolib && tsc && npm run generate-declaration-file",
+    "prepublishOnly": "npm run build",
+    "clean": "git clean -fXde !node_modules/",
+    "test": "node --loader=ts-node/esm tools/run_tests.mjs",
+    "denolib": "deno run --allow-run --allow-write=src/deno tools/denolib.ts",
+    "generate-declaration-file": "deno run --allow-write=lib,dist --allow-read tools/generateDeclarationFile.ts",
+    "update-progress": "deno run --allow-read tools/missing.ts > PROGRESS.md"
+  },
+  "dependencies": {
+    "@deno/shim-deno-test": "^0.5.0",
+    "which": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.0",
+    "@types/which": "^3.0.2",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
+}

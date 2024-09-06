@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "lodash": "https://esm.sh/lodash"
+  }
+}

@@ -1,0 +1,17 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// This module is browser compatible.
+import { assertArg } from "../_common/from_file_url.js";
+/**
+ * Converts a file URL to a path string.
+ *
+ * ```ts
+ * import { fromFileUrl } from "https://deno.land/std@$STD_VERSION/path/posix/from_file_url.ts";
+ *
+ * fromFileUrl("file:///home/foo"); // "/home/foo"
+ * ```
+ * @param url of a file URL
+ */
+export function fromFileUrl(url) {
+    url = assertArg(url);
+    return decodeURIComponent(url.pathname.replace(/%(?![0-9A-Fa-f]{2})/g, "%25"));
+}

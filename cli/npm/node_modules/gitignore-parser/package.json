@@ -1,0 +1,43 @@
+{
+  "name": "gitignore-parser",
+  "version": "0.0.2",
+  "description": "A simple .gitignore parser.",
+  "keywords": [
+    "gitignore",
+    "git",
+    ".gitignore",
+    "git ignore"
+  ],
+  "main": "lib/index.js",
+  "dependencies": {},
+  "devDependencies": {
+    "mocha": "*",
+    "should": "*",
+    "expect.js": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/codemix/gitignore-parser.git"
+  },
+  "main": "./lib/index.js",
+  "directories": {
+    "lib": "./lib"
+  },
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "scripts": {
+    "test": "node ./node_modules/mocha/bin/mocha",
+    "watch": "node ./node_modules/mocha/bin/mocha --watch"
+  },
+  "author": {
+    "name": "Charles Pick",
+    "email": "charles@codemix.com"
+  },
+  "licenses": [
+    {
+      "type": "Apache License, Version 2.0",
+      "url": "http://www.apache.org/licenses/LICENSE-2.0"
+    }
+  ]
+}

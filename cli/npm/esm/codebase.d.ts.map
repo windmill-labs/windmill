@@ -1,0 +1,1 @@
+{"version":3,"file":"codebase.d.ts","sourceRoot":"","sources":["../src/codebase.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,QAAQ,EAAE,WAAW,EAAE,MAAM,WAAW,CAAC;AAIlD,MAAM,MAAM,YAAY,GAAG,QAAQ,GAAG;IAAE,MAAM,EAAE,MAAM,CAAA;CAAE,CAAC;AACzD,wBAAsB,iBAAiB,CACrC,OAAO,EAAE,WAAW,GACnB,OAAO,CAAC,YAAY,EAAE,CAAC,CAmBzB"}

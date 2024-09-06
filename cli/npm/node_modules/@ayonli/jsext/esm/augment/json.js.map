@@ -1,0 +1,1 @@
+{"version":3,"file":"json.js","sources":["../../augment/json.ts"],"sourcesContent":["import { as, parseAs, type } from \"../json.ts\";\nJSON.parseAs = parseAs;\nJSON.as = as;\nJSON.type = type;\n//# sourceMappingURL=json.js.map"],"names":[],"mappings":";;AACA,IAAI,CAAC,OAAO,GAAG,OAAO,CAAC;AACvB,IAAI,CAAC,EAAE,GAAG,EAAE,CAAC;AACb,IAAI,CAAC,IAAI,GAAG,IAAI"}

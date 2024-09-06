@@ -1,9 +1,9 @@
 import {
   Command,
   CompletionsCommand,
-  DenoLandProvider,
   UpgradeCommand,
   colors,
+  esMain,
   log,
   yamlStringify,
 } from "./deps.ts";
@@ -22,17 +22,18 @@ import schedule from "./schedule.ts";
 import sync from "./sync.ts";
 import instance from "./instance.ts";
 import dev from "./dev.ts";
-import { fetchVersion, tryResolveVersion } from "./context.ts";
+import { fetchVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "./deps.ts";
 import { getHeaders } from "./utils.ts";
+import { NpmProvider } from "./upgrade.ts";
 
-addEventListener("error", (event) => {
-  if (event.error) {
-    console.error("Error details of: " + event.error.message);
-    console.error(JSON.stringify(event.error, null, 4));
-  }
-});
+// addEventListener("error", (event) => {
+//   if (event.error) {
+//     console.error("Error details of: " + event.error.message);
+//     console.error(JSON.stringify(event.error, null, 4));
+//   }
+// });
 
 export const VERSION = "v1.391.0";
 
@@ -108,15 +109,7 @@ let command: any = new Command()
   .command(
     "upgrade",
     new UpgradeCommand({
-      main: "main.ts",
-      args: [
-        "--allow-net",
-        "--allow-read",
-        "--allow-write",
-        "--allow-env",
-        "-q",
-      ],
-      provider: new DenoLandProvider({ name: "wmill" }),
+      provider: new NpmProvider({ package: "windmill-cli" }),
     })
   )
   .command("completions", new CompletionsCommand());
@@ -125,42 +118,65 @@ if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
 }
 
 export let showDiffs = false;
-try {
-  if (Deno.args.length === 0) {
-    command.showHelp();
-  }
-  const LOG_LEVEL =
-    Deno.args.includes("--verbose") || Deno.args.includes("--debug")
-      ? "DEBUG"
-      : "INFO";
-  // const NO_COLORS = Deno.args.includes("--no-colors");
-  showDiffs = Deno.args.includes("--show-diffs");
+async function main() {
+  try {
+    if (Deno.args.length === 0) {
+      command.showHelp();
+    }
+    const LOG_LEVEL =
+      Deno.args.includes("--verbose") || Deno.args.includes("--debug")
+        ? "DEBUG"
+        : "INFO";
+    // const NO_COLORS = Deno.args.includes("--no-colors");
+    showDiffs = Deno.args.includes("--show-diffs");
 
-  log.setup({
-    handlers: {
-      console: new log.handlers.ConsoleHandler(LOG_LEVEL, {
-        formatter: "{msg}",
-      }),
-    },
-    loggers: {
-      default: {
-        level: LOG_LEVEL,
-        handlers: ["console"],
+    log.setup({
+      handlers: {
+        console: new log.ConsoleHandler(LOG_LEVEL, {
+          formatter: ({ msg }) => `${msg}`,
+        }),
       },
-    },
-  });
-  log.debug("Debug logging enabled. CLI build against " + VERSION);
+      loggers: {
+        default: {
+          level: LOG_LEVEL,
+          handlers: ["console"],
+        },
+      },
+    });
+    log.debug("Debug logging enabled. CLI build against " + VERSION);
 
-  const extraHeaders = getHeaders();
-  if (extraHeaders) {
-    OpenAPI.HEADERS = extraHeaders;
+    const extraHeaders = getHeaders();
+    if (extraHeaders) {
+      OpenAPI.HEADERS = extraHeaders;
+    }
+    await command.parse(Deno.args);
+  } catch (e) {
+    if (e.name === "ApiError") {
+      console.log("Server failed. " + e.statusText + ": " + e.body);
+    }
+    throw e;
   }
-  await command.parse(Deno.args);
-} catch (e) {
-  if (e.name === "ApiError") {
-    console.log("Server failed. " + e.statusText + ": " + e.body);
-  }
-  throw e;
 }
+
+//@ts-ignore
+if (esMain.default(import.meta)) {
+  main();
+  // test1();
+  // test2();
+  // module was not imported but called directly
+}
+
+// function test1() {
+//   // dnt-shim-ignore deno-lint-ignore no-explicit-any
+//   const { Deno, process } = globalThis as any;
+
+//   console.log(Deno);
+// }
+
+// function test2() {
+//   const { Deno, process } = globalThis as any;
+
+//   console.log(Deno);
+// }
 
 export default command;
