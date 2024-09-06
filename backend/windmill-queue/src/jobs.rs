@@ -1376,7 +1376,25 @@ async fn apply_schedule_handlers<
         }
     } else {
         #[cfg(feature = "enterprise")]
-        if let Some(on_recovery_path) = schedule.on_recovery.clone() {
+        if let Some(ref on_success_path) = schedule.on_success {
+            handle_successful_schedule(
+                db,
+                rsmq.clone(),
+                job_id,
+                &schedule.path,
+                script_path,
+                schedule.is_flow,
+                w_id,
+                on_success_path,
+                result,
+                started_at,
+                schedule.on_success_extra_args.clone(),
+            )
+            .await?;
+        }
+
+        #[cfg(feature = "enterprise")]
+        if let Some(ref on_recovery_path) = schedule.on_recovery.clone() {
             let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
@@ -1629,6 +1647,86 @@ async fn handle_recovered_schedule<
     .await?;
     tracing::info!(
         "Pushed on_recovery job {} for {} to queue",
+        uuid,
+        schedule_path
+    );
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn handle_successful_schedule<
+    'a,
+    'c,
+    T: Serialize + Send + Sync,
+    R: rsmq_async::RsmqConnection + Clone + Send + 'c,
+>(
+    db: &Pool<Postgres>,
+    rsmq: Option<R>,
+    job_id: Uuid,
+    schedule_path: &str,
+    script_path: &str,
+    is_flow: bool,
+    w_id: &str,
+    on_success_path: &str,
+    successful_job_result: Json<&'a T>,
+    successful_job_started_at: DateTime<Utc>,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<()> {
+    let (payload, tag) = get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
+
+    let mut extra = HashMap::new();
+    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert(
+        "success_result".to_string(),
+        serde_json::from_str::<Box<RawValue>>(
+            &serde_json::to_string(&successful_job_result).unwrap(),
+        )
+        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap()),
+    );
+    extra.insert(
+        "success_started_at".to_string(),
+        to_raw_value(&successful_job_started_at),
+    );
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        w_id,
+        payload,
+        PushArgs { extra: Some(extra), args: &HashMap::new() },
+        SCHEDULE_RECOVERY_HANDLER_USERNAME,
+        SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
+        ERROR_HANDLER_USER_GROUP.to_string(),
+        None,
+        None,
+        Some(job_id),
+        Some(job_id),
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tracing::info!(
+        "Pushed on_success job {} for {} to queue",
         uuid,
         schedule_path
     );

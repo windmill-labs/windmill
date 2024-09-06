@@ -42,7 +42,10 @@ pub struct Schedule {
     pub on_recovery_times: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_recovery_extra_args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_success: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_success_extra_args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     pub ws_error_handler_muted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<serde_json::Value>,
