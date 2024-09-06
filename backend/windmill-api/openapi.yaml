@@ -6800,7 +6800,7 @@ paths:
               properties:
                 handler_type:
                   type: string
-                  enum: ["error", "recovery"]
+                  enum: ["error", "recovery", "success"]
                 override_existing:
                   type: boolean
                 path:
@@ -10474,6 +10474,10 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
         retry:
@@ -10552,6 +10556,10 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
         retry:
@@ -10596,6 +10604,10 @@ components:
         on_recovery_times:
           type: number
         on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean

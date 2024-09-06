@@ -30,7 +30,8 @@
 	import Label from './Label.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 
-	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
+	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
+		'error_handler'
 
 	let is_flow: boolean = false
 	let initialPath = ''
@@ -51,6 +52,11 @@
 	let recoveryHandlerSelected: 'custom' | 'slack' = 'slack'
 	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
 	let recoveryHandlerExtraArgs: Record<string, any> = {}
+	let successHandlerPath: string | undefined = undefined
+	let successHandlerCustomInitialPath: string | undefined = undefined
+	let successHandlerSelected: 'custom' | 'slack' = 'slack'
+	let successHandlerItemKind: 'flow' | 'script' = 'script'
+	let successHandlerExtraArgs: Record<string, any> = {}
 	let failedTimes = 1
 	let failedExact = false
 	let recoveredTimes = 1
@@ -95,12 +101,16 @@
 			showPauseUntil = false
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
+			let defaultSuccessHandlerMaybe = undefined
 			if ($workspaceStore) {
 				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
 					key: 'default_error_handler_' + $workspaceStore!
 				})) as any
 				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
 					key: 'default_recovery_handler_' + $workspaceStore!
+				})) as any
+				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
+					key: 'default_success_handler_' + $workspaceStore!
 				})) as any
 			}
 
@@ -151,6 +161,21 @@
 				recoveryHandlerCustomInitialPath = undefined
 				recoveryHandlerSelected = 'slack'
 				recoveredTimes = 1
+			}
+			if (defaultSuccessHandlerMaybe !== undefined && defaultSuccessHandlerMaybe !== null) {
+				let splitted = (defaultSuccessHandlerMaybe['successHandlerPath'] as string).split('/')
+				successHandlerItemKind = splitted[0] as 'flow' | 'script'
+				successHandlerPath = splitted.slice(1)?.join('/')
+				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
+				successHandlerCustomInitialPath = successHandlerPath
+				successHandlerSelected = isSlackHandler('success', successHandlerPath) ? 'slack' : 'custom'
+				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
+			} else {
+				successHandlerPath = undefined
+				successHandlerItemKind = 'script'
+				successHandlerExtraArgs = {}
+				successHandlerCustomInitialPath = undefined
+				successHandlerSelected = 'slack'
 			}
 			timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		} finally {
@@ -255,6 +280,33 @@
 		}
 	}
 
+	async function saveAsDefaultSuccessHandler(overrideExisting: boolean) {
+		if (!$enterpriseLicense) {
+			sendUserToast(`Setting default success handler is an enterprise edition feature`, true)
+			return
+		}
+		if ($workspaceStore) {
+			await ScheduleService.setDefaultErrorOrRecoveryHandler({
+				workspace: $workspaceStore!,
+				requestBody: {
+					handler_type: 'success',
+					override_existing: overrideExisting,
+					path:
+						successHandlerPath === undefined
+							? undefined
+							: `${successHandlerItemKind}/${successHandlerPath}`,
+					extra_args: successHandlerExtraArgs,
+					number_of_occurence: recoveredTimes
+				}
+			})
+			if (successHandlerPath !== undefined) {
+				sendUserToast(`Default success handler saved to ${successHandlerPath}`, false)
+			} else {
+				sendUserToast(`Default success handler reset`, false)
+			}
+		}
+	}
+
 	let can_write = true
 	async function loadSchedule(): Promise<void> {
 		loading = true
@@ -312,6 +364,20 @@
 				recoveryHandlerSelected = 'slack'
 				recoveryHandlerExtraArgs = {}
 			}
+			if (s.on_success) {
+				let splitted = s.on_success.split('/')
+				successHandlerItemKind = splitted[0] as 'flow' | 'script'
+				successHandlerPath = splitted.slice(1)?.join('/')
+				successHandlerCustomInitialPath = successHandlerPath
+				successHandlerExtraArgs = s.on_success_extra_args ?? {}
+				successHandlerSelected = isSlackHandler('success', successHandlerPath) ? 'slack' : 'custom'
+			} else {
+				successHandlerPath = undefined
+				successHandlerItemKind = 'script'
+				successHandlerCustomInitialPath = undefined
+				successHandlerSelected = 'slack'
+				successHandlerExtraArgs = {}
+			}
 			args = s.args ?? {}
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 			tag = s.tag
@@ -327,6 +393,9 @@
 		}
 		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
 			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		}
+		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
+			successHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
 		}
 		if (edit) {
 			await ScheduleService.updateSchedule({
@@ -345,6 +414,10 @@
 						: undefined,
 					on_recovery_times: recoveredTimes,
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+					on_success: successHandlerPath
+						? `${successHandlerItemKind}/${successHandlerPath}`
+						: undefined,
+					on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
@@ -374,6 +447,10 @@
 						: undefined,
 					on_recovery_times: recoveredTimes,
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+					on_success: successHandlerPath
+						? `${successHandlerItemKind}/${successHandlerPath}`
+						: undefined,
+					on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
@@ -388,16 +465,18 @@
 		drawer.closeDrawer()
 	}
 
-	function isSlackHandler(isSlackHandler: 'error' | 'recovery', scriptPath: string) {
+	function isSlackHandler(isSlackHandler: 'error' | 'recovery' | 'success', scriptPath: string) {
 		if (isSlackHandler == 'error') {
 			return (
 				scriptPath.startsWith('hub/') &&
 				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
 			)
-		} else {
+		} else if (isSlackHandler == 'recovery') {
 			return (
 				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
 			)
+		} else {
+			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-slack')
 		}
 	}
 
@@ -631,6 +710,7 @@
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler">Error Handler</Tab>
 							<Tab value="recovery_handler">Recovery Handler</Tab>
+							<Tab value="success_handler">Success Handler</Tab>
 							{#if itemKind === 'script'}
 								<Tab value="retries">Retries</Tab>
 								<Tab value="tag">Custom tag</Tab>
@@ -778,7 +858,7 @@
 									bind:handlerPath={recoveryHandlerPath}
 									customInitialScriptPath={recoveryHandlerCustomInitialPath}
 									slackToggleText="Alert channel when error recovered"
-									customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
+									customScriptTemplate="/scripts/add?hub=hub%2F2794%2Fwindmill%2Fschedule_recovery_handler_template"
 									bind:customHandlerKind={recoveryHandlerItemKind}
 									bind:handlerExtraArgs={recoveryHandlerExtraArgs}
 								>
@@ -829,6 +909,68 @@
 										<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
 									</div>
 								</div>
+							</Section>
+						{:else if optionTabSelected === 'success_handler'}
+							<Section label="Success handler">
+								<svelte:fragment slot="header">
+									<div class="flex flex-row gap-2">
+										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
+											>{/if}
+									</div>
+								</svelte:fragment>
+								<svelte:fragment slot="action">
+									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
+										defaults
+										<Dropdown
+											items={[
+												{
+													displayName: `Override future schedules only`,
+													action: () => saveAsDefaultSuccessHandler(false)
+												},
+												{
+													displayName: 'Override all existing',
+													type: 'delete',
+													action: () => saveAsDefaultSuccessHandler(true)
+												}
+											]}
+										>
+											<svelte:fragment>
+												<Save size={12} class="mr-1" />
+												Set as default
+											</svelte:fragment>
+										</Dropdown>
+									</div>
+								</svelte:fragment>
+								<ErrorOrRecoveryHandler
+									isEditable={can_write && !emptyString($enterpriseLicense)}
+									errorOrRecovery="success"
+									bind:handlerSelected={successHandlerSelected}
+									bind:handlerPath={successHandlerPath}
+									customInitialScriptPath={successHandlerCustomInitialPath}
+									slackToggleText="Alert channel when successful"
+									customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
+									bind:customHandlerKind={successHandlerItemKind}
+									bind:handlerExtraArgs={successHandlerExtraArgs}
+								>
+									<svelte:fragment slot="custom-tab-tooltip">
+										<Tooltip>
+											<div class="flex gap-20 items-start mt-3">
+												<div class=" text-sm"
+													>The following args will be passed to the success handler:
+													<ul class="mt-1 ml-2">
+														<li><b>path</b>: The path of the script or flow that succeeded.</li>
+														<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+														<li><b>schedule_path</b>: The path of the schedule.</li>
+														<li><b>success_result</b>: The result of the successful job</li>
+														<li
+															><b>success_started_at</b>: The start datetime of the successful job</li
+														>
+													</ul>
+												</div>
+											</div>
+										</Tooltip>
+									</svelte:fragment>
+								</ErrorOrRecoveryHandler>
 							</Section>
 						{:else if optionTabSelected === 'retries'}
 							<Section label="Retries">
