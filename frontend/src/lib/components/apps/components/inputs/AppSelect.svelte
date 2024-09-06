@@ -97,6 +97,10 @@
 					}
 			  })
 			: []
+
+		if (value != undefined && listItems.some((x) => x.value === value)) {
+			return
+		}
 		let rawValue
 		if (resolvedConfig.defaultValue !== undefined) {
 			rawValue = resolvedConfig.defaultValue
