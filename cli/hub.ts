@@ -5,7 +5,7 @@ import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 
-async function pull(opts: GlobalOptions) {
+export async function pull(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
   if (workspace.workspaceId !== "admins") {
@@ -48,7 +48,7 @@ async function pull(opts: GlobalOptions) {
   }[] = await fetch(hubBaseUrl + "/resource_types/list", {
     headers,
   })
-    .then((r) => r.json())
+    .then((r) => r.json() as Promise<{ id: number; name: string }[]>)
     .then((list: { id: number; name: string }[]) =>
       list.map((x) =>
         fetch(hubBaseUrl + "/resource_types/" + x.id + "/" + x.name, {
@@ -68,7 +68,11 @@ async function pull(opts: GlobalOptions) {
       )
     )
     .then((x) => Promise.all(x))
-    .then((x) => x.filter((x) => x).map((x) => x.resource_type));
+    .then((x) =>
+      (x as { resource_type: any }[])
+        .filter((x) => x)
+        .map((x) => x.resource_type)
+    );
 
   const resourceTypes = await ResourceService.listResourceType({
     workspace: workspace.workspaceId,

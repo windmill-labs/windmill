@@ -301,6 +301,7 @@ export async function pushInstanceSettings(
     localSettings = localSettings.filter((s) => s.name !== "base_url");
     localSettings.push({
       name: "base_url",
+      //@ts-ignore
       value: baseUrl,
     });
   }

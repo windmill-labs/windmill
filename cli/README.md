@@ -8,8 +8,7 @@ You can find more information in
 
 ## Installation
 
-Install the `wmill` CLI tool using
-`deno install --unstable -A https://deno.land/x/wmill/main.ts`.
+Install the `wmill` CLI tool using `npm install -g windmill-cli`.
 
 Update to the latest version using `wmill upgrade`.
 

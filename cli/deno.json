@@ -12,6 +12,7 @@
     "@std/net": "jsr:@std/net@^1.0.2",
     "@std/path": "jsr:@std/path@^1.0.4",
     "@std/streams": "jsr:@std/streams@^1.0.4",
-    "@std/yaml": "jsr:@std/yaml@^1.0.5"
+    "@std/yaml": "jsr:@std/yaml@^1.0.5",
+    "@types/diff": "npm:@types/diff@^5.2.2"
   }
 }

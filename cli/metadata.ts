@@ -406,8 +406,10 @@ export async function updateFlow(
 
   let responseText = "reading response failed";
   try {
-    const res = await rawResponse.json();
-    return res?.["updated_flow_value"];
+    const res = (await rawResponse.json()) as
+      | { updated_flow_value: any }
+      | undefined;
+    return res?.updated_flow_value;
   } catch (e) {
     try {
       responseText = await rawResponse.text();
