@@ -45,6 +45,7 @@ export interface DifferenceChange {
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
 export type GlobalOptions = {
+  baseUrl: string | undefined;
   workspace: string | undefined;
   token: string | undefined;
 };
