@@ -29,6 +29,7 @@ import { getHeaders } from "./utils.ts";
 import { NpmProvider } from "./upgrade.ts";
 import { pull as hubPull } from "./hub.ts";
 import { pull, push } from "./sync.ts";
+import { add as workspaceAdd } from "./workspace.ts";
 
 export {
   flow,
@@ -49,6 +50,7 @@ export {
   hubPull,
   pull,
   push,
+  workspaceAdd,
 };
 
 // addEventListener("error", (event) => {
@@ -79,6 +81,10 @@ let command: any = new Command()
   .globalOption(
     "--token <token:string>",
     "Specify an API token. This will override any stored token."
+  )
+  .globalOption(
+    "--base-url <baseUrl:string>",
+    "Specify the base URL of the API. If used, --token and --workspace are required and no local remote/workspace already set will be used."
   )
   .env(
     "HEADERS <headers:string>",
