@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.393.3](https://github.com/windmill-labs/windmill/compare/v1.393.2...v1.393.3) (2024-09-07)
+
+
+### Bug Fixes
+
+* **cli:** guide users to migrate to node version of the CLI ([3998ecb](https://github.com/windmill-labs/windmill/commit/3998ecbf7b5c1c1e4ed9f6fb8911e1e18317f815))
+
 ## [1.393.2](https://github.com/windmill-labs/windmill/compare/v1.393.1...v1.393.2) (2024-09-07)
 
 
