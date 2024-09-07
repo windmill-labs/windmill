@@ -64,7 +64,6 @@ pub enum StorageResourceType {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct S3Resource {
-    #[serde(rename = "bucket")]
     pub bucket: String,
     pub region: String,
     #[serde(rename = "endPoint")]
@@ -380,7 +379,9 @@ pub struct S3Settings {
     pub secret_key: Option<String>,
     pub endpoint: Option<String>,
     pub allow_http: Option<bool>, // default to true
+    pub path_style: Option<bool>,
     pub store_logs: Option<bool>,
+    pub port: Option<u16>,
 }
 
 #[cfg(feature = "parquet")]
@@ -421,8 +422,8 @@ pub async fn build_s3_client_from_settings(
         access_key,
         secret_key,
         use_ssl: !settings.allow_http.unwrap_or(true),
-        path_style: None,
-        port: None,
+        path_style: settings.path_style,
+        port: settings.port,
         token: None,
     };
 

@@ -187,25 +187,27 @@ async function main() {
   }
 }
 
-//@ts-ignore
-if (esMain.default(import.meta)) {
-  main();
-  // test1();
-  // test2();
-  // module was not imported but called directly
+function isMain() {
+  // dnt-shim-ignore
+  const { Deno } = globalThis as any;
+
+  const isDeno = Deno != undefined;
+
+  if (isDeno) {
+    const isMain = import.meta.main;
+    if (isMain) {
+      log.warn(
+        "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli"
+      );
+    }
+    return isMain;
+  } else {
+    //@ts-ignore
+    return esMain.default(import.meta);
+  }
 }
-
-// function test1() {
-//   // dnt-shim-ignore deno-lint-ignore no-explicit-any
-//   const { Deno, process } = globalThis as any;
-
-//   console.log(Deno);
-// }
-
-// function test2() {
-//   const { Deno, process } = globalThis as any;
-
-//   console.log(Deno);
-// }
+if (isMain()) {
+  main();
+}
 
 export default command;

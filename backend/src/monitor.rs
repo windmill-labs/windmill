@@ -802,7 +802,9 @@ pub async fn reload_s3_cache_setting(db: &DB) {
                     secret_key: None,
                     endpoint: None,
                     store_logs: None,
+                    path_style: None,
                     allow_http: None,
+                    port: None,
                 })
                 .await
                 .ok();
