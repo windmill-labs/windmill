@@ -72,6 +72,7 @@
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -578,15 +579,16 @@
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
 								{#if script.lock_error_logs}
-									<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+									<div
+										class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
+										role="alert"
+									>
 										<p class="font-bold">Error deploying this script</p>
 										<p>
 											This script has not been deployed successfully because of the following
 											errors:
 										</p>
-										<pre class="w-full text-xs mt-2 whitespace-pre-wrap"
-											>{script.lock_error_logs}</pre
-										>
+										<LogViewer content={script.lock_error_logs} isLoading={false} tag={undefined} />
 									</div>
 								{/if}
 								{#if topHash}
