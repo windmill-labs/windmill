@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.393.0](https://github.com/windmill-labs/windmill/compare/v1.392.0...v1.393.0) (2024-09-07)
+
+
+### Features
+
+* make CLI node compatible ([#4347](https://github.com/windmill-labs/windmill/issues/4347)) ([9b4c598](https://github.com/windmill-labs/windmill/commit/9b4c59809c2b30d419168e624b83379023c5cb5f))
+
 ## [1.392.0](https://github.com/windmill-labs/windmill/compare/v1.391.0...v1.392.0) (2024-09-06)
 
 
