@@ -280,6 +280,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
       await pull({
         workspace: workspaceName,
         token: undefined,
+        baseUrl: undefined,
         includeGroups: true,
         includeSchedules: true,
         includeSettings: true,
@@ -434,6 +435,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
           {
             token: instance.token,
             workspace: undefined,
+            baseUrl: undefined,
             create: true,
             createWorkspaceName: workspaceSettings.name,
             createUsername: undefined,
@@ -451,6 +453,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       await push({
         workspace: localWorkspace.name,
         token: undefined,
+        baseUrl: undefined,
         includeGroups: true,
         includeSchedules: true,
         includeSettings: true,
