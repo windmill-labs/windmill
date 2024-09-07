@@ -223,7 +223,7 @@
 				<div class="w-full flex flex-col gap-1 h-full overflow-y-auto p">
 					{#if savedInputs === undefined}
 						<Skeleton layout={[[8]]} />
-					{:else if savedInputs.length > 0}
+					{:else if savedInputs?.length > 0}
 						{#each savedInputs as i}
 							<button
 								class={classNames(
@@ -324,7 +324,7 @@
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if loading && (jobs == undefined || jobs?.length == 0)}
 						<div class="text-left text-tertiary text-xs">Loading current runs...</div>
-					{:else if jobs.length > 0}
+					{:else if jobs?.length > 0}
 						{#each jobs as i (i.id)}
 							<button
 								class={classNames(
@@ -379,7 +379,7 @@
 								</div>
 							</button>
 						{/each}
-						{#if jobs.length == 5}
+						{#if jobs?.length == 5}
 							<div class="text-left text-tertiary text-xs"
 								>... there may be more runs not displayed here as the limit is 5</div
 							>
@@ -392,7 +392,7 @@
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if previousInputs === undefined}
 						<Skeleton layout={[[8]]} />
-					{:else if previousInputs.length > 0}
+					{:else if previousInputs?.length > 0}
 						{#each previousInputs as i (i.id)}
 							<button
 								class={classNames(

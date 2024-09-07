@@ -21,7 +21,6 @@ import {
   yamlParse,
   ScheduleService,
   SEP,
-  gitignore_parser,
   UserService,
   GroupService,
 } from "./deps.ts";
@@ -817,31 +816,12 @@ export async function ignoreF(wmillconf: {
       },
     };
   }
-  let ign:
-    | {
-        denies(file: string): boolean;
-      }
-    | undefined = undefined;
 
   try {
-    const ignoreContent = await Deno.readTextFile(".wmillignore");
-    const condensed = ignoreContent
-      .split("\n")
-      .filter((l) => l != "" && !l.startsWith("#"))
-      .join(", ");
-    log.info(
-      colors.gray(
-        `(Deprecated, use wmill.yaml/includes instead) Using .wmillignore file (${condensed})`
-      )
-    );
-    ign = gitignore_parser.compile(ignoreContent);
-  } catch {}
-
-  if (ign && whitelist) {
-    log.error(
-      "Cannot have both .wmillignore and wmill.yaml/includes or excludes, ignoring .wmillignore"
-    );
-    ign = undefined;
+    await Deno.stat(".wmillignore");
+    throw Error(".wmillignore is not supported anymore, switch to wmill.yaml");
+  } catch {
+    //expected
   }
 
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
@@ -849,9 +829,7 @@ export async function ignoreF(wmillconf: {
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
-        (!isDirectory &&
-          ((whitelist != undefined && !whitelist.approve(p)) ||
-            (ign != undefined && ign.denies(p)))))
+        (!isDirectory && whitelist != undefined && !whitelist.approve(p)))
     );
   };
 }

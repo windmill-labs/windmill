@@ -38,5 +38,4 @@ export * as http from "node:http";
 export { WebSocketServer, WebSocket } from "npm:ws";
 
 export * as open from "npm:open";
-export { default as gitignore_parser } from "npm:gitignore-parser";
 export * as esMain from "npm:es-main";
