@@ -23,7 +23,6 @@ export class NpmProvider extends Provider {
   }
 
   async getVersions(name: string): Promise<any> {
-    console.log("fetching versions for", name);
     const response = await fetch(
       new URL(`${this.packageName ?? name}`, this.apiUrl)
     );

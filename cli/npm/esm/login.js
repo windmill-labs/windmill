@@ -86,7 +86,7 @@ export async function browserLogin(baseUrl) {
             log.info("Opened browser for you");
         }
         catch (error) {
-            console.error(`Failed to open browser, please navigate to ${url}`);
+            console.error(`Failed to open browser, please navigate to ${url}, error: ${error}`);
         }
         // Start the server
         server.listen(port, () => {

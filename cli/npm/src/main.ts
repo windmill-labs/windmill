@@ -38,7 +38,7 @@ import { NpmProvider } from "./upgrade.js";
 //   }
 // });
 
-export const VERSION = "v1.391.0";
+export const VERSION = "1.391.1";
 
 let command: any = new Command()
   .name("wmill")

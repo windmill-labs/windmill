@@ -28,10 +28,13 @@ export * as log from "jsr:@std/log";
 export { stringify as yamlStringify, parse as yamlParse } from "jsr:@std/yaml";
 
 // other
-export { Application, Router } from "npm:@oakserver/oak@12";
 
 export { minimatch } from "npm:minimatch";
 export { default as JSZip } from "npm:jszip@3.7.1";
+
+export * as express from "npm:express";
+export * as http from "node:http";
+export { WebSocketServer, WebSocket } from "npm:ws";
 
 export * as open from "npm:open";
 export { default as gitignore_parser } from "npm:gitignore-parser";

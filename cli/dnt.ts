@@ -1,6 +1,6 @@
 // ex. scripts/build_npm.ts
 import { build, emptyDir } from "jsr:@deno/dnt@0.41.3";
-
+import { VERSION } from "./main.ts";
 await emptyDir("./npm");
 
 await build({
@@ -21,7 +21,7 @@ await build({
   package: {
     // package.json properties
     name: "windmill-cli",
-    version: Deno.args[0],
+    version: VERSION,
     description: "CLI for Windmill",
     license: "Apache 2.0",
     repository: {

@@ -28,10 +28,13 @@ export * as log from "./deps/jsr.io/@std/log/0.224.7/mod.js";
 export { stringify as yamlStringify, parse as yamlParse } from "./deps/jsr.io/@std/yaml/1.0.5/mod.js";
 
 // other
-export { Application, Router } from "@oakserver/oak";
 
 export { minimatch } from "minimatch";
 export { default as JSZip } from "jszip";
+
+export * as express from "express";
+export * as http from "node:http";
+export { WebSocketServer, WebSocket } from "ws";
 
 export * as open from "open";
 export { default as gitignore_parser } from "gitignore-parser";

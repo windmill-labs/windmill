@@ -1,11 +1,13 @@
 import {
-  Application,
   Command,
-  Router,
   SEP,
+  WebSocketServer,
+  express,
   getAvailablePort,
+  http,
   log,
   open,
+  WebSocket,
 } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
@@ -59,7 +61,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         path: wmPath,
         language: lang,
       };
-      broadcast_changes(currentLastEdit);
+      broadcastChanges(currentLastEdit);
       log.info("Updated " + wmPath);
     }
   }
@@ -69,67 +71,74 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     language: string;
   };
 
-  const connectedClients = new Set<WebSocket>();
+  const connectedClients: Set<WebSocket> = new Set();
 
-  const app = new Application();
-  const router: Router = new Router();
-
-  // send a message to all connected clients
-  function broadcast_changes(lastEdit: LastEdit) {
+  // Function to send a message to all connected clients
+  function broadcastChanges(lastEdit: LastEdit) {
     for (const client of connectedClients.values()) {
       client.send(JSON.stringify(lastEdit));
     }
   }
 
   async function startApp() {
-    router.get("/ws", async (ctx) => {
-      const socket = await ctx.upgrade();
-      connectedClients.add(socket);
-      log.info(`New client connected`);
+    const app = express();
+    const server = http.createServer(app);
+    const wss = new WebSocketServer({ server });
 
-      socket.onopen = () => {
+    // WebSocket server event listeners
+    wss.on("connection", (ws: WebSocket) => {
+      connectedClients.add(ws);
+      console.log("New client connected");
+
+      ws.on("open", () => {
         if (currentLastEdit) {
-          broadcast_changes(currentLastEdit);
+          broadcastChanges(currentLastEdit);
         }
-      };
+      });
 
-      socket.onclose = () => {
-        connectedClients.delete(socket);
-      };
+      ws.on("close", () => {
+        connectedClients.delete(ws);
+        console.log("Client disconnected");
+      });
 
-      socket.onmessage = (event) => {
-        let data: any | undefined = undefined;
+      ws.on("message", (message: WebSocket.RawData) => {
+        let data;
         try {
-          data = JSON.parse(event.data);
-        } catch {
-          console.log("Received invalid JSON: " + event.data);
+          data = JSON.parse(message);
+        } catch (e) {
+          console.log("Received invalid JSON: " + message + " " + e);
           return;
         }
 
-        if (data.type == "load") {
-          loadPaths([data.path] as string[]);
+        if (data.type === "load") {
+          loadPaths([data.path]);
         }
-      };
+      });
     });
 
-    app.use(router.routes());
-    app.use(router.allowedMethods());
-
-    const port = getAvailablePort({ preferredPort: 3001 });
+    // Start the server
+    const port = await getAvailablePort({ preferredPort: 3001 });
     const url =
       `${workspace.remote}scripts/dev?workspace=${workspace.workspaceId}&local=true` +
-      (port == PORT ? "" : "&port=" + port);
+      (port === PORT ? "" : `&port=${port}`);
+
     console.log(`Go to ${url}`);
     try {
-      await open.openApp(open.apps.browser, { arguments: [url] });
-      log.info("Opened browser for you");
-    } catch {
-      console.error(`Failed to open browser, please navigate to ${url}`);
+      open.openApp(open.apps.browser, { arguments: [url] });
+      console.log("Opened browser for you");
+    } catch (error) {
+      console.error(
+        `Failed to open browser, please navigate to ${url}, ${error}`
+      );
     }
+
     console.log(
       "Dev server will automatically point to the last script edited locally"
     );
-    await app.listen({ port });
+
+    server.listen(port, () => {
+      console.log(`Server listening on port ${port}`);
+    });
   }
 
   await Promise.all([startApp(), watchChanges()]);

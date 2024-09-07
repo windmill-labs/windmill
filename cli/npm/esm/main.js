@@ -27,7 +27,7 @@ import { NpmProvider } from "./upgrade.js";
 //     console.error(JSON.stringify(event.error, null, 4));
 //   }
 // });
-export const VERSION = "v1.391.0";
+export const VERSION = "1.391.1";
 let command = new Command()
     .name("wmill")
     .action(() => log.info(`Welcome to Windmill CLI ${VERSION}. Use -h for help.`))

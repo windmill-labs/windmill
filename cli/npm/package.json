@@ -1,6 +1,6 @@
 {
   "name": "windmill-cli",
-  "version": "0.0.15",
+  "version": "1.391.1",
   "description": "CLI for Windmill",
   "repository": {
     "type": "git",
@@ -18,15 +18,16 @@
   },
   "dependencies": {
     "@ayonli/jsext": "*",
-    "@oakserver/oak": "12",
     "diff": "*",
     "es-main": "*",
     "esbuild": "*",
+    "express": "*",
     "gitignore-parser": "*",
     "jszip": "3.7.1",
     "minimatch": "*",
     "open": "*",
     "windmill-client": "1.364.0",
+    "ws": "*",
     "@deno/shim-deno": "~0.18.0"
   },
   "devDependencies": {

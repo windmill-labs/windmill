@@ -29,7 +29,6 @@ export class NpmProvider extends Provider {
         this.packageName = "package" in options ? options.package : options.name;
     }
     async getVersions(name) {
-        console.log("fetching versions for", name);
         const response = await fetch(new URL(`${this.packageName ?? name}`, this.apiUrl));
         if (!response.ok) {
             throw new Error("couldn't fetch the latest version - try again after sometime");
