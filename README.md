@@ -66,6 +66,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
   - [Run a local dev setup](#run-a-local-dev-setup)
     - [only Frontend](#only-frontend)
     - [Backend + Frontend](#backend--frontend)
+  - [Contributor Guide](#contributor-guide)
   - [Contributors](#contributors)
   - [Copyright](#copyright)
 
@@ -110,8 +111,8 @@ You can build your entire infra on top of Windmill!
 
 ```typescript
 //import any dependency  from npm
-import * as wmill from "windmill-client"
-import * as cowsay from 'cowsay@1.5.0';
+import * as wmill from "windmill-client";
+import * as cowsay from "cowsay@1.5.0";
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 type Postgresql = {
@@ -349,27 +350,33 @@ you to have it being synced automatically everyday.
 | TIMEOUT_WAIT_RESULT       | 20                     | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
 | QUEUE_LIMIT_WAIT_RESULT   | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
 | DENO_AUTH_TOKENS          | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
-| DISABLE_RESPONSE_LOGS          | false                   | Disable response logs                                                   | Server                |
+| DISABLE_RESPONSE_LOGS     | false                  | Disable response logs                                                                                                                                                                              | Server                |
 
 ## Run a local dev setup
+
 ### only Frontend
+
 This will use the backend of <https://app.windmill.dev> but your own frontend
 with hot-code reloading.
+
 1. Install [caddy](https://caddyserver.com)
 2. Go to `frontend/`:
    1. `npm install`, `npm run generate-backend-client` then `npm run dev`
    2. In another shell `sudo caddy run --config CaddyfileRemote`
 3. Et voilà, windmill should be available at `http://localhost/`
+
 ### Backend + Frontend
+
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
+
 1. Create a Postgres Database for Windmill and create an admin role inside your
    Postgres setup.
    The easiest way to get a working db is to run
-	```
+   ```
    cargo install sqlx-cli
    env DATABASE_URL=<YOUR_DATABASE_URL> sqlx migrate run
-	```
+   ```
    This will also avoid compile time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
@@ -386,13 +393,27 @@ running options.
    `env DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
 8. Et voilà, windmill should be available at `http://localhost/`
 
+## Contributor Guide
+### `Instructions to Follow`
+### Naming Conventions:
 
+- Use `camelCase` for variables and functions.
+- Use `PascalCase` for class names.
+- Use uppercase letters for constants.
+
+### Commenting:
+
+- Write clear, concise comments to explain complex logic.
+- Use `//` for single-line comments.
+- Use `/* */` for multi-line comments.
 
 ## Contributors
 
 <a href="https://github.com/windmill-labs/windmill/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=windmill-labs/windmill" />
 </a>
+
+
 
 ## Copyright
 
