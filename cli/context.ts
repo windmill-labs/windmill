@@ -96,7 +96,7 @@ export async function requireLogin(
 }
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
-  const requestHeaders: HeadersInit = new Headers();
+  const requestHeaders = new Headers();
 
   const extraHeaders = getHeaders();
   if (extraHeaders) {

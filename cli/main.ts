@@ -14,8 +14,8 @@ import workspace, { getActiveWorkspace } from "./workspace.ts";
 import resource from "./resource.ts";
 import user from "./user.ts";
 import variable from "./variable.ts";
-import push from "./push.ts";
-import pull from "./pull.ts";
+import lgeacyPush from "./push.ts";
+import legacyPull from "./pull.ts";
 import hub from "./hub.ts";
 import folder from "./folder.ts";
 import schedule from "./schedule.ts";
@@ -27,6 +27,29 @@ import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "./deps.ts";
 import { getHeaders } from "./utils.ts";
 import { NpmProvider } from "./upgrade.ts";
+import { pull as hubPull } from "./hub.ts";
+import { pull, push } from "./sync.ts";
+
+export {
+  flow,
+  app,
+  script,
+  workspace,
+  resource,
+  user,
+  variable,
+  hub,
+  folder,
+  schedule,
+  sync,
+  instance,
+  dev,
+  lgeacyPush,
+  legacyPull,
+  hubPull,
+  pull,
+  push,
+};
 
 // addEventListener("error", (event) => {
 //   if (event.error) {
@@ -36,7 +59,6 @@ import { NpmProvider } from "./upgrade.ts";
 // });
 
 export const VERSION = "1.392.0";
-
 
 let command: any = new Command()
   .name("wmill")
@@ -115,7 +137,7 @@ let command: any = new Command()
   )
   .command("completions", new CompletionsCommand());
 if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
-  command = command.command("push", push).command("pull", pull);
+  command = command.command("push", lgeacyPush).command("pull", legacyPull);
 }
 
 export let showDiffs = false;

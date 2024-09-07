@@ -29,6 +29,7 @@ export { stringify as yamlStringify, parse as yamlParse } from "jsr:@std/yaml";
 
 // other
 
+export * as Diff from "npm:diff";
 export { minimatch } from "npm:minimatch";
 export { default as JSZip } from "npm:jszip@3.7.1";
 
