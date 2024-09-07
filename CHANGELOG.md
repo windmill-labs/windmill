@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.393.2](https://github.com/windmill-labs/windmill/compare/v1.393.1...v1.393.2) (2024-09-07)
+
+
+### Bug Fixes
+
+* **cli:** add --base-url option to add possibility of setting every arg without needing to add a workspace first ([1e813b2](https://github.com/windmill-labs/windmill/commit/1e813b26103098c69ac7880876611954b0ff6996))
+
 ## [1.393.1](https://github.com/windmill-labs/windmill/compare/v1.393.0...v1.393.1) (2024-09-07)
 
 
