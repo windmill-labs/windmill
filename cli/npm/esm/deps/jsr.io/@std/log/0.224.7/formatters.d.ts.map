@@ -1,1 +1,0 @@
-{"version":3,"file":"formatters.d.ts","sourceRoot":"","sources":["../../../../../../src/deps/jsr.io/@std/log/0.224.7/formatters.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,SAAS,EAAE,MAAM,aAAa,CAAC;AAE7C,wBAAgB,aAAa,CAAC,SAAS,EAAE,SAAS,GAAG,MAAM,CAO1D;AAUD,eAAO,MAAM,UAAU,EAAE;IACvB,aAAa,CAAC,SAAS,EAAE,SAAS,GAAG,MAAM,CAAC;CAG7C,CAAC"}
