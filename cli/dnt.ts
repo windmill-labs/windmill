@@ -5,12 +5,12 @@ await emptyDir("./npm");
 
 await build({
   entryPoints: [
+    "main.ts",
     {
       kind: "bin",
       name: "wmill", // command name
       path: "./main.ts",
     },
-    "main.ts",
   ],
   outDir: "./npm",
   shims: {
