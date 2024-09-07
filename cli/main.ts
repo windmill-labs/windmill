@@ -37,6 +37,7 @@ import { NpmProvider } from "./upgrade.ts";
 
 export const VERSION = "1.392.0";
 
+
 let command: any = new Command()
   .name("wmill")
   .action(() =>
