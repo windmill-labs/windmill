@@ -1,0 +1,1 @@
+deno run -A dnt.ts

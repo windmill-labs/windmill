@@ -59,13 +59,10 @@ export async function downloadZip(
     log.debug(`Downloaded zip/tarball successfully`);
   }
   const blob = await zipResponse.blob();
-  return await JSZip.loadAsync(blob as any);
+  return await JSZip.loadAsync((await blob.arrayBuffer()) as any);
 }
 
-async function stub(
-  _opts: GlobalOptions & { override: boolean },
-  _dir: string
-) {
+function stub(_opts: GlobalOptions & { override: boolean }, _dir: string) {
   console.log(
     colors.red.underline(
       'Pull is deprecated. Use "sync pull --raw" instead. See <TODO_LINK_HERE> for more information.'

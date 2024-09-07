@@ -158,7 +158,7 @@ export async function FSFSElement(
             );
           }
         } catch (e) {
-          log.warning(`Error reading dir: ${localP}, ${e}`);
+          log.warn(`Error reading dir: ${localP}, ${e}`);
         }
       },
       // async getContentBytes(): Promise<Uint8Array> {
@@ -621,7 +621,7 @@ export async function elementsToMap(
           continue;
         }
       } catch (e) {
-        log.warning(`Error reading variable ${path} to check for secrets`);
+        log.warn(`Error reading variable ${path} to check for secrets`);
       }
     }
     map[entry.path] = content;
@@ -920,6 +920,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     const conflicts = [];
     const changedScripts: string[] = [];
     const changedFlows: string[] = [];
+    const changedApps: string[] = [];
 
     // deno-lint-ignore no-inner-declarations
     async function addToChangedIfNotExists(p: string) {
@@ -930,6 +931,11 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
             p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
           if (!changedFlows.includes(folder)) {
             changedFlows.push(folder);
+          }
+        } else if (p.includes(".app" + SEP)) {
+          const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+          if (!changedApps.includes(folder)) {
+            changedApps.push(folder);
           }
         } else {
           if (!changedScripts.includes(p)) {
@@ -1071,6 +1077,13 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     for (const change of changedFlows) {
       log.info(`Updating lock for flow ${change}`);
       await generateFlowLockInternal(change, false, workspace, true);
+    }
+    if (changedApps.length > 0) {
+      log.info(
+        `Apps ${changedApps.join(
+          ", "
+        )} scripts were changed but ignoring for now`
+      );
     }
     log.info(
       colors.bold.green.underline(
@@ -1327,7 +1340,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           case "folder":
             await FolderService.deleteFolder({
               workspace: workspaceId,
-              name: change.path.split(path.sep)[1],
+              name: change.path.split(SEP)[1],
             });
             break;
           case "resource":
