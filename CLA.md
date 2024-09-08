@@ -143,3 +143,5 @@ maximum extent possible under law.
 
 8.5 You agree to notify Us of any facts or circumstances of which you become
 aware that would make this Agreement inaccurate in any respect.
+
+I have read the CLA Document and I hereby sign the CLA
