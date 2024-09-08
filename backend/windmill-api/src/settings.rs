@@ -104,21 +104,12 @@ use windmill_common::s3_helpers::build_object_store_from_settings;
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
     use futures::StreamExt;
-    use windmill_common::ee::{get_license_plan, LicensePlan};
 
-    if matches!(get_license_plan().await, LicensePlan::Pro) {
-        return Err(error::Error::InternalErr(
-            "This feature is only available in Enterprise, not Pro".to_string(),
-        ));
-    }
-
-    require_super_admin(&db, &authed.email).await?;
     let client = build_object_store_from_settings(test_s3_bucket).await?;
 
     let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
