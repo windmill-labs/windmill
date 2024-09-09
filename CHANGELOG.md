@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.393.4](https://github.com/windmill-labs/windmill/compare/v1.393.3...v1.393.4) (2024-09-09)
+
+
+### Bug Fixes
+
+* bun scripts cached in docker image have their dependencies pre-loaded ([4a6c3c8](https://github.com/windmill-labs/windmill/commit/4a6c3c8cc51e9e9b15410b4894ae6065e19d6068))
+* **cli:** add --extra-includes to improve git sync capabilities ([9329006](https://github.com/windmill-labs/windmill/commit/9329006ad822e78c196d5ea6469b694d20c9a67f))
+* fix hub sync script ([4e09e7f](https://github.com/windmill-labs/windmill/commit/4e09e7f4517c26fa91820d5fe8202a36ed84ef1c))
+
 ## [1.393.3](https://github.com/windmill-labs/windmill/compare/v1.393.2...v1.393.3) (2024-09-07)
 
 
