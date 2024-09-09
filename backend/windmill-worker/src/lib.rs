@@ -26,4 +26,5 @@ mod worker_flow;
 mod worker_lockfiles;
 pub use worker::*;
 
+pub use bun_executor::{get_common_bun_proc_envs, install_bun_lockfile, prepare_job_dir};
 pub use deno_executor::generate_deno_lock;

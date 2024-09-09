@@ -2253,8 +2253,8 @@ pub async fn get_result_by_id(
                         job.parse_flow_status()
                             .map(|status| status.restarted_from)
                             .flatten(),
-                        "Flow result by id in leaf jobs",
-                        format!("{}, {}", flow_id, node_id),
+                        "Id not found in the result's mapping of the root job and root job had no restarted from information",
+                        format!("parent: {}, root: {}, id: {}", flow_id, job.id, node_id),
                     )?;
 
                     get_result_by_id_from_original_flow(
@@ -2305,8 +2305,8 @@ pub async fn get_result_by_id_from_running_flow(
 
     let flow_job_result = windmill_common::utils::not_found_if_none(
         flow_job_result,
-        "Flow result by id in leaf jobs",
-        format!("{}, {}", flow_id, node_id),
+        "Root job of parent runnnig flow",
+        format!("parent: {}, id: {}", flow_id, node_id),
     )?;
 
     let job_result = flow_job_result
@@ -2327,7 +2327,7 @@ pub async fn get_result_by_id_from_running_flow(
     let result_id = windmill_common::utils::not_found_if_none(
         job_result,
         "Flow result by id",
-        format!("{}, {}", flow_id, node_id),
+        format!("parent: {}, id: {}", flow_id, node_id),
     )?;
 
     extract_result_from_job_result(db, w_id, result_id, json_path).await
@@ -2369,7 +2369,8 @@ async fn get_completed_flow_node_result_rec(
                 .await
                 .map(Some),
                 _ => Err(error::Error::NotFound(format!(
-                    "Flow result by id in leaf jobs not found at name {}",
+                    "Flow result by id not found going top-down in subflows (currently: {}), (id: {})",
+                    subflow.id,
                     node_id,
                 ))),
             };
@@ -2406,14 +2407,14 @@ async fn get_result_by_id_from_original_flow(
 
     let flow_job = windmill_common::utils::not_found_if_none(
         flow_job,
-        "Flow result by id in leaf jobs",
-        format!("{}, {}", completed_flow_id, node_id),
+        "Root completed job",
+        format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
     match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id, json_path).await? {
         Some(res) => Ok(res),
         None => Err(error::Error::NotFound(format!(
-            "Flow result by id in leaf jobs not found at name {}, {}",
+            "Flow result by id not found going top-down from {}, (id: {})",
             completed_flow_id, node_id
         ))),
     }
