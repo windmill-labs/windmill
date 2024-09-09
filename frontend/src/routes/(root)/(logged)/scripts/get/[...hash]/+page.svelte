@@ -748,7 +748,7 @@
 										<div class="relative overflow-x-auto w-full">
 											<Button
 												wrapperClasses="absolute top-2 right-2 z-20"
-												on:click={() => copyToClipboard(script.lock)}
+												on:click={() => copyToClipboard(script?.lock)}
 												color="light"
 												size="xs2"
 												startIcon={{
