@@ -37,6 +37,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
+	import { base } from '$app/paths'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -293,7 +294,7 @@
 
 		let newPath = path ? `/${path}` : ''
 
-		let newUrl = `/runs${newPath}?${searchParams.toString()}`
+		let newUrl = `${base}/runs${newPath}?${searchParams.toString()}`
 		if (
 			$page.url.searchParams.toString() != searchParams.toString() ||
 			$page.url.pathname != newUrl.split('?')[0]
