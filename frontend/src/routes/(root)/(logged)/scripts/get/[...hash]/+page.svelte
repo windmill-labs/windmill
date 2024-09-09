@@ -8,7 +8,13 @@
 		type Script,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
+	import {
+		defaultIfEmptyString,
+		emptyString,
+		canWrite,
+		truncateHash,
+		copyToClipboard
+	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
@@ -56,7 +62,8 @@
 		Share,
 		Table2,
 		Trash,
-		Play
+		Play,
+		ClipboardCopy
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -738,9 +745,21 @@
 							<TabContent value="dependencies">
 								<div>
 									{#if script?.lock}
-										<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
-											>{script.lock}</pre
-										>
+										<div class="relative overflow-x-auto w-full">
+											<Button
+												wrapperClasses="absolute top-2 right-2 z-20"
+												on:click={() => copyToClipboard(script.lock)}
+												color="light"
+												size="xs2"
+												startIcon={{
+													icon: ClipboardCopy
+												}}
+												iconOnly
+											/>
+											<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+												>{script.lock}</pre
+											>
+										</div>
 									{:else}
 										<p class="bg-surface-secondary text-sm p-2">
 											There is no lock file for this script
