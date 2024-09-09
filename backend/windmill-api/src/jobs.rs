@@ -792,6 +792,11 @@ async fn get_logs_from_store(
 
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
+                    yield Ok(bytes::Bytes::from(
+                        r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
+                "#
+                        .to_string(),
+                    ));
                     for file_p in file_index.clone() {
                         let file_p_2 = file_p.clone();
                         let file = os.get(&object_store::path::Path::from(file_p)).await;
@@ -833,6 +838,10 @@ async fn get_logs_from_disk(
 
             let logs = logs.to_string();
             let stream = async_stream::stream! {
+                yield Ok(bytes::Bytes::from(
+                    r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
+            "#.to_string(),
+                ));
                 for file_p in file_index.clone() {
                     let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
@@ -892,6 +901,10 @@ async fn get_job_logs(
         {
             return r.map(content_plain);
         }
+        let logs = format!(
+            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+            logs
+        );
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
@@ -922,6 +935,11 @@ async fn get_job_logs(
         if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
             return r.map(content_plain);
         }
+
+        let logs = format!(
+            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+            logs
+        );
         Ok(content_plain(Body::from(logs)))
     }
 }
