@@ -14,8 +14,6 @@ import workspace, { getActiveWorkspace } from "./workspace.ts";
 import resource from "./resource.ts";
 import user from "./user.ts";
 import variable from "./variable.ts";
-import lgeacyPush from "./push.ts";
-import legacyPull from "./pull.ts";
 import hub from "./hub.ts";
 import folder from "./folder.ts";
 import schedule from "./schedule.ts";
@@ -45,8 +43,6 @@ export {
   sync,
   instance,
   dev,
-  lgeacyPush,
-  legacyPull,
   hubPull,
   pull,
   push,
@@ -142,9 +138,6 @@ let command: any = new Command()
     })
   )
   .command("completions", new CompletionsCommand());
-if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
-  command = command.command("push", lgeacyPush).command("pull", legacyPull);
-}
 
 export let showDiffs = false;
 async function main() {

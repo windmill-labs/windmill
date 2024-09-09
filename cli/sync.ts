@@ -798,6 +798,7 @@ export const isWhitelisted = (p: string) => {
 export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
+  extraIncludes?: string[];
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -811,7 +812,9 @@ export async function ignoreF(wmillconf: {
           (!wmillconf.includes ||
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
-            wmillconf.excludes!.every((i) => !minimatch(file, i)))
+            wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
+          (!wmillconf.extraIncludes ||
+            wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
     };
@@ -1412,9 +1415,7 @@ const command = new Command()
     log.info("2 actions available, pull and push. Use -h to display help.")
   )
   .command("pull")
-  .description(
-    "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking."
-  )
+  .description("Pull any remote changes and apply them locally.")
   .option(
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
@@ -1440,18 +1441,20 @@ const command = new Command()
   .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account."
+    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes"
+  )
+  .option(
+    "--extra-includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
-  .description(
-    "Push any local changes and apply them remotely. Use --raw for usage without local state tracking."
-  )
+  .description("Push any local changes and apply them remotely.")
   .option(
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
@@ -1483,6 +1486,10 @@ const command = new Command()
   .option(
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
+  )
+  .option(
+    "--extra-includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
   .option(
     "--message <message:string>",
