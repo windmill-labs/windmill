@@ -56,7 +56,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.393.6";
+export const VERSION = "1.393.7";
 
 const command = new Command()
   .name("wmill")
@@ -135,6 +135,11 @@ const command = new Command()
     "upgrade",
     new UpgradeCommand({
       provider: new NpmProvider({ package: "windmill-cli" }),
+    }).error((e) => {
+      log.error(e);
+      log.info(
+        "Try running with sudo and otherwise check the result of the command: npm uninstall windmill-cli && npm install -g windmill-cli"
+      );
     })
   )
   .command("completions", new CompletionsCommand());
