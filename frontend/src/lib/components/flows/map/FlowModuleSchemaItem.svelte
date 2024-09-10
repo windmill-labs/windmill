@@ -100,10 +100,14 @@
 							{#each Object.entries(getDeps?.dependents ?? {}) as dependents}
 								<div>
 									<h4>{dependents[0]}</h4>
-									{#each dependents?.[1] as d}
-										<span class="font-mono text-sm">{d}</span> &rightarrow;
-										<span class="font-mono text-sm">{replaceId(d, id, newId)}</span>
-									{/each}
+									<div>
+										{#each dependents?.[1] as d}
+											<div>
+												<span class="font-mono text-sm">{d}</span> &rightarrow;
+												<span class="font-mono text-sm">{replaceId(d, id, newId)}</span>
+											</div>
+										{/each}
+									</div>
 								</div>
 							{/each}
 						{:else}
