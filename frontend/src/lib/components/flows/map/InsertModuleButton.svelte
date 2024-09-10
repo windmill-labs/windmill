@@ -35,13 +35,13 @@
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
-				'w-6 h-6 flex items-center justify-center',
-				'border border-gray-300 dark:border-gray-500',
-				'text-primary text-sm',
-				'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
+				'w-5 h-5 flex items-center justify-center',
+				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
+				'text-secondary',
+				'bg-surface focus:outline-none hover:bg-surface-hover   rounded '
 			)}
 		>
-			<Cross size={14} />
+			<Cross size={12} />
 		</button>
 	</svelte:fragment>
 	<div id="flow-editor-insert-module">

@@ -4737,26 +4737,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/flows/input_history/p/{path}:
-    get:
-      summary: list inputs for previous completed flow jobs
-      operationId: getFlowInputHistoryByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: input history for completed jobs with this flow path
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/raw_apps/list:
     get:

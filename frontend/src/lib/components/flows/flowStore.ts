@@ -34,3 +34,9 @@ export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writa
 		return flow
 	})
 }
+
+export function replaceId(expr: string, id: string, newId: string): string {
+	return expr
+		.replaceAll(`results.${id}`, `results.${newId}`)
+		.replaceAll(`results?.${id}`, `results?.${newId}`)
+}
