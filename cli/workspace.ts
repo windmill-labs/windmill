@@ -166,8 +166,7 @@ export async function add(
     // first check whether workspaceId is actually a URL
     try {
       const url = new URL(workspaceId);
-      workspaceId = url.username;
-      url.username = "";
+      workspaceId = workspaceName;
       remote = url.toString();
     } catch {
       // not a url
