@@ -52,7 +52,6 @@
 			class="!w-auto grow"
 			on:click|stopPropagation={() => {}}
 			on:keydown|stopPropagation={({ key }) => {
-				console.log(key)
 				if (key === 'Enter' && error === '' && value !== initialId) {
 					dispatch('save', value)
 				} else if (key == 'Escape') {
