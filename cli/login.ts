@@ -1,5 +1,5 @@
 import { GlobalOptions } from "./types.ts";
-import { colors, getAvailablePort, log, open, Secret, Select } from "./deps.ts";
+import { colors, getPort, log, open, Secret, Select } from "./deps.ts";
 import * as http from "node:http";
 
 export async function loginInteractive(remote: string) {
@@ -45,8 +45,12 @@ export async function tryGetLoginInfo(
 export async function browserLogin(
   baseUrl: string
 ): Promise<string | undefined> {
-  const env = Deno.env.get("TOKEN_PORT");
-  const port = env ? Number(env) : await getAvailablePort();
+  const env =
+    Deno.env.get("TOKEN_PORT") != undefined
+      ? parseInt(Deno.env.get("TOKEN_PORT")!)
+      : undefined;
+  const port = await getPort.default({ port: env });
+
   if (port == undefined) {
     log.info(colors.red.underline("failed to aquire port"));
     return undefined;

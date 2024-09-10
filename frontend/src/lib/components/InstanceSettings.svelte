@@ -272,6 +272,7 @@
 								<li>login type usage</li>
 								<li>workers usage</li>
 								<li>vcpus usage</li>
+								<li>memory usage</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
@@ -381,7 +382,7 @@
 									<Toggle
 										options={{
 											right:
-												'Require users to have been added manually to windmill to sign in through OAuth'
+												'Require users to have been added manually to Windmill to sign in through OAuth'
 										}}
 										bind:checked={requirePreexistingUserForOauth}
 									/>
