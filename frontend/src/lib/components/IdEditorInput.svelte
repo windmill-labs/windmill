@@ -8,7 +8,9 @@
 	export let initialId: string
 	export let reservedIds: string[] = []
 	export let label: string = 'Component ID'
-	let value = initialId
+	export let value = initialId
+	export let buttonText = ''
+	export let btnClasses = '!p-1 !w-[34px] !ml-1'
 
 	let error = ''
 	const dispatch = createEventDispatcher()
@@ -31,6 +33,10 @@
 			error = ''
 		}
 	}
+
+	let inputDiv: HTMLInputElement | undefined = undefined
+
+	$: inputDiv?.focus()
 </script>
 
 <label class="block text-primary">
@@ -39,6 +45,7 @@
 	{/if}
 	<div class="flex w-full">
 		<input
+			bind:this={inputDiv}
 			autofocus
 			type="text"
 			bind:value
@@ -58,14 +65,14 @@
 			size="xs"
 			color="blue"
 			buttonType="button"
-			btnClasses="!p-1 !w-[34px] !ml-1"
+			{btnClasses}
 			aria-label="Save ID"
 			disabled={error != '' || value === initialId}
 			on:click={() => {
 				dispatch('save', value)
 			}}
 		>
-			<ArrowRight size={18} />
+			{buttonText}<ArrowRight size={18} />
 		</Button>
 	</div>
 	{#if error != ''}

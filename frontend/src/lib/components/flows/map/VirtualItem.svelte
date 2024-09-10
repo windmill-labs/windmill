@@ -36,8 +36,7 @@
 		'w-full flex relative overflow-hidden rounded-sm',
 		selectable ? 'cursor-pointer' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
-		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : '',
-		'bg-surface'
+		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : ''
 	)}
 	style="width: 275px; max-height: 34px; background-color: {bgColor} !important;"
 	on:click={() => {

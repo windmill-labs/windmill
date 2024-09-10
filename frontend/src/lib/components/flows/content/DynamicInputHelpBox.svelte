@@ -29,7 +29,10 @@
 	>
 		Single JavaScript expression. The following functions and objects are available:
 		<ul class="ml-4">
-			<li><b>{'results.<id>'}</b>: the result of step at id 'id'</li>
+			<li
+				><b>{'results.<id>'}</b>: the result of step at id 'id' (use <b>{'results?.<id>'}</b> if id may
+				not exist because branch was not chosen)</li
+			>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>
 			<li><b>params</b>: the object containing the current step static values</li>
 			<li>

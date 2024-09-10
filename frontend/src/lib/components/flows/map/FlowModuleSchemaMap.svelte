@@ -30,6 +30,7 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import { replaceId } from '../flowStore'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -329,8 +330,27 @@
 				}
 			}}
 			on:changeId={({ detail }) => {
-				let { id, newId } = detail
+				let { id, newId, deps } = detail
 				dfs($flowStore.value.modules, (mod) => {
+					if (deps[mod.id]) {
+						deps[mod.id].forEach((dep) => {
+							if (
+								mod.value.type == 'rawscript' ||
+								mod.value.type == 'script' ||
+								mod.value.type == 'flow'
+							) {
+								mod.value.input_transforms = Object.fromEntries(
+									Object.entries(mod.value.input_transforms).map(([k, v]) => {
+										if (v.type == 'javascript') {
+											return [k, { ...v, expr: replaceId(v.expr, id, newId) }]
+										} else {
+											return [k, v]
+										}
+									})
+								)
+							}
+						})
+					}
 					if (mod.id == id) {
 						mod.id = newId
 					}

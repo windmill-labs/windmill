@@ -47,7 +47,7 @@
 			style="width: 275px; height: 34px; background-color: {getStateColor(
 				undefined,
 				darkMode,
-				'#fff'
+				true
 			)};"
 			on:click={() => {
 				selected = true
