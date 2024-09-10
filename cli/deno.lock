@@ -53,6 +53,7 @@
       "jsr:@windmill-labs/cliffy-internal@1.0.0-rc.5": "jsr:@windmill-labs/cliffy-internal@1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-keycode@1.0.0-rc.5": "jsr:@windmill-labs/cliffy-keycode@1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-prompt@1.0.0-rc.5": "jsr:@windmill-labs/cliffy-prompt@1.0.0-rc.5",
+      "jsr:@windmill-labs/cliffy-prompt@1.0.0-rc.6": "jsr:@windmill-labs/cliffy-prompt@1.0.0-rc.6",
       "jsr:@windmill-labs/cliffy-prompt@^1.0.0-rc.5": "jsr:@windmill-labs/cliffy-prompt@1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5": "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-table@^1.0.0-rc.5": "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5",
@@ -248,6 +249,19 @@
       },
       "@windmill-labs/cliffy-prompt@1.0.0-rc.5": {
         "integrity": "329a097911f219b15ea643ae83b6b360a11df7fc4cafdac1bf6869259475033a",
+        "dependencies": [
+          "jsr:@std/assert@1.0.0-rc.2",
+          "jsr:@std/fmt@~0.225.4",
+          "jsr:@std/io@~0.224.2",
+          "jsr:@std/path@1.0.0-rc.2",
+          "jsr:@std/text@1.0.0-rc.1",
+          "jsr:@windmill-labs/cliffy-ansi@1.0.0-rc.5",
+          "jsr:@windmill-labs/cliffy-internal@1.0.0-rc.5",
+          "jsr:@windmill-labs/cliffy-keycode@1.0.0-rc.5"
+        ]
+      },
+      "@windmill-labs/cliffy-prompt@1.0.0-rc.6": {
+        "integrity": "ffe09bee0e1e07bc12b2147be509d10b47eb6a36cbfea80fc206b4ae86693205",
         "dependencies": [
           "jsr:@std/assert@1.0.0-rc.2",
           "jsr:@std/fmt@~0.225.4",
