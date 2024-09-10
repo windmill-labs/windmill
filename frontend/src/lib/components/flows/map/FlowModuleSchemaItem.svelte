@@ -9,6 +9,7 @@
 		Database,
 		Gauge,
 		Move,
+		Pencil,
 		PhoneIncoming,
 		Repeat,
 		Square,
@@ -17,9 +18,11 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowInput } from '../types'
-	import type { Writable } from 'svelte/store'
+	import type { FlowEditorContext, FlowInput } from '../types'
+	import { get, type Writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
+	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
+	import { dfs } from '../dfs'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -41,11 +44,36 @@
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
 	)
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	let editId = false
 </script>
+
+{#if id && editId}
+	<div class="absolute bg-surface top-0 right-[30px] z-[1000] p-0.5 rounded border shadow-md">
+		<IdEditorInput
+			label=""
+			initialId={id}
+			reservedIds={dfs(
+				flowEditorContext?.flowStore ? get(flowEditorContext?.flowStore).value.modules : [],
+				(x) => x.id
+			)}
+			on:save={(e) => {
+				dispatch('changeId', { id, newId: e.detail })
+				editId = false
+			}}
+			on:close={() => {
+				editId = false
+			}}
+		/>
+		FOO
+	</div>
+{/if}
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -152,6 +180,16 @@
 		<div class="flex items-center space-x-2">
 			{#if id}
 				<Badge color="indigo">{id}</Badge>
+
+				<button
+					class=" h-[20px] w-[20px] trash center-center text-primary
+border-[1.5px] bg-surface duration-150 hover:bg-blue-400 {editId
+						? '!bg-blue-400'
+						: ''} hover:text-white
+hover:border-blue-700 {selected ? '' : '!hidden'}"
+					on:click|preventDefault|stopPropagation={(event) => (editId = !editId)}
+					title="Edit Id"><Pencil class="mx-[3px]" size={14} /></button
+				>
 			{/if}
 		</div>
 	</div>
@@ -168,7 +206,7 @@
 		</button>
 
 		<button
-			class="absolute -top-[10px] right-[35px] rounded-full h-[20px] w-[20px] trash center-center text-primary
+			class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-primary
 border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-blue-400 hover:text-white
 hover:border-blue-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}

@@ -328,6 +328,16 @@
 					$flowStore = $flowStore
 				}
 			}}
+			on:changeId={({ detail }) => {
+				let { id, newId } = detail
+				dfs($flowStore.value.modules, (mod) => {
+					if (mod.id == id) {
+						mod.id = newId
+					}
+				})
+				$flowStore = $flowStore
+				$selectedId = newId
+			}}
 			on:deleteBranch={async ({ detail }) => {
 				if (detail.module) {
 					await removeBranch(detail.module, detail.index)

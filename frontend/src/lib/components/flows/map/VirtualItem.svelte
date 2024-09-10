@@ -5,7 +5,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
-	export let label: string
+	export let label: string | undefined = undefined
 	export let bgColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
@@ -13,6 +13,7 @@
 	export let center = true
 	export let borderColor: string | undefined = undefined
 	export let hideId: boolean = false
+	export let preLabel: string | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -44,14 +45,15 @@
 			if (id) {
 				dispatch('select', id)
 			} else {
-				dispatch('select', label)
+				dispatch('select', label || label || '')
 			}
 		}
 	}}
-	id={`flow-editor-virtual-${encodeURIComponent(label)}`}
+	title={(label ? label + ' ' : '') + (label ?? '')}
+	id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}
 >
 	<div
-		style={borderColor ? `border-color: ${borderColor};` : ''}
+		style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
 		class="flex gap-1 justify-between {center
 			? 'items-center'
 			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
@@ -61,7 +63,14 @@
 			<span class="mr-2" />
 		{/if}
 		<div />
-		<div class="truncate"><pre>{label}</pre></div>
+		<div class="flex flex-col w-full">
+			{#if label}
+				<div class="truncate text-center">{label}</div>
+			{/if}
+			{#if preLabel}
+				<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
+			{/if}
+		</div>
 		<div class="flex items-center space-x-2">
 			{#if id && !hideId}
 				<Badge color="indigo">{id}</Badge>

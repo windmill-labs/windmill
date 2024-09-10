@@ -68,6 +68,9 @@
 		on:insert={(e) => {
 			data.eventHandlers.insert(e.detail)
 		}}
+		on:changeId={(e) => {
+			data.eventHandlers.changeId(e.detail)
+		}}
 		on:move={(e) => {
 			data.eventHandlers.move(data.module, data.modules)
 		}}

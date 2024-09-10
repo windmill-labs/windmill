@@ -10,6 +10,7 @@
 
 	export let data: {
 		label: string
+		preLabel: string | undefined
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		id: string
@@ -30,12 +31,11 @@
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={data.label}
+		preLabel={data.preLabel}
 		selectable
 		selected={data.selected}
 		bgColor={getStateColor(undefined, darkMode)}
-		borderColor={borderStatus
-			? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
-			: undefined}
+		borderColor={borderStatus ? getStateColor(borderStatus, darkMode) : undefined}
 		on:select={() => {
 			data.eventHandlers.select(data.id)
 		}}
