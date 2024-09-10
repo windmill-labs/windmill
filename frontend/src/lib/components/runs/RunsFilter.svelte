@@ -501,7 +501,7 @@
 				<CloseButton on:close={() => close(null)} />
 			</svelte:fragment>
 
-			<div class="w-80 flex flex-col gap-4">
+			<div class="w-102 flex flex-col gap-4">
 				{#if mobile}
 					<Label label="Filter by">
 						<ToggleButtonGroup
