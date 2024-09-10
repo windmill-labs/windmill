@@ -11,10 +11,11 @@
 	export let value = initialId
 	export let buttonText = ''
 	export let btnClasses = '!p-1 !w-[34px] !ml-1'
+	export let acceptUnderScores = false
 
 	let error = ''
 	const dispatch = createEventDispatcher()
-	const regex = /^[a-zA-Z][a-zA-Z0-9]*$/
+	const regex = acceptUnderScores ? /^[a-zA-Z][a-zA-Z0-9_]*$/ : /^[a-zA-Z][a-zA-Z0-9]*$/
 
 	$: validateId(value, reservedIds)
 
