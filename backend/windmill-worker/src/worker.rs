@@ -1456,7 +1456,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                     tracing::debug!("received {} from same worker channel", same_worker_job.job_id);
-                    let r = sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                    let r = sqlx::query_as::<_, QueuedJob>("UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *")
                         .bind(same_worker_job.job_id)
                         .fetch_optional(db)
                         .await
