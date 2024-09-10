@@ -124,7 +124,11 @@ async function dev(opts: GlobalOptions & SyncOptions) {
 
     console.log(`Go to ${url}`);
     try {
-      open.openApp(open.apps.browser, { arguments: [url] });
+      open.openApp(open.apps.browser, { arguments: [url] }).catch((error) => {
+        console.error(
+          `Failed to open browser, please navigate to ${url}, error: ${error}`
+        );
+      });
       console.log("Opened browser for you");
     } catch (error) {
       console.error(
