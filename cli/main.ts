@@ -56,9 +56,9 @@ export {
 //   }
 // });
 
-export const VERSION = "1.393.4";
+export const VERSION = "1.393.6";
 
-let command: any = new Command()
+const command = new Command()
   .name("wmill")
   .action(() =>
     log.info(`Welcome to Windmill CLI ${VERSION}. Use -h for help.`)
