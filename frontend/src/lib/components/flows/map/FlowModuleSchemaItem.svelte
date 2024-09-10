@@ -77,6 +77,7 @@
 					btnClasses="!ml-1"
 					label=""
 					initialId={id}
+					acceptUnderScores
 					reservedIds={dfs(flowStore?.value.modules ?? [], (x) => x.id)}
 					bind:value={newId}
 					on:save={(e) => {
