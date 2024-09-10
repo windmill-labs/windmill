@@ -19,7 +19,6 @@ export { ensureDir } from "jsr:@std/fs";
 export { SEPARATOR as SEP } from "jsr:@std/path";
 export * as path from "jsr:@std/path/";
 export { encodeHex } from "jsr:@std/encoding";
-export { getAvailablePort } from "jsr:@std/net";
 export { writeAllSync } from "jsr:@std/io/write-all";
 export { copy } from "jsr:@std/io/copy";
 export { readAll } from "jsr:@std/io/read-all";
@@ -36,6 +35,6 @@ export { default as JSZip } from "npm:jszip@3.7.1";
 export * as express from "npm:express";
 export * as http from "node:http";
 export { WebSocketServer, WebSocket } from "npm:ws";
-
+export * as getPort from "npm:get-port@7.1.0";
 export * as open from "npm:open";
 export * as esMain from "npm:es-main";
