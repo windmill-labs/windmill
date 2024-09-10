@@ -17,7 +17,7 @@
 				dispatch('node')
 			}}
 			type="button"
-			class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+			class="text-primary bg-surface outline-[1px] outline dark:outline-gray-500 outline-gray-300 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 		>
 			<Cross class="mx-[5px]" size={15} />
 		</button>
@@ -28,7 +28,7 @@
 			type="button"
 			on:click={() => dispatch('addBranch')}
 			class={twMerge(
-				'text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center',
+				'text-secondary bg-surface outline-[1px] outline dark:outline-gray-500 outline-gray-300 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center',
 				!canAddNode && 'ml-16 mb-2'
 			)}
 		>

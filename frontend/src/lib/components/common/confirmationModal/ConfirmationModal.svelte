@@ -44,7 +44,7 @@
 		<div
 			class={classNames(
 				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
-				open ? 'ease-out duration-300 opacity-80' : 'ease-in duration-200 opacity-0'
+				open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 			)}
 		/>
 

@@ -27,9 +27,9 @@
 		title="Add a Trigger"
 		slot="trigger"
 		type="button"
-		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+		class="text-secondary bg-surface outline-[1px] outline dark:outline-gray-500 outline-gray-300 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded text-sm w-[20px] h-[20px] flex items-center justify-center"
 	>
-		<Zap size={14} />
+		<Zap size={12} />
 	</button>
 	{#if !disableAi}
 		<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger on:insert />

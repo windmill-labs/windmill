@@ -146,6 +146,9 @@
 					dispatch('select', modId)
 				}
 			},
+			changeId: (detail) => {
+				dispatch('changeId', detail)
+			},
 			delete: (detail, label) => {
 				$selectedId = label
 
@@ -274,6 +277,7 @@
 			showLock={false}
 			showZoom={false}
 			showFitView={false}
+			class="!shadow-none"
 		>
 			{#if showDataflow}
 				<Toggle
