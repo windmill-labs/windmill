@@ -3810,8 +3810,8 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
                 flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
-                flow_step_id, cache_ttl, priority)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) \
+                flow_step_id, cache_ttl, priority, last_ping)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, NULL) \
          RETURNING id",
         workspace_id,
         job_id,

@@ -1379,11 +1379,13 @@ async fn handle_zombie_flows(
 
     for flow in flows {
         let status = flow.parse_flow_status();
-        if status.is_some_and(|s| {
-            s.modules
-                .get(0)
-                .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-        }) {
+        if !flow.same_worker
+            && status.is_some_and(|s| {
+                s.modules
+                    .get(0)
+                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
+            })
+        {
             let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
                 flow.id, flow.workspace_id
