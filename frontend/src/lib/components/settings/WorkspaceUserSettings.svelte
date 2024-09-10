@@ -312,7 +312,7 @@
 			{#if filteredUsers}
 				{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, disabled } (email)}
 					<tr class="!hover:bg-surface-hover">
-						<Cell first>{truncate(email, 20)}</Cell>
+						<Cell first><a href="mailto:{email}">{truncate(email, 20)}</a></Cell>
 						<Cell>{truncate(username, 30)}</Cell>
 						<Cell
 							>{#if usage?.[email] != undefined}{usage?.[email]}{:else}<Loader2
