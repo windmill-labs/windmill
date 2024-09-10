@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.394.0](https://github.com/windmill-labs/windmill/compare/v1.393.4...v1.394.0) (2024-09-10)
+
+
+### Features
+
+* add ability to edit id in flows ([#4364](https://github.com/windmill-labs/windmill/issues/4364)) ([a19db9a](https://github.com/windmill-labs/windmill/commit/a19db9a8d36fd07ff123e09ee079128e353273ad))
+
+
+### Bug Fixes
+
+* **cli:** browser login works on npm ([cfb50ce](https://github.com/windmill-labs/windmill/commit/cfb50ce8b8cf5e0e45af4b0fc79e9741d8077c31))
+* **cli:** on node, prompt paste accept more than 8 chars ([e824d2a](https://github.com/windmill-labs/windmill/commit/e824d2a76c0bdcb8aedec190640b26e259ad1131))
+* migrate git sync to using bun based script ([6b43d7e](https://github.com/windmill-labs/windmill/commit/6b43d7e227f2af2d4838d5f816672798d1857e19))
+
 ## [1.393.4](https://github.com/windmill-labs/windmill/compare/v1.393.3...v1.393.4) (2024-09-09)
 
 
