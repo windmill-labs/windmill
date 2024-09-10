@@ -3990,6 +3990,7 @@ async fn restarted_flows_resolution(
                             }),
                             parallel: parallel,
                             while_loop: false,
+                            progress: None,
                         });
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -4027,6 +4028,7 @@ async fn restarted_flows_resolution(
                             branchall: None,
                             parallel: parallel,
                             while_loop: false,
+                            progress: None,
                         });
                     }
                     _ => {

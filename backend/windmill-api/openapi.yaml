@@ -5981,6 +5981,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -5999,6 +6003,8 @@ paths:
                   log_offset:
                     type: integer
                   mem_peak:
+                    type: integer
+                  progress:
                     type: integer
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
@@ -8602,6 +8608,83 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
+
+  /w/{workspace}/job_metrics/set_progress/{id}:
+    post:
+      summary: set job metrics
+      operationId: setJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        description: parameters for statistics retrieval
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                percent:
+                  type: integer
+                flow_job_id:
+                  type: string
+                  format: uuid
+
+      responses:
+        "200":
+          description: Job progress updated
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_metrics/get_progress/{id}:
+    get:
+      summary: get job metrics
+      operationId: getJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      # requestBody:
+      #   description: parameters for statistics retrieval
+      #   required: true
+        # content:
+        #   application/json:
+        #     schema:
+        #       type: integer
+              # properties:
+              #   timeseries_max_datapoints:
+              #     type: integer
+              #   from_timestamp:
+              #     type: string
+              #     format: date-time
+              #   to_timestamp:
+              #     type: string
+              #     format: date-time
+
+      responses:
+        "200":
+          description: job details
+          content:
+            application/json:
+              schema:
+                type: integer
+                # properties:
+                #   metrics_metadata:
+                #     type: array
+                #     items:
+                #       $ref: "#/components/schemas/MetricMetadata"
+                #   scalar_metrics:
+                #     type: array
+                #     items:
+                #       $ref: "#/components/schemas/ScalarMetric"
+                #   timeseries_metrics:
+                #     type: array
+                #     items:
+                #       $ref: "#/components/schemas/TimeseriesMetric"
 
   /concurrency_groups/list:
     get:

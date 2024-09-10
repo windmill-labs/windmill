@@ -2550,6 +2550,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 id: status_module.id(),
                 parallel: false,
                 while_loop,
+                progress: None,
             }
         }
         NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
@@ -2562,6 +2563,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             id: status_module.id(),
             parallel: true,
             while_loop: false,
+            progress: None,
         },
         NextStatus::NextBranchStep(NextBranch {
             mut flow_jobs,
@@ -2584,6 +2586,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 id: status_module.id(),
                 parallel: false,
                 while_loop: false,
+                progress: None,
             }
         }
 
@@ -2597,6 +2600,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             id: status_module.id(),
             parallel: false,
             while_loop: false,
+            progress: None,
         },
         NextStatus::NextStep => {
             FlowStatusModule::WaitingForExecutor { id: status_module.id(), job: one_uuid? }

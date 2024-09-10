@@ -1,12 +1,16 @@
 use crate::db::DB;
 
-use axum::{extract::Path, routing::post, Extension, Json, Router};
+use axum::{
+    extract::Path,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 use windmill_common::{
-    error,
-    job_metrics::{JobStatsRecord, MetricKind},
+    error::{self, Error},
+    job_metrics::{record_metric, JobStatsRecord, MetricKind, MetricNumericValue},
 };
 
 pub fn workspaced_service() -> Router {
@@ -15,7 +19,17 @@ pub fn workspaced_service() -> Router {
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    Router::new().route("/get/:id", post(get_job_metrics).layer(cors.clone()))
+    Router::new()
+        .route("/get/:id", post(get_job_metrics).layer(cors.clone()))
+        // TODO: Move to different module?
+        .route(
+            "/set_progress/:id",
+            post(set_job_progress).layer(cors.clone()),
+        )
+        .route(
+            "/get_progress/:id",
+            get(get_job_progress).layer(cors.clone()),
+        )
 }
 
 #[derive(Deserialize)]
@@ -136,6 +150,124 @@ async fn get_job_metrics(
 
     let response = JobStatsResponse { metrics_metadata, scalar_metrics, timeseries_metrics };
     Ok(Json(response))
+}
+#[derive(Deserialize)]
+struct JobProgressSetRequest {
+    percent: i32,
+    flow_job_id: Option<Uuid>,
+}
+
+async fn set_job_progress(
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Json(JobProgressSetRequest { percent, flow_job_id }): Json<JobProgressSetRequest>,
+) -> error::JsonResult<()> {
+    dbg!(flow_job_id);
+
+    if let Some(flow_job_id) = flow_job_id {
+        // sqlx::query(
+        //     "UPDATE queue
+        //         SET flow_status = JSONB_SET(flow_status, ARRAY['approval_conditions'], $1)
+        //         WHERE id = $2",
+        // )
+        // .bind(json!(approval_conditions))
+        // .bind(flow_job.id)
+        // .execute(&mut *tx)
+        // .await?;
+
+        // Update the 'progress' field in the 'modules' array of the 'flow_status' JSONB field in the 'queue' table.
+        // The index of the 'modules' array is determined by the value of the 'step' field in the 'flow_status' JSONB field.
+        // The new value of the 'progress' field is the maximum of the current value and the provided value.
+        // This ensures that the 'progress' field never decreases.
+        // TODO: Clamp between 0 and 99
+
+        // sqlx::query(
+        //     r#"
+        //     UPDATE queue
+        //     SET flow_status = JSONB_SET(
+        //         flow_status,
+        //         ARRAY['modules', (flow_status->>'step')::integer],
+        //         jsonb_build_object('progress', GREATEST(
+        //             (flow_status->'modules'->(flow_status->>'step')::integer)->>'progress',
+        //             $1
+        //         )),
+        //         true
+        //     )
+        //     WHERE id = $2
+        // "#,
+        // )
+        // .bind(percent)
+        // .bind(flow_job_id)
+        // .execute(&db)
+        // .await?;
+
+        //     let query = r#"
+        //     UPDATE queue
+        //     SET flow_status = jsonb_set(
+        //         flow_status,
+        //         '{modules, ' || (flow_status->>'step') || ', progress}',
+        //         $2::jsonb
+        //     )
+        //     WHERE id = $1;
+        // "#;
+
+        //     sqlx::query(query)
+        //         .bind(flow_job_id)
+        //         .bind(percent)
+        //         .execute(&db)
+        //         .await?;
+        // PROMPT: I have postgresql table called queue. In queue there is jsonb flow_status, in there is step and modules. Modules is array of jsonb, in that jsonb is another field progress. I want to access module by index step (which is stored in queue->flow_status->step) and change field progress in module. Write query in sqlx rust syntax
+        // SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)
+        // TODO: Jitter protector
+        sqlx::query!(
+            "UPDATE queue
+                SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step', 'progress'], $1)
+                WHERE id = $2",
+            serde_json::json!(percent.clamp(0, 99)),
+            flow_job_id
+        )
+        .execute(&db)
+        .await?;
+        // sqlx::query!(
+        //     "UPDATE queue
+        //         SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step', 'progress'], GREATEST($1, (flow_status->'modules'->>(flow_status->>'step') ->> 'progress'))::jsonb)
+        //         WHERE id = $2",
+        //     serde_json::json!(percent.clamp(0, 99)),
+        //     flow_job_id
+        // )
+        // .execute(&db)
+        // .await?;
+    }
+
+    record_metric(
+        &db,
+        w_id,
+        job_id,
+        "progress_perc".to_owned(),
+        MetricNumericValue::Integer(percent),
+    )
+    .await?;
+
+    Ok(Json(()))
+}
+
+async fn get_job_progress(
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Option<i32>> {
+    let progress: (Option<i32>, ) = sqlx::query_as(
+        //                    ^
+        // Trailing comma is mandatory, otherwise sqlx doesnt recognize it as a right type
+                "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
+            )
+            .bind(job_id)
+            .bind(w_id)
+            .fetch_one(&db)
+            .await?;
+
+    dbg!(progress);
+    dbg!("\n\n\n");
+    Ok(Json(progress.0))
 }
 
 fn timeseries_sample<T: Copy>(

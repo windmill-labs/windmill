@@ -28,12 +28,14 @@
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
 	export let pastPreviews: CompletedJob[] = []
 	export let editor: Editor | undefined = undefined
+	export let jobProgressBar: JobProgressBar | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let args: Record<string, any> | undefined = undefined
 	export let workspace: string | undefined = undefined
@@ -118,6 +120,7 @@
 						/>
 					</Pane>
 					<Pane>
+						<slot></slot>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2">
 								<div class="relative">

@@ -25,6 +25,7 @@
 	let job: Job | undefined = undefined
 	let watchJob: ((id: string) => Promise<void>) | undefined = undefined
 	let getLogs: (() => Promise<void>) | undefined = undefined
+	let progress: number | undefined = undefined;
 
 	let result: any
 
@@ -65,8 +66,10 @@
 	bind:job={currentJob}
 	bind:getLogs
 	bind:watchJob
+	bind:progress
 	on:done={onDone}
 />
+
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
 		<div class="flex gap-2 flex-wrap">

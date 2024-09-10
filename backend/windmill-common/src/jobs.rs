@@ -58,6 +58,11 @@ pub struct QueuedJob {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    /// Value between 0 and 99, represents progress of execution of job.
+    /// Can be changes from python and typescript clients
+    /// by calling `wm.set_progress` and `wm.setProgress` respectively
+    // pub progress: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

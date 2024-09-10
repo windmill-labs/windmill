@@ -6949,6 +6949,7 @@ export type GetJobUpdatesData = {
 	id: string;
 	logOffset?: number;
 	running?: boolean;
+	getProgress?: boolean;
 	workspace: string;
 };
 export type GetJobUpdatesResponse = {

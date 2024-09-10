@@ -7,7 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file, ROOT_CACHE_DIR, TMP_DIR}
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, job_metrics::{self, register_metric_for_job, MetricKind}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file, ROOT_CACHE_DIR, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -1539,8 +1539,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::debug!("set worker busy to 1");
         }
 
+
         match next_job {
             Ok(Some(job)) => {
+                // TODO: Possible collisions?
+                let progress_metric_id = register_metric_for_job(
+                    db, job.workspace_id.clone(), job.id, "progress_perc".to_string(), MetricKind::ScalarInt, Some("Job Execution Progress (%)".to_owned()),
+                ).await;
+
+                // if let Ok(ref metric_id) = progress_metric_id {
+                //     if let Err(err) = job_metrics::record_metric(&db, job.workspace_id.clone(), job.id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(0)).await {
+                //         tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job.id, job.workspace_id, err);
+                //     }
+                // }
+
                 last_executed_job = None;
                 jobs_executed += 1;
 

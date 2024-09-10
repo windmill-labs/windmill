@@ -13,6 +13,9 @@
 	export let jobUpdateLastFetch: Date | undefined = undefined
 	export let toastError = false
 	export let lazyLogs = false
+	// Will be set to number if job is not a flow
+	// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
+	export let progress: number | undefined = undefined;
 
 	const dispatch = createEventDispatcher()
 
@@ -95,8 +98,11 @@
 				workspace: workspace!,
 				id: job.id,
 				running: `running` in job && job.running,
-				logOffset: job.logs?.length ?? 0
+				logOffset: job.logs?.length ?? 0,
+				getProgress: true,
 			})
+
+			progress = getUpdate.progress;
 
 			if ((job.logs ?? '').length == 0) {
 				job.logs = getUpdate.new_logs ?? ''
@@ -172,12 +178,29 @@
 			try {
 				if (job && `running` in job) {
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
+
+					const started = new Date(job.started_at ?? Date.now());
+					// @ts-ignore
+					const running_duration = Date.now() - started;
+					const getProgress = (running_duration > 2000) ? true : false;
+
+			
 					let previewJobUpdates = await JobService.getJobUpdates({
 						workspace: workspace!,
 						id,
 						running: job.running,
-						logOffset: offset
+						logOffset: offset,
+						getProgress: getProgress,
+						// TODO: Detect if setProgress is even used and if not, always put false here
 					})
+
+					// Clamp number between two values with the following line:
+					const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
+
+					if (getProgress)
+						// Progress cannot go back and cannot be set to 100
+						progress = clamp(previewJobUpdates.progress, progress ?? 0, 99);
+
 
 					if (previewJobUpdates.new_logs) {
 						if (offset == 0) {

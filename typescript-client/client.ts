@@ -3,6 +3,7 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  MetricsService,
   OidcService,
   UserService,
 } from "./index";
@@ -382,6 +383,46 @@ export async function setInternalState(state: any): Promise<void> {
  */
 export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
+}
+
+/**
+ * Increment the progress
+ * Progress cannot go back and limited to 0% to 99% range
+ * @param percent Progress to increment in %
+ */
+export async function incProgress(percent: number): Promise<void> {
+  const currentProgress = await getProgress();
+  setProgress((currentProgress ?? 0) + percent);
+}
+
+/**
+ * Set the progress
+ * Progress cannot go back and limited to 0% to 99% range
+ * @param percent Progress to set in %
+ */
+export async function setProgress(percent: number): Promise<void> {
+  const flowId = getEnv("WM_FLOW_JOB_ID");
+  MetricsService.setJobProgress({
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace: getWorkspace(),
+    requestBody: {
+      percent: percent,
+      // Behave differently if value is undefined or not
+      flow_job_id: (flowId == "") ? undefined : flowId
+    }
+  });
+}
+
+/**
+ * Get the progress
+ * @returns Optional clamped between 0 and 100 progress value 
+ */
+export async function getProgress(): Promise<number | null> {
+  return MetricsService.getJobProgress({
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace: getWorkspace(),
+    // requestBody: { }
+  }); 
 }
 
 /**

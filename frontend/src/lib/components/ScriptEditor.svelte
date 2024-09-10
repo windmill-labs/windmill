@@ -12,6 +12,7 @@
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
@@ -46,6 +47,8 @@
 	export let watchChanges = false
 	export let customUi: ScriptEditorWhitelabelCustomUi = {}
 
+	let jobProgressReset: () => void
+
 	let websocketAlive = {
 		pyright: false,
 		deno: false,
@@ -68,6 +71,7 @@
 	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
+	let progress = undefined;
 
 	// Test
 	let testIsLoading = false
@@ -98,6 +102,7 @@
 	}
 
 	function runTest() {
+		jobProgressReset();
 		//@ts-ignore
 		testJobLoader.runPreview(path, code, lang, args, tag)
 	}
@@ -214,6 +219,7 @@
 
 <TestJobLoader
 	on:done={loadPastTests}
+	bind:progress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -393,7 +399,10 @@
 							{editor}
 							{diffEditor}
 							{args}
-						/>
+						>
+						<!-- Put to the slot in logpanel -->
+						<JobProgressBar job={testJob} bind:progress bind:reset={jobProgressReset} class="compact-progress-bar" />
+						</LogPanel>
 					</Pane>
 				</Splitpanes>
 			</div>

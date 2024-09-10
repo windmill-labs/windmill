@@ -68,6 +68,7 @@
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -90,6 +91,8 @@
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
+
+	let progress = undefined;
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -319,6 +322,7 @@
 
 <TestJobLoader
 	lazyLogs
+	bind:progress 
 	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
@@ -731,6 +735,7 @@
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}
+			<JobProgressBar {job} {progress} />
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
 					<Tabs bind:selected={viewTab}>
@@ -786,7 +791,7 @@
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10" />
-			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4" />
+			<FlowProgressBar {job} bind:progress class="py-4 max-w-7xl mx-auto px-4" />
 			<div class="w-full mt-10">
 				<FlowStatusViewer
 					jobId={job.id}
