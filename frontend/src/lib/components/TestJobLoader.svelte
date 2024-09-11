@@ -15,7 +15,13 @@
 	export let lazyLogs = false
 	// Will be set to number if job is not a flow
 	// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
-	export let progress: number | undefined = undefined;
+	export let scriptProgress: number | undefined = undefined;
+
+	/// Last time asked for job progress
+	let lastTimeCheckedProgress: number | undefined = undefined; 
+
+	/// Delay in ms before frontend is pulling job's progress
+	const getProgressDelay: number = 3000;
 
 	const dispatch = createEventDispatcher()
 
@@ -99,10 +105,7 @@
 				id: job.id,
 				running: `running` in job && job.running,
 				logOffset: job.logs?.length ?? 0,
-				getProgress: true,
 			})
-
-			progress = getUpdate.progress;
 
 			if ((job.logs ?? '').length == 0) {
 				job.logs = getUpdate.new_logs ?? ''
@@ -119,6 +122,11 @@
 		tag: string | undefined,
 		lock?: string
 	): Promise<string> {
+
+		// Reset in case we rerun job without reloading
+		scriptProgress = undefined;
+		lastTimeCheckedProgress = undefined;
+	
 		return abstractRun(() =>
 			JobService.runScriptPreview({
 				workspace: $workspaceStore!,
@@ -179,27 +187,35 @@
 				if (job && `running` in job) {
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
 
-					const started = new Date(job.started_at ?? Date.now());
-					// @ts-ignore
-					const running_duration = Date.now() - started;
-					const getProgress = (running_duration > 2000) ? true : false;
+					var getProgress: boolean | undefined = undefined;
 
-			
+					// We only pull individual job progress this way
+					// Flow's progress we are getting from FlowStatusModule of flow job
+					if (job.job_kind == "script" || "preview")
+						if (lastTimeCheckedProgress){
+							// Ask for progress if the last time we asked is >5s OR the progress was once not undefined
+							if ((Date.now() - lastTimeCheckedProgress > getProgressDelay) || scriptProgress != undefined)
+								lastTimeCheckedProgress = Date.now(),	getProgress = true;																	
+						} else 
+							// Make it think we asked for progress, but in reality we didnt. First 5s we want to wait without putting extra work on db
+							// 99.99% of the jobs won't have progress be set so we have to do a balance between having low-latency for jobs that use it and job that don't
+							// we would usually not care to have progress the first 5s and jobs that are less than 5s
+							lastTimeCheckedProgress = Date.now();		
+	
 					let previewJobUpdates = await JobService.getJobUpdates({
 						workspace: workspace!,
 						id,
 						running: job.running,
 						logOffset: offset,
-						getProgress: getProgress,
-						// TODO: Detect if setProgress is even used and if not, always put false here
+						getProgress: getProgress
 					})
 
 					// Clamp number between two values with the following line:
 					const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
 
-					if (getProgress)
+					if (previewJobUpdates.progress)
 						// Progress cannot go back and cannot be set to 100
-						progress = clamp(previewJobUpdates.progress, progress ?? 0, 99);
+						scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99);
 
 
 					if (previewJobUpdates.new_logs) {

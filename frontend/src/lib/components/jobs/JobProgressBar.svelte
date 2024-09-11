@@ -4,7 +4,7 @@
 
 	export let job: Job | undefined = undefined
 	/// Progress of currently running job
-	export let progress: number | undefined = undefined;
+	export let scriptProgress: number | undefined = undefined;
 
 	let error: number | undefined = undefined
 	let index = 0
@@ -14,9 +14,8 @@
 	let nextInProgress = false
 
 	$: if (job) updateJobProgress(job);
-	$: subIndex = progress ?? 0;
+	$: subIndex = scriptProgress ?? 0;
 
-  // TODO: Fix second run already 100%
 	function updateJobProgress(job: Job) { 
 		if (job['success'])	
 			index = 1, subLength = 0, subIndex = 0;				
@@ -31,7 +30,7 @@
 		subLength = 100
 		length = 1
 		index = 0
-		progress = undefined
+		scriptProgress = undefined
 	}
 
 </script>
@@ -46,7 +45,7 @@
   }
 </style>
 
-{#if progress}
+{#if scriptProgress}
 <ProgressBar
 	bind:resetP
 	{length}

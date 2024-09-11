@@ -8641,7 +8641,7 @@ paths:
 
   /w/{workspace}/job_metrics/get_progress/{id}:
     get:
-      summary: get job metrics
+      summary: get job progress
       operationId: getJobProgress
       tags:
         - metrics
@@ -8650,7 +8650,7 @@ paths:
         - $ref: "#/components/parameters/JobId"
       responses:
         "200":
-          description: job details
+          description: job progress between 0 and 99
           content:
             application/json:
               schema:

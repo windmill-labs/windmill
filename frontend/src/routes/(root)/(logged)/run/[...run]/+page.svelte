@@ -92,7 +92,7 @@
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
 
-	let progress = undefined;
+	let scriptProgress = undefined;
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -322,7 +322,7 @@
 
 <TestJobLoader
 	lazyLogs
-	bind:progress 
+	bind:scriptProgress 
 	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
@@ -735,7 +735,7 @@
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}
-			<JobProgressBar {job} {progress} />
+			<JobProgressBar {job} {scriptProgress} />
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
 					<Tabs bind:selected={viewTab}>

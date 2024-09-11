@@ -32,7 +32,7 @@
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
-	let progress = undefined;
+	let scriptProgress = undefined;
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
@@ -102,7 +102,7 @@
 <TestJobLoader
 	toastError={noEditor}
 	on:done={() => jobDone()}
-	bind:progress
+	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -152,7 +152,7 @@
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
-		<JobProgressBar job={testJob} bind:progress bind:reset={jobProgressReset} class="compact-progress-bar"  />
+		<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} class="compact-progress-bar"  />
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
@@ -177,7 +177,7 @@
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}
-							{#if !progress}
+							{#if !scriptProgress}
 							<Loader2 class="animate-spin" />
 							{/if}
 						{:else}

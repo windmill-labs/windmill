@@ -71,7 +71,7 @@
 	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
-	let progress = undefined;
+	let scriptProgress = undefined;
 
 	// Test
 	let testIsLoading = false
@@ -219,7 +219,7 @@
 
 <TestJobLoader
 	on:done={loadPastTests}
-	bind:progress
+	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -401,7 +401,7 @@
 							{args}
 						>
 						<!-- Put to the slot in logpanel -->
-						<JobProgressBar job={testJob} bind:progress bind:reset={jobProgressReset} class="compact-progress-bar" />
+						<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} class="compact-progress-bar" />
 						</LogPanel>
 					</Pane>
 				</Splitpanes>
