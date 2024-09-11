@@ -8648,23 +8648,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
-      # requestBody:
-      #   description: parameters for statistics retrieval
-      #   required: true
-        # content:
-        #   application/json:
-        #     schema:
-        #       type: integer
-              # properties:
-              #   timeseries_max_datapoints:
-              #     type: integer
-              #   from_timestamp:
-              #     type: string
-              #     format: date-time
-              #   to_timestamp:
-              #     type: string
-              #     format: date-time
-
       responses:
         "200":
           description: job details
@@ -8672,19 +8655,6 @@ paths:
             application/json:
               schema:
                 type: integer
-                # properties:
-                #   metrics_metadata:
-                #     type: array
-                #     items:
-                #       $ref: "#/components/schemas/MetricMetadata"
-                #   scalar_metrics:
-                #     type: array
-                #     items:
-                #       $ref: "#/components/schemas/ScalarMetric"
-                #   timeseries_metrics:
-                #     type: array
-                #     items:
-                #       $ref: "#/components/schemas/TimeseriesMetric"
 
   /concurrency_groups/list:
     get:

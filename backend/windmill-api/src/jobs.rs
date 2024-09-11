@@ -4594,8 +4594,6 @@ async fn get_job_update(
     .await?;
 
     let progress: Option<i32> = if get_progress {
-
-        // TODO: Throw an error if none
          sqlx::query_scalar!(
                 "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &w_id,
@@ -4608,8 +4606,6 @@ async fn get_job_update(
     } else {
         None
     };
-
-    dbg!(progress);
 
     if let Some(record) = record {
         if opt_authed.is_none() && record.created_by != "anonymous" {

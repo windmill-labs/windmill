@@ -1542,23 +1542,22 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         match next_job {
             Ok(Some(job)) => {
-                // TODO: Possible collisions?
-                let progress_metric_id = register_metric_for_job(
-                    db, job.workspace_id.clone(), job.id, "progress_perc".to_string(), MetricKind::ScalarInt, Some("Job Execution Progress (%)".to_owned()),
-                ).await;
 
-                // if let Ok(ref metric_id) = progress_metric_id {
-                //     if let Err(err) = job_metrics::record_metric(&db, job.workspace_id.clone(), job.id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(0)).await {
-                //         tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job.id, job.workspace_id, err);
-                //     }
-                // }
 
                 last_executed_job = None;
                 jobs_executed += 1;
 
                 tracing::debug!("started handling of job {}", job.id);
 
+
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
+                    // TODO: Possible collisions?
+                    // Register here even tho not all scripts have progress.  
+                    // For optimization reasons, otherwise we should have check if progress exists every time script calls `setProgress`
+                    register_metric_for_job(
+                        db, job.workspace_id.clone(), job.id, "progress_perc".to_string(), MetricKind::ScalarInt, Some("Job Execution Progress (%)".to_owned()),
+                    ).await;
+
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {
                             job.flow_step_id.as_ref().map(|x| x.to_string())

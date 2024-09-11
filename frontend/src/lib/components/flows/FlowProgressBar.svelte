@@ -51,11 +51,10 @@
 		} else if (module?.branchall) {
 			subStepIndex = module.branchall.branch
 			subStepLength = module.branchall.len
-		} else if (module?.progress) {
-			
-			// QUESTION: Is it ok to do clamping here?
-			const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
-			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99);
+		} else if (module?.progress) {		
+			const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
+			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99)
+			//                  Jitter protection >^^^^^^^^
 			subStepLength = 100
 		}
 

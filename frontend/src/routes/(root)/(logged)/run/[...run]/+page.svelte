@@ -791,7 +791,7 @@
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10" />
-			<FlowProgressBar {job} bind:progress class="py-4 max-w-7xl mx-auto px-4" />
+			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4" />
 			<div class="w-full mt-10">
 				<FlowStatusViewer
 					jobId={job.id}
