@@ -1438,7 +1438,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 }
             } else if let Ok(_) = killpill_rx.try_recv() {
                 if !killed_but_draining_same_worker_jobs {
-                    tracing::info!("received killpill for worker {}, processing only same worker jobs", i_worker);
+                    tracing::info!("received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
                     killed_but_draining_same_worker_jobs = true;
                     job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
                 }

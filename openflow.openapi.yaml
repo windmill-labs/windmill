@@ -281,6 +281,8 @@ components:
           type: string
           enum:
             - script
+        tag_override:
+          type: string
       required:
         - type
         - path
