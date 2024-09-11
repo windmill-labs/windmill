@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use chrono::Utc;
+use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
 
@@ -263,7 +263,7 @@ pub async fn get_reserved_variables(
         ContextualVariable {
             name: WM_SCHEDULED_FOR.to_string(),
             value: scheduled_for
-                .map(|ts| ts.to_string())
+                .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Secs, true))
                 .unwrap_or_else(|| "".to_string()),
             description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
             is_custom: false,

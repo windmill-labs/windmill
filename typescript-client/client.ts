@@ -273,7 +273,10 @@ export async function runFlowAsync(
   path: string | null,
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null,
-  flowOutlivesParent: boolean = true
+  // can only be set to false if this the job will be fully await and not concurrent with any other job
+  // as otherwise the child flow and its own child will store their state in the parent job which will
+  // lead to incorrectness and failures
+  doNotTrackInParent: boolean = true
 ): Promise<string> {
   // Create a script job and return its job id.
 
@@ -284,16 +287,15 @@ export async function runFlowAsync(
     params["scheduled_in_secs"] = scheduledInSeconds;
   }
 
-  if (!flowOutlivesParent) {
+  if (!doNotTrackInParent) {
     let parentJobId = getEnv("WM_JOB_ID");
     if (parentJobId !== undefined) {
       params["parent_job"] = parentJobId;
     }
-  }
-
-  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
-  if (rootJobId != undefined && rootJobId != "") {
-    params["root_job"] = rootJobId;
+    let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+    if (rootJobId != undefined && rootJobId != "") {
+      params["root_job"] = rootJobId;
+    }
   }
 
   let endpoint: string;
