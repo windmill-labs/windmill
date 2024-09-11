@@ -35,7 +35,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::Hash,
     sync::{
-        atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
     },
     time::Duration,
