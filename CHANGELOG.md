@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.394.1](https://github.com/windmill-labs/windmill/compare/v1.394.0...v1.394.1) (2024-09-11)
+
+
+### Bug Fixes
+
+* default success handler key can be viewed by anyone in the workspace ([c44e0d3](https://github.com/windmill-labs/windmill/commit/c44e0d37426599186a890f11a079bf2c2030e32d))
+* handle better same_worker flow monitor ([4720237](https://github.com/windmill-labs/windmill/commit/4720237091d4f41d85d9a0f177428d7c3e6d917e))
+* same worker is transitive on nested flows ([decb487](https://github.com/windmill-labs/windmill/commit/decb4873f1d6080f90c1fb2a8dac70423ae2d11a))
+
 ## [1.394.0](https://github.com/windmill-labs/windmill/compare/v1.393.4...v1.394.0) (2024-09-10)
 
 
