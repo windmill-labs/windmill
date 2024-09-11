@@ -3511,6 +3511,9 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 })?;
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
+            if same_worker {
+                value.same_worker = true;
+            }
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s.clone();
