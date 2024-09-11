@@ -539,6 +539,11 @@ Windmill Community Edition {GIT_VERSION}
 
                 loop {
                     tokio::select! {
+                        biased;
+                        _ = monitor_killpill_rx.recv() => {
+                            tracing::info!("received killpill for monitor job");
+                            break;
+                        },
                         _ = tokio::time::sleep(Duration::from_secs(30))    => {
                             monitor_db(
                                 &db,
@@ -693,22 +698,28 @@ Windmill Community Edition {GIT_VERSION}
                                 },
                                 Err(e) => {
                                     tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
-                                    listener = retry_listen_pg(&db).await;
-                                    continue;
+                                    tokio::select! {
+                                        biased;
+                                        _ = monitor_killpill_rx.recv() => {
+                                            tracing::info!("received killpill for monitor job");
+                                            break;
+                                        },
+                                        new_listener = retry_listen_pg(&db) => {
+                                            listener = new_listener;
+                                            continue;
+                                        }
+                                    }
                                 }
                             };
-                        },
-                        _ = monitor_killpill_rx.recv() => {
-                                println!("received killpill for monitor job");
-                                break;
                         }
                     }
                 }
             });
 
             if let Err(e) = h.await {
-                tracing::error!("Error waiting for monitor handle:{e:#}")
+                tracing::error!("Error waiting for monitor handle: {e:#}")
             }
+            tracing::info!("Monitor exited");
             Ok(()) as anyhow::Result<()>
         };
 
