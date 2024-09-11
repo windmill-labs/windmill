@@ -20,11 +20,14 @@ mod mysql_executor;
 mod pg_executor;
 mod php_executor;
 mod python_executor;
+mod result_processor;
 mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
 pub use worker::*;
+
+pub use result_processor::handle_job_error;
 
 pub use bun_executor::{get_common_bun_proc_envs, install_bun_lockfile, prepare_job_dir};
 pub use deno_executor::generate_deno_lock;
