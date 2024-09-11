@@ -150,7 +150,7 @@
 		{/if}
 		<div class="truncate" class:font-bold={bold}>{label}</div>
 		<div class="flex items-center space-x-2">
-			{#if id}
+			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
 				<Badge color="indigo">{id}</Badge>
 			{/if}
 		</div>

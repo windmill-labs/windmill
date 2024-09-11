@@ -91,7 +91,7 @@ pub async fn handle_go_job(
         )
         .await?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, db, None).await?;
         {
             let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
 
@@ -227,7 +227,7 @@ func Run(req Req) (interface{{}}, error){{
             ))
         })?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, db, None).await?;
         cache_logs
     };
 

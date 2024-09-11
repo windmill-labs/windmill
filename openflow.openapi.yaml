@@ -44,6 +44,8 @@ components:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
           $ref: "#/components/schemas/FlowModule"
+        preprocessor_module:
+          $ref: "#/components/schemas/FlowModule"
         same_worker:
           type: boolean
         concurrent_limit:
@@ -260,8 +262,6 @@ components:
           type: number
         custom_concurrency_key:
           type: string
-        has_preprocessor:
-          type: boolean
       required:
         - type
         - content
@@ -439,6 +439,9 @@ components:
             $ref: "#/components/schemas/FlowStatusModule"
         user_states:
           additionalProperties: true
+        preprocessor_module:
+          allOf:
+            - $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
           allOf:
             - $ref: "#/components/schemas/FlowStatusModule"

@@ -147,6 +147,9 @@
 			status?.modules?.concat(
 				status.failure_module.type != 'WaitingForPriorSteps' ? status.failure_module : []
 			) ?? []
+		if (status.preprocessor_module) {
+			innerModules.unshift(status.preprocessor_module)
+		}
 		updateInnerModules()
 
 		let count = status.retry?.fail_count
@@ -783,6 +786,7 @@
 					{/each}
 				</div>
 			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
+				{@const hasPreprocessor = innerModules[0]?.id == 'preprocessor' ? 1 : 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
@@ -792,10 +796,12 @@
 						{#if render}
 							<div class="line w-8 h-10" />
 							<h3 class="text-tertiary mb-2 w-full">
-								{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
+								{#if mod.id === 'preprocessor'}
+									<h3>Preprocessor module</h3>
+								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
 									Step
 									<span class="font-medium text-primary">
-										{i + 1}
+										{i + 1 - hasPreprocessor}
 									</span>
 									out of
 									<span class="font-medium text-primary">{job?.raw_flow?.modules.length}</span>
@@ -968,6 +974,8 @@
 								globalRefreshes[detail.moduleId]?.({ job: detail.id, index: detail.index })
 							}}
 							modules={job.raw_flow?.modules ?? []}
+							failureModule={job.raw_flow?.failure_module}
+							preprocessorModule={job.raw_flow?.preprocessor_module}
 						/>
 					</div>
 					<div

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
+    jobs::{QueuedJob, ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
     worker::{write_file, WORKER_CONFIG},
     DB,
@@ -56,7 +56,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_result, start_child_process,
+        read_file, read_result, start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
@@ -234,7 +234,6 @@ pub async fn pip_compile(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<String>,
-    apply_preprocessor: bool,
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
@@ -247,6 +246,7 @@ pub async fn handle_python_job(
     shared_mount: &str,
     base_internal_url: &str,
     envs: HashMap<String, String>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_python_deps(
@@ -282,23 +282,33 @@ pub async fn handle_python_job(
         transforms,
         spread,
         main_name,
+        apply_preprocessor,
     ) = prepare_wrapper(job_dir, inner_content, &script_path, job.args.as_ref()).await?;
 
-    create_args_and_out_file(&client, job, job_dir, db).await?;
+    create_args_and_out_file(
+        &client,
+        job,
+        job_dir,
+        db,
+        if apply_preprocessor && job.args.is_some() {
+            let mut cleaned_args = job.args.clone().unwrap();
+            cleaned_args.0.remove(ENTRYPOINT_OVERRIDE);
+            Some(cleaned_args)
+        } else {
+            None
+        },
+    )
+    .await?;
 
     let preprocessor = if apply_preprocessor {
-        let kind = if job.created_by.starts_with("http-route-") {
-            "http-route"
-        } else if job.created_by.starts_with("email-trigger-") {
-            "email-trigger"
-        } else {
-            "default-webhook"
-        };
         format!(
             r#"if inner_script.preprocessor is None or not callable(inner_script.preprocessor):
         raise ValueError("preprocessor is missing or not a function")
     else:
-        kwargs = inner_script.preprocessor(kwargs, "{kind}")"#
+        kwargs = inner_script.preprocessor(kwargs)
+        kwrags_json = res_to_json(kwargs)    
+        with open("args.json", 'w') as f:
+            f.write(kwrags_json)"#
         )
     } else {
         "".to_string()
@@ -340,10 +350,7 @@ replace_nan = re.compile(r'(?:\bNaN\b|\\*\\u0000)')
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
-try:
-    {preprocessor}
-    {spread}
-    res = inner_script.{main_override}(**args)
+def res_to_json(res):
     typ = type(res)
     if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
@@ -356,7 +363,13 @@ try:
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
+    return re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
+
+try:
+    {preprocessor}
+    {spread}
+    res = inner_script.{main_override}(**args)
+    res_json = res_to_json(res)
     with open(result_json, 'w') as f:
         f.write(res_json)
 except BaseException as e:
@@ -471,6 +484,24 @@ mount {{
         false,
     )
     .await?;
+
+    if apply_preprocessor {
+        let args = read_file(&format!("{job_dir}/args.json"))
+            .await
+            .map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while reading args from preprocessing: {e:#}"
+                ))
+            })?;
+        let args: HashMap<String, Box<RawValue>> =
+            serde_json::from_str(args.get()).map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while deserializing args from preprocessing: {e:#}"
+                ))
+            })?;
+        *new_args = Some(args.clone());
+    }
+
     read_result(job_dir).await
 }
 
@@ -489,8 +520,18 @@ async fn prepare_wrapper(
     String,
     String,
     Option<String>,
+    bool,
 )> {
-    let main_override = get_main_override(args);
+    let (main_override, apply_preprocessor) = match get_main_override(args) {
+        Some(main_override) => {
+            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
+                (None, true)
+            } else {
+                (Some(main_override), false)
+            }
+        }
+        None => (None, false),
+    };
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -609,6 +650,7 @@ async fn prepare_wrapper(
         transforms,
         spread,
         main_override,
+        apply_preprocessor,
     ))
 }
 
@@ -1101,6 +1143,7 @@ pub async fn start_worker(
         last,
         transforms,
         spread,
+        _,
         _,
     ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref()).await?;
 

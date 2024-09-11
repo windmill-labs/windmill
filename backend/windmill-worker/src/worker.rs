@@ -8,6 +8,7 @@
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    jobs::ENTRYPOINT_OVERRIDE,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
@@ -56,7 +57,7 @@ use windmill_common::{
 
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy,
-    PushArgs, PushIsolationLevel, QueueTransaction, WrappedError, HTTP_CLIENT,
+    PushArgs, PushIsolationLevel, WrappedError, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -2513,6 +2514,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         append_logs(&job.id, &job.workspace_id, logs, db).await;
 
         let mut column_order: Option<Vec<String>> = None;
+        let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let result = match job.job_kind {
             JobKind::Dependencies => {
                 handle_dependency_job(
@@ -2580,6 +2582,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     base_internal_url,
                     worker_name,
                     &mut column_order,
+                    &mut new_args,
                 )
                 .await;
                 *worker_code_execution_metric += metric_timer.elapsed().as_secs_f32();
@@ -2611,6 +2614,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             cached_res_path,
             client.get_token().await,
             column_order,
+            new_args,
             db,
         )
         .await?;
@@ -2628,26 +2632,48 @@ async fn process_result(
     cached_res_path: Option<String>,
     token: String,
     column_order: Option<Vec<String>>,
+    new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
 ) -> error::Result<()> {
     match result {
         Ok(r) => {
-            let job = if let Some(column_order) = column_order {
-                let mut job_with_column_order = (*job).clone();
-                match job_with_column_order.flow_status {
-                    Some(_) => {
-                        tracing::warn!("flow_status was expected to be none");
-                    }
-                    None => {
-                        job_with_column_order.flow_status =
-                            Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                "_metadata": {
-                                    "column_order": column_order
-                                }
-                            }))));
+            let job = if column_order.is_some() || new_args.is_some() {
+                let mut updated_job = (*job).clone();
+                if let Some(column_order) = column_order {
+                    match updated_job.flow_status {
+                        Some(_) => {
+                            tracing::warn!("flow_status was expected to be none");
+                        }
+                        None => {
+                            updated_job.flow_status =
+                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
+                                    "_metadata": {
+                                        "column_order": column_order
+                                    }
+                                }))));
+                        }
                     }
                 }
-                Arc::new(job_with_column_order)
+                if let Some(new_args) = new_args {
+                    match updated_job.flow_status {
+                        Some(_) => {
+                            tracing::warn!("flow_status was expected to be none");
+                        }
+                        None => {
+                            if let Some(args) = updated_job.args.as_mut() {
+                                args.0.remove(ENTRYPOINT_OVERRIDE);
+                            }
+                            updated_job.flow_status =
+                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
+                                    "_metadata": {
+                                        "original_args": updated_job.args
+                                    }
+                                }))));
+                        }
+                    }
+                    updated_job.args = Some(Json(new_args));
+                }
+                Arc::new(updated_job)
             } else {
                 job
             };
@@ -2839,6 +2865,7 @@ async fn handle_code_execution_job(
     base_internal_url: &str,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     let ContentReqLangEnvs {
         content: inner_content,
@@ -2868,7 +2895,7 @@ async fn handle_code_execution_job(
         JobKind::Script_Hub => {
             get_hub_script_content_and_requirements(job.script_path.clone(), Some(db)).await?
         }
-        JobKind::Script | JobKind::ScriptWithPreprocessor => {
+        JobKind::Script => {
             get_script_content_by_hash(
                 &job.script_hash.unwrap_or(ScriptHash(0)),
                 &job.workspace_id,
@@ -3058,7 +3085,6 @@ mount {{
         Some(ScriptLang::Python3) => {
             handle_python_job(
                 requirements_o,
-                matches!(job.job_kind, JobKind::ScriptWithPreprocessor),
                 job_dir,
                 worker_dir,
                 worker_name,
@@ -3071,6 +3097,7 @@ mount {{
                 &shared_mount,
                 base_internal_url,
                 envs,
+                new_args,
             )
             .await
         }
@@ -3094,7 +3121,6 @@ mount {{
             handle_bun_job(
                 requirements_o,
                 codebase,
-                matches!(job.job_kind, JobKind::ScriptWithPreprocessor),
                 mem_peak,
                 canceled_by,
                 job,
@@ -3106,6 +3132,7 @@ mount {{
                 worker_name,
                 envs,
                 &shared_mount,
+                new_args,
             )
             .await
         }

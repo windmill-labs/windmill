@@ -287,8 +287,6 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 }
 `
 
-
-
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -431,6 +429,13 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
+export const BUN_PREPROCESSOR_MODULE_CODE = `
+export async function main(args: any, trigger_kind: 'default-webhook' | 'http-router' | 'email-trigger') {
+	// do something with the args
+	return args
+}
+`
+
 export const PYTHON_INIT_CODE_APPROVAL = `import wmill
 
 def main():
@@ -457,6 +462,14 @@ def main():
 
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
+
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import Any
+
+def main(args: Any, trigger_kind: str):
+	# trigger_kind can be 'default-webhook', 'http-router', 'email-trigger'
+	# do something with the args
+	return args
+`
 
 export const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # Bash script that calls docker as a client to the host daemon
@@ -495,15 +508,19 @@ const ALL_INITIAL_CODE = [
 	DENO_INIT_CODE_TRIGGER,
 	DENO_INIT_CODE_CLEAR,
 	PYTHON_INIT_CODE_CLEAR,
+	PYTHON_FAILURE_MODULE_CODE,
+	PYTHON_PREPROCESSOR_MODULE_CODE,
 	DENO_INIT_CODE_APPROVAL,
 	DENO_FAILURE_MODULE_CODE,
 	BUN_INIT_CODE,
 	BUN_INIT_CODE_CLEAR,
 	BUN_INIT_CODE_APPROVAL,
+	BUN_FAILURE_MODULE_CODE,
+	BUN_PREPROCESSOR_MODULE_CODE,
 	BASH_INIT_CODE,
 	POWERSHELL_INIT_CODE,
 	PHP_INIT_CODE,
-	RUST_INIT_CODE,
+	RUST_INIT_CODE
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -527,6 +544,7 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'preprocessor'
 		| undefined
 ): string {
 	if (!kind) {
@@ -563,6 +581,8 @@ export function initialCode(
 			return PYTHON_FAILURE_MODULE_CODE
 		} else if (subkind === 'flow') {
 			return PYTHON_INIT_CODE_CLEAR
+		} else if (subkind === 'preprocessor') {
+			return PYTHON_PREPROCESSOR_MODULE_CODE
 		} else {
 			return PYTHON_INIT_CODE
 		}
@@ -599,6 +619,8 @@ export function initialCode(
 			return BUN_INIT_CODE_APPROVAL
 		} else if (kind === 'failure') {
 			return BUN_FAILURE_MODULE_CODE
+		} else if (subkind === 'preprocessor') {
+			return BUN_PREPROCESSOR_MODULE_CODE
 		}
 		if (subkind === 'flow') {
 			return BUN_INIT_CODE_CLEAR

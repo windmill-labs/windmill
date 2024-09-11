@@ -285,8 +285,7 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/triggers", triggers::triggers_workspaced_service())
-                        .nest("/routes", triggers::routes_workspaced_service()),
+                        .nest("/triggers", triggers::triggers_workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -339,7 +338,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/w/:workspace_id/capture_u",
-                    capture::global_service().layer(cors),
+                    capture::global_service().layer(cors.clone()),
                 )
                 .nest(
                     "/auth",
@@ -348,6 +347,12 @@ pub async fn run_server(
                 .nest(
                     "/oauth",
                     oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
+                )
+                .nest(
+                    "/r",
+                    triggers::routes_global_service()
+                        .layer(from_extractor::<OptAuthed>())
+                        .layer(cors),
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))

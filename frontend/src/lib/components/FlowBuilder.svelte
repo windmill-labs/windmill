@@ -481,6 +481,7 @@
 		return [
 			'settings-metadata',
 			'constants',
+			'preprocessor',
 			...dfsApply($flowStore.value.modules, (module) => module.id)
 		]
 	}

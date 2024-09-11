@@ -72,6 +72,7 @@
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
+	import TriggersPanel from '$lib/components/triggers/TriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -692,6 +693,9 @@
 					path={script.path}
 					{args}
 				/>
+			</svelte:fragment>
+			<svelte:fragment slot="triggers">
+				<TriggersPanel path={script.path ?? ''} isFlow={false} />
 			</svelte:fragment>
 			<svelte:fragment slot="email">
 				<EmailTriggerPanel

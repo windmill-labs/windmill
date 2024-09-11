@@ -10,6 +10,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
+	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -63,6 +64,8 @@
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}
 	<FlowFailureModule {noEditor} />
+{:else if $selectedId === 'preprocessor'}
+	<FlowPreprocessorModule {noEditor} />
 {:else}
 	{@const dup = checkDup($flowStore.value.modules)}
 	{#if dup}

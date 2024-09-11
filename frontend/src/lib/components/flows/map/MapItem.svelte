@@ -159,6 +159,11 @@
 					modType={mod.value.type}
 					{bgColor}
 					label={mod.summary ||
+						(mod.id === 'preprocessor'
+							? 'Preprocessor'
+							: mod.id.startsWith('failure')
+							? 'Error Handler'
+							: undefined) ||
 						(`path` in mod.value ? mod.value.path : undefined) ||
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`

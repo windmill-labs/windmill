@@ -72,7 +72,12 @@
 			)
 		} else if (val.type == 'flow') {
 			await testJobLoader?.abstractRun(() =>
-				JobService.runFlowByPath({ workspace: $workspaceStore!, path: val.path, requestBody: args })
+				JobService.runFlowByPath({
+					workspace: $workspaceStore!,
+					path: val.path,
+					requestBody: args,
+					skipPreprocessor: true
+				})
 			)
 		} else {
 			throw Error('Not supported module type')

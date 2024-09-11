@@ -14,7 +14,8 @@ use crate::common::build_envs_map;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file_content, read_result, start_child_process, write_file_binary,
+        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
+        write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
@@ -34,7 +35,7 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::QueuedJob,
+    jobs::{QueuedJob, ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT},
     scripts::ScriptLang,
     worker::{exists_in_cache, get_annotation, save_cache, write_file},
     DB,
@@ -692,7 +693,6 @@ async fn compute_bundle_local_and_remote_path(
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
     codebase: Option<String>,
-    apply_preprocessor: bool,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -704,6 +704,7 @@ pub async fn handle_bun_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     shared_mount: &str,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
@@ -737,7 +738,16 @@ pub async fn handle_bun_job(
     if codebase.is_some() {
         annotation.nodejs_mode = true
     }
-    let main_override = get_main_override(job.args.as_ref());
+    let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
+        Some(main_override) => {
+            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
+                (None, true)
+            } else {
+                (Some(main_override), false)
+            }
+        }
+        None => (None, false),
+    };
 
     #[cfg(not(feature = "enterprise"))]
     if annotation.nodejs_mode || annotation.npm_mode {
@@ -926,18 +936,12 @@ pub async fn handle_bun_job(
         };
 
         let preprocessor = if apply_preprocessor {
-            let kind = if job.created_by.starts_with("http-route-") {
-                "http-route"
-            } else if job.created_by.starts_with("email-trigger-") {
-                "email-trigger"
-            } else {
-                "default-webhook"
-            };
             format!(
                 r#"if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
         throw new Error("preprocessor is missing or not a function");
     }}
-    args = await Main.preprocessor(args, "{kind}");"#
+    args = await Main.preprocessor(args);
+    await fs.writeFile('args.json', JSON.stringify(args), {{ encoding: 'utf8' }})"#
             )
         } else {
             "".to_string()
@@ -951,8 +955,7 @@ import * as fs from "fs/promises";
 
 let args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse);
 
-function argsObjToArr(args) {{
-    const {{ {spread} }} = args;
+function argsObjToArr({{ {spread} }}) {{
     return [ {spread} ];
 }}
 
@@ -990,7 +993,20 @@ try {{
     let reserved_variables_args_out_f = async {
         let args_and_out_f = async {
             if !annotation.native_mode {
-                create_args_and_out_file(&client, job, job_dir, db).await?;
+                create_args_and_out_file(
+                    &client,
+                    job,
+                    job_dir,
+                    db,
+                    if apply_preprocessor && job.args.is_some() {
+                        let mut cleaned_args = job.args.clone().unwrap();
+                        cleaned_args.0.remove(ENTRYPOINT_OVERRIDE);
+                        Some(cleaned_args)
+                    } else {
+                        None
+                    },
+                )
+                .await?;
             }
             Ok(()) as Result<()>
         };
@@ -1289,6 +1305,23 @@ try {{
         false,
     )
     .await?;
+
+    if apply_preprocessor {
+        let args = read_file(&format!("{job_dir}/args.json"))
+            .await
+            .map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while reading args from preprocessing: {e:#}"
+                ))
+            })?;
+        let args: HashMap<String, Box<RawValue>> =
+            serde_json::from_str(args.get()).map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while deserializing args from preprocessing: {e:#}"
+                ))
+            })?;
+        *new_args = Some(args.clone());
+    }
     read_result(job_dir).await
 }
 

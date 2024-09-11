@@ -17,6 +17,7 @@
 		LogOut,
 		Newspaper,
 		Play,
+		Route,
 		ServerCog,
 		Settings,
 		UserCog
@@ -51,6 +52,12 @@
 			href: `${base}/schedules`,
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
+		},
+		{
+			label: 'Triggers',
+			href: `${base}/triggers`,
+			icon: Route,
+			disabled: $userStore?.operator
 		}
 	]
 

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
-	import { CalendarCheck2, MailIcon, Terminal, Webhook } from 'lucide-svelte'
+	import { CalendarCheck2, MailIcon, Route, Terminal, Webhook } from 'lucide-svelte'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import FlowViewerInner from '../FlowViewerInner.svelte'
 
-	export let triggerSelected: 'webhooks' | 'email' | 'schedule' | 'cli' = 'webhooks'
+	export let triggerSelected: 'webhooks' | 'email' | 'schedule' | 'cli' | 'triggers' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let hasStepDetails: boolean = false
 
@@ -61,6 +61,12 @@
 											Schedules
 										</span>
 									</Tab>
+									<Tab value="triggers">
+										<span class="flex flex-row gap-2 items-center">
+											<Route size={14} />
+											Triggers
+										</span>
+									</Tab>
 									<Tab value="email">
 										<span class="flex flex-row gap-2 items-center">
 											<MailIcon size={14} />
@@ -79,6 +85,8 @@
 									<div class="h-full overflow-auto">
 										{#if triggerSelected === 'webhooks'}
 											<slot name="webhooks" />
+										{:else if triggerSelected === 'triggers'}
+											<slot name="triggers" />
 										{:else if triggerSelected === 'email'}
 											<slot name="email" />
 										{:else if triggerSelected === 'schedule'}

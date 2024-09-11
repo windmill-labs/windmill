@@ -18,6 +18,7 @@ use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use tower::ServiceBuilder;
+use windmill_common::db::Authable;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -2781,14 +2782,18 @@ pub async fn run_flow_by_path_inner(
 
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
-    let (tag, dedicated_worker) = sqlx::query!(
-        "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
+    let (tag, dedicated_worker, has_preprocessor) = sqlx::query!(
+        "SELECT tag, dedicated_worker, flow_version.value->'preprocessor_module' IS NOT NULL as has_preprocessor 
+        FROM flow 
+        LEFT JOIN flow_version
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 and flow.workspace_id = $2",
         flow_path,
         w_id
     )
     .fetch_optional(&mut tx)
     .await?
-    .map(|x| (x.tag, x.dedicated_worker))
+    .map(|x| (x.tag, x.dedicated_worker, x.has_preprocessor))
     .ok_or_else(|| {
         Error::NotFound(format!(
             "flow not found at path {flow_path} in workspace {w_id}"
@@ -2804,7 +2809,12 @@ pub async fn run_flow_by_path_inner(
         &db,
         tx,
         &w_id,
-        JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
+        JobPayload::Flow {
+            path: flow_path.to_string(),
+            dedicated_worker,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
+        },
         PushArgs { args: &args.args, extra: args.extra },
         &label_prefix
             .map(|x| x + authed.display_username())
@@ -3532,7 +3542,7 @@ pub async fn run_wait_result_flow_by_path_get(
     let args = PushArgsOwned { extra: Some(payload_args), args: HashMap::new() };
 
     run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
+        db, run_query, flow_path, authed, rsmq, user_db, args, w_id, None,
     )
     .await
 }
@@ -3558,11 +3568,12 @@ pub async fn run_wait_result_script_by_path(
         user_db,
         w_id,
         args,
+        None,
     )
     .await
 }
 
-async fn run_wait_result_script_by_path_internal(
+pub async fn run_wait_result_script_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
     script_path: StripPath,
@@ -3571,6 +3582,7 @@ async fn run_wait_result_script_by_path_internal(
     user_db: UserDB,
     w_id: String,
     args: PushArgsOwned,
+    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -3592,7 +3604,9 @@ async fn run_wait_result_script_by_path_internal(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         None,
@@ -3720,12 +3734,12 @@ pub async fn run_wait_result_flow_by_path(
     check_license_key_valid().await?;
 
     run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
+        db, run_query, flow_path, authed, rsmq, user_db, args, w_id, None,
     )
     .await
 }
 
-async fn run_wait_result_flow_by_path_internal(
+pub async fn run_wait_result_flow_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
     flow_path: StripPath,
@@ -3734,6 +3748,7 @@ async fn run_wait_result_flow_by_path_internal(
     user_db: UserDB,
     args: PushArgsOwned,
     w_id: String,
+    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
@@ -3744,8 +3759,8 @@ async fn run_wait_result_flow_by_path_internal(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (tag, dedicated_worker, early_return) = sqlx::query!(
-        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return 
+    let (tag, dedicated_worker, early_return, has_preprocessor) = sqlx::query!(
+        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->'preprocessor_module' IS NOT NULL as has_preprocessor
         FROM flow 
         LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
@@ -3755,7 +3770,7 @@ async fn run_wait_result_flow_by_path_internal(
     )
     .fetch_optional(&mut tx)
     .await?
-    .map(|x| (x.tag, x.dedicated_worker, x.early_return))
+    .map(|x| (x.tag, x.dedicated_worker, x.early_return, x.has_preprocessor))
     .ok_or_else(|| {
         Error::NotFound(format!(
             "flow not found at path {flow_path} in workspace {w_id}"
@@ -3771,9 +3786,16 @@ async fn run_wait_result_flow_by_path_internal(
         &db,
         tx,
         &w_id,
-        JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
+        JobPayload::Flow {
+            path: flow_path.to_string(),
+            dedicated_worker,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
+        },
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -4237,7 +4259,11 @@ async fn add_batch_jobs(
                 JobPayload::RawFlow { value: fv.clone(), path: None, restarted_from: None }
             } else {
                 if let Some(path) = batch_info.path.as_ref() {
-                    JobPayload::Flow { path: path.to_string(), dedicated_worker: None }
+                    JobPayload::Flow {
+                        path: path.to_string(),
+                        dedicated_worker: None,
+                        apply_preprocessor: false,
+                    }
                 } else {
                     Err(anyhow::anyhow!(
                         "Path is required if no value is not provided"

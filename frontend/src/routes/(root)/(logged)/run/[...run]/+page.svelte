@@ -87,6 +87,7 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
+	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -582,7 +583,11 @@
 						<Button
 							on:click|once={() => {
 								$initialArgsStore = job?.args
-								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
+								goto(
+									`${stem}/edit/${
+										job?.script_path
+									}${isScript ? `` : `?nodraft=true`}`
+								)
 							}}
 							color="blue"
 							size="sm"
@@ -636,6 +641,9 @@
 							<div>
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
+						{/if}
+						{#if job && job.flow_status && job.job_kind === 'script'}
+							<PreprocessedArgsDisplay flowStatus={job.flow_status} />
 						{/if}
 						{#if persistentScriptDefinition}
 							<button on:click={() => persistentScriptDrawer.open?.(persistentScriptDefinition)}

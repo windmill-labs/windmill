@@ -106,8 +106,9 @@ pub async fn create_args_and_out_file(
     job: &QueuedJob,
     job_dir: &str,
     db: &Pool<Postgres>,
+    args_override: Option<Json<HashMap<String, Box<RawValue>>>>,
 ) -> Result<(), Error> {
-    if let Some(args) = &job.args {
+    if let Some(args) = args_override.as_ref().or(job.args.as_ref()) {
         if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
             write_file(
                 job_dir,

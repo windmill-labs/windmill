@@ -12,6 +12,7 @@
 		ResourceService,
 		ScheduleService,
 		ScriptService,
+		TriggerService,
 		VariableService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -27,7 +28,15 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
 
-	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
+	type PathKind =
+		| 'resource'
+		| 'script'
+		| 'variable'
+		| 'flow'
+		| 'schedule'
+		| 'app'
+		| 'raw_app'
+		| 'trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -39,6 +48,7 @@
 	export let autofocus = true
 	export let dirty = false
 	export let kind: PathKind
+	export let hideUser: boolean = false
 
 	let inputP: HTMLInputElement | undefined = undefined
 
@@ -88,14 +98,16 @@
 		if (path == '' || path == 'u//') {
 			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
-					ownerKind: 'user',
+					ownerKind: hideUser ? 'folder' : 'user',
 					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
-				if ($userStore?.username?.includes('@')) {
-					meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-				} else {
-					meta.owner = $userStore!.username!
+				if (!hideUser) {
+					if ($userStore?.username?.includes('@')) {
+						meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+					} else {
+						meta.owner = $userStore!.username!
+					}
 				}
 			} else {
 				meta = {
@@ -114,7 +126,7 @@
 			meta = newMeta
 			path = metaToPath(meta)
 		} else {
-			meta = pathToMeta(path)
+			meta = pathToMeta(path, hideUser)
 		}
 	}
 
@@ -195,6 +207,11 @@
 			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'app') {
 			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
+		} else if (kind == 'trigger') {
+			return await TriggerService.existsTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
 		} else {
 			return false
 		}
@@ -227,14 +244,14 @@
 
 	function initPath() {
 		if (path != undefined && path != '') {
-			meta = pathToMeta(path)
+			meta = pathToMeta(path, hideUser)
 			onMetaChange()
 			return
 		}
 		if (initialPath == undefined || initialPath == '') {
 			reset()
 		} else {
-			meta = pathToMeta(initialPath)
+			meta = pathToMeta(initialPath, hideUser)
 			onMetaChange()
 			path = initialPath
 		}
@@ -299,47 +316,49 @@
 		{#if meta != undefined}
 			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
-				<div class="block">
-					<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
+				{#if !hideUser}
+					<div class="block">
+						<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
 
-					<ToggleButtonGroup
-						class="mt-0.5"
-						bind:selected={meta.ownerKind}
-						on:selected={(e) => {
-							setDirty()
-							const kind = e.detail
-							if (meta) {
-								if (kind === 'folder') {
-									meta.owner = folders?.[0]?.name ?? ''
-								} else if (kind === 'group') {
-									meta.owner = 'all'
-								} else {
-									meta.owner = $userStore?.username?.split('@')[0] ?? ''
+						<ToggleButtonGroup
+							class="mt-0.5"
+							bind:selected={meta.ownerKind}
+							on:selected={(e) => {
+								setDirty()
+								const kind = e.detail
+								if (meta) {
+									if (kind === 'folder') {
+										meta.owner = folders?.[0]?.name ?? ''
+									} else if (kind === 'group') {
+										meta.owner = 'all'
+									} else {
+										meta.owner = $userStore?.username?.split('@')[0] ?? ''
+									}
 								}
-							}
-						}}
-					>
-						<ToggleButton
-							icon={User}
-							{disabled}
-							light
-							size="xs"
-							value="user"
-							position="left"
-							label="User"
-						/>
-						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-						<ToggleButton
-							icon={Folder}
-							{disabled}
-							light
-							size="xs"
-							value="folder"
-							position="right"
-							label="Folder"
-						/>
-					</ToggleButtonGroup>
-				</div>
+							}}
+						>
+							<ToggleButton
+								icon={User}
+								{disabled}
+								light
+								size="xs"
+								value="user"
+								position="left"
+								label="User"
+							/>
+							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
+							<ToggleButton
+								icon={Folder}
+								{disabled}
+								light
+								size="xs"
+								value="folder"
+								position="right"
+								label="Folder"
+							/>
+						</ToggleButtonGroup>
+					</div>
+				{/if}
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
 						<span class="text-secondary text-sm">User</span>
@@ -449,7 +468,7 @@
 		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
 
-	{#if kind != 'app' && kind != 'schedule' && initialPath != '' && initialPath != undefined && initialPath != path}
+	{#if kind != 'app' && kind != 'schedule' && kind != 'trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables

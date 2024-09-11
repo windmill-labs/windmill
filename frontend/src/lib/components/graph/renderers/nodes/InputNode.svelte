@@ -29,7 +29,7 @@
 	}>('FlowGraphContext')
 </script>
 
-<NodeWrapper enableTargetHandle={false} let:darkMode>
+<NodeWrapper let:darkMode>
 	{#if data.insertable && !data.disableAi}
 		<div class="absolute -top-10 left-1/2 transform -translate-x-1/2 z-10">
 			<Popover>

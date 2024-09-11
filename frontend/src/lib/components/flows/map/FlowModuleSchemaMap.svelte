@@ -30,6 +30,7 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import FlowPreprocessorItem from './FlowPreprocessorItem.svelte'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -249,6 +250,7 @@
 		{#if !disableStaticInputs}
 			<FlowConstantsItem />
 		{/if}
+		<FlowPreprocessorItem />
 	</div>
 
 	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>

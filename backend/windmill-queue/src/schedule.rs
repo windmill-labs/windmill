@@ -120,7 +120,11 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             .map(|x| (x.tag, x.dedicated_worker))
             .unwrap_or_else(|| (None, None));
         (
-            JobPayload::Flow { path: schedule.script_path.clone(), dedicated_worker },
+            JobPayload::Flow {
+                path: schedule.script_path.clone(),
+                dedicated_worker,
+                apply_preprocessor: false,
+            },
             tag,
             None,
         )

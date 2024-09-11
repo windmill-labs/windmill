@@ -11,6 +11,8 @@ use uuid::Uuid;
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 
+pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
+
 use crate::{
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
@@ -37,7 +39,6 @@ pub enum JobKind {
     AppDependencies,
     Noop,
     DeploymentCallback,
-    ScriptWithPreprocessor,
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -333,6 +334,7 @@ pub enum JobPayload {
     Flow {
         path: String,
         dedicated_worker: Option<bool>,
+        apply_preprocessor: bool,
     },
     RestartedFlow {
         completed_job_id: Uuid,
@@ -492,7 +494,12 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
         let (tag, dedicated_worker) = r
             .map(|x| (x.tag, x.dedicated_worker))
             .unwrap_or_else(|| (None, None));
-        (JobPayload::Flow { path, dedicated_worker }, tag, None, None)
+        (
+            JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false },
+            tag,
+            None,
+            None,
+        )
     } else {
         return Err(Error::BadRequest(format!(
             "path must start with script/ or flow/ (got {})",

@@ -1,0 +1,346 @@
+<script lang="ts">
+	import { Alert, Badge, Button } from '$lib/components/common'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Path from '$lib/components/Path.svelte'
+	import Required from '$lib/components/Required.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import { TriggerService } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import Section from '$lib/components/Section.svelte'
+	import { Loader2, Save } from 'lucide-svelte'
+	import Label from '$lib/components/Label.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { page } from '$app/stores'
+	import { isCloudHosted } from '$lib/cloud'
+	import { base } from '$lib/base'
+
+	let is_flow: boolean = false
+	let initialPath = ''
+	let edit = true
+
+	let itemKind: 'flow' | 'script' = 'script'
+
+	$: is_flow = itemKind === 'flow'
+
+	let script_path = ''
+	let initialScriptPath = ''
+
+	let drawerLoading = true
+	export async function openEdit(ePath: string, isFlow: boolean) {
+		drawerLoading = true
+		try {
+			drawer?.openDrawer()
+			initialPath = ePath
+			itemKind = isFlow ? 'flow' : 'script'
+			edit = true
+			await loadTrigger()
+		} catch (err) {
+			sendUserToast(`Could not load trigger: ${err}`, true)
+		} finally {
+			drawerLoading = false
+		}
+	}
+
+	export async function openNew(nis_flow: boolean, initial_script_path?: string) {
+		drawerLoading = true
+		try {
+			drawer?.openDrawer()
+			is_flow = nis_flow
+			edit = false
+			itemKind = nis_flow ? 'flow' : 'script'
+			summary = ''
+			is_async = false
+			requires_auth = false
+			initialRoutePath = ''
+			route_path = ''
+			http_method = 'post'
+			initialScriptPath = initial_script_path ?? ''
+			script_path = initialScriptPath
+		} finally {
+			drawerLoading = false
+		}
+	}
+
+	let path: string = ''
+	let pathError = ''
+	let routeError = ''
+	let summary = ''
+	let is_async = false
+	let requires_auth = false
+	let initialRoutePath = ''
+	let route_path = ''
+	let kind: 'http' | 'email' = 'http'
+	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
+
+	const dispatch = createEventDispatcher()
+
+	let can_write = true
+	async function loadTrigger(): Promise<void> {
+		const s = await TriggerService.getTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath
+		})
+		summary = s.summary
+		script_path = s.script_path
+		initialScriptPath = s.script_path
+
+		is_flow = s.is_flow
+		path = s.path
+		route_path = s.route_path
+		initialRoutePath = s.route_path
+		kind = s.kind
+		http_method = s.http_method ?? 'post'
+		is_async = s.is_async
+		requires_auth = s.requires_auth
+
+		can_write = canWrite(s.path, s.extra_perms, $userStore)
+	}
+
+	async function triggerScript(): Promise<void> {
+		if (edit) {
+			await TriggerService.updateTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				requestBody: {
+					path,
+					script_path,
+					is_flow,
+					summary,
+					is_async,
+					requires_auth,
+					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
+					kind,
+					http_method
+				}
+			})
+			sendUserToast(`Trigger ${path} updated`)
+		} else {
+			await TriggerService.createTrigger({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path,
+					script_path,
+					is_flow,
+					summary,
+					is_async,
+					requires_auth,
+					route_path,
+					kind,
+					http_method
+				}
+			})
+			sendUserToast(`Trigger ${path} created`)
+		}
+		dispatch('update')
+		drawer.closeDrawer()
+	}
+
+	let drawer: Drawer
+
+	let pathC: Path
+	let dirtyPath = false
+
+	$: fullRoute = `${$page.url.origin}${base}/api/r/${
+		isCloudHosted() ? $workspaceStore + '/' : ''
+	}${route_path}`
+
+	async function routeExists(route_path: string) {
+		return await TriggerService.existsRoute({
+			workspace: $workspaceStore!,
+			requestBody: {
+				route_path
+			}
+		})
+	}
+
+	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	async function validateRoute(path: string): Promise<void> {
+		routeError = ''
+		if (validateTimeout) {
+			clearTimeout(validateTimeout)
+		}
+		validateTimeout = setTimeout(async () => {
+			if (!/^[\w-:]+(\/[\w-:]+)*$/.test(path)) {
+				routeError = 'This route is not valid'
+			} else if (initialRoutePath !== path && (await routeExists(path))) {
+				routeError = 'Route already used'
+			} else {
+				routeError = ''
+			}
+			validateTimeout = undefined
+		}, 500)
+	}
+
+	$: validateRoute(route_path)
+</script>
+
+<Drawer size="700px" bind:this={drawer}>
+	<DrawerContent
+		title={edit ? `Edit trigger ${initialPath}` : 'New trigger'}
+		on:close={drawer.closeDrawer}
+	>
+		<svelte:fragment slot="actions">
+			{#if !drawerLoading}
+				<Button
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || routeError != '' || emptyString(script_path)}
+					on:click={triggerScript}
+				>
+					Save
+				</Button>
+			{/if}
+		</svelte:fragment>
+		{#if drawerLoading}
+			<Loader2 class="animate-spin" />
+		{:else}
+			<div class="flex flex-col gap-12">
+				<div class="flex flex-col gap-4">
+					<div>
+						<h2 class="text-base font-semibold mb-2">Metadata</h2>
+						<Label label="Summary">
+							<!-- svelte-ignore a11y-autofocus -->
+							<input
+								autofocus
+								type="text"
+								placeholder="Short summary to be displayed when listed"
+								class="text-sm w-full"
+								bind:value={summary}
+								on:keyup={() => {
+									if (!edit && summary?.length > 0 && !dirtyPath) {
+										pathC?.setName(
+											summary
+												.toLowerCase()
+												.replace(/[^a-z0-9_]/g, '_')
+												.replace(/-+/g, '_')
+												.replace(/^-|-$/g, '')
+										)
+									}
+								}}
+								disabled={!can_write}
+							/>
+						</Label>
+					</div>
+					<Label label="Path">
+						<Path
+							bind:dirty={dirtyPath}
+							bind:this={pathC}
+							checkInitialPathExistence={false}
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							namePlaceholder="trigger"
+							kind="trigger"
+							hideUser
+						/>
+					</Label>
+				</div>
+
+				<Section label="Route">
+					{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+						<Alert type="info" title="Admin only" collapsible>
+							Routes can only be edited by workspace admins
+						</Alert>
+						<div class="my-2" />
+					{/if}
+					<div class="flex flex-col w-full">
+						<label class="block grow w-full max-w-md">
+							<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+								<div>
+									Path
+									<Required required={true} />
+								</div>
+								<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
+							</div>
+							<!-- svelte-ignore a11y-autofocus -->
+							<input
+								type="text"
+								id="route-"
+								autocomplete="off"
+								bind:value={route_path}
+								class={routeError === ''
+									? ''
+									: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+							/>
+						</label>
+						<div class="flex flex-col w-full mt-4">
+							<div class="flex justify-start w-full">
+								<Badge
+									color="gray"
+									class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+								>
+									Full route
+								</Badge>
+								<input
+									disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+									type="text"
+									readonly
+									value={fullRoute}
+									size={fullRoute.length || 50}
+									class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+									on:focus={({ currentTarget }) => {
+										currentTarget.select()
+									}}
+								/>
+							</div>
+							<div class="text-red-600 dark:text-red-400 text-2xs">{routeError}</div>
+						</div>
+					</div>
+				</Section>
+
+				<Section label="Runnable">
+					<p class="text-xs mb-1 text-tertiary">
+						Pick a script or flow to be triggered by the trigger<Required required={true} />
+					</p>
+					<ScriptPicker
+						disabled={!can_write}
+						initialPath={initialScriptPath}
+						kinds={['script']}
+						allowFlow={true}
+						bind:itemKind
+						bind:scriptPath={script_path}
+					/>
+				</Section>
+				<Section label="Settings">
+					<div class="flex flex-col gap-4">
+						<div class="flex flex-row justify-between">
+							<div class="text-sm font-semibold flex flex-row items-center">Request type</div>
+							<ToggleButtonGroup class="w-auto" bind:selected={is_async} disabled={!can_write}>
+								<ToggleButton
+									label="Async"
+									value={true}
+									tooltip="The returning value is the uuid of the job assigned to execute the job."
+								/>
+								<ToggleButton
+									label="Sync"
+									value={false}
+									tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+								/>
+							</ToggleButtonGroup>
+						</div>
+						<div class="flex flex-row justify-between">
+							<div class="text-sm font-semibold flex flex-row items-center">Allowed method</div>
+							<ToggleButtonGroup class="w-auto" bind:selected={http_method} disabled={!can_write}>
+								<ToggleButton label="GET" value="get" />
+								<ToggleButton label="POST" value="post" />
+								<ToggleButton label="PUT" value="put" />
+								<ToggleButton label="PATCH" value="patch" />
+								<ToggleButton label="DELETE" value="delete" />
+							</ToggleButtonGroup>
+						</div>
+						<div class="flex flex-row justify-between">
+							<div class="text-sm font-semibold flex flex-row items-center">Authentication</div>
+							<ToggleButtonGroup class="w-auto" bind:selected={requires_auth} disabled={!can_write}>
+								<ToggleButton label="None" value={false} />
+								<ToggleButton label="Required" value={true} />
+							</ToggleButtonGroup>
+						</div>
+					</div>
+				</Section>
+			</div>
+		{/if}
+	</DrawerContent>
+</Drawer>
