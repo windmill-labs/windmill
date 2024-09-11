@@ -1,0 +1,39 @@
+#! /usr/bin/env nu
+
+let cache = "/tmp/windmill/cache_nomount/bun/" 
+
+# Build client and move to windmill's cache
+# To build you will need nushell and tsc (typescript compiler)
+def main [ 
+	--no-build (-b)	# Skip building (OpenAPI codegen)
+	--no-compile(-c) # Skip compilation (TS >> JS)
+	--no-patch(-p) # Skip cache patching
+] {
+
+	if (not $no_build) {
+		print Building...
+		./build.sh
+	}
+
+	if (not $no_compile) {
+		print Compiling...
+		tsc
+	}
+
+	if (not $no_patch) {
+		print Patching...
+
+		# Clean up in all versions
+		rm -rf ($cache ++ windmill-client@*/dist/*)
+
+		# Copy files from local ./dist to every wm-client version in cache
+		ls ($cache ++ "windmill-client/")	| each {
+				|i| 
+
+				let path = $i | get name; 
+				^cp -r dist/* ($path ++ "/dist")	
+		}
+	}
+
+	print Done! 
+}
