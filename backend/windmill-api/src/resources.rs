@@ -71,6 +71,7 @@ pub struct ResourceType {
     pub description: Option<String>,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub format_extension: Option<String>,
 }
 
 #[derive(Deserialize)]

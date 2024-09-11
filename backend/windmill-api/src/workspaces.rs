@@ -168,9 +168,9 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-    pub large_file_storage: Option<serde_json::Value>,  // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,            // effectively: WorkspaceGitSyncSettings
-    pub deploy_ui: Option<serde_json::Value>,           // effectively: WorkspaceDeploymentUISettings
+    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
+    pub deploy_ui: Option<serde_json::Value>,          // effectively: WorkspaceDeploymentUISettings
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
@@ -1071,7 +1071,6 @@ async fn edit_deploy_ui_config(
     ));
 }
 
-
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_ui_config(
     authed: ApiAuthed,
@@ -1097,8 +1096,9 @@ async fn edit_deploy_ui_config(
     .await?;
 
     if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
-        let serialized_config = serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+        let serialized_config =
+            serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
+                .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
@@ -1119,8 +1119,6 @@ async fn edit_deploy_ui_config(
 
     Ok(format!("Edit deployment UI config for workspace {}", &w_id))
 }
-
-
 
 #[derive(Deserialize)]
 pub struct EditDefaultApp {
@@ -2577,6 +2575,7 @@ async fn tarball_workspace(
                 }
                 ScriptLang::Php => "php",
                 ScriptLang::Rust => "rs",
+                ScriptLang::Ansible => "yaml",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -2897,6 +2896,34 @@ async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct LocalFileResourceExtension {
+    name: String,
+    format_extension: Option<String>,
+}
+
+async fn file_resource_ext_to_resource_type(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    // Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<LocalFileResourceExtension>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let r = sqlx::query_as!(LocalFileResourceExtension, "
+        SELECT name, format_extension FROM resource_type WHERE format_extension IS NOT NULL AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
+        .fetch_all(&mut *tx)
+        .await?;
+ //    let r = sqlx::query_as!(LocalFileResourceExtension,
+ //        "SELECT name, schema ->> 'format_extension' AS format_extension FROM resource_type WHERE schema ? 'format_extension'
+ //            AND (workspace_id = $1 OR workspace_id = 'admins')
+ // AND jsonb_typeof(schema -> 'format_extension') = 'string'", &w_id)
+ //        .fetch_all(&mut *tx)
+ //        .await?;
+
+    Ok(Json(r))
 }
 
 async fn get_workspace_name(

@@ -1463,6 +1463,10 @@ async fn capture_dependency_job(
             .await?;
             Ok(lockfile)
         }
+        ScriptLang::Ansible => {
+            todo!();
+            Ok("".to_owned())
+        }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),
