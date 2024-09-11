@@ -4499,7 +4499,7 @@ pub async fn run_job_by_hash_inner(
 pub struct JobUpdateQuery {
     pub running: bool,
     pub log_offset: i32,
-    pub get_progress: bool,
+    pub get_progress: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -4593,7 +4593,7 @@ async fn get_job_update(
     .fetch_optional(&db)
     .await?;
 
-    let progress: Option<i32> = if get_progress {
+    let progress: Option<i32> = if get_progress == Some(true){
          sqlx::query_scalar!(
                 "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &w_id,
