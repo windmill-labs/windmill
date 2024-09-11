@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.394.2](https://github.com/windmill-labs/windmill/compare/v1.394.1...v1.394.2) (2024-09-11)
+
+
+### Bug Fixes
+
+* add tag_override for script in flows ([0e64380](https://github.com/windmill-labs/windmill/commit/0e6438047369e0c074e93246d627ecf06c0c78d5))
+* graceful worker exits for same worker jobs ([#4371](https://github.com/windmill-labs/windmill/issues/4371)) ([042a2bf](https://github.com/windmill-labs/windmill/commit/042a2bf917173a540aab7251a559c72c9c687228))
+
 ## [1.394.1](https://github.com/windmill-labs/windmill/compare/v1.394.0...v1.394.1) (2024-09-11)
 
 
