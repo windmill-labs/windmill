@@ -251,6 +251,7 @@ pub async fn get_global_setting(
 ) -> JsonResult<serde_json::Value> {
     if !key.starts_with("default_error_handler_")
         && !key.starts_with("default_recovery_handler_")
+        && !key.starts_with("default_success_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
         && key != HUB_BASE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
