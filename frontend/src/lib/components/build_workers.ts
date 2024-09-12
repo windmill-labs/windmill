@@ -1,41 +1,46 @@
 import { useWorkerFactory } from 'monaco-editor-wrapper/workerFactory'
-import cssWorker from 'monaco-editor-wrapper/workers/module/css?worker'
-import htmlWorker from 'monaco-editor-wrapper/workers/module/html?worker'
-import tsWorker from 'monaco-editor-wrapper/workers/module/ts?worker'
-import jsonWorker from 'monaco-editor-wrapper/workers/module/json?worker'
-import editorWorker from 'monaco-editor-wrapper/workers/module/editor?worker'
+
+import tsWorker from 'monaco-editor-wrapper/workers/module/ts?url'
+import cssWorker from 'monaco-editor-wrapper/workers/module/css?url'
+import htmlWorker from 'monaco-editor-wrapper/workers/module/html?url'
+import jsonWorker from 'monaco-editor-wrapper/workers/module/json?url'
+import editorWorker from 'monaco-editor-wrapper/workers/module/editor?url'
 
 export function buildWorkerDefinition(workerPath: string, basePath: string, ...args: any[]) {
 	useWorkerFactory({
 		ignoreMapping: true,
 		workerLoaders: {
 			editorWorkerService: () => {
-				console.log('editorWorkerService')
-				return new editorWorker()
+				return new Worker(new URL(editorWorker, import.meta.url), {
+					type: 'module'
+				})
 			},
 			javascript: () => {
-				console.log('javascript')
-				return new tsWorker()
+				return new Worker(new URL(tsWorker, import.meta.url), {
+					type: 'module'
+				})
 			},
-
 			typescript: () => {
-				console.log('typescript')
-				return new tsWorker()
+				return new Worker(new URL(tsWorker, import.meta.url), {
+					type: 'module'
+				})
 			},
 			json: () => {
-				console.log('json')
-				return new jsonWorker()
+				return new Worker(new URL(jsonWorker, import.meta.url), {
+					type: 'module'
+				})
 			},
 			html: () => {
-				console.log('html')
-				return new htmlWorker()
+				return new Worker(new URL(htmlWorker, import.meta.url), {
+					type: 'module'
+				})
 			},
 			css: () => {
-				console.log('html')
-				return new cssWorker()
+				return new Worker(new URL(cssWorker, import.meta.url), {
+					type: 'module'
+				})
 			},
 			graphql: () => {
-				console.log('graphql')
 				const workerFilename = `graphql.worker.bundle.js`
 				const workerPathLocal = `${workerPath}/${workerFilename}`
 				const workerUrl = new URL(workerPathLocal, basePath)

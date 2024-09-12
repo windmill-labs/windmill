@@ -194,7 +194,7 @@
 	$: resolvedConfig.defaultValue && handleDefault()
 
 	function handleDefault() {
-		if (resolvedConfig.defaultValue) {
+		if (resolvedConfig.defaultValue != undefined) {
 			const nvalue = resolvedConfig.defaultValue
 			value = JSON.stringify(nvalue)
 			outputs?.result.set(nvalue)
