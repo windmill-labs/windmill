@@ -11,7 +11,6 @@ use windmill_common::{
 };
 use windmill_parser_yaml::AnsibleRequirements;
 use windmill_queue::{append_logs, CanceledBy};
-use yaml_rust::{Yaml, YamlEmitter, YamlLoader};
 
 use crate::{
     common::{create_args_and_out_file, get_reserved_variables, handle_child, read_and_check_result, start_child_process},
@@ -31,9 +30,7 @@ async fn handle_ansible_python_deps(
     job_dir: &str,
     requirements_o: Option<String>,
     ansible_reqs: Option<&AnsibleRequirements>,
-    inner_content: &str,
     w_id: &str,
-    script_path: &str,
     job_id: &Uuid,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -188,14 +185,11 @@ roles_path = ./roles
 "#;
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
-    let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_ansible_python_deps(
         job_dir,
         requirements_o,
         reqs.as_ref(),
-        inner_content,
         &job.workspace_id,
-        &script_path,
         &job.id,
         db,
         worker_name,
