@@ -1249,6 +1249,54 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
     }
 }
 
+async fn python_dep(
+    reqs: String,
+    job_id: &Uuid,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    w_id: &str,
+    worker_dir: &str,
+) -> std::result::Result<String, Error> {
+    create_dependencies_dir(job_dir).await;
+    let req: std::result::Result<String, Error> = pip_compile(
+        job_id,
+        &reqs,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        db,
+        worker_name,
+        w_id,
+    )
+    .await;
+    // install the dependencies to pre-fill the cache
+    if let Ok(req) = req.as_ref() {
+        let r = handle_python_reqs(
+            req.split("\n").filter(|x| !x.starts_with("--")).collect(),
+            job_id,
+            w_id,
+            mem_peak,
+            canceled_by,
+            db,
+            worker_name,
+            job_dir,
+            worker_dir,
+        )
+        .await;
+
+        if let Err(e) = r {
+            tracing::error!(
+                "Failed to install python dependencies to prefill the cache: {:?} \n",
+                e
+            );
+        }
+    }
+    req
+}
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -1283,41 +1331,41 @@ async fn capture_dependency_job(
                 .await?
                 .join("\n")
             };
-            create_dependencies_dir(job_dir).await;
-            let req: std::result::Result<String, Error> = pip_compile(
+
+            python_dep(
+                reqs,
                 job_id,
-                &reqs,
                 mem_peak,
                 canceled_by,
                 job_dir,
                 db,
                 worker_name,
                 w_id,
+                worker_dir,
             )
-            .await;
-            // install the dependencies to pre-fill the cache
-            if let Ok(req) = req.as_ref() {
-                let r = handle_python_reqs(
-                    req.split("\n").filter(|x| !x.starts_with("--")).collect(),
-                    job_id,
-                    w_id,
-                    mem_peak,
-                    canceled_by,
-                    db,
-                    worker_name,
-                    job_dir,
-                    worker_dir,
-                )
-                .await;
-
-                if let Err(e) = r {
-                    tracing::error!(
-                        "Failed to install python dependencies to prefill the cache: {:?} \n",
-                        e
-                    );
-                }
+            .await
+        }
+        ScriptLang::Ansible => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for ansible".to_string(),
+                ));
             }
-            req
+            let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
+            let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+
+            python_dep(
+                reqs,
+                job_id,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                worker_dir,
+            )
+            .await
         }
         ScriptLang::Go => {
             if raw_deps {
@@ -1462,10 +1510,6 @@ async fn capture_dependency_job(
             )
             .await?;
             Ok(lockfile)
-        }
-        ScriptLang::Ansible => {
-            todo!();
-            Ok("".to_owned())
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

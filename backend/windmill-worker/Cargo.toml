@@ -28,6 +28,7 @@ windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-rust.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser-yaml.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true

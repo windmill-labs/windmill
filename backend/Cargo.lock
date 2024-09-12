@@ -10995,6 +10995,7 @@ dependencies = [
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
+ "windmill-parser-yaml",
  "windmill-queue",
  "yaml-rust",
  "zstd 0.12.4",

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use serde_json::json;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
-use yaml_rust::{Yaml, YamlLoader};
+use yaml_rust::{Yaml, YamlEmitter, YamlLoader};
 
 pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
     let docs = YamlLoader::load_from_str(inner_content)
@@ -144,3 +144,96 @@ fn parse_ansible_typ(arg: &Yaml) -> Typ {
         Typ::Unknown
     }
 }
+
+#[derive(Debug)]
+pub struct FileResource {
+    pub windmill_path: String,
+    pub local_path: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct AnsibleRequirements {
+    pub python_reqs: Vec<String>,
+    pub collections: Option<String>,
+    pub file_resources: Vec<FileResource>,
+}
+
+pub fn parse_ansible_reqs(
+    inner_content: &str,
+) -> anyhow::Result<(String, Option<AnsibleRequirements>, String)> {
+    let mut logs = String::new();
+    let docs = YamlLoader::load_from_str(inner_content)
+        .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
+
+    if docs.len() < 2 {
+        return Ok((logs, None, inner_content.to_string()));
+    }
+
+    let mut ret =
+        AnsibleRequirements { python_reqs: vec![], collections: None, file_resources: vec![] };
+
+    if let Yaml::Hash(doc) = &docs[0] {
+        for (key, value) in doc {
+            match key {
+                Yaml::String(key) if key == "dependencies" => {
+                    if let Yaml::Hash(deps) = value {
+                        if let Some(galaxy_requirements) =
+                            deps.get(&Yaml::String("galaxy".to_string()))
+                        {
+                            let mut out_str = String::new();
+                            let mut emitter = YamlEmitter::new(&mut out_str);
+                            emitter.dump(galaxy_requirements)?;
+                            ret.collections = Some(out_str);
+                        }
+                        if let Some(Yaml::Array(py_reqs)) =
+                            deps.get(&Yaml::String("python".to_string()))
+                        {
+                            ret.python_reqs = py_reqs
+                                .iter()
+                                .map(|d| d.as_str().map(|s| s.to_string()))
+                                .filter_map(|x| x)
+                                .collect();
+                        }
+                    }
+                }
+                Yaml::String(key) if key == "file_resources" => {
+                    if let Yaml::Array(file_resources) = value {
+                        let resources: anyhow::Result<Vec<FileResource>> =
+                            file_resources.iter().map(parse_file_resource).collect();
+                        ret.file_resources = resources?;
+                    }
+                }
+                Yaml::String(key) if key == "extra_vars" => {}
+                Yaml::String(key) if key == "inventory" => {}
+                Yaml::String(key) => {
+                    logs.push_str(
+                        &format!("\nUnknown field `{}`. Ignoring", key),
+                    )
+                }
+                _ => (),
+            }
+        }
+    }
+    let mut out_str = String::new();
+    let mut emitter = YamlEmitter::new(&mut out_str);
+
+    for i in 1..docs.len() {
+        emitter.dump(&docs[i])?;
+    }
+    Ok((logs, Some(ret), out_str))
+}
+
+fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
+    if let Yaml::Hash(f) = yaml {
+        if let Some(Yaml::String(windmill_path)) = f.get(&Yaml::String("windmill_path".to_string()))
+        {
+            let local_path = f
+                .get(&Yaml::String("windmill_path".to_string()))
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            return Ok(FileResource { windmill_path: windmill_path.clone(), local_path });
+        }
+    }
+    return Err(anyhow!("Invalid file resource {:?}", yaml));
+}
+
