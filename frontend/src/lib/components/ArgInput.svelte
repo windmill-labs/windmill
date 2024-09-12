@@ -214,7 +214,20 @@
 			error = 'Required'
 			valid && (valid = false)
 		} else {
-			if (pattern && !testRegex(pattern, v)) {
+			if (inputCat == 'number' && typeof v === 'number') {
+				let min = extra['min']
+				let max = extra['max']
+				if (min != undefined && typeof min == 'number' && v < min) {
+					error = `Should be greater than or equal to ${min}`
+					valid && (valid = false)
+				} else if (max != undefined && typeof max == 'number' && v > max) {
+					error = `Should be less than or equal to ${max}`
+					valid && (valid = false)
+				} else {
+					error = ''
+					!valid && (valid = true)
+				}
+			} else if (pattern && !testRegex(pattern, v)) {
 				if (!emptyString(customErrorMessage)) {
 					error = customErrorMessage ?? ''
 				} else if (format == 'email') {
