@@ -81,6 +81,14 @@
 
 	let listItems: { label: string; value: string; created?: boolean }[] = []
 
+	function setContextValue(value: any) {
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
+		}
+		if (rowContext && rowInputs) {
+			rowInputs.set(id, value)
+		}
+	}
 	function handleItems() {
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
@@ -111,12 +119,7 @@
 			value = JSON.stringify(rawValue)
 			outputs?.result.set(rawValue)
 		}
-		if (iterContext && listInputs) {
-			listInputs.set(id, rawValue)
-		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, rawValue)
-		}
+		setContextValue(rawValue)
 	}
 
 	onDestroy(() => {
@@ -153,12 +156,7 @@
 		} catch (_) {}
 		value = nvalue
 		outputs?.result.set(result)
-		if (iterContext && listInputs) {
-			listInputs.set(id, result)
-		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, result)
-		}
+		setContextValue(result)
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
 		}
@@ -167,9 +165,7 @@
 	function onClear() {
 		value = undefined
 		outputs?.result.set(undefined, true)
-		if (iterContext && listInputs) {
-			listInputs.set(id, undefined)
-		}
+		setContextValue(undefined)
 	}
 
 	let css = initCss($app.css?.selectcomponent, customCss)
@@ -199,8 +195,10 @@
 
 	function handleDefault() {
 		if (resolvedConfig.defaultValue) {
-			value = JSON.stringify(resolvedConfig.defaultValue)
-			outputs?.result.set(resolvedConfig.defaultValue)
+			const nvalue = resolvedConfig.defaultValue
+			value = JSON.stringify(nvalue)
+			outputs?.result.set(nvalue)
+			setContextValue(nvalue)
 		}
 	}
 	let filterText = ''
