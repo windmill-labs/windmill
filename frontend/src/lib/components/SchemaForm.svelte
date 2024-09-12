@@ -15,7 +15,6 @@
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
-	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -152,7 +151,7 @@
 	{#if keys.length > 0}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
-			<div animate:flip={{ duration: 200 }}>
+			<div>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
