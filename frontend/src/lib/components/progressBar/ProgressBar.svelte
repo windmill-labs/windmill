@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tweened } from 'svelte/motion'
 	import { linear } from 'svelte/easing'
+	import { twMerge } from 'tailwind-merge'
 
 	function getTween(initialValue = 0, duration = 200) {
 		return tweened(initialValue, {
@@ -14,6 +15,10 @@
 	export let subIndex: number | undefined
 	export let subLength: number | undefined
 	export let nextInProgress: boolean = false
+	export let hideSubIndex: boolean = false
+	// Remove padding/margin, border radius and titles
+	// Used in individual job test runs
+	export let compact: boolean = false
 
 	export let length: number
 	let duration = 200
@@ -43,6 +48,7 @@
 </script>
 
 <div class={$$props.class}>
+	{#if !compact}
 	<div
 		class="flex justify-between items-end font-medium mb-1 {error != undefined
 			? 'text-red-700 dark:text-red-200'
@@ -59,6 +65,7 @@
 			{$percent.toFixed(0)}%
 		</span>
 	</div>
+	{/if}
 	<!-- {#each state as step, index}
 		{index} {JSON.stringify(step)}
 	{/each} -->
@@ -68,7 +75,10 @@
 		{getPercent(index)}
 		|
 	{/each} -->
-	<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+	<div class={twMerge(
+		"flex w-full bg-gray-200 overflow-hidden",
+		(compact) ? "rounded-none h-3" : "rounded-full h-4",
+	)}>
 		{#each new Array(length) as _, partIndex (partIndex)}
 			<div class="h-full relative border-white {partIndex === 0 ? '' : 'border-l'} w-full">
 				{#if partIndex == index && nextInProgress}

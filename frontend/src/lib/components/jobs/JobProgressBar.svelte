@@ -3,6 +3,7 @@
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
+	export let compact: boolean = false;
 	/// Progress of currently running job
 	export let scriptProgress: number | undefined = undefined;
 
@@ -35,16 +36,6 @@
 
 </script>
 
-<style>
-  :global(.compact-progress-bar > div:nth-child(2) ) {
-  	border-radius: 0 !important;
-  	height: 12px !important;
-  }
-  :global(.compact-progress-bar > div:nth-child(1)) {
-  	display: none !important;
-  }
-</style>
-
 {#if scriptProgress}
 <ProgressBar
 	bind:resetP
@@ -55,5 +46,6 @@
 	{subIndex}
 	{error}
 	class={$$props.class}
+	bind:compact
 />
 {/if}

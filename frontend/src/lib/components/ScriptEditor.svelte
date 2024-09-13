@@ -401,7 +401,7 @@
 							{args}
 						>
 						<!-- Put to the slot in logpanel -->
-						<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} class="compact-progress-bar" />
+						<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
 						</LogPanel>
 					</Pane>
 				</Splitpanes>
