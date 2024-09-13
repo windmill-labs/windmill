@@ -8374,7 +8374,10 @@ paths:
           content:
             application/json:
               schema:
-                type: number
+                type: object
+                properties:
+                  count:
+                    type: number
 
   /w/{workspace}/job_helpers/load_csv_preview/{path}:
     get:
