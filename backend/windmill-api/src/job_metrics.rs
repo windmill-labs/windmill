@@ -161,8 +161,6 @@ async fn set_job_progress(
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Json(JobProgressSetRequest { percent, flow_job_id }): Json<JobProgressSetRequest>,
 ) -> error::JsonResult<()> {
-    dbg!(flow_job_id);
-
     if let Some(flow_job_id) = flow_job_id {
         sqlx::query!(
             "UPDATE queue
@@ -191,17 +189,13 @@ async fn get_job_progress(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Option<i32>> {
-    let progress: (Option<i32>, ) = sqlx::query_as(
-        //                    ^
-        // Trailing comma is mandatory, otherwise sqlx doesnt recognize it as a right type
-                "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
-            )
-            .bind(job_id)
-            .bind(w_id)
+    let progress: Option<i32> = sqlx::query_scalar!(
+            "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
+            job_id, w_id)
             .fetch_one(&db)
             .await?;
 
-    Ok(Json(progress.0))
+    Ok(Json(progress))
 }
 
 fn timeseries_sample<T: Copy>(
