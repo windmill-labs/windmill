@@ -9,6 +9,7 @@
 	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -18,13 +19,30 @@
 	export let workspaceId: string | undefined
 	export let disable_download: boolean = false
 
+	let lastSearch: string | undefined = undefined
+
+	let nbRows: number | undefined = undefined
 	let csvSeparatorChar: string = ','
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
 			try {
 				const searchCol = params.filterModel ? Object.keys(params.filterModel)?.[0] : undefined
+				const searchTerm = searchCol ? params.filterModel?.[searchCol]?.filter : undefined
 				const csv = s3resource.endsWith('.csv')
+				const newSearch = searchCol ? searchCol + searchTerm : undefined
+				if (!nbRows || lastSearch != newSearch) {
+					nbRows = undefined
+					const res = await HelpersService.loadTableRowCount({
+						workspace: workspaceId ?? $workspaceStore!,
+						path: s3resource,
+						searchCol: searchCol,
+						storage,
+						searchTerm
+					})
+					nbRows = res.count
+					lastSearch = newSearch
+				}
 
 				const requestBody = {
 					workspace: workspaceId ?? $workspaceStore!,
@@ -33,8 +51,8 @@
 					limit: params.endRow - params.startRow,
 					sortCol: params.sortModel?.[0]?.colId,
 					sortDesc: params.sortModel?.[0]?.sort == 'desc',
-					searchCol: searchCol,
-					searchTerm: searchCol ? params.filterModel?.[searchCol]?.filter : undefined,
+					searchCol,
+					searchTerm,
 					storage: storage,
 					csvSeparator: csv ? csvSeparatorChar : undefined
 				}
@@ -54,7 +72,7 @@
 					}
 				}
 
-				params.successCallback(res.rows)
+				params.successCallback(res.rows, nbRows)
 			} catch (e) {
 				console.error(e)
 				params.failCallback()
@@ -185,6 +203,11 @@
 		>
 	{/if}
 
+	{#if nbRows != undefined}
+		<div class="text-secondary ml-0.5 text-2xs">{nbRows} rows</div>
+	{:else}
+		<Loader2 class="animate-spin ml-0.5" size={12} />
+	{/if}
 	<div
 		class="ag-theme-alpine shadow-sm h-full"
 		class:ag-theme-alpine-dark={darkMode}
