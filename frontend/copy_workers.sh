@@ -1,1 +1,0 @@
-cp -r node_modules/monaco-editor-wrapper/dist/workers/* src/lib/monaco_workers/
