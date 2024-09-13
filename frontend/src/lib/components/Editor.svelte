@@ -139,7 +139,6 @@
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
-	import { buildWorkerDefinition } from '$lib/components/build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
@@ -170,6 +169,7 @@
 	import { setupTypeAcquisition } from '$lib/ata/index'
 	import { initWasmTs, parseDeps } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -248,7 +248,7 @@
 
 	console.log('uri', uri)
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	buildWorkerDefinition()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
