@@ -174,7 +174,7 @@
 			})
 			return
 		}
-		dispatch('addition', { path: uploadData.path })
+		dispatch('addition', { path: uploadData.path, filename: fileToUpload.name })
 		sendUserToast('File upload finished!')
 
 		uploadData.progress = 100
