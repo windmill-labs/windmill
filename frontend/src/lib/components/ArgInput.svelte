@@ -582,7 +582,8 @@
 							randomFileKey={true}
 							on:addition={(evt) => {
 								value = {
-									s3: evt.detail?.path ?? ''
+									s3: evt.detail?.path ?? '',
+									filename: evt.detail?.filename ?? ''
 								}
 							}}
 							on:deletion={(evt) => {
