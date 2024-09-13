@@ -960,7 +960,7 @@
 				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
-				customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fworkspace_error_handler_template"
+				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
 			>
