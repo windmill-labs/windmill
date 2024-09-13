@@ -355,7 +355,7 @@ pub async fn renew_license_key(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
-    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key).await;
+    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key, true).await;
 
     if result != "success" {
         return Err(error::Error::BadRequest(format!(
