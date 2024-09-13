@@ -1,7 +1,7 @@
 use axum::{
     extract::{FromRequestParts, Path, Query},
     response::IntoResponse,
-    routing::{any, get, post},
+    routing::{any, delete, get, post},
     Extension, Json, Router,
 };
 use http::{request::Parts, StatusCode};
@@ -36,20 +36,30 @@ pub fn routes_global_service() -> Router {
 pub fn triggers_workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_trigger))
-        .route("/list", get(list_triggers))
-        .route("/get/*path", get(get_trigger))
-        .route("/update/*path", post(update_trigger))
-        .route("/delete/*path", post(delete_trigger))
-        .route("/exists/*path", get(exists_trigger))
+        .route("/list/:kind", get(list_triggers))
+        .route("/get/:kind/*path", get(get_trigger))
+        .route("/update/:kind/*path", post(update_trigger))
+        .route("/delete/:kind/*path", delete(delete_trigger))
+        .route("/exists/:kind/*path", get(exists_trigger))
+        .route("/used", get(used_trigger_kinds))
         .route("/route_exists", post(exists_route))
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
-enum TriggerKind {
+pub enum TriggerKind {
     Http,
     Email,
+}
+
+impl TriggerKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            TriggerKind::Http => "http",
+            TriggerKind::Email => "email",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type)]
@@ -131,8 +141,8 @@ pub struct ListTriggerQuery {
 async fn list_triggers(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Query(lst): Query<ListTriggerQuery>,
+    Path((w_id, kind)): Path<(String, TriggerKind)>,
+    Query(lst): Query<(ListTriggerQuery)>,
 ) -> error::JsonResult<Vec<Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
@@ -140,6 +150,7 @@ async fn list_triggers(
         .field("*")
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
+        .and_where_eq("kind", "?".bind(&kind.as_str()))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -166,7 +177,7 @@ async fn list_triggers(
 async fn get_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    Path((w_id, kind, path)): Path<(String, TriggerKind, StripPath)>,
 ) -> error::JsonResult<Trigger> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
@@ -174,9 +185,10 @@ async fn get_trigger(
         Trigger,
         r#"SELECT workspace_id, path, route_path, script_path, is_flow, kind as "kind: _", http_method as "http_method: _", edited_by, email, edited_at, extra_perms, summary, is_async, requires_auth
             FROM trigger
-            WHERE workspace_id = $1 AND path = $2"#,
+            WHERE workspace_id = $1 AND path = $2 AND kind = $3"#,
         w_id,
-        path
+        path,
+        kind as TriggerKind
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -231,7 +243,7 @@ async fn create_trigger(
 async fn update_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    Path((w_id, kind, path)): Path<(String, TriggerKind, StripPath)>,
     Json(ct): Json<EditTrigger>,
 ) -> error::Result<String> {
     let path = path.to_path();
@@ -240,7 +252,7 @@ async fn update_trigger(
         sqlx::query!(
             "UPDATE trigger 
                 SET route_path = $1, script_path = $2, path = $3, is_flow = $4, kind = $5, http_method = $6, edited_by = $7, email = $8, summary = $9, edited_at = now() 
-                WHERE workspace_id = $10 AND path = $11",
+                WHERE workspace_id = $10 AND path = $11 AND kind = $12",
             ct.route_path,
             ct.script_path,
             ct.path,
@@ -251,13 +263,14 @@ async fn update_trigger(
             &authed.email,
             ct.summary,
             w_id,
-            path
+            path,
+            kind as TriggerKind
         )
         .execute(&mut *tx).await?;
     } else {
         sqlx::query!(
             "UPDATE trigger SET script_path = $1, path = $2, is_flow = $3, kind = $4, http_method = $5, edited_by = $6, email = $7, summary = $8, is_async = $9, requires_auth = $10, edited_at = now() 
-                WHERE workspace_id = $11 AND path = $12",
+                WHERE workspace_id = $11 AND path = $12 AND kind = $13",
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -269,7 +282,8 @@ async fn update_trigger(
             ct.is_async,
             ct.requires_auth,
             w_id,
-            path
+            path,
+            kind as TriggerKind
         )
         .execute(&mut *tx).await?;
     }
@@ -293,15 +307,16 @@ async fn update_trigger(
 async fn delete_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    Path((w_id, kind, path)): Path<(String, TriggerKind, StripPath)>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "DELETE FROM trigger WHERE workspace_id = $1 AND path = $2",
+        "DELETE FROM trigger WHERE workspace_id = $1 AND path = $2 AND kind = $3",
         w_id,
-        path
+        path,
+        kind as TriggerKind
     )
     .execute(&mut *tx)
     .await?;
@@ -322,15 +337,29 @@ async fn delete_trigger(
     Ok(format!("Trigger {path} deleted"))
 }
 
+async fn used_trigger_kinds(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<TriggerKind>> {
+    let used_kinds = sqlx::query_scalar!(
+        r#"SELECT DISTINCT kind as "kind: _" FROM trigger WHERE workspace_id = $1"#,
+        w_id,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(used_kinds))
+}
+
 async fn exists_trigger(
     Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    Path((w_id, kind, path)): Path<(String, TriggerKind, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM trigger WHERE path = $1 AND workspace_id = $2)",
+        "SELECT EXISTS(SELECT 1 FROM trigger WHERE path = $1 AND workspace_id = $2 AND kind = $3)",
         path,
-        w_id
+        w_id,
+        kind as TriggerKind
     )
     .fetch_one(&db)
     .await?
@@ -341,26 +370,29 @@ async fn exists_trigger(
 #[derive(Deserialize)]
 struct RouteExists {
     route_path: String,
+    kind: TriggerKind,
 }
 
 async fn exists_route(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(RouteExists { route_path }): Json<RouteExists>,
+    Json(RouteExists { route_path, kind }): Json<RouteExists>,
 ) -> JsonResult<bool> {
     let exists = if *CLOUD_HOSTED {
         sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path = $1 AND workspace_id = $2)",
-            route_path,
-            w_id
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(false)
+                    "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path = $1 AND workspace_id = $2 AND kind = $3)",
+                    route_path,
+                    w_id,
+                    kind as TriggerKind
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false)
     } else {
         sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path = $1)",
-            route_path
+            "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path = $1 AND kind = $2)",
+            route_path,
+            kind as TriggerKind
         )
         .fetch_one(&db)
         .await?
@@ -403,7 +435,7 @@ async fn fetch_api_authed(
     })
 }
 
-async fn get_route_trigger(
+async fn get_http_route_trigger(
     route_path: &str,
     opt_authed: Option<ApiAuthed>,
     db: &DB,
@@ -523,7 +555,7 @@ async fn route_job(
 ) -> impl IntoResponse {
     let route_path = route_path.to_path();
     let (trigger, params, authed) =
-        match get_route_trigger(route_path, opt_authed, &db, user_db.clone()).await {
+        match get_http_route_trigger(route_path, opt_authed, &db, user_db.clone()).await {
             Ok(trigger) => trigger,
             Err(e) => return e.into_response(),
         };

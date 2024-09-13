@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte'
-	import TriggerEditorInner from './TriggerEditorInner.svelte'
+	import RouteEditorInner from './RouteEditorInner.svelte'
 
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -15,9 +15,9 @@
 		drawer?.openNew(is_flow, initial_script_path)
 	}
 
-	let drawer: TriggerEditorInner
+	let drawer: RouteEditorInner
 </script>
 
 {#if open}
-	<TriggerEditorInner on:update bind:this={drawer} />
+	<RouteEditorInner on:update bind:this={drawer} />
 {/if}

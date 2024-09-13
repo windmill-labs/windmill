@@ -33,7 +33,7 @@
 							{hasStepDetails}
 						>
 							<slot slot="webhooks" name="webhooks" />
-							<slot slot="triggers" name="triggers" />
+							<slot slot="routes" name="routes" />
 							<slot slot="email" name="email" />
 							<slot slot="schedule" name="schedule" />
 							<slot slot="cli" name="cli" />
@@ -59,7 +59,7 @@
 					<TabContent value="detail" class="flex flex-col flex-1 h-full">
 						<DetailPageDetailPanel bind:triggerSelected bind:selected {isOperator} {hasStepDetails}>
 							<slot slot="webhooks" name="webhooks" />
-							<slot slot="triggers" name="triggers" />
+							<slot slot="routes" name="routes" />
 							<slot slot="email" name="email" />
 							<slot slot="schedule" name="schedule" />
 							<slot slot="cli" name="cli" />

@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'Triggers' }
+		stuff: { title: 'HTTP Routes' }
 	}
 }

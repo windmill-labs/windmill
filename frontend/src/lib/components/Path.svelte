@@ -210,7 +210,8 @@
 		} else if (kind == 'trigger') {
 			return await TriggerService.existsTrigger({
 				workspace: $workspaceStore!,
-				path: path
+				path: path,
+				kind: 'http'
 			})
 		} else {
 			return false

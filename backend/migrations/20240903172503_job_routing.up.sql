@@ -17,7 +17,7 @@ CREATE TABLE trigger (
   is_async BOOLEAN NOT NULL DEFAULT FALSE,
   requires_auth BOOLEAN NOT NULL DEFAULT FALSE,
   http_method http_method NULL, 
-  PRIMARY KEY (path, workspace_id)
+  PRIMARY KEY (path, workspace_id, kind)
 );
 
 

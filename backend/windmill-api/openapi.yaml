@@ -6827,7 +6827,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/triggers/update/{path}:
+  /w/{workspace}/triggers/update/{kind}/{path}:
     post:
       summary: update trigger
       operationId: updateTrigger
@@ -6836,6 +6836,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: kind
+          in: path
+          schema:
+            type: string
+            enum: ["http", "email"]
+          required: true
       requestBody:
         description: updated trigger
         required: true
@@ -6851,7 +6857,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/triggers/delete/{path}:
+  /w/{workspace}/triggers/delete/{kind}/{path}:
     delete:
       summary: delete trigger
       operationId: deleteTrigger
@@ -6860,6 +6866,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: kind
+          in: path
+          schema:
+            type: string
+            enum: ["http", "email"]
+          required: true
       responses:
         "200":
           description: trigger deleted
@@ -6868,7 +6880,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/triggers/get/{path}:
+  /w/{workspace}/triggers/get/{kind}/{path}:
     get:
       summary: get trigger
       operationId: getTrigger
@@ -6877,6 +6889,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: kind
+          in: path
+          schema:
+            type: string
+            enum: ["http", "email"]
+          required: true
       responses:
         "200":
           description: trigger deleted
@@ -6886,7 +6904,7 @@ paths:
                 $ref: "#/components/schemas/Trigger"
 
   
-  /w/{workspace}/triggers/list:
+  /w/{workspace}/triggers/list/{kind}:
     get:
       summary: list triggers
       operationId: listTriggers
@@ -6894,6 +6912,12 @@ paths:
         - trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          schema:
+            type: string
+            enum: ["http", "email"]
+          required: true
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: path
@@ -6920,7 +6944,7 @@ paths:
                   $ref: "#/components/schemas/Trigger"
 
   
-  /w/{workspace}/triggers/exists/{path}:
+  /w/{workspace}/triggers/exists/{kind}/{path}:
     get:
       summary: does trigger exists
       operationId: existsTrigger
@@ -6929,6 +6953,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: ["http", "email"]
       responses:
         "200":
           description: trigger exists
@@ -6946,7 +6976,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: route
+        description: route exists request
         required: true
         content:
           application/json:
@@ -6955,8 +6985,11 @@ paths:
               properties:
                 route_path:
                   type: string
+                kind:
+                  type: string
+                  enum: ["http", "email"]
               required:
-                - route_path
+                - kind
       responses:
         "200":
           description: route exists
@@ -6965,6 +6998,23 @@ paths:
               schema:
                 type: boolean
 
+  /w/{workspace}/triggers/used:
+    get:
+      summary: used trigger kinds
+      operationId: usedTriggerKinds
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: used trigger kinds
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /groups/list:
     get:

@@ -6,7 +6,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { TriggerService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
@@ -37,9 +37,10 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load trigger: ${err}`, true)
+			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -60,6 +61,9 @@
 			http_method = 'post'
 			initialScriptPath = initial_script_path ?? ''
 			script_path = initialScriptPath
+			path = ''
+			initialPath = ''
+			dirtyPath = false
 		} finally {
 			drawerLoading = false
 		}
@@ -73,7 +77,6 @@
 	let requires_auth = false
 	let initialRoutePath = ''
 	let route_path = ''
-	let kind: 'http' | 'email' = 'http'
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 
 	const dispatch = createEventDispatcher()
@@ -82,7 +85,8 @@
 	async function loadTrigger(): Promise<void> {
 		const s = await TriggerService.getTrigger({
 			workspace: $workspaceStore!,
-			path: initialPath
+			path: initialPath,
+			kind: 'http'
 		})
 		summary = s.summary
 		script_path = s.script_path
@@ -92,7 +96,6 @@
 		path = s.path
 		route_path = s.route_path
 		initialRoutePath = s.route_path
-		kind = s.kind
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
@@ -113,11 +116,12 @@
 					is_async,
 					requires_auth,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
-					kind,
+					kind: 'http',
 					http_method
-				}
+				},
+				kind: 'http'
 			})
-			sendUserToast(`Trigger ${path} updated`)
+			sendUserToast(`Route ${path} updated`)
 		} else {
 			await TriggerService.createTrigger({
 				workspace: $workspaceStore!,
@@ -129,11 +133,14 @@
 					is_async,
 					requires_auth,
 					route_path,
-					kind,
+					kind: 'http',
 					http_method
 				}
 			})
-			sendUserToast(`Trigger ${path} created`)
+			sendUserToast(`Route ${path} created`)
+		}
+		if (!$usedTriggerKinds.includes('http')) {
+			$usedTriggerKinds = [...$usedTriggerKinds, 'http']
 		}
 		dispatch('update')
 		drawer.closeDrawer()
@@ -152,7 +159,8 @@
 		return await TriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
-				route_path
+				route_path,
+				kind: 'http'
 			}
 		})
 	}
@@ -165,9 +173,9 @@
 		}
 		validateTimeout = setTimeout(async () => {
 			if (!/^[\w-:]+(\/[\w-:]+)*$/.test(path)) {
-				routeError = 'This route is not valid'
+				routeError = 'Endpoint not valid'
 			} else if (initialRoutePath !== path && (await routeExists(path))) {
-				routeError = 'Route already used'
+				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''
 			}
@@ -180,7 +188,7 @@
 
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
-		title={edit ? `Edit trigger ${initialPath}` : 'New trigger'}
+		title={edit ? `Edit route ${initialPath}` : 'New route'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -228,18 +236,18 @@
 						<Path
 							bind:dirty={dirtyPath}
 							bind:this={pathC}
-							checkInitialPathExistence={false}
 							bind:error={pathError}
 							bind:path
 							{initialPath}
-							namePlaceholder="trigger"
+							checkInitialPathExistence={!edit}
+							namePlaceholder="route"
 							kind="trigger"
 							hideUser
 						/>
 					</Label>
 				</div>
 
-				<Section label="Route">
+				<Section label="Endpoint">
 					{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Alert type="info" title="Admin only" collapsible>
 							Routes can only be edited by workspace admins
@@ -270,9 +278,9 @@
 							<div class="flex justify-start w-full">
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+									class="center-center !bg-surface-secondary !text-tertiary !w-[90px] !h-[24px] rounded-r-none border"
 								>
-									Full route
+									Full endpoint
 								</Badge>
 								<input
 									disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
@@ -293,7 +301,7 @@
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered by the trigger<Required required={true} />
+						Pick a script or flow to be triggered by the http route<Required required={true} />
 					</p>
 					<ScriptPicker
 						disabled={!can_write}

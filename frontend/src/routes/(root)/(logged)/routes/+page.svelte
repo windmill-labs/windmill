@@ -6,7 +6,7 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import TriggerEditor from '$lib/components/triggers/TriggerEditor.svelte'
+	import RouteEditor from '$lib/components/triggers/RouteEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -29,7 +29,9 @@
 	let loading = true
 
 	async function loadTriggers(): Promise<void> {
-		triggers = (await TriggerService.listTriggers({ workspace: $workspaceStore! })).map((x) => {
+		triggers = (
+			await TriggerService.listTriggers({ workspace: $workspaceStore!, kind: 'http' })
+		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 		loading = false
@@ -40,7 +42,7 @@
 			loadTriggers()
 		}
 	}
-	let triggerEditor: TriggerEditor
+	let routeEditor: RouteEditor
 
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
@@ -145,7 +147,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
-<TriggerEditor on:update={loadTriggers} bind:this={triggerEditor} />
+<RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
 
 <SearchItems
 	{filter}
@@ -156,18 +158,18 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Triggers"
+		title="HTTP Routes"
 		documentationLink="https://www.windmill.dev/docs/core_concepts/routing"
 	>
 		{#if $userStore?.is_admin || $userStore?.is_super_admin}
-			<Button size="md" startIcon={{ icon: Plus }} on:click={() => triggerEditor.openNew(false)}>
-				New&nbsp;trigger
+			<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
+				New&nbsp;route
 			</Button>
 		{/if}
 	</PageHeader>
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search trigger" bind:value={filter} class="search-item" />
+			<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
@@ -209,7 +211,7 @@
 
 							<a
 								href="#{path}"
-								on:click={() => triggerEditor?.openEdit(path, is_flow)}
+								on:click={() => routeEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -222,10 +224,10 @@
 									{/if}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									trigger: {path}
+									route: {path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									route: /{route_path}
+									endpoint: /{route_path}
 								</div>
 							</a>
 
@@ -235,7 +237,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => triggerEditor?.openEdit(path, is_flow)}
+									on:click={() => routeEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={{ icon: Pen }}
 									color="dark"
@@ -259,7 +261,8 @@
 											action: async () => {
 												await TriggerService.deleteTrigger({
 													workspace: $workspaceStore ?? '',
-													path
+													path,
+													kind: 'http'
 												})
 												loadTriggers()
 											}
@@ -269,7 +272,7 @@
 											icon: Pen,
 											disabled: !canWrite,
 											action: () => {
-												triggerEditor?.openEdit(path, is_flow)
+												routeEditor?.openEdit(path, is_flow)
 											}
 										},
 										{

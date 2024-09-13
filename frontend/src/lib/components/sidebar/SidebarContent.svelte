@@ -1,6 +1,6 @@
 <script lang="ts">
 	import MenuLink from './MenuLink.svelte'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -20,7 +20,8 @@
 		Route,
 		ServerCog,
 		Settings,
-		UserCog
+		UserCog,
+		Plus
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -36,6 +37,7 @@
 	import { onMount } from 'svelte'
 	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
+	import { page } from '$app/stores'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: `${base}/`, icon: Home },
@@ -53,12 +55,9 @@
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
 		},
-		{
-			label: 'Triggers',
-			href: `${base}/triggers`,
-			icon: Route,
-			disabled: $userStore?.operator
-		}
+		...defaultExtraTriggerLinks.filter(
+			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
+		)
 	]
 
 	async function leaveWorkspace() {
@@ -67,6 +66,20 @@
 		clearStores()
 		goto('/user/workspaces')
 	}
+
+	const defaultExtraTriggerLinks = [
+		{
+			label: 'Routes',
+			href: '/routes',
+			icon: Route,
+			disabled: $userStore?.operator,
+			kind: 'http'
+		}
+	]
+
+	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
+		return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
+	})
 
 	$: secondaryMenuLinks = [
 		// {
@@ -208,6 +221,38 @@
 		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 		{/each}
+		{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
+			<Menu>
+				<div
+					slot="trigger"
+					class="w-full text-gray-400 text-2xs flex flex-row justify-center gap-1 items-center"
+				>
+					<Plus size={14} />
+				</div>
+				{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+					<MenuItem>
+						<div class="py-1" role="none">
+							<a
+								href={subItem.href}
+								class={twMerge(
+									'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
+								)}
+								role="menuitem"
+								tabindex="-1"
+							>
+								<div class="flex flex-row items-center gap-2">
+									{#if subItem.icon}
+										<svelte:component this={subItem.icon} size={16} />
+									{/if}
+
+									{subItem.label}
+								</div>
+							</a>
+						</div>
+					</MenuItem>
+				{/each}
+			</Menu>
+		{/if}
 	</div>
 	<div class="flex flex-col h-full justify-end">
 		<div class={twMerge('space-y-0.5 mb-6 md:mb-10', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
