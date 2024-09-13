@@ -10,6 +10,7 @@
 	let subLength: number | undefined = undefined
 	let length = 1
 	let nextInProgress = false
+	let subIndexIsPercent: boolean = false
 
 	$: if (job) updateJobProgress(job)
 
@@ -40,6 +41,9 @@
 			}
 		}
 
+		
+		subIndexIsPercent = false;
+
 		// Loop is still iterating
 		if (module?.iterator) {
 			const stepIndex = module.iterator.index || 0
@@ -56,6 +60,7 @@
 			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99)
 			//                  Jitter protection >^^^^^^^^
 			subStepLength = 100
+			subIndexIsPercent = true;
 		}
 
 		error = newError
@@ -86,5 +91,6 @@
 	{subLength}
 	{subIndex}
 	{error}
+	bind:subIndexIsPercent
 	class={$$props.class}
 />

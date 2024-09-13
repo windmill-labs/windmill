@@ -15,7 +15,8 @@
 	export let subIndex: number | undefined
 	export let subLength: number | undefined
 	export let nextInProgress: boolean = false
-	export let hideSubIndex: boolean = false
+	// Used for displaying progress of subjob of flow
+	export let subIndexIsPercent: boolean = false
 	// Remove padding/margin, border radius and titles
 	// Used in individual job test runs
 	export let compact: boolean = false
@@ -59,6 +60,8 @@
 				? 'Error occured'
 				: finished
 				? 'Done'
+				: subIndexIsPercent
+				? `Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`
 				: `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
 		</span>
 		<span class="text-sm">
