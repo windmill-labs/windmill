@@ -11,7 +11,7 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 
-	buildWorkerDefinition('../../../workers')
+	buildWorkerDefinition()
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
