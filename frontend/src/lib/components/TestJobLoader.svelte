@@ -192,7 +192,7 @@
 					let getProgress: boolean | undefined = undefined;
 					// We only pull individual job progress this way
 					// Flow's progress we are getting from FlowStatusModule of flow job
-					if (job.job_kind == "script" || "preview"){
+					if (job.job_kind == "script" || job.job_kind == "preview"){
 						// First time, before running job, lastTimeCheckedProgress is always undefined
 						if (lastTimeCheckedProgress){
 							const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress;
