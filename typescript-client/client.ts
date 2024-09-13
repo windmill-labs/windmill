@@ -386,16 +386,6 @@ export async function setState(state: any): Promise<void> {
 }
 
 /**
- * Increment the progress
- * Progress cannot go back and limited to 0% to 99% range
- * @param percent Progress to increment in %
- */
-export async function incProgress(percent: number): Promise<void> {
-  const currentProgress = await getProgress();
-  setProgress((currentProgress ?? 0) + percent);
-}
-
-/**
  * Set the progress
  * Progress cannot go back and limited to 0% to 99% range
  * @param percent Progress to set in %
