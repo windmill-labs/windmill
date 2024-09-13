@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.394.5](https://github.com/windmill-labs/windmill/compare/v1.394.4...v1.394.5) (2024-09-13)
+
+
+### Bug Fixes
+
+* add filename to s3 upload ([11ca14a](https://github.com/windmill-labs/windmill/commit/11ca14a2d32155e215c0d14d485e2c4048e5c66e))
+* parquet renderer display number of rows" ([#4389](https://github.com/windmill-labs/windmill/issues/4389)) ([51cf420](https://github.com/windmill-labs/windmill/commit/51cf420272cce1948dc4295b587f5037455c4eba))
+* queue metrics graph ([#4388](https://github.com/windmill-labs/windmill/issues/4388)) ([af85d49](https://github.com/windmill-labs/windmill/commit/af85d4936ddd01b390976c9989f3e4e72da3d01e))
+* update internal hub scritps to bun ([#4384](https://github.com/windmill-labs/windmill/issues/4384)) ([f140daf](https://github.com/windmill-labs/windmill/commit/f140daf4dc18db0a11bf478451aa57ae4698fd32))
+
 ## [1.394.4](https://github.com/windmill-labs/windmill/compare/v1.394.3...v1.394.4) (2024-09-13)
 
 
