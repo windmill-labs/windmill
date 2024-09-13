@@ -9,9 +9,9 @@
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from './build_workers'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	buildWorkerDefinition('../../../workers')
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
