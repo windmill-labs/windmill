@@ -6,6 +6,8 @@
 	export let compact: boolean = false;
 	/// Progress of currently running job
 	export let scriptProgress: number | undefined = undefined;
+	// Removes `Step 1` and replaces it with `Running` 
+	export let hideStepTitle: boolean = false
 
 	let error: number | undefined = undefined
 	let index = 0
@@ -47,5 +49,6 @@
 	{error}
 	class={$$props.class}
 	bind:compact
+	bind:hideStepTitle
 />
 {/if}

@@ -20,6 +20,8 @@
 	// Remove padding/margin, border radius and titles
 	// Used in individual job test runs
 	export let compact: boolean = false
+	// Removes `Step 1` and replaces it with `Running` 
+	export let hideStepTitle: boolean = false
 
 	export let length: number
 	let duration = 200
@@ -60,6 +62,8 @@
 				? 'Error occured'
 				: finished
 				? 'Done'
+				: hideStepTitle 
+				? `Running`
 				: subIndexIsPercent
 				? `Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`
 				: `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
