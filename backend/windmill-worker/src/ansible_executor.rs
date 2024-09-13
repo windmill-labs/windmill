@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 
 use anyhow::anyhow;
 use serde_json::value::RawValue;
@@ -7,13 +7,16 @@ use uuid::Uuid;
 use windmill_common::{
     error,
     jobs::QueuedJob,
-    worker::{write_file, WORKER_CONFIG},
+    worker::{write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
 use windmill_parser_yaml::AnsibleRequirements;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
-    common::{create_args_and_out_file, get_reserved_variables, handle_child, read_and_check_result, start_child_process},
+    common::{
+        create_args_and_out_file, get_reserved_variables, handle_child, read_and_check_result,
+        start_child_process, transform_json,
+    },
     python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, HOME_ENV, PATH_ENV, TZ_ENV,
 };
@@ -152,7 +155,6 @@ async fn install_galaxy_collections(
     Ok(())
 }
 
-
 pub async fn handle_ansible_job(
     requirements_o: Option<String>,
     job_dir: &str,
@@ -167,15 +169,8 @@ pub async fn handle_ansible_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let (logs, reqs, playbook) =
-        windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        logs,
-        db,
-    )
-    .await;
+    let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
+    append_logs(&job.id, &job.workspace_id, logs, db).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
     let ansible_cfg_content = r#"
@@ -199,7 +194,52 @@ roles_path = ./roles
     )
     .await?;
 
+    let interpolated_args;
+    if let Some(args) = &job.args {
+        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
+            write_file(
+                job_dir,
+                "args.json",
+                &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
+            )?;
+            interpolated_args = Some(x);
+        } else {
+            write_file(
+                job_dir,
+                "args.json",
+                &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
+            )?;
+            interpolated_args = Some(args.clone().0);
+        }
+    } else {
+        interpolated_args = None;
+        write_file(job_dir, "args.json", "{}")?;
+    };
+
+    let inventories: Vec<String> = reqs
+        .as_ref()
+        .map(|x| {
+            x.inventories
+                .clone()
+                .iter()
+                .flat_map(|i| vec!["-i".to_string(), i.name.clone()].into_iter())
+                .collect()
+        })
+        .unwrap_or_else(|| vec![]);
+
+    let authed_client = client.get_authed().await;
     if let Some(r) = reqs {
+        create_file_resources(
+            &job.id,
+            &job.workspace_id,
+            job_dir,
+            interpolated_args.as_ref(),
+            &r,
+            &authed_client,
+            db,
+        )
+        .await?;
+
         if let Some(collections) = r.collections {
             install_galaxy_collections(
                 collections.as_str(),
@@ -226,13 +266,12 @@ roles_path = ./roles
         return Err(anyhow!("Ansible is not supported with nsjail, disable nsjail on your worker to run ansible playbooks").into());
     }
 
-    create_args_and_out_file(client, job, job_dir, db).await?;
-
-    let client = client.get_authed().await;
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &authed_client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
     reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
 
+    let mut cmd_args = vec!["main.yml", "--extra-vars", "@args.json"];
+    cmd_args.extend(inventories.iter().map(|s| s.as_str()));
     let child = {
         let mut ansible_cmd = Command::new(ANSIBLE_PLAYBOOK_PATH.as_str());
         ansible_cmd
@@ -244,7 +283,7 @@ roles_path = ./roles
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(vec!["main.yml", "--extra-vars", "@args.json"])
+            .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         start_child_process(ansible_cmd, ANSIBLE_PLAYBOOK_PATH.as_str()).await?
@@ -267,25 +306,75 @@ roles_path = ./roles
     read_and_check_result(job_dir).await
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+async fn create_file_resources(
+    job_id: &Uuid,
+    w_id: &str,
+    job_dir: &str,
+    args: Option<&HashMap<String, Box<RawValue>>>,
+    r: &AnsibleRequirements,
+    client: &crate::AuthedClient,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> error::Result<()> {
+    let mut logs = String::new();
 
-    #[tokio::test]
-    async fn test_parse_ansible_file() {
-        let example_file = r#"
----
-- dependencies:
-    galaxy:
-      collections:
-        - name: community.windows
-        - name: ansible.utils
-    python:
-      - jmespath
-      - pandas>=2.0.0
-"#;
+    for inventory in &r.inventories {
+        let content;
+        if let Some(resource_path) = &inventory.pin {
+            content = client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    resource_path,
+                    Some(job_id.to_string()),
+                )
+                .await?;
+        } else {
+            let o = args
+                .as_ref()
+                .and_then(|g| g.get(&inventory.name))
+                .ok_or(anyhow!(
+                    "Specified inventory was missing in the script arguments"
+                ))?;
 
-        println!("asdasdasdasdasd");
-        let ret = parse_ansible_reqs(example_file).await.unwrap();
+            content = serde_json::from_str(o.get())
+                .map_err(|e| anyhow!("Failed to parse inventory arg: {}", e))?;
+        }
+
+        write_file_at_user_defined_location(
+            job_dir,
+            &inventory.name,
+            content
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or(anyhow!(
+                    "Invalid inventory resource, `content` field absent or invalid"
+                ))?,
+        )
+        .map_err(|e| anyhow!("Couldn't write inventory: {}", e))?;
+        logs.push_str(&format!("\nCreated inventory `{}`", inventory.name));
     }
+
+    for file_res in &r.file_resources {
+        let r = client
+            .get_resource_value_interpolated::<serde_json::Value>(
+                &file_res.windmill_path,
+                Some(job_id.to_string()),
+            )
+            .await?;
+        let path = file_res.local_path.clone();
+        write_file_at_user_defined_location(
+            job_dir,
+            path.as_str(),
+            r.get("content").and_then(|v| v.as_str()).ok_or(anyhow!(
+                "Invalid text file resource {}, `content` field absent or invalid",
+                &file_res.windmill_path
+            ))?,
+        )
+        .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
+        logs.push_str(&format!(
+            "\nCreated {} from {}",
+            file_res.local_path, file_res.windmill_path
+        ));
+    }
+    append_logs(job_id, w_id, logs, db).await;
+
+    Ok(())
 }

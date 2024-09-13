@@ -37,43 +37,18 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                     }
                 }
                 Yaml::String(key) if key == "inventory" => {
-                    if let Yaml::Array(arr) = value {
-                        for (i, inv) in arr.iter().enumerate() {
-                            if let Yaml::Hash(inv) = inv {
-
-                                let res_type = inv
-                                    .get(&Yaml::String("resource_type".to_string()))
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("Unknown")
-                                    .to_string();
-
-                                let default = inv
-                                    .get(&Yaml::String("default".to_string()))
-                                    .and_then(|v| v.as_str())
-                                    .map(|v| json!(format!("$res:{}", v)));
-
-                                let name = if i == 0 {
-                                    "inventory.ini".to_string()
-                                } else {
-                                    format!("inventory-{}.ini", i)
-                                };
-
-                                let name = inv
-                                    .get(&Yaml::String("name".to_string()))
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or(name.as_str())
-                                    .to_string();
-
-                                args.push(Arg {
-                                    name,
-                                    otyp: None,
-                                    typ: Typ::Resource(res_type),
-                                    has_default: default.is_some(),
-                                    default,
-                                    oidx: None,
-                                })
-                            }
+                    for inv in parse_inventories(value)? {
+                        if inv.pin.is_some() {
+                            continue;
                         }
+                        args.push(Arg {
+                            name: inv.name,
+                            otyp: None,
+                            typ: Typ::Resource(inv.resource_type.unwrap_or("Unknown".to_string())),
+                            has_default: inv.default.is_some(),
+                            default: inv.default.map(|v| json!(format!("$res:{}", v))),
+                            oidx: None,
+                        })
                     }
                 }
                 _ => (),
@@ -148,14 +123,62 @@ fn parse_ansible_typ(arg: &Yaml) -> Typ {
 #[derive(Debug)]
 pub struct FileResource {
     pub windmill_path: String,
-    pub local_path: Option<String>,
+    pub local_path: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct AnsibleInventory {
+    pub default: Option<String>,
+    pub name: String,
+    resource_type: Option<String>,
+    pub pin: Option<String>,
+}
 #[derive(Debug)]
 pub struct AnsibleRequirements {
     pub python_reqs: Vec<String>,
     pub collections: Option<String>,
     pub file_resources: Vec<FileResource>,
+    pub inventories: Vec<AnsibleInventory>,
+}
+
+fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
+    if let Yaml::Array(arr) = inventory_yaml {
+        let mut ret = vec![];
+        for (i, inv) in arr.iter().enumerate() {
+            if let Yaml::Hash(inv) = inv {
+                let resource_type = inv
+                    .get(&Yaml::String("resource_type".to_string()))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let windmill_path = inv
+                    .get(&Yaml::String("default".to_string()))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let name = if i == 0 {
+                    "inventory.ini".to_string()
+                } else {
+                    format!("inventory-{}.ini", i)
+                };
+
+                let name = inv
+                    .get(&Yaml::String("name".to_string()))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(name.as_str())
+                    .to_string();
+
+                let pin = inv
+                    .get(&Yaml::String("pin".to_string()))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                ret.push(AnsibleInventory { default: windmill_path, name, resource_type, pin });
+            }
+        }
+        return Ok(ret);
+    }
+    return Err(anyhow!("Invalid inventory definition"));
 }
 
 pub fn parse_ansible_reqs(
@@ -169,8 +192,12 @@ pub fn parse_ansible_reqs(
         return Ok((logs, None, inner_content.to_string()));
     }
 
-    let mut ret =
-        AnsibleRequirements { python_reqs: vec![], collections: None, file_resources: vec![] };
+    let mut ret = AnsibleRequirements {
+        python_reqs: vec![],
+        collections: None,
+        file_resources: vec![],
+        inventories: vec![],
+    };
 
     if let Yaml::Hash(doc) = &docs[0] {
         for (key, value) in doc {
@@ -200,16 +227,14 @@ pub fn parse_ansible_reqs(
                     if let Yaml::Array(file_resources) = value {
                         let resources: anyhow::Result<Vec<FileResource>> =
                             file_resources.iter().map(parse_file_resource).collect();
-                        ret.file_resources = resources?;
+                        ret.file_resources.append(&mut resources?);
                     }
                 }
                 Yaml::String(key) if key == "extra_vars" => {}
-                Yaml::String(key) if key == "inventory" => {}
-                Yaml::String(key) => {
-                    logs.push_str(
-                        &format!("\nUnknown field `{}`. Ignoring", key),
-                    )
+                Yaml::String(key) if key == "inventory" => {
+                    ret.inventories = parse_inventories(value)?;
                 }
+                Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
                 _ => (),
             }
         }
@@ -228,12 +253,15 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
         if let Some(Yaml::String(windmill_path)) = f.get(&Yaml::String("windmill_path".to_string()))
         {
             let local_path = f
-                .get(&Yaml::String("windmill_path".to_string()))
+                .get(&Yaml::String("local_path".to_string()))
                 .and_then(|x| x.as_str())
-                .map(|x| x.to_string());
+                .map(|x| x.to_string())
+                .ok_or(anyhow!(
+                    "No local path provided for file resource {}.",
+                    windmill_path
+                ))?;
             return Ok(FileResource { windmill_path: windmill_path.clone(), local_path });
         }
     }
     return Err(anyhow!("Invalid file resource {:?}", yaml));
 }
-
