@@ -1,10 +1,10 @@
 import { useWorkerFactory } from 'monaco-editor-wrapper/workerFactory'
 
-import tsWorker from 'monaco-editor-wrapper/workers/module/ts?url'
-import cssWorker from 'monaco-editor-wrapper/workers/module/css?url'
-import htmlWorker from 'monaco-editor-wrapper/workers/module/html?url'
-import jsonWorker from 'monaco-editor-wrapper/workers/module/json?url'
-import editorWorker from 'monaco-editor-wrapper/workers/module/editor?url'
+import tsWorker from 'monaco-editor-wrapper/workers/module/ts?worker&url'
+import cssWorker from 'monaco-editor-wrapper/workers/module/css?worker&url'
+import htmlWorker from 'monaco-editor-wrapper/workers/module/html?worker&url'
+import jsonWorker from 'monaco-editor-wrapper/workers/module/json?worker&url'
+import editorWorker from 'monaco-editor-wrapper/workers/module/editor?worker&url'
 
 export function buildWorkerDefinition(workerPath: string, basePath: string, ...args: any[]) {
 	useWorkerFactory({
