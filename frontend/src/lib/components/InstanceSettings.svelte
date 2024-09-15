@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { settings, settingsKeys, type SettingStorage } from './instanceSettings'
-	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
-	import { ConfigService, SettingService } from '$lib/gen'
+	import { Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { ConfigService, SettingService, SettingsService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -37,6 +37,8 @@
 	import Popover from './Popover.svelte'
 
 	import { base } from '$lib/base'
+	import { createEventDispatcher } from 'svelte'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -54,8 +56,21 @@
 
 	let serverConfig = {}
 	let initialValues: Record<string, any> = {}
+	let loading = true
+
+	let version: string = ''
+
 	loadSettings()
+	loadVersion()
+
+	const dispatch = createEventDispatcher()
+
+	async function loadVersion() {
+		version = await SettingsService.backendVersion()
+	}
+
 	async function loadSettings() {
+		loading = true
 		try {
 			serverConfig = (await ConfigService.getConfig({ name: 'server' })) ?? {}
 		} catch (e) {
@@ -95,6 +110,8 @@
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
 		}
+		loading = false
+
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
@@ -113,6 +130,7 @@
 				})
 				serverConfig = JSON.parse(JSON.stringify(newServerConfig))
 			}
+			let licenseKeySet = false
 			await Promise.all(
 				allSettings
 					.filter((x) => {
@@ -125,7 +143,13 @@
 						)
 					})
 					.map(async ([_, x]) => {
-						await SettingService.setGlobal({ key: x.key, requestBody: { value: values?.[x.key] } })
+						if (x.key == 'license_key') {
+							licenseKeySet = true
+						}
+						return await SettingService.setGlobal({
+							key: x.key,
+							requestBody: { value: values?.[x.key] }
+						})
 					})
 			)
 			initialValues = JSON.parse(JSON.stringify(values))
@@ -145,10 +169,14 @@
 					requestBody: { value: requirePreexistingUserForOauth }
 				})
 			}
+			if (licenseKeySet) {
+				setLicense()
+			}
 		} else {
 			console.error('Values not loaded')
 		}
 		sendUserToast('Settings updated')
+		dispatch('saved')
 	}
 
 	let oauths: Record<string, any> = {}
@@ -238,6 +266,15 @@
 			opening = false
 		}
 	}
+
+	function showSetting(setting: string, values: Record<string, any>) {
+		if (setting == 'dev_instance') {
+			if (values['license_key'] == undefined) {
+				return false
+			}
+		}
+		return true
+	}
 </script>
 
 <div class="pb-8">
@@ -249,6 +286,7 @@
 
 		<svelte:fragment slot="content">
 			<div class="pt-4" />
+
 			{#each Object.keys(settings) as category}
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
@@ -285,8 +323,7 @@
 								size="xs">Send usage</Button
 							>
 						{/if}
-					{/if}
-					{#if category == 'SSO/OAuth'}
+					{:else if category == 'SSO/OAuth'}
 						<div>
 							<Tabs bind:selected={ssoOrOauth} class="mt-2 mb-4">
 								<Tab value="sso">SSO</Tab>
@@ -477,7 +514,7 @@
 					<div>
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
-								{#if !setting.cloudonly || isCloudHosted()}
+								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values)}
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 											<AlertTriangle size={16} />
@@ -494,7 +531,9 @@
 										{/if}
 										{#if values}
 											{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
-											{#if setting.fieldType == 'text'}
+											{#if loading}
+												<Skeleton layout={[[2.5]]} />
+											{:else if setting.fieldType == 'text'}
 												<input
 													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
@@ -559,14 +598,16 @@
 														{:else if expiration}
 															<div class="flex flex-row gap-1 items-center">
 																<AlertCircle size={12} class="text-red-600" />
-																<span class="text-red-600 text-xs"
+																<span class="text-red-600 dark:text-red-400 text-xs"
 																	>License key expired on {expiration}</span
 																>
 															</div>
 														{:else}
 															<div class="flex flex-row gap-1 items-center">
 																<AlertCircle size={12} class="text-red-600" />
-																<span class="text-red-600 text-xs">Invalid license key format</span>
+																<span class="text-red-600 dark:text-red-400 text-xs"
+																	>Invalid license key format</span
+																>
 															</div>
 														{/if}
 													{/if}
@@ -617,13 +658,12 @@
 														</div>
 													{/if}
 													{#if licenseKeyChanged && !$enterpriseLicense}
-														<div class="flex flex-row items-center gap-1">
-															<AlertCircle size={12} class="text-yellow-600" />
-															<span class="text-xs text-yellow-600">
-																Refresh page after setting and saving license key to unlock all
-																features
-															</span>
-														</div>
+														{#if version.startsWith('CE')}
+															<div class="text-red-400"
+																>License key is set but image used is the Community Edition {version}.
+																Switch image to EE.</div
+															>
+														{/if}
 													{/if}
 
 													{#if valid || expiration}
@@ -810,7 +850,7 @@
 											{/if}
 
 											{#if hasError}
-												<span class="text-red-500 text-xs">
+												<span class="text-red-500 dark:text-red-400 text-sm">
 													{setting.error ?? ''}
 												</span>
 											{/if}

@@ -91,8 +91,7 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Whether we should consider the reported usage of this instance as non-prod',
 			key: 'dev_instance',
 			fieldType: 'boolean',
-			storage: 'setting',
-			ee_only: 'This is only relevant for EE'
+			storage: 'setting'
 		},
 		{
 			label: 'Retention period in secs',
