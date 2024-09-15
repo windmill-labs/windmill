@@ -41,6 +41,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "benchmark")]
+use std::sync::atomic::AtomicUsize;
+
 use uuid::Uuid;
 
 use windmill_common::{
