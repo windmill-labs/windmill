@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.394.6](https://github.com/windmill-labs/windmill/compare/v1.394.5...v1.394.6) (2024-09-15)
+
+
+### Bug Fixes
+
+* improve first time setup experience ([396258f](https://github.com/windmill-labs/windmill/commit/396258f637e65361a9d9e0285b0a42ca5189fad4))
+
 ## [1.394.5](https://github.com/windmill-labs/windmill/compare/v1.394.4...v1.394.5) (2024-09-13)
 
 
