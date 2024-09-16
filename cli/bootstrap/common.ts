@@ -9,9 +9,11 @@ export interface SchemaProperty {
   contentEncoding?: "base64" | "binary";
   format?: string;
   items?: {
-    type?: "string" | "number" | "bytes" | "object";
+    type?: "string" | "number" | "bytes" | "object" | "resource";
     contentEncoding?: "base64";
     enum?: string[];
+    resourceType?: string;
+    properties?: { [name: string]: SchemaProperty };
   };
   min?: number;
   max?: number;

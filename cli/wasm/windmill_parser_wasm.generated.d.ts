@@ -18,7 +18,8 @@ export interface InstantiateResult {
     parse_mssql: typeof parse_mssql;
     parse_db_resource: typeof parse_db_resource;
     parse_graphql: typeof parse_graphql;
-    parse_php: typeof parse_php
+    parse_php: typeof parse_php;
+    parse_rust: typeof parse_rust
   };
 }
 
@@ -118,3 +119,8 @@ export function parse_graphql(code: string): string;
 * @returns {string}
 */
 export function parse_php(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_rust(code: string): string;
