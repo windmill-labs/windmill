@@ -10,7 +10,9 @@ use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    job_metrics::{record_metric, JobStatsRecord, MetricKind, MetricNumericValue},
+    job_metrics::{
+        record_metric, register_metric_for_job, JobStatsRecord, MetricKind, MetricNumericValue,
+    },
 };
 
 pub fn workspaced_service() -> Router {
@@ -153,14 +155,34 @@ async fn get_job_metrics(
 #[derive(Deserialize)]
 struct JobProgressSetRequest {
     percent: i32,
+    /// Register metric for the first time
+    /// Clients will put true once first `setProgress` called
+    /// After it will be always false
+    register: bool,
+    /// Optional parent flow id
+    /// Used to modify flow status
+    /// Specifically `progress` field in corresponding FlowStatusModule in `InProgress` state
     flow_job_id: Option<Uuid>,
 }
 
 async fn set_job_progress(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Json(JobProgressSetRequest { percent, flow_job_id }): Json<JobProgressSetRequest>,
+    Json(JobProgressSetRequest { percent, register, flow_job_id }): Json<JobProgressSetRequest>,
 ) -> error::JsonResult<()> {
+    if register {
+        // TODO: Possible collisions?
+        _ = register_metric_for_job(
+            &db,
+            w_id.clone(),
+            job_id,
+            "progress_perc".to_string(),
+            MetricKind::ScalarInt,
+            Some("Job Execution Progress (%)".to_owned()),
+        )
+        .await?;
+    }
+
     if let Some(flow_job_id) = flow_job_id {
         sqlx::query!(
             "UPDATE queue
@@ -189,13 +211,19 @@ async fn get_job_progress(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Option<i32>> {
-    let progress: Option<i32> = sqlx::query_scalar!(
+    let progress: Option<Option<i32>> = sqlx::query_scalar!(
             "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
             job_id, w_id)
-            .fetch_one(&db)
+            .fetch_optional(&db)
             .await?;
 
-    Ok(Json(progress))
+    let respond_value = if let Some(Some(progress)) = progress {
+        Some(progress.clamp(0, 99))
+    } else {
+        None
+    };
+
+    Ok(Json(respond_value))
 }
 
 fn timeseries_sample<T: Copy>(

@@ -7,7 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, job_metrics::{self, register_metric_for_job, MetricKind}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file, ROOT_CACHE_DIR, TMP_DIR}
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, job_metrics::{self, MetricKind}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file, ROOT_CACHE_DIR, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -1551,12 +1551,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
 
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
-                    // TODO: Possible collisions?
-                    // Register here even tho not all scripts have progress.  
-                    // For optimization reasons, otherwise we should have check if progress exists every time script calls `setProgress`
-                    register_metric_for_job(
-                        db, job.workspace_id.clone(), job.id, "progress_perc".to_string(), MetricKind::ScalarInt, Some("Job Execution Progress (%)".to_owned()),
-                    ).await;
 
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {

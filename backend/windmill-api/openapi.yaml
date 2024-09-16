@@ -8628,6 +8628,8 @@ paths:
               properties:
                 percent:
                   type: integer
+                register:
+                  type: boolean
                 flow_job_id:
                   type: string
                   format: uuid
