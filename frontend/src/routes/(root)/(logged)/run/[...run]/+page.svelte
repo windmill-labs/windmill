@@ -735,7 +735,7 @@
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}
-			<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true}/>
+				<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true}/>
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
 					<Tabs bind:selected={viewTab}>

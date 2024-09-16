@@ -20,6 +20,12 @@
 	$: subIndex = scriptProgress ?? 0;
 
 	function updateJobProgress(job: Job) { 
+		if (!job['running'] && !job['success']){
+			error = 0;			
+		}	else {
+			error = undefined;			
+		}
+		
 		if (job['success'])	
 			index = 1, subLength = 0, subIndex = 0;				
 	}
