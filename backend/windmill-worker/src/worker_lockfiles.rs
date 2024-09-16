@@ -28,7 +28,7 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
-    bun_executor::gen_lockfile,
+    bun_executor::gen_bun_lockfile,
     deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
     php_executor::{composer_install, parse_php_imports},
@@ -1413,12 +1413,12 @@ async fn capture_dependency_job(
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code)?;
             }
-            let req = gen_lockfile(
+            let req = gen_bun_lockfile(
                 mem_peak,
                 canceled_by,
                 job_id,
                 w_id,
-                db,
+                Some(db),
                 token,
                 script_path,
                 job_dir,
@@ -1434,13 +1434,13 @@ async fn capture_dependency_job(
             )
             .await?;
             if req.is_some() && !raw_deps {
-                crate::bun_executor::prebundle_script(
+                crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
                     req.clone(),
                     script_path,
                     job_id,
                     w_id,
-                    db,
+                    Some(db.clone()),
                     &job_dir,
                     base_internal_url,
                     worker_name,

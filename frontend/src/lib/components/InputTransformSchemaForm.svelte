@@ -12,7 +12,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 	import { Plus } from 'lucide-svelte'
 
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> }
 	export let args: Record<string, InputTransform | any> = {}
 
 	export let isValid: boolean = true

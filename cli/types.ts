@@ -1,13 +1,20 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { SEP, colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
+import {
+  Diff,
+  SEP,
+  colors,
+  log,
+  path,
+  yamlParse,
+  yamlStringify,
+} from "./deps.ts";
 import { pushApp } from "./apps.ts";
 import { pushFolder } from "./folder.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { pushVariable } from "./variable.ts";
-import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
 import { deepEqual } from "./utils.ts";
@@ -38,6 +45,7 @@ export interface DifferenceChange {
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
 export type GlobalOptions = {
+  baseUrl: string | undefined;
   workspace: string | undefined;
   token: string | undefined;
 };

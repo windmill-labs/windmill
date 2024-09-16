@@ -36,6 +36,7 @@
 </script>
 
 <div class="flex flex-col gap-1">
+	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="text-sm flex gap-4 items-center font-medium text-primary"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
@@ -92,16 +93,16 @@
 					</div>
 				</CollapseLink>
 			{:else if name == 'slack'}
-			<CollapseLink text="Instructions">
-				<div class="text-sm text-secondary border p-2">
-					Create a new App <a
-						href="https://api.slack.com/apps?new_app=1"
-						target="_blank">in Slack API Console</a>.
-					Pick "From an app manifest", then YAML and paste manifest template found on <a
-					href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
-					target="_blank">Windmill Docs</a> and then paste Client ID and Client Secret here.
-				</div>
-			</CollapseLink>
+				<CollapseLink text="Instructions">
+					<div class="text-sm text-secondary border p-2">
+						Create a new App <a href="https://api.slack.com/apps?new_app=1" target="_blank"
+							>in Slack API Console</a
+						>. Pick "From an app manifest", then YAML and paste manifest template found on
+						<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
+							>Windmill Docs</a
+						> and then paste Client ID and Client Secret here.
+					</div>
+				</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
 					<div class="text-sm text-secondary border p-2">

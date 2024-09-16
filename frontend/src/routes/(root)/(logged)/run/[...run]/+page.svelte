@@ -333,7 +333,7 @@
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
-{#if notfound}
+{#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
@@ -793,6 +793,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					initialJob={job}
 					workspaceId={$workspaceStore}
 					bind:selectedJobStep
 				/>

@@ -22,8 +22,9 @@
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
+	const slackSuccessHandler = hubPaths.slackSuccessHandler
 
-	export let errorOrRecovery: 'error' | 'recovery'
+	export let errorOrRecovery: 'error' | 'recovery' | 'success'
 	export let isEditable: boolean
 	export let slackToggleText: string = 'Enable'
 	export let showScriptHelpText: boolean = false
@@ -135,10 +136,12 @@
 				scriptPath.startsWith('hub/') &&
 				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
 			)
-		} else {
+		} else if (errorOrRecovery == 'recovery') {
 			return (
 				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
 			)
+		} else {
+			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-slack')
 		}
 	}
 
@@ -256,6 +259,8 @@
 					handlerPath = slackHandlerScriptPath
 				} else if (e.detail && errorOrRecovery === 'recovery') {
 					handlerPath = slackRecoveryHandler
+				} else if (e.detail && errorOrRecovery === 'success') {
+					handlerPath = slackSuccessHandler
 				} else {
 					handlerPath = undefined
 				}

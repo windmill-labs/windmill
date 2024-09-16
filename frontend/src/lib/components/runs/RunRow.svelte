@@ -212,14 +212,14 @@
 		{/if}
 	</div>
 	{#if containsLabel}
-		<div class="w-3/12 flex justify-start">
+		<div class="w-3/12 flex justify-start px-0.5">
 			{#if job && job?.['labels']}
 				<div class="flex flex-row items-center gap-1 overflow-x-auto">
 					{#if Array.isArray(job?.['labels'])}
 						{#each job?.['labels'] as label}
 							<Button
 								variant="border"
-								size="xs2"
+								size="xs3"
 								btnClasses={twMerge(
 									activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 									'!text-2xs !font-normal truncate max-w-28'
@@ -228,9 +228,9 @@
 								on:click={() => {
 									dispatch('filterByLabel', label)
 								}}
+								endIcon={{ icon: ListFilter }}
 							>
 								{label}
-								<ListFilter size={10} />
 							</Button>
 						{/each}
 					{/if}
@@ -248,7 +248,7 @@
 					btnClasses="font-normal"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
-					<div class="truncate text-ellipsis text-left">
+					<div class="truncate text-ellipsis text-left" title={job.schedule_path}>
 						{truncateRev(job.schedule_path, 20)}
 					</div>
 				</Button>
@@ -264,15 +264,15 @@
 			</div>
 		{:else}
 			<div class="flex flex-row gap-1 items-center">
-				<div class="text-xs">
-					{job.created_by}
+				<div class="text-xs truncate text-ellipsis text-left" title={job.created_by}>
+					{truncateRev(job.created_by ?? '', 20)}
 				</div>
 				{#if !isExternal}
 					<Button
 						size="xs2"
 						color="light"
 						on:click={() => {
-							dispatch('filterByUser', job.created_by)
+							dispatch('filterByUser', job.created_by ?? '')
 						}}
 					>
 						<ListFilter size={10} />

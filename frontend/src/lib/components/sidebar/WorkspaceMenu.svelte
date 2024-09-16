@@ -39,9 +39,12 @@
 
 		if (!isOnEditPage) {
 			switchWorkspace(id)
+			if ($page.url.searchParams.get('workspace')) {
+				$page.url.searchParams.set('workspace', id)
+			}
 		} else {
-			await goto('/')
 			switchWorkspace(id)
+			await goto('/')
 		}
 	}
 </script>

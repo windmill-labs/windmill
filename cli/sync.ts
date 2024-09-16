@@ -21,7 +21,6 @@ import {
   yamlParse,
   ScheduleService,
   SEP,
-  gitignore_parser,
   UserService,
   GroupService,
 } from "./deps.ts";
@@ -158,7 +157,7 @@ export async function FSFSElement(
             );
           }
         } catch (e) {
-          log.warning(`Error reading dir: ${localP}, ${e}`);
+          log.warn(`Error reading dir: ${localP}, ${e}`);
         }
       },
       // async getContentBytes(): Promise<Uint8Array> {
@@ -621,7 +620,7 @@ export async function elementsToMap(
           continue;
         }
       } catch (e) {
-        log.warning(`Error reading variable ${path} to check for secrets`);
+        log.warn(`Error reading variable ${path} to check for secrets`);
       }
     }
     map[entry.path] = content;
@@ -799,6 +798,7 @@ export const isWhitelisted = (p: string) => {
 export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
+  extraIncludes?: string[];
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -812,36 +812,19 @@ export async function ignoreF(wmillconf: {
           (!wmillconf.includes ||
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
-            wmillconf.excludes!.every((i) => !minimatch(file, i)))
+            wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
+          (!wmillconf.extraIncludes ||
+            wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
     };
   }
-  let ign:
-    | {
-        denies(file: string): boolean;
-      }
-    | undefined = undefined;
 
   try {
-    const ignoreContent = await Deno.readTextFile(".wmillignore");
-    const condensed = ignoreContent
-      .split("\n")
-      .filter((l) => l != "" && !l.startsWith("#"))
-      .join(", ");
-    log.info(
-      colors.gray(
-        `(Deprecated, use wmill.yaml/includes instead) Using .wmillignore file (${condensed})`
-      )
-    );
-    ign = gitignore_parser.compile(ignoreContent);
-  } catch {}
-
-  if (ign && whitelist) {
-    log.error(
-      "Cannot have both .wmillignore and wmill.yaml/includes or excludes, ignoring .wmillignore"
-    );
-    ign = undefined;
+    await Deno.stat(".wmillignore");
+    throw Error(".wmillignore is not supported anymore, switch to wmill.yaml");
+  } catch {
+    //expected
   }
 
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
@@ -849,9 +832,7 @@ export async function ignoreF(wmillconf: {
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
-        (!isDirectory &&
-          ((whitelist != undefined && !whitelist.approve(p)) ||
-            (ign != undefined && ign.denies(p)))))
+        (!isDirectory && whitelist != undefined && !whitelist.approve(p)))
     );
   };
 }
@@ -920,6 +901,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     const conflicts = [];
     const changedScripts: string[] = [];
     const changedFlows: string[] = [];
+    const changedApps: string[] = [];
 
     // deno-lint-ignore no-inner-declarations
     async function addToChangedIfNotExists(p: string) {
@@ -930,6 +912,11 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
             p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
           if (!changedFlows.includes(folder)) {
             changedFlows.push(folder);
+          }
+        } else if (p.includes(".app" + SEP)) {
+          const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+          if (!changedApps.includes(folder)) {
+            changedApps.push(folder);
           }
         } else {
           if (!changedScripts.includes(p)) {
@@ -1071,6 +1058,13 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     for (const change of changedFlows) {
       log.info(`Updating lock for flow ${change}`);
       await generateFlowLockInternal(change, false, workspace, true);
+    }
+    if (changedApps.length > 0) {
+      log.info(
+        `Apps ${changedApps.join(
+          ", "
+        )} scripts were changed but ignoring for now`
+      );
     }
     log.info(
       colors.bold.green.underline(
@@ -1327,7 +1321,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           case "folder":
             await FolderService.deleteFolder({
               workspace: workspaceId,
-              name: change.path.split(path.sep)[1],
+              name: change.path.split(SEP)[1],
             });
             break;
           case "resource":
@@ -1421,9 +1415,7 @@ const command = new Command()
     log.info("2 actions available, pull and push. Use -h to display help.")
   )
   .command("pull")
-  .description(
-    "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking."
-  )
+  .description("Pull any remote changes and apply them locally.")
   .option(
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
@@ -1449,18 +1441,20 @@ const command = new Command()
   .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account."
+    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes"
+  )
+  .option(
+    "--extra-includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
-  .description(
-    "Push any local changes and apply them remotely. Use --raw for usage without local state tracking."
-  )
+  .description("Push any local changes and apply them remotely.")
   .option(
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
@@ -1492,6 +1486,10 @@ const command = new Command()
   .option(
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
+  )
+  .option(
+    "--extra-includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
   .option(
     "--message <message:string>",

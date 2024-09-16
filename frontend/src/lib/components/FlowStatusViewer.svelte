@@ -6,8 +6,10 @@
 	import type { FlowStatusViewerContext } from './graph'
 	import { isOwner as loadIsOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import type { Job } from '$lib/gen'
 
 	export let jobId: string
+	export let initialJob: Job | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let flowStateStore: Writable<FlowState> = writable({})
 	export let selectedJobStep: string | undefined = undefined
@@ -68,6 +70,7 @@
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done
+	{initialJob}
 	{jobId}
 	{workspaceId}
 	{isOwner}

@@ -32,6 +32,8 @@
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
 
+	ansi_up.use_classes = true
+
 	let scroll = true
 	let div: HTMLElement | null = null
 
@@ -254,3 +256,209 @@
 		>
 	</div>
 </div>
+
+<style global>
+	/* Foreground colors */
+	.ansi-black-fg {
+		color: rgb(0, 0, 0);
+	}
+	.ansi-red-fg {
+		color: rgb(187, 0, 0);
+	}
+	.ansi-green-fg {
+		color: rgb(0, 187, 0);
+	}
+	.ansi-yellow-fg {
+		color: rgb(187, 187, 0);
+	}
+	.ansi-blue-fg {
+		color: rgb(0, 0, 187);
+	}
+	.ansi-magenta-fg {
+		color: rgb(187, 0, 187);
+	}
+	.ansi-cyan-fg {
+		color: rgb(0, 187, 187);
+	}
+	.ansi-white-fg {
+		color: rgb(255, 255, 255);
+	}
+
+	.ansi-bright-black-fg {
+		color: rgb(85, 85, 85);
+	}
+	.ansi-bright-red-fg {
+		color: rgb(255, 85, 85);
+	}
+	.ansi-bright-green-fg {
+		color: rgb(0, 255, 0);
+	}
+	.ansi-bright-yellow-fg {
+		color: rgb(255, 255, 85);
+	}
+	.ansi-bright-blue-fg {
+		color: rgb(85, 85, 255);
+	}
+	.ansi-bright-magenta-fg {
+		color: rgb(255, 85, 255);
+	}
+	.ansi-bright-cyan-fg {
+		color: rgb(85, 255, 255);
+	}
+	.ansi-bright-white-fg {
+		color: rgb(255, 255, 255);
+	}
+
+	/* Background colors */
+	.ansi-black-bg {
+		background-color: rgb(0, 0, 0);
+	}
+	.ansi-red-bg {
+		background-color: rgb(187, 0, 0);
+	}
+	.ansi-green-bg {
+		background-color: rgb(0, 187, 0);
+	}
+	.ansi-yellow-bg {
+		background-color: rgb(187, 187, 0);
+	}
+	.ansi-blue-bg {
+		background-color: rgb(0, 0, 187);
+	}
+	.ansi-magenta-bg {
+		background-color: rgb(187, 0, 187);
+	}
+	.ansi-cyan-bg {
+		background-color: rgb(0, 187, 187);
+	}
+	.ansi-white-bg {
+		background-color: rgb(255, 255, 255);
+	}
+
+	.ansi-bright-black-bg {
+		background-color: rgb(85, 85, 85);
+	}
+	.ansi-bright-red-bg {
+		background-color: rgb(255, 85, 85);
+	}
+	.ansi-bright-green-bg {
+		background-color: rgb(0, 255, 0);
+	}
+	.ansi-bright-yellow-bg {
+		background-color: rgb(255, 255, 85);
+	}
+	.ansi-bright-blue-bg {
+		background-color: rgb(85, 85, 255);
+	}
+	.ansi-bright-magenta-bg {
+		background-color: rgb(255, 85, 255);
+	}
+	.ansi-bright-cyan-bg {
+		background-color: rgb(85, 255, 255);
+	}
+	.ansi-bright-white-bg {
+		background-color: rgb(255, 255, 255);
+	}
+
+	/* Foreground colors for dark mode (Nord theme) */
+	.dark .ansi-black-fg {
+		color: rgb(46, 52, 64);
+	}
+	.dark .ansi-red-fg {
+		color: rgb(191, 97, 106);
+	}
+	.dark .ansi-green-fg {
+		color: rgb(163, 190, 140);
+	}
+	.dark .ansi-yellow-fg {
+		color: rgb(235, 203, 139);
+	}
+	.dark .ansi-blue-fg {
+		color: rgb(94, 129, 172);
+	}
+	.dark .ansi-magenta-fg {
+		color: rgb(180, 142, 173);
+	}
+	.dark .ansi-cyan-fg {
+		color: rgb(136, 192, 208);
+	}
+	.dark .ansi-white-fg {
+		color: rgb(216, 222, 233);
+	}
+
+	.dark .ansi-bright-black-fg {
+		color: rgb(67, 76, 94);
+	}
+	.dark .ansi-bright-red-fg {
+		color: rgb(191, 97, 106);
+	}
+	.dark .ansi-bright-green-fg {
+		color: rgb(163, 190, 140);
+	}
+	.dark .ansi-bright-yellow-fg {
+		color: rgb(235, 203, 139);
+	}
+	.dark .ansi-bright-blue-fg {
+		color: rgb(94, 129, 172);
+	}
+	.dark .ansi-bright-magenta-fg {
+		color: rgb(180, 142, 173);
+	}
+	.dark .ansi-bright-cyan-fg {
+		color: rgb(136, 192, 208);
+	}
+	.dark .ansi-bright-white-fg {
+		color: rgb(229, 233, 240);
+	}
+
+	/* Background colors for dark mode (Nord theme) */
+	.dark .ansi-black-bg {
+		background-color: rgb(46, 52, 64);
+	}
+	.dark .ansi-red-bg {
+		background-color: rgb(191, 97, 106);
+	}
+	.dark .ansi-green-bg {
+		background-color: rgb(163, 190, 140);
+	}
+	.dark .ansi-yellow-bg {
+		background-color: rgb(235, 203, 139);
+	}
+	.dark .ansi-blue-bg {
+		background-color: rgb(94, 129, 172);
+	}
+	.dark .ansi-magenta-bg {
+		background-color: rgb(180, 142, 173);
+	}
+	.dark .ansi-cyan-bg {
+		background-color: rgb(136, 192, 208);
+	}
+	.dark .ansi-white-bg {
+		background-color: rgb(216, 222, 233);
+	}
+
+	.dark .ansi-bright-black-bg {
+		background-color: rgb(67, 76, 94);
+	}
+	.dark .ansi-bright-red-bg {
+		background-color: rgb(191, 97, 106);
+	}
+	.dark .ansi-bright-green-bg {
+		background-color: rgb(163, 190, 140);
+	}
+	.dark .ansi-bright-yellow-bg {
+		background-color: rgb(235, 203, 139);
+	}
+	.dark .ansi-bright-blue-bg {
+		background-color: rgb(94, 129, 172);
+	}
+	.dark .ansi-bright-magenta-bg {
+		background-color: rgb(180, 142, 173);
+	}
+	.dark .ansi-bright-cyan-bg {
+		background-color: rgb(136, 192, 208);
+	}
+	.dark .ansi-bright-white-bg {
+		background-color: rgb(229, 233, 240);
+	}
+</style>

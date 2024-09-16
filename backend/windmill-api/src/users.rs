@@ -8,7 +8,7 @@
 
 #![allow(non_snake_case)]
 
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::db::ApiAuthed;
@@ -111,6 +111,7 @@ pub fn global_service() -> Router {
         .route("/leave_instance", post(leave_instance))
         .route("/export", get(export_global_users))
         .route("/overwrite", post(overwrite_global_users))
+
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -121,8 +122,8 @@ pub fn global_service() -> Router {
 pub fn make_unauthed_service() -> Router {
     Router::new()
         .route("/login", post(login))
-        .route("/logout", post(logout))
-        .route("/logout", get(logout))
+        .route("/logout", post(logout).get(logout))
+        .route("/is_first_time_setup", get(is_first_time_setup))
 }
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
@@ -824,6 +825,48 @@ pub struct NewToken {
 pub struct Login {
     pub email: String,
     pub password: String,
+}
+
+lazy_static::lazy_static! {
+    static ref FIRST_TIME_SETUP: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+}
+
+pub async fn is_first_time_setup(Extension(db): Extension<DB>) -> JsonResult<bool> {
+    if !FIRST_TIME_SETUP.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(Json(false));
+    }
+    let single_user = sqlx::query_scalar!("SELECT 1 FROM password LIMIT 2")
+        .fetch_all(&db)
+        .await
+        .ok()
+        .unwrap_or_default()
+        .len()
+        == 1;
+    if single_user {
+        let user_is_admin_and_password_changeme = sqlx::query_scalar!(
+            "SELECT 1 FROM password WHERE email = 'admin@windmill.dev' AND password_hash = '$argon2id$v=19$m=4096,t=3,p=1$oLJo/lPn/gezXCuFOEyaNw$i0T2tCkw3xUFsrBIKZwr8jVNHlIfoxQe+HfDnLtd12I'"
+        ).fetch_all(&db)
+        .await
+        .ok()
+        .unwrap_or_default()
+        .len() == 1;
+        if user_is_admin_and_password_changeme {
+            let base_url_is_not_set =
+                sqlx::query_scalar!("SELECT COUNT(*) FROM global_settings WHERE name = 'base_url'")
+                    .fetch_optional(&db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten()
+                    .unwrap_or(0)
+                    == 0;
+            if base_url_is_not_set {
+                return Ok(Json(true));
+            }
+        }
+    }
+    FIRST_TIME_SETUP.store(false, std::sync::atomic::Ordering::Relaxed);
+    Ok(Json(false))
 }
 
 #[derive(Deserialize)]

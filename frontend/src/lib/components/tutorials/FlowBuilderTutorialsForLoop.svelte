@@ -141,8 +141,8 @@
 							}
 
 							$flowStateStore[newId] = emptyFlowModuleState()
-
-							$flowStateStore[newId].schema.properties = {
+							let schema = $flowStateStore[newId].schema ?? { properties: {} }
+							schema.properties = {
 								x: {
 									type: 'string',
 									description: '',

@@ -792,6 +792,11 @@ async fn get_logs_from_store(
 
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
+                    yield Ok(bytes::Bytes::from(
+                        r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
+                "#
+                        .to_string(),
+                    ));
                     for file_p in file_index.clone() {
                         let file_p_2 = file_p.clone();
                         let file = os.get(&object_store::path::Path::from(file_p)).await;
@@ -833,6 +838,10 @@ async fn get_logs_from_disk(
 
             let logs = logs.to_string();
             let stream = async_stream::stream! {
+                yield Ok(bytes::Bytes::from(
+                    r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
+            "#.to_string(),
+                ));
                 for file_p in file_index.clone() {
                     let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
@@ -892,6 +901,10 @@ async fn get_job_logs(
         {
             return r.map(content_plain);
         }
+        let logs = format!(
+            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+            logs
+        );
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
@@ -922,6 +935,11 @@ async fn get_job_logs(
         if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
             return r.map(content_plain);
         }
+
+        let logs = format!(
+            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
+            logs
+        );
         Ok(content_plain(Body::from(logs)))
     }
 }
@@ -1161,16 +1179,10 @@ pub fn filter_list_queue_query(
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
     if let Some(dt) = &lq.started_before {
-        sqlb.and_where_le(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.started_after {
-        sqlb.and_where_ge(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
@@ -1182,16 +1194,10 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(dt) = &lq.created_before {
-        sqlb.and_where_le(
-            "created_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_le("created_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_after {
-        sqlb.and_where_ge(
-            "created_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_after {
@@ -4664,6 +4670,13 @@ pub fn filter_list_completed_query(
             .on_eq("id", "outstanding_wait_time.job_id");
     }
 
+    if let Some(label) = &lq.label {
+        let mut wh = format!("result->'wm_labels' ? ");
+        wh.push_str(&format!("'{}'", &label.replace("'", "''")));
+        sqlb.and_where("result ? 'wm_labels'");
+        sqlb.and_where(&wh);
+    }
+
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -4694,36 +4707,28 @@ pub fn filter_list_completed_query(
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
     if let Some(dt) = &lq.started_before {
-        sqlb.and_where_le(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.started_after {
-        sqlb.and_where_ge(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_before {
-        sqlb.and_where_le(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
-        sqlb.and_where_ge(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+    }
+
+    if let Some(dt) = &lq.created_before {
+        sqlb.and_where_le("created_at", "?".bind(&dt.to_rfc3339()));
+    }
+    if let Some(dt) = &lq.created_after {
+        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_after_completed_jobs {
-        sqlb.and_where_ge(
-            "started_at",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
-        );
+        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(sk) = &lq.is_skipped {
@@ -4750,13 +4755,6 @@ pub fn filter_list_completed_query(
 
     if let Some(result) = &lq.result {
         sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
-    }
-
-    if let Some(label) = &lq.label {
-        let mut wh = format!("result->'wm_labels' ? ");
-        wh.push_str(&format!("'{}'", &label.replace("'", "''")));
-        sqlb.and_where(&wh);
-        sqlb.and_where("result ? 'wm_labels'");
     }
 
     if lq.is_not_schedule.unwrap_or(false) {

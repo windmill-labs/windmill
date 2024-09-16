@@ -44,13 +44,13 @@ export async function readConfigFile(): Promise<SyncOptions> {
       await Deno.readTextFile("wmill.yaml")
     ) as SyncOptions;
     if (conf?.defaultTs == undefined) {
-      log.warning(
+      log.warn(
         "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
       );
     }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
-    log.warning(
+    log.warn(
       "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
     );
     return {};

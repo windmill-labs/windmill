@@ -146,19 +146,25 @@
 	const appPreviewScript = `import puppeteer from 'puppeteer-core';
 import dayjs from 'dayjs';
 export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
-  const browser = await puppeteer.launch({ headless: 'new', executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+  let browser = null
+  try {
+  browser = await puppeteer.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox',
+      '--no-zygote',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'] });
   const page = await browser.newPage();
   await page.setCookie({
     "name": "token",
     "value": Bun.env["WM_TOKEN"],
-    "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, '')
+    "domain": Bun.env["BASE_URL"]?.replace(/https?:\\/\\//, '')
   })
   page
     .on('console', msg =>
       console.log(dayjs().format("HH:mm:ss") + " " + msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
     .on('pageerror', ({ msg }) => console.log(dayjs().format("HH:mm:ss") + " " + msg));
   await page.setViewport({ width: 1200, height: 2000 });
-  await page.goto(Bun.env["WM_BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
+  await page.goto(Bun.env["BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
   await new Promise((resolve, _) => {
 		setTimeout(resolve, startup_duration * 1000)
@@ -182,8 +188,14 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		type: "png",
     captureBeyondViewport: false
 	});
-  await browser.close();
-  return Buffer.from(screenshot).toString('base64');
+	await browser.close();
+	return Buffer.from(screenshot).toString('base64');
+  } catch (err) {
+	if (browser) {
+	  await browser.close();
+	}
+	throw err;
+  }
 }`
 
 	const notificationScripts = {

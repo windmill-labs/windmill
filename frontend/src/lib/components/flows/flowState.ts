@@ -5,7 +5,7 @@ import { loadFlowModuleState } from './flowStateUtils'
 import { emptyFlowModuleState } from './utils'
 
 export type FlowModuleState = {
-	schema: Schema
+	schema?: Schema
 	previewResult?: any
 	previewArgs?: any
 }

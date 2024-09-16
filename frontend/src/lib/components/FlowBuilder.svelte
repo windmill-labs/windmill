@@ -883,7 +883,7 @@
 						Object.keys(flowModule.value.input_transforms).forEach((key) => {
 							if (key !== 'prev_output') {
 								const schema = $flowStateStore[module.id].schema
-								const schemaProperty = Object.entries(schema.properties).find(
+								const schemaProperty = Object.entries(schema?.properties ?? {}).find(
 									(x) => x[0] === key
 								)?.[1]
 								const snakeKey = snakeCase(key)
@@ -892,7 +892,7 @@
 									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
-									if (schema.required.includes(snakeKey)) {
+									if (schema?.required.includes(snakeKey)) {
 										copilotFlowRequiredInputs.push(snakeKey)
 									}
 								}

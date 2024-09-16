@@ -138,7 +138,11 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
         let res = get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
-        if res.language.is_some_and(|x| x == ScriptLang::Deno) {
+        if res
+            .language
+            .as_ref()
+            .is_some_and(|x| x == &ScriptLang::Deno)
+        {
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
             create_dir_all(&job_dir).await?;
             let _ = windmill_worker::generate_deno_lock(
@@ -146,13 +150,36 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 &res.content,
                 &mut 0,
                 &mut None,
-                "/tmp/windmill/",
+                &job_dir,
                 None,
                 "global",
                 "global",
                 "",
             )
             .await?;
+            tokio::fs::remove_dir_all(job_dir).await?;
+        } else if res.language.as_ref().is_some_and(|x| x == &ScriptLang::Bun) {
+            let job_id = Uuid::new_v4();
+            let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
+            create_dir_all(&job_dir).await?;
+            if let Some(lockfile) = res.lockfile {
+                let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
+
+                let _ = windmill_worker::install_bun_lockfile(
+                    &mut 0,
+                    &mut None,
+                    &job_id,
+                    "admins",
+                    None,
+                    &job_dir,
+                    "cache_init",
+                    windmill_worker::get_common_bun_proc_envs("").await,
+                    false,
+                )
+                .await?;
+            } else {
+                tracing::warn!("No lockfile found for bun script {path}, skipping...");
+            }
             tokio::fs::remove_dir_all(job_dir).await?;
         }
     }
@@ -344,6 +371,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
     }
+
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let server_killpill_rx = killpill_tx.subscribe();
@@ -512,6 +540,11 @@ Windmill Community Edition {GIT_VERSION}
 
                 loop {
                     tokio::select! {
+                        biased;
+                        _ = monitor_killpill_rx.recv() => {
+                            tracing::info!("received killpill for monitor job");
+                            break;
+                        },
                         _ = tokio::time::sleep(Duration::from_secs(30))    => {
                             monitor_db(
                                 &db,
@@ -666,22 +699,28 @@ Windmill Community Edition {GIT_VERSION}
                                 },
                                 Err(e) => {
                                     tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
-                                    listener = retry_listen_pg(&db).await;
-                                    continue;
+                                    tokio::select! {
+                                        biased;
+                                        _ = monitor_killpill_rx.recv() => {
+                                            tracing::info!("received killpill for monitor job");
+                                            break;
+                                        },
+                                        new_listener = retry_listen_pg(&db) => {
+                                            listener = new_listener;
+                                            continue;
+                                        }
+                                    }
                                 }
                             };
-                        },
-                        _ = monitor_killpill_rx.recv() => {
-                                println!("received killpill for monitor job");
-                                break;
                         }
                     }
                 }
             });
 
             if let Err(e) = h.await {
-                tracing::error!("Error waiting for monitor handle:{e:#}")
+                tracing::error!("Error waiting for monitor handle: {e:#}")
             }
+            tracing::info!("Monitor exited");
             Ok(()) as anyhow::Result<()>
         };
 
