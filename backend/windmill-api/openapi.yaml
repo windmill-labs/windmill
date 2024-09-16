@@ -10378,6 +10378,8 @@ components:
         edited_at:
           type: string
           format: date-time
+        format_extension:
+          type: string
       required:
         - name
 

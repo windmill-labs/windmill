@@ -482,6 +482,42 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
+export const ANSIBLE_PLAYBOOK_INIT_CODE = `---
+- dependencies:
+    galaxy:
+      collections:
+        - name: community.windows
+        - name: ansible.utils
+    python:
+      - jmespath
+      - pandas>=2.0.0
+---
+- name: Filter users with role 'admin' using json_query
+  hosts: localhost
+  gather_facts: no
+  vars:
+    users_file: "users.json"  # JSON file path
+    query: "[?role == 'admin']"  # JMESPath query to filter admins
+
+  tasks:
+    - name: Read JSON file
+      ansible.builtin.slurp:
+        src: "{{ users_file }}"
+      register: json_data
+
+    - name: Parse JSON content
+      set_fact:
+        users: "{{ json_data.content | b64decode | from_json }}"
+
+    - name: Filter users with role 'admin'
+      set_fact:
+        admins: "{{ users | community.general.json_query(query) }}"
+
+    - name: Display filtered users
+      debug:
+        var: admins
+`
+
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
 	PYTHON_INIT_CODE_TRIGGER,
@@ -504,6 +540,7 @@ const ALL_INITIAL_CODE = [
 	POWERSHELL_INIT_CODE,
 	PHP_INIT_CODE,
 	RUST_INIT_CODE,
+	ANSIBLE_PLAYBOOK_INIT_CODE,
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -592,6 +629,8 @@ export function initialCode(
 		return PHP_INIT_CODE
 	} else if (language == 'rust') {
 		return RUST_INIT_CODE
+	} else if (language == 'ansible') {
+		return ANSIBLE_PLAYBOOK_INIT_CODE
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (language == 'bunnative' || subkind === 'bunnative') {
 			return BUNNATIVE_INIT_CODE

@@ -75,12 +75,14 @@
 	let newResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: ''
+		description: '',
+		formatExtension: undefined
 	}
 	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: ''
+		description: '',
+		format_extension: undefined
 	}
 	let resourceEditor: ResourceEditorDrawer | undefined
 	let shareModal: ShareModal
@@ -201,7 +203,8 @@
 			requestBody: {
 				name: (disableCustomPrefix ? '' : 'c_') + newResourceType.name,
 				schema: newResourceType.schema,
-				description: newResourceType.description
+				description: newResourceType.description,
+				format_extension: newResourceType.formatExtension
 			}
 		})
 		resourceTypeDrawer.closeDrawer?.()
@@ -216,7 +219,7 @@
 			path: editResourceType.name,
 			requestBody: {
 				schema: editResourceType.schema,
-				description: editResourceType.description
+				description: editResourceType.description,
 			}
 		})
 		editResourceTypeDrawer.closeDrawer?.()
@@ -494,7 +497,7 @@
 					</div>
 				</div>
 			</div>
-			<EditableSchemaWrapper bind:schema={newResourceType.schema} fullHeight />
+			<EditableSchemaWrapper bind:schema={newResourceType.schema} bind:formatExtension={newResourceType.formatExtension} fullHeight />
 		</div>
 	</DrawerContent>
 </Drawer>

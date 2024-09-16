@@ -79,6 +79,7 @@ pub struct CreateResourceType {
     pub name: String,
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
+    pub format_extension: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -997,13 +998,14 @@ async fn create_resource_type(
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description, created_by, edited_at)
-            VALUES ($1, $2, $3, $4, $5, now())",
+            (workspace_id, name, schema, description, created_by, format_extension, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
         resource_type.description,
-        authed.username
+        authed.username,
+        resource_type.format_extension,
     )
     .execute(&mut *tx)
     .await?;

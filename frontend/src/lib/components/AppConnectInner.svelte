@@ -199,6 +199,8 @@
 			workspace: $workspaceStore!,
 			path: resourceType
 		})
+		console.log("jaja")
+		console.log(resourceTypeInfo)
 	}
 	export async function next() {
 		if (step == 1) {
