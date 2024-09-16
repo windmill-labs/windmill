@@ -24,6 +24,7 @@
 
 <input
 	{placeholder}
+	{value}
 	on:pointerdown|stopPropagation
 	on:keyup={debounce}
 	on:keydown|stopPropagation
