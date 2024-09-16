@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let placeholder: string = 'Search...'
@@ -11,6 +12,7 @@
 	export { parentClass as class }
 
 	let timer: NodeJS.Timeout
+	let inputElement: HTMLInputElement | null = null
 
 	function debounce(event: KeyboardEvent): void {
 		clearTimeout(timer)
@@ -20,11 +22,17 @@
 			value = target.value
 		}, debounceDelay)
 	}
+
+	onMount(() => {
+		if (inputElement && value !== undefined) {
+			inputElement.value = value
+		}
+	})
 </script>
 
 <input
+	bind:this={inputElement}
 	{placeholder}
-	{value}
 	on:pointerdown|stopPropagation
 	on:keyup={debounce}
 	on:keydown|stopPropagation
