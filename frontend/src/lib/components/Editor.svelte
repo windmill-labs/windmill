@@ -167,9 +167,10 @@
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
 	import { setupTypeAcquisition } from '$lib/ata/index'
-	import { initWasmTs, parseDeps } from '$lib/infer'
+	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -1220,7 +1221,7 @@
 				ata = setupTypeAcquisition({
 					projectName: 'Windmill',
 					depsParser: (c) => {
-						return parseDeps(c)
+						return parseTypescriptDeps(c)
 					},
 					root,
 					scriptPath: path,
