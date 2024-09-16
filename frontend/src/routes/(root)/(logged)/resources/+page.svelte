@@ -219,7 +219,7 @@
 			path: editResourceType.name,
 			requestBody: {
 				schema: editResourceType.schema,
-				description: editResourceType.description,
+				description: editResourceType.description
 			}
 		})
 		editResourceTypeDrawer.closeDrawer?.()
@@ -497,7 +497,11 @@
 					</div>
 				</div>
 			</div>
-			<EditableSchemaWrapper bind:schema={newResourceType.schema} bind:formatExtension={newResourceType.formatExtension} fullHeight />
+			<EditableSchemaWrapper
+				bind:schema={newResourceType.schema}
+				bind:formatExtension={newResourceType.formatExtension}
+				fullHeight
+			/>
 		</div>
 	</DrawerContent>
 </Drawer>
