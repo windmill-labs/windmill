@@ -75,9 +75,10 @@
 	let newResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: '',
-		isValid: false
+		description: ''
 	}
+	let isNewResourceTypeNameValid: boolean
+
 	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
@@ -245,9 +246,10 @@
 		newResourceType = {
 			name: 'my_resource_type',
 			schema: emptySchema(),
-			description: '',
-			isValid: true
+			description: ''
 		}
+		validateResourceTypeName()
+
 		resourceTypeDrawer.openDrawer?.()
 	}
 
@@ -341,9 +343,9 @@
 	}
 	getDeployUiSettings()
 
-	function newResourceTypeNameValid() {
-		const snakeCaseRegex = /^[a-z]+(_[a-z]+)*$/
-		newResourceType.isValid = snakeCaseRegex.test(newResourceType.name)
+	function validateResourceTypeName() {
+		const snakeCaseRegex = /^[a-z0-9]+(_[a-z0-9]+)*$/
+		isNewResourceTypeNameValid = snakeCaseRegex.test(newResourceType.name)
 	}
 
 	function toSnakeCase() {
@@ -353,7 +355,7 @@
 			.replace(/_+/g, '_')
 			.replace(/^_+|_+$/g, '')
 			.toLowerCase()
-		newResourceTypeNameValid()
+		validateResourceTypeName()
 	}
 </script>
 
@@ -457,7 +459,7 @@
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={addResourceType}
-				disabled={!newResourceType.isValid}>Save</Button
+				disabled={!isNewResourceTypeNameValid}>Save</Button
 			>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
@@ -484,7 +486,7 @@
 								type="text"
 								bind:value={newResourceType.name}
 								class={classNames('!h-8  !border ', !disableCustomPrefix ? '!rounded-l-none' : '')}
-								on:input={newResourceTypeNameValid}
+								on:input={validateResourceTypeName}
 							/>
 						</div>
 					</div>
@@ -496,7 +498,7 @@
 					{/if}
 				</div>
 				{#if newResourceType.name}
-					{#if !newResourceType.isValid}
+					{#if !isNewResourceTypeNameValid}
 						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
 							>Name must be snake_case!
 							<button on:click={toSnakeCase} class="text-blue-600">Fix...</button></p
