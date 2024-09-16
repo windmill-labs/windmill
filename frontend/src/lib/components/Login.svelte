@@ -22,6 +22,7 @@
 	export let password: string | undefined = undefined
 	export let error: string | undefined = undefined
 	export let popup: boolean = false
+	export let firstTime: boolean = false
 
 	const providers = [
 		{
@@ -75,6 +76,11 @@
 			return
 		}
 
+		if (firstTime) {
+			goto('/user/first-time')
+			return
+		}
+
 		// Once logged in, we can fetch the workspaces
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 		// trigger a reload of the user
@@ -88,13 +94,6 @@
 	}
 
 	async function redirectUser() {
-		const firstTimeCookie =
-			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
-		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
-			goto('/user/first-time')
-			return
-		}
-
 		if (rd?.startsWith('http')) {
 			window.location.href = rd
 			return
@@ -177,6 +176,7 @@
 			dispatch('login')
 		}
 	}
+
 	function storeRedirect(provider: string) {
 		if (rd) {
 			try {
@@ -263,6 +263,11 @@
 
 	{#if showPassword}
 		<div>
+			{#if firstTime}
+				<div class="text-lg text-center w-full pb-6"
+					>First time login: admin@windmill.dev / changeme</div
+				>
+			{/if}
 			<div class="space-y-6">
 				{#if isCloudHosted()}
 					<p class="text-xs text-tertiary italic pb-6">

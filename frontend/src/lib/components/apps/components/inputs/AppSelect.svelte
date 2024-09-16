@@ -191,7 +191,7 @@
 		}
 	}
 
-	$: resolvedConfig.defaultValue && handleDefault()
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	function handleDefault() {
 		if (resolvedConfig.defaultValue != undefined) {

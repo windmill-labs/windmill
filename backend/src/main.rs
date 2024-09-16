@@ -371,6 +371,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
     }
+
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let server_killpill_rx = killpill_tx.subscribe();

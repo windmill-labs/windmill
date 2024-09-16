@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.394.4
+  version: 1.394.6
   title: Windmill API
 
   contact:
@@ -8346,6 +8346,38 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/job_helpers/load_table_count/{path}:
+    get:
+      summary: Load the table row count
+      operationId: loadTableRowCount
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Table count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
 
   /w/{workspace}/job_helpers/load_csv_preview/{path}:
     get:
