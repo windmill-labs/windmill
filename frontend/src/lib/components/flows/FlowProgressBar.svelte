@@ -39,9 +39,7 @@
 				newError = maxDone
 				maxDone = maxDone + 1
 			}
-		}
-
-		
+		}		
 		subIndexIsPercent = false;
 
 		// Loop is still iterating

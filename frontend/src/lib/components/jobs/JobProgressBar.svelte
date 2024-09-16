@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Job } from '$lib/gen'
+	import { type Job, MetricsService } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
@@ -27,7 +27,19 @@
 		}
 		
 		if (job['success'])	
-			index = 1, subLength = 0, subIndex = 0;				
+			index = 1, subLength = 0, subIndex = 0, scriptProgress = 100;				
+		else if (job.type == "CompletedJob"){
+			// If error occured and job is completed
+			// than we fetch progress from server to display on what progress did it fail
+			// Works on [...run] route. Could be displayed after run or as a historical page
+			// If opening page without running it (e.g. reloading page after run) progress will be displayed instantly
+			MetricsService.getJobProgress({
+				workspace: job.workspace_id ?? "NO_WORKSPACE",
+				id: job.id,
+			}).then(progress => {
+				scriptProgress = progress;
+			});
+		}
 	}
 
 	let resetP: any
