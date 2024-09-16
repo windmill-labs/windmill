@@ -4,7 +4,7 @@
 // deno-fmt-ignore-file
 /// <reference types="./windmill_parser_wasm.generated.d.ts" />
 
-// source-hash: ae1bfe27a90c5656a723fb7ced38f4857a5d6931
+// source-hash: d36b5583d8f6223c130a246a8713b8621d55b990
 let wasm;
 
 const heap = new Array(128).fill(undefined);
@@ -13,20 +13,6 @@ heap.push(undefined, null, true, false);
 
 function getObject(idx) {
   return heap[idx];
-}
-
-let heap_next = heap.length;
-
-function dropObject(idx) {
-  if (idx < 132) return;
-  heap[idx] = heap_next;
-  heap_next = idx;
-}
-
-function takeObject(idx) {
-  const ret = getObject(idx);
-  dropObject(idx);
-  return ret;
 }
 
 let WASM_VECTOR_LEN = 0;
@@ -103,6 +89,38 @@ function getInt32Memory0() {
   return cachedInt32Memory0;
 }
 
+let heap_next = heap.length;
+
+function dropObject(idx) {
+  if (idx < 132) return;
+  heap[idx] = heap_next;
+  heap_next = idx;
+}
+
+function takeObject(idx) {
+  const ret = getObject(idx);
+  dropObject(idx);
+  return ret;
+}
+
+let cachedFloat64Memory0 = null;
+
+function getFloat64Memory0() {
+  if (cachedFloat64Memory0 === null || cachedFloat64Memory0.byteLength === 0) {
+    cachedFloat64Memory0 = new Float64Array(wasm.memory.buffer);
+  }
+  return cachedFloat64Memory0;
+}
+
+function addHeapObject(obj) {
+  if (heap_next === heap.length) heap.push(heap.length + 1);
+  const idx = heap_next;
+  heap_next = heap[idx];
+
+  heap[idx] = obj;
+  return idx;
+}
+
 const cachedTextDecoder = typeof TextDecoder !== "undefined"
   ? new TextDecoder("utf-8", { ignoreBOM: true, fatal: true })
   : {
@@ -116,24 +134,6 @@ if (typeof TextDecoder !== "undefined") cachedTextDecoder.decode();
 function getStringFromWasm0(ptr, len) {
   ptr = ptr >>> 0;
   return cachedTextDecoder.decode(getUint8Memory0().subarray(ptr, ptr + len));
-}
-
-function addHeapObject(obj) {
-  if (heap_next === heap.length) heap.push(heap.length + 1);
-  const idx = heap_next;
-  heap_next = heap[idx];
-
-  heap[idx] = obj;
-  return idx;
-}
-
-let cachedFloat64Memory0 = null;
-
-function getFloat64Memory0() {
-  if (cachedFloat64Memory0 === null || cachedFloat64Memory0.byteLength === 0) {
-    cachedFloat64Memory0 = new Float64Array(wasm.memory.buffer);
-  }
-  return cachedFloat64Memory0;
 }
 
 let cachedBigInt64Memory0 = null;
@@ -616,6 +616,33 @@ export function parse_php(code) {
   }
 }
 
+/**
+ * @param {string} code
+ * @returns {string}
+ */
+export function parse_rust(code) {
+  let deferred2_0;
+  let deferred2_1;
+  try {
+    const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+    const ptr0 = passStringToWasm0(
+      code,
+      wasm.__wbindgen_malloc,
+      wasm.__wbindgen_realloc,
+    );
+    const len0 = WASM_VECTOR_LEN;
+    wasm.parse_rust(retptr, ptr0, len0);
+    var r0 = getInt32Memory0()[retptr / 4 + 0];
+    var r1 = getInt32Memory0()[retptr / 4 + 1];
+    deferred2_0 = r0;
+    deferred2_1 = r1;
+    return getStringFromWasm0(r0, r1);
+  } finally {
+    wasm.__wbindgen_add_to_stack_pointer(16);
+    wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+  }
+}
+
 function handleError(f, args) {
   try {
     return f.apply(this, args);
@@ -626,9 +653,6 @@ function handleError(f, args) {
 
 const imports = {
   __wbindgen_placeholder__: {
-    __wbindgen_object_drop_ref: function (arg0) {
-      takeObject(arg0);
-    },
     __wbindgen_string_get: function (arg0, arg1) {
       const obj = getObject(arg1);
       const ret = typeof obj === "string" ? obj : undefined;
@@ -643,13 +667,8 @@ const imports = {
       getInt32Memory0()[arg0 / 4 + 1] = len1;
       getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     },
-    __wbg_eval_c74b339326c2fc56: function (arg0, arg1) {
-      const ret = eval(getStringFromWasm0(arg0, arg1));
-      return addHeapObject(ret);
-    },
-    __wbindgen_error_new: function (arg0, arg1) {
-      const ret = new Error(getStringFromWasm0(arg0, arg1));
-      return addHeapObject(ret);
+    __wbindgen_object_drop_ref: function (arg0) {
+      takeObject(arg0);
     },
     __wbindgen_boolean_get: function (arg0) {
       const v = getObject(arg0);
@@ -685,6 +704,14 @@ const imports = {
     },
     __wbindgen_bigint_from_u64: function (arg0) {
       const ret = BigInt.asUintN(64, arg0);
+      return addHeapObject(ret);
+    },
+    __wbindgen_error_new: function (arg0, arg1) {
+      const ret = new Error(getStringFromWasm0(arg0, arg1));
+      return addHeapObject(ret);
+    },
+    __wbg_eval_c227cc6614cd76e5: function (arg0, arg1) {
+      const ret = eval(getStringFromWasm0(arg0, arg1));
       return addHeapObject(ret);
     },
     __wbindgen_jsval_loose_eq: function (arg0, arg1) {
@@ -965,6 +992,7 @@ function getWasmInstanceExports() {
     parse_db_resource,
     parse_graphql,
     parse_php,
+    parse_rust,
   };
 }
 

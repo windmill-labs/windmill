@@ -24,7 +24,7 @@ export function argSigToJsonSchemaType(
 		  },
 	oldS: SchemaProperty
 ): void {
-	let newS: SchemaProperty = { type: '' }
+	const newS: SchemaProperty = { type: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -52,7 +52,7 @@ export function argSigToJsonSchemaType(
 		if (t.oneof) {
 			newS.oneOf = t.oneof.map((obj) => {
 				const oldObjS = oldS.oneOf?.find((o) => o?.title === obj.label) ?? undefined
-				const properties = {}
+				const properties: Record<string, any> = {}
 				for (const prop of obj.properties) {
 					if (oldObjS?.properties && prop.key in oldObjS?.properties) {
 						properties[prop.key] = oldObjS?.properties[prop.key]
@@ -72,7 +72,7 @@ export function argSigToJsonSchemaType(
 	} else if (typeof t !== 'string' && `object` in t) {
 		newS.type = 'object'
 		if (t.object) {
-			const properties = {}
+			const properties: Record<string, any> = {}
 			for (const prop of t.object) {
 				if (oldS.properties && prop.key in oldS.properties) {
 					properties[prop.key] = oldS.properties[prop.key]
@@ -112,7 +112,10 @@ export function argSigToJsonSchemaType(
 		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
 			newS.items = { type: 'string', enum: t.list.str }
 		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
-			newS.items = { type: 'resource', resourceType: t.list.resource as string }
+			newS.items = {
+				type: 'resource',
+				resourceType: t.list.resource as string
+			}
 		} else if (
 			t.list &&
 			typeof t.list == 'object' &&
@@ -120,7 +123,7 @@ export function argSigToJsonSchemaType(
 			t.list.object &&
 			t.list.object.length > 0
 		) {
-			const properties = {}
+			const properties: Record<string, any> = {}
 			for (const prop of t.list.object) {
 				properties[prop.key] = { description: '', type: '' }
 
@@ -154,7 +157,9 @@ export function argSigToJsonSchemaType(
 	]
 
 	preservedFields.forEach((field) => {
+		// @ts-ignore
 		if (oldS[field] !== undefined) {
+			// @ts-ignore
 			newS[field] = oldS[field]
 		}
 	})
@@ -162,6 +167,7 @@ export function argSigToJsonSchemaType(
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {
 			if (prop != 'description') {
+				// @ts-ignore
 				delete oldS[prop]
 			}
 		}

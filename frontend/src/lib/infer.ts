@@ -4,11 +4,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, {
-	parse_deno,
-	parse_outputs,
-	parse_ts_imports
-} from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_deno, parse_outputs, parse_ts_imports } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -18,20 +14,12 @@ import initRegexParsers, {
 	parse_mssql,
 	parse_db_resource,
 	parse_bash,
-	parse_powershell,
+	parse_powershell
 } from 'windmill-parser-wasm-regex'
-import initPythonParser, {
-	parse_python,
-} from 'windmill-parser-wasm-py'
-import initGoParser, {
-	parse_go,
-} from 'windmill-parser-wasm-go'
-import initPhpParser, {
-	parse_php,
-} from 'windmill-parser-wasm-php'
-import initRustParser, {
-	parse_rust,
-} from 'windmill-parser-wasm-rust'
+import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
+import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
+import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
+import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -44,7 +32,7 @@ import { argSigToJsonSchemaType } from './inferArgSig.js'
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
-let initializeTsPromise : Promise<any> | undefined = undefined;
+let initializeTsPromise: Promise<any> | undefined = undefined
 export async function initWasmTs() {
 	if (initializeTsPromise == undefined) {
 		initializeTsPromise = initTsParser(wasmUrlTs)
