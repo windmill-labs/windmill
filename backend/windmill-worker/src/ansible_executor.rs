@@ -319,7 +319,7 @@ async fn create_file_resources(
 
     for inventory in &r.inventories {
         let content;
-        if let Some(resource_path) = &inventory.pin {
+        if let Some(resource_path) = &inventory.pinned_resource {
             content = client
                 .get_resource_value_interpolated::<serde_json::Value>(
                     resource_path,
@@ -355,23 +355,23 @@ async fn create_file_resources(
     for file_res in &r.file_resources {
         let r = client
             .get_resource_value_interpolated::<serde_json::Value>(
-                &file_res.windmill_path,
+                &file_res.resource_path,
                 Some(job_id.to_string()),
             )
             .await?;
-        let path = file_res.local_path.clone();
+        let path = file_res.target_path.clone();
         write_file_at_user_defined_location(
             job_dir,
             path.as_str(),
             r.get("content").and_then(|v| v.as_str()).ok_or(anyhow!(
                 "Invalid text file resource {}, `content` field absent or invalid",
-                &file_res.windmill_path
+                &file_res.resource_path
             ))?,
         )
         .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
         logs.push_str(&format!(
             "\nCreated {} from {}",
-            file_res.local_path, file_res.windmill_path
+            file_res.target_path, file_res.resource_path
         ));
     }
     append_logs(job_id, w_id, logs, db).await;

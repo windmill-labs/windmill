@@ -38,7 +38,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                 }
                 Yaml::String(key) if key == "inventory" => {
                     for inv in parse_inventories(value)? {
-                        if inv.pin.is_some() {
+                        if inv.pinned_resource.is_some() {
                             continue;
                         }
                         args.push(Arg {
@@ -122,8 +122,8 @@ fn parse_ansible_typ(arg: &Yaml) -> Typ {
 
 #[derive(Debug)]
 pub struct FileResource {
-    pub windmill_path: String,
-    pub local_path: String,
+    pub resource_path: String,
+    pub target_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -131,7 +131,7 @@ pub struct AnsibleInventory {
     pub default: Option<String>,
     pub name: String,
     resource_type: Option<String>,
-    pub pin: Option<String>,
+    pub pinned_resource: Option<String>,
 }
 #[derive(Debug)]
 pub struct AnsibleRequirements {
@@ -169,11 +169,11 @@ fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInvento
                     .to_string();
 
                 let pin = inv
-                    .get(&Yaml::String("pin".to_string()))
+                    .get(&Yaml::String("resource".to_string()))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                ret.push(AnsibleInventory { default: windmill_path, name, resource_type, pin });
+                ret.push(AnsibleInventory { default: windmill_path, name, resource_type, pinned_resource: pin });
             }
         }
         return Ok(ret);
@@ -250,18 +250,19 @@ pub fn parse_ansible_reqs(
 
 fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
     if let Yaml::Hash(f) = yaml {
-        if let Some(Yaml::String(windmill_path)) = f.get(&Yaml::String("windmill_path".to_string()))
+        if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("resource".to_string()))
         {
-            let local_path = f
-                .get(&Yaml::String("local_path".to_string()))
+            let target_path = f
+                .get(&Yaml::String("target".to_string()))
                 .and_then(|x| x.as_str())
                 .map(|x| x.to_string())
                 .ok_or(anyhow!(
-                    "No local path provided for file resource {}.",
-                    windmill_path
+                    "No `target` provided for file resource {}. Please input a target relative path for the ansible playbook to see this file.",
+                    resource_path
                 ))?;
-            return Ok(FileResource { windmill_path: windmill_path.clone(), local_path });
+            return Ok(FileResource { resource_path: resource_path.clone(), target_path });
         }
+        return Err(anyhow!("File resource should have a `resource` field, linking to a text file resource"));
     }
-    return Err(anyhow!("Invalid file resource {:?}", yaml));
+    return Err(anyhow!("Invalid file resource: Should be a dictionary."));
 }
