@@ -4,7 +4,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, { parse_deno, parse_outputs, parse_ts_imports } from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -53,16 +53,6 @@ async function initWasmRust() {
 }
 async function initWasmGo() {
 	await initGoParser(wasmUrlGo)
-}
-
-export function parseDeps(code: string): string[] {
-	let r = JSON.parse(parse_ts_imports(code))
-	if (r.error) {
-		console.error(r.error)
-		return []
-	} else {
-		return r.imports
-	}
 }
 
 export async function inferArgs(
