@@ -155,10 +155,6 @@ async fn get_job_metrics(
 #[derive(Deserialize)]
 struct JobProgressSetRequest {
     percent: i32,
-    /// Register metric for the first time
-    /// Clients will put true once first `setProgress` called
-    /// After it will be always false
-    register: bool,
     /// Optional parent flow id
     /// Used to modify flow status
     /// Specifically `progress` field in corresponding FlowStatusModule in `InProgress` state
@@ -168,21 +164,10 @@ struct JobProgressSetRequest {
 async fn set_job_progress(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Json(JobProgressSetRequest { percent, register, flow_job_id }): Json<JobProgressSetRequest>,
+    Json(JobProgressSetRequest { percent, flow_job_id }): Json<JobProgressSetRequest>,
 ) -> error::JsonResult<()> {
-    if register {
-        // TODO: Possible collisions?
-        _ = register_metric_for_job(
-            &db,
-            w_id.clone(),
-            job_id,
-            "progress_perc".to_string(),
-            MetricKind::ScalarInt,
-            Some("Job Execution Progress (%)".to_owned()),
-        )
-        .await?;
-    }
-
+    // If flow_job_id exists, than we should modify flow_status of corresponding module
+    // Individual jobs and flows are handled differently
     if let Some(flow_job_id) = flow_job_id {
         sqlx::query!(
             "UPDATE queue
@@ -195,14 +180,36 @@ async fn set_job_progress(
         .await?;
     }
 
-    record_metric(
-        &db,
-        w_id,
-        job_id,
-        "progress_perc".to_owned(),
-        MetricNumericValue::Integer(percent),
-    )
-    .await?;
+    let record_progress = || {
+        record_metric(
+            &db,
+            w_id.clone(),
+            job_id,
+            "progress_perc".to_owned(),
+            MetricNumericValue::Integer(percent),
+        )
+    };
+
+    // Try to record
+    if let Err(err) = record_progress().await {
+        // If its error, than it is more likely that metric is unregistered
+        // Register
+        // TODO: Reset progress after job is finished (in case it reruns same job)?
+        _ = register_metric_for_job(
+            &db,
+            w_id.clone(),
+            job_id,
+            "progress_perc".to_string(),
+            MetricKind::ScalarInt,
+            Some("Job Execution Progress (%)".to_owned()),
+        )
+        .await?;
+        // Retry recording progress
+        // If problem was different and unrelated to unregistered metric,
+        // than it will fail here again with same error.
+        // Otherwise it should succeed
+        record_progress().await?;
+    };
 
     Ok(Json(()))
 }

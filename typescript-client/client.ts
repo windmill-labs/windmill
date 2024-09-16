@@ -385,11 +385,6 @@ export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
 }
 
-// Used only by setProgress
-// Will be reseted to true ever time we run job
-// In other words once job started will be always true
-// TODO: Encapsulate?
-let registerProgress = true;
 /**
  * Set the progress
  * Progress cannot go back and limited to 0% to 99% range
@@ -403,13 +398,8 @@ export async function setProgress(percent: number): Promise<void> {
     requestBody: {
       percent: percent,
       flow_job_id: (flowId == "") ? undefined : flowId,
-      // Its very important this field to be true only once,
-      // Otherwise request will return error
-      register: registerProgress
     }
   });
-
-  registerProgress = false;
 }
 
 /**
