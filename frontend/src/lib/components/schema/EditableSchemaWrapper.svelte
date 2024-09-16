@@ -5,7 +5,9 @@
 	import AddProperty from './AddProperty.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Toggle from '../Toggle.svelte'
-	import { emptySchema } from '$lib/utils'
+	import { emptySchema, validateFileExtension } from '$lib/utils'
+	import AutoComplete from 'simple-svelte-autocomplete'
+	import { Alert } from '../common'
 
 	export let schema: Schema | undefined | any
 	export let offset: number = 0
@@ -22,45 +24,28 @@
 
 	$: !resourceIsTextFile && (formatExtension = undefined)
 
+	$: invalidExtension = formatExtension && formatExtension != '' ? !validateFileExtension(formatExtension ?? "txt") : false
 
 	function switchResourceIsFile() {
 		if (!resourceIsTextFile) {
 			schema = emptySchema()
 			formatExtension = undefined
-		} else  {
-
+		} else {
 			schema = emptySchema()
-			schema.order = ["content"]
+			schema.order = ['content']
 			schema.properties = {
 				content: {
-					type: "string",
-					description: "Text contents of the file"
+					type: 'string',
+					description: 'Text contents of the file'
 				}
 			}
-
-
 		}
 		dispatch('change', schema)
 	}
+	let suggestedFileExtensions = ['json', 'yaml']
+	let autocompleteExtension = true
 </script>
 
-<div class="w-3/12">
-	<Toggle
-		bind:checked={resourceIsTextFile}
-		options={{ right: 'This resource type is a text file' }}
-		on:change={() => switchResourceIsFile()}
-	/>
-	{#if resourceIsTextFile}
-		<input
-			bind:value={formatExtension}
-			placeholder="File format (e.g `.json`)"
-			on:keydown={(event) => {
-				if (event.key === 'Enter') {
-				}
-			}}
-		/>
-	{/if}
-</div>
 {#if !resourceIsTextFile}
 	<div class={twMerge(fullHeight ? 'h-full' : 'h-80', 'border overflow-y-auto rounded-md')}>
 		<div class="p-4 border-b">
@@ -87,3 +72,67 @@
 		/>
 	</div>
 {/if}
+{#if resourceIsTextFile}
+	<div class="flex items-center space-x-2 w-5/12">
+		<label for="format-extension" class="text-base font-medium whitespace-nowrap">
+			File extension:
+		</label>
+		{#if autocompleteExtension}
+			<AutoComplete
+				inputId="format-extension"
+				autofocus={true}
+				items={[...suggestedFileExtensions, 'Choose another extension']}
+				onChange={(a) => {
+					if (a == 'Choose another extension') {
+						formatExtension = ''
+						autocompleteExtension = false
+					}
+				}}
+				noResultsText="No matches, try the 'Choose another extension' option"
+				bind:selectedItem={formatExtension}
+				inputClassName="!h-[32px] py-1 !text-xs !w-64"
+				hideArrow
+				className={'!font-bold'}
+				dropdownClassName="!font-normal !w-64 !max-w-64"
+			/>
+		{:else}
+			<input
+				autofocus={true}
+				bind:value={formatExtension}
+				class="!h-[32px] py-1 !text-xs !w-64"
+				placeholder="Enter your extension"
+				on:keydown={(event) => {
+					if (event.key === 'Enter') {
+						if (formatExtension) suggestedFileExtensions.push(formatExtension)
+
+						autocompleteExtension = true
+					}
+				}}
+			/>
+		{/if}
+	</div>
+
+	{#if invalidExtension}
+		<Alert title="Invalid file extension" type="error">
+			The provided extension (<span class="font-bold font-mono">.{formatExtension}</span>)
+			contains invalid characters. Note that you shouldn't add the leading dot, (e.g `json` and not
+			`.json`)
+		</Alert>
+	{:else if formatExtension && formatExtension !== ''}
+		<Alert title={`Example: my_file.${formatExtension}`} type="info">
+			The <span class="font-bold font-mono"> .{formatExtension} </span> extension will be used to infer
+			the format when displaying the content and this is also how the resource will appear when pulling
+			via the CLI.
+		</Alert>
+		<div />
+	{/if}
+{/if}
+<Toggle
+	bind:checked={resourceIsTextFile}
+	options={{
+		right: 'This resource type represents a text file (clears current schema)',
+		rightTooltip:
+			'A text file such as a config file, template, or any other file format that contains pure text'
+	}}
+	on:change={() => switchResourceIsFile()}
+/>
