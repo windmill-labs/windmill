@@ -348,6 +348,14 @@
 										}
 									})
 								)
+							} else if (mod?.value?.type === 'forloopflow') {
+								if (mod.value.iterator.type === 'javascript') {
+									mod.value.iterator.expr = replaceId(mod.value.iterator.expr, id, newId)
+								}
+							} else if (mod?.value?.type === 'branchone') {
+								mod.value.branches.forEach((branch) => {
+									branch.expr = replaceId(branch.expr, id, newId)
+								})
 							}
 						})
 					}
