@@ -77,6 +77,8 @@
 		schema: emptySchema(),
 		description: ''
 	}
+	let isNewResourceTypeNameValid: boolean
+
 	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
@@ -246,6 +248,8 @@
 			schema: emptySchema(),
 			description: ''
 		}
+		validateResourceTypeName()
+
 		resourceTypeDrawer.openDrawer?.()
 	}
 
@@ -338,6 +342,21 @@
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
+
+	function validateResourceTypeName() {
+		const snakeCaseRegex = /^[a-z0-9]+(_[a-z0-9]+)*$/
+		isNewResourceTypeNameValid = snakeCaseRegex.test(newResourceType.name)
+	}
+
+	function toSnakeCase() {
+		newResourceType.name = newResourceType.name
+			.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+			.replace(/[\W]+/g, '_')
+			.replace(/_+/g, '_')
+			.replace(/^_+|_+$/g, '')
+			.toLowerCase()
+		validateResourceTypeName()
+	}
 </script>
 
 <ConfirmationModal
@@ -437,7 +456,11 @@
 <Drawer bind:this={resourceTypeDrawer} size="1200px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: Save }} on:click={addResourceType}>Save</Button>
+			<Button
+				startIcon={{ icon: Save }}
+				on:click={addResourceType}
+				disabled={!isNewResourceTypeNameValid}>Save</Button
+			>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
@@ -463,6 +486,7 @@
 								type="text"
 								bind:value={newResourceType.name}
 								class={classNames('!h-8  !border ', !disableCustomPrefix ? '!rounded-l-none' : '')}
+								on:input={validateResourceTypeName}
 							/>
 						</div>
 					</div>
@@ -473,6 +497,14 @@
 						/>
 					{/if}
 				</div>
+				{#if newResourceType.name}
+					{#if !isNewResourceTypeNameValid}
+						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
+							>Name must be snake_case!
+							<button on:click={toSnakeCase} class="text-blue-600">Fix...</button></p
+						>
+					{/if}
+				{/if}
 			</label>
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
