@@ -43,8 +43,6 @@ use std::{
 #[cfg(feature = "benchmark")]
 use std::sync::atomic::AtomicUsize;
 
-#[cfg(feature = "benchmark")]
-use std::sync::atomic::AtomicUsize;
 
 use uuid::Uuid;
 
