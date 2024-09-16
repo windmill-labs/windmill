@@ -390,13 +390,27 @@ export async function setState(state: any): Promise<void> {
  * Progress cannot go back and limited to 0% to 99% range
  * @param percent Progress to set in %
  */
-export async function setProgress(percent: number): Promise<void> {
-  const flowId = getEnv("WM_FLOW_JOB_ID");
+export async function setProgress(percent: number, jobId?: any): Promise<void> {
+  const workspace = getWorkspace();
+  let flowId = getEnv("WM_FLOW_JOB_ID"); 
+
+  // If jobId specified we need to find if there is a parent/flow
+  if (jobId) {
+    const job = await JobService.getJob({
+      id: jobId ?? "NO_JOB_ID",
+      workspace,
+      noLogs: true
+    });    
+
+    // Could be actual flowId or undefined
+    flowId = job.parent_job;
+  }
+
   MetricsService.setJobProgress({
-    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
-    workspace: getWorkspace(),
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace,
     requestBody: {
-      percent: percent,
+      percent,
       flow_job_id: (flowId == "") ? undefined : flowId,
     }
   });
@@ -406,9 +420,10 @@ export async function setProgress(percent: number): Promise<void> {
  * Get the progress
  * @returns Optional clamped between 0 and 100 progress value 
  */
-export async function getProgress(): Promise<number | null> {
+export async function getProgress(jobId?: any): Promise<number | null> {
+  // TODO: Delete or set to 100 completed job metrics
   return MetricsService.getJobProgress({
-    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
     workspace: getWorkspace(),
   }); 
 }

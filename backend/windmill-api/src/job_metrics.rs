@@ -169,6 +169,7 @@ async fn set_job_progress(
     // If flow_job_id exists, than we should modify flow_status of corresponding module
     // Individual jobs and flows are handled differently
     if let Some(flow_job_id) = flow_job_id {
+        // TODO: Return error if trying to set completed job?
         sqlx::query!(
             "UPDATE queue
                 SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step', 'progress'], $1)
