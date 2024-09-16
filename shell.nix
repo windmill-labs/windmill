@@ -26,6 +26,8 @@ in pkgs.mkShell {
     typescript-language-server
     postgresql
     watchexec # used in client's dev.nu
+    poetry # for python client
+    python312Packages.pip-tools # pip-compile
   ];
 
   # buildInputs = with pkgs; [ xz lzma ];
