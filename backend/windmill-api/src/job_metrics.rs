@@ -193,26 +193,32 @@ async fn set_job_progress(
 
     // Try to record
     if let Err(err) = record_progress().await {
-        // If its error, than it is more likely that metric is unregistered
-        // Register
-        // TODO: Reset progress after job is finished (in case it reruns same job)?
-        _ = register_metric_for_job(
-            &db,
-            w_id.clone(),
-            job_id,
-            "progress_perc".to_string(),
-            MetricKind::ScalarInt,
-            Some("Job Execution Progress (%)".to_owned()),
-        )
-        .await?;
-        // Retry recording progress
-        // If problem was different and unrelated to unregistered metric,
-        // than it will fail here again with same error.
-        // Otherwise it should succeed
-        record_progress().await?;
+        if matches!(err, Error::MetricNotFound(..)) {
+            // Register
+            // TODO: Reset progress after job is finished (in case it reruns same job)?
+            _ = register_metric_for_job(
+                &db,
+                w_id.clone(),
+                job_id,
+                "progress_perc".to_string(),
+                MetricKind::ScalarInt,
+                Some("Job Execution Progress (%)".to_owned()),
+            )
+            .await?;
+            // Retry recording progress
+            record_progress().await.map_err(|err| {
+                // If for some reason it still returns same error, this error will be converted to BadRequest and returned
+                if let Error::MetricNotFound(body) = err {
+                    Error::BadRequest(body)
+                } else {
+                    err
+                }
+            })?;
+        } else {
+            return Err(err);
+        }
     };
-
-    Ok(Json(()))
+    return Ok(Json(()));
 }
 
 async fn get_job_progress(
