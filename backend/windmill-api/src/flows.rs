@@ -1331,7 +1331,8 @@ mod tests {
                 "expr": "previous.isEmpty()",
                 "skip_if_stopped": false
             }
-          }
+          },
+          "preprocessor_module": Option::<String>::None
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
     }
