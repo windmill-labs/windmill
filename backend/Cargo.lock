@@ -4313,9 +4313,9 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.60"
+version = "0.1.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7ffbb5a1b541ea2561f8c41c087286cc091e21e556a4f09a8f6cbf17b69b141"
+checksum = "235e081f3925a06703c2d0117ea8b91f042756fd6e7a6e5d901e8ca1a996b220"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys",
@@ -5457,9 +5457,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.20.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ea5043e58958ee56f3e15a90aee535795cd7dfd319846288d93c5b57d85cbe"
+checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "oneshot"
@@ -6049,9 +6049,9 @@ dependencies = [
 
 [[package]]
 name = "postgres-types"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02048d9e032fb3cc3413bbf7b83a15d84a5d419778e2628751896d856498eee9"
+checksum = "f66ea23a2d0e5734297357705193335e0a957696f34bed2f2faefacb2fec336f"
 dependencies = [
  "array-init",
  "bit-vec",
@@ -6120,7 +6120,7 @@ version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecf48c7ca261d60b74ab1a7b20da18bede46776b2e55535cb958eb595c5fa7b"
 dependencies = [
- "toml_edit 0.22.20",
+ "toml_edit 0.22.21",
 ]
 
 [[package]]
@@ -9315,9 +9315,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-postgres"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03adcf0147e203b6032c0b2d30be1415ba03bc348901f3ff1cc0df6a733e60c3"
+checksum = "3b5d3742945bc7d7f210693b0c58ae542c6fd47b17adbbda0885f3dcb34a6bdb"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -9433,7 +9433,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.22.20",
+ "toml_edit 0.22.21",
 ]
 
 [[package]]
@@ -9460,9 +9460,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.20"
+version = "0.22.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "583c44c02ad26b0c3f3066fe629275e50627026c51ac2e595cca4c230ce1ce1d"
+checksum = "3b072cee73c449a636ffd6f32bd8de3a9f7119139aff882f44943ce2986dc5cf"
 dependencies = [
  "indexmap 2.5.0",
  "serde",
@@ -10421,7 +10421,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -10463,7 +10463,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10547,7 +10547,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -10565,7 +10565,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "chrono",
  "serde",
@@ -10578,7 +10578,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -10622,7 +10622,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -10637,7 +10637,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -10658,7 +10658,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -10667,7 +10667,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10679,7 +10679,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -10691,7 +10691,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10703,7 +10703,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10714,7 +10714,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10725,7 +10725,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10743,7 +10743,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10760,7 +10760,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10772,7 +10772,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10790,7 +10790,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10810,7 +10810,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10843,7 +10843,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -10853,7 +10853,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "async-recursion",
