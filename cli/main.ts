@@ -205,7 +205,7 @@ function isMain() {
 
   if (isDeno) {
     const isMain = import.meta.main;
-    if (isMain) {
+    if (isMain && !Deno.args.includes("completions")) {
       log.warn(
         "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli"
       );
