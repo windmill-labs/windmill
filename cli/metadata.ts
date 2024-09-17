@@ -42,6 +42,7 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { getIsWin } from "./main.ts";
 
 export async function generateAllMetadata() {}
 
@@ -169,6 +170,12 @@ export async function generateFlowLockInternal(
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
 
+// on windows, when using powershell, blue is not readable
+async function blueColor(): Promise<(x: string) => void> {
+  const isWin = await getIsWin();
+  return isWin ? colors.black : colors.blue;
+}
+
 export async function generateScriptMetadataInternal(
   scriptPath: string,
   workspace: Workspace,
@@ -196,7 +203,7 @@ export async function generateScriptMetadataInternal(
   );
   if (rawReqs) {
     log.info(
-      colors.blue(
+      (await blueColor())(
         `Found raw requirements (package.json/requirements.txt/composer.json) for ${scriptPath}, using it`
       )
     );
@@ -786,7 +793,9 @@ export async function parseMetadataFile(
     } catch {
       // no metadata file at all. Create it
       log.info(
-        colors.blue(`Creating script metadata file for ${metadataFilePath}`)
+        (await blueColor())(
+          `Creating script metadata file for ${metadataFilePath}`
+        )
       );
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
@@ -800,7 +809,9 @@ export async function parseMetadataFile(
 
       if (generateMetadataIfMissing) {
         log.info(
-          colors.blue(`Generating lockfile and schema for ${metadataFilePath}`)
+          (await blueColor())(
+            `Generating lockfile and schema for ${metadataFilePath}`
+          )
         );
         try {
           await generateScriptMetadataInternal(
