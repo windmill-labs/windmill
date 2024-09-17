@@ -26,8 +26,9 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
+use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
-    bun_executor::gen_lockfile,
+    bun_executor::gen_bun_lockfile,
     deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
     php_executor::{composer_install, parse_php_imports},
@@ -81,7 +82,7 @@ async fn add_relative_imports_to_dependency_map<'c>(
     for import in relative_imports {
         sqlx::query!(
             "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
-                 VALUES ($1, $2, $4::text::IMPORTER_KIND, $3, $5)",
+                 VALUES ($1, $2, $4::text::IMPORTER_KIND, $3, $5) ON CONFLICT DO NOTHING",
             w_id,
             script_path,
             import,
@@ -328,6 +329,16 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     relative_imports,
                 )
                 .await?;
+                let already_visited = job
+                    .args
+                    .as_ref()
+                    .map(|x| {
+                        x.get("already_visited")
+                            .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+                            .flatten()
+                    })
+                    .flatten()
+                    .unwrap_or_default();
                 if let Err(e) = trigger_dependents_to_recompute_dependencies(
                     w_id,
                     script_path,
@@ -338,6 +349,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     &job.permissioned_as,
                     db,
                     rsmq,
+                    already_visited,
                 )
                 .await
                 {
@@ -384,6 +396,7 @@ async fn trigger_dependents_to_recompute_dependencies<
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     rsmq: Option<R>,
+    mut already_visited: Vec<String>,
 ) -> error::Result<()> {
     let script_importers = sqlx::query!(
         "SELECT importer_path, importer_kind::text, array_agg(importer_node_id) as importer_node_ids FROM dependency_map
@@ -395,7 +408,12 @@ async fn trigger_dependents_to_recompute_dependencies<
     )
     .fetch_all(db)
     .await?;
+
+    already_visited.push(script_path.to_string());
     for s in script_importers.iter() {
+        if already_visited.contains(&s.importer_path) {
+            continue;
+        }
         let tx: PushIsolationLevel<'_, R> =
             PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
@@ -406,6 +424,10 @@ async fn trigger_dependents_to_recompute_dependencies<
             args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
         }
 
+        args.insert(
+            "already_visited".to_string(),
+            to_raw_value(&already_visited),
+        );
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
@@ -896,8 +918,11 @@ async fn lock_modules<'c>(
                     &Some(e.id.clone()),
                 )
                 .await?;
-                let relative_imports =
-                    extract_relative_imports(&content, &dep_path, &Some(language.clone()));
+                let relative_imports = extract_relative_imports(
+                    &content,
+                    &format!("{dep_path}/flow"),
+                    &Some(language.clone()),
+                );
                 if let Some(relative_imports) = relative_imports {
                     let mut logs = "".to_string();
                     logs.push_str(format!("\n\n--- RELATIVE IMPORTS of {} ---\n\n", e.id).as_str());
@@ -1340,12 +1365,12 @@ async fn capture_dependency_job(
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code)?;
             }
-            let req = gen_lockfile(
+            let req = gen_bun_lockfile(
                 mem_peak,
                 canceled_by,
                 job_id,
                 w_id,
-                db,
+                Some(db),
                 token,
                 script_path,
                 job_dir,
@@ -1361,13 +1386,13 @@ async fn capture_dependency_job(
             )
             .await?;
             if req.is_some() && !raw_deps {
-                crate::bun_executor::prebundle_script(
+                crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
                     req.clone(),
                     script_path,
                     job_id,
                     w_id,
-                    db,
+                    Some(db.clone()),
                     &job_dir,
                     base_internal_url,
                     worker_name,
@@ -1404,6 +1429,39 @@ async fn capture_dependency_job(
                 None,
             )
             .await
+        }
+        ScriptLang::Rust => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for rust".to_string(),
+                ));
+            }
+
+            let lockfile = generate_cargo_lockfile(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+            )
+            .await?;
+
+            build_rust_crate(
+                job_id,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                base_internal_url,
+                &compute_rust_hash(&job_raw_code, Some(&lockfile)),
+            )
+            .await?;
+            Ok(lockfile)
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

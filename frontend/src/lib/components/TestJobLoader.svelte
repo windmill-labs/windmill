@@ -103,6 +103,8 @@
 
 	export async function getLogs() {
 		if (job) {
+			console.log('getLogs')
+
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspace!,
 				id: job.id,
@@ -210,6 +212,8 @@
 					}
 
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
+					console.log('getLogs')
+
 					let previewJobUpdates = await JobService.getJobUpdates({
 						workspace: workspace!,
 						id,

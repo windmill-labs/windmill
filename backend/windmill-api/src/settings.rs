@@ -104,21 +104,12 @@ use windmill_common::s3_helpers::build_object_store_from_settings;
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
     use futures::StreamExt;
-    use windmill_common::ee::{get_license_plan, LicensePlan};
 
-    if matches!(get_license_plan().await, LicensePlan::Pro) {
-        return Err(error::Error::InternalErr(
-            "This feature is only available in Enterprise, not Pro".to_string(),
-        ));
-    }
-
-    require_super_admin(&db, &authed.email).await?;
     let client = build_object_store_from_settings(test_s3_bucket).await?;
 
     let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
@@ -260,6 +251,7 @@ pub async fn get_global_setting(
 ) -> JsonResult<serde_json::Value> {
     if !key.starts_with("default_error_handler_")
         && !key.starts_with("default_recovery_handler_")
+        && !key.starts_with("default_success_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
         && key != HUB_BASE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
@@ -363,7 +355,7 @@ pub async fn renew_license_key(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
-    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key).await;
+    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key, true).await;
 
     if result != "success" {
         return Err(error::Error::BadRequest(format!(

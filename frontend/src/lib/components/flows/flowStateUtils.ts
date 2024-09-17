@@ -210,8 +210,7 @@ export function emptyModule(flowState: FlowState, fullFlow: OpenFlow, flow?: boo
 export async function createScriptFromInlineScript(
 	flowModule: FlowModule,
 	suffix: string,
-	schema: Schema,
-	flow: OpenFlow,
+	schema: Schema | undefined,
 	flowPath: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const user = get(userStore)

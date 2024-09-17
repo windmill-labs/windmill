@@ -39,7 +39,7 @@
 
 	type MenuItem = {
 		label: string
-		onClick?: () => void
+		onClick?: (e?: Event) => void
 		href?: string
 		icon?: any
 	}
@@ -152,6 +152,7 @@
 	)
 
 	const iconMap = {
+		xs3: 12,
 		xs2: 14,
 		xs: 14,
 		sm: 16,
@@ -161,6 +162,7 @@
 	}
 
 	const iconOnlyPadding = {
+		xs3: 'm-[0.5px] qhd:m-[1px]',
 		xs2: 'm-[1px] qhd:m-[1.125px]',
 		xs: 'm-[1px] qhd:m-[1.125px]',
 		sm: 'm-[2px] qhd:m-[2.25px]',
@@ -169,11 +171,8 @@
 		xl: 'm-[5px] qhd:m-[5.625px]'
 	}
 
-	let innerWidth = 0
-	$: lucideIconSize = (iconMap[size] ?? 12) * (innerWidth > 2500 ? 1.125 : 1)
+	$: lucideIconSize = (iconMap[size] ?? 12) * 1
 </script>
-
-<svelte:window bind:innerWidth />
 
 <div
 	class="{dropdownItems && dropdownItems.length > 0 && variant === 'contained'

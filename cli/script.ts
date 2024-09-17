@@ -180,6 +180,9 @@ export async function handleFile(
           target: "node20.15.1",
         });
         bundleContent = out.outputFiles[0].text;
+        log.info(
+          "Bundle size: " + (bundleContent.length / 1024).toFixed(0) + "kB"
+        );
       }
       if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
@@ -199,6 +202,7 @@ export async function handleFile(
           const file = new File([blob], asset.to);
           tarball.append(file);
         }
+        log.info("Tarball size: " + (tarball.size / 1024).toFixed(0) + "kB");
         bundleContent = tarball;
       }
       log.info(`Finished building the bundle for ${path}`);

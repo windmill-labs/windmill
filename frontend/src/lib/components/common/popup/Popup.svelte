@@ -14,6 +14,7 @@
 
 	export let blockOpen = false
 	export let shouldUsePortal: boolean = true
+	export let target: string | HTMLElement | undefined = undefined
 </script>
 
 <Popover on:close class="leading-none">
@@ -22,7 +23,7 @@
 			<slot name="button" />
 		</div>
 	</PopoverButton>
-	<ConditionalPortal condition={shouldUsePortal}>
+	<ConditionalPortal condition={shouldUsePortal} {target}>
 		<div use:floatingContent class="z5000">
 			<Transition
 				show={blockOpen || undefined}

@@ -121,7 +121,7 @@ pub async fn generate_deno_lock(
             "--unstable-worker-options",
             "--unstable-http",
             "--lock=lock.json",
-            "--lock-write",
+            "--frozen=false",
             "--import-map",
             &import_map_path,
             "main.ts",
@@ -290,7 +290,7 @@ try {{
             if !reqs.is_empty() {
                 let _ = write_file(job_dir, "lock.json", &reqs)?;
                 args.push("--lock=lock.json");
-                args.push("--lock-write");
+                args.push("--frozen=false");
             }
         }
         let allow_read = format!(

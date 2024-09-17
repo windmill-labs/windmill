@@ -352,14 +352,25 @@ you to have it being synced automatically everyday.
 | DISABLE_RESPONSE_LOGS          | false                   | Disable response logs                                                   | Server                |
 
 ## Run a local dev setup
+See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
+running options.
+
 ### only Frontend
 This will use the backend of <https://app.windmill.dev> but your own frontend
-with hot-code reloading.
-1. Install [caddy](https://caddyserver.com)
-2. Go to `frontend/`:
-   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
-   2. In another shell `sudo caddy run --config CaddyfileRemote`
-3. Et voilà, windmill should be available at `http://localhost/`
+with hot-code reloading. Note that you will need to use a username / password login due to CSRF checks using a different auth provider.
+
+In the `frontend/` directory:
+
+1. install the dependencies with `npm install` (or `pnpm install` or `yarn`)
+2. generate the windmill client:
+  ```
+  npm run generate-backend-client
+  ## on mac use
+  npm run generate-backend-client-mac
+  ```
+3. Run your dev server with `npm run dev`
+4. Et voilà, windmill should be available at `http://localhost/`
+
 ### Backend + Frontend
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.

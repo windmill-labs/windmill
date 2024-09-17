@@ -18,8 +18,8 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { AlertTriangle, CopyIcon, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
@@ -186,7 +186,7 @@
 		await loadWorkerGroups()
 	}
 
-	let queueMetricsDrawer: Drawer
+	let queueMetricsDrawer: QueueMetricsDrawer
 	let selectedTab: string = 'default'
 
 	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
@@ -237,10 +237,13 @@
 
 		return [worker_group[0], filteredWorkerGroup]
 	}
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 </script>
 
 {#if $superadmin}
-	<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
+	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
 {/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">
@@ -292,6 +295,20 @@
 						Queue metrics
 					</Button>
 				</div>
+				<div>
+					<Button
+						size="xs"
+						color="dark"
+						startIcon={{
+							icon: List
+						}}
+						on:click={() => {
+							openSearchWithPrefilledText('!')
+						}}
+					>
+						Service logs
+					</Button>
+				</div>
 			</div>
 		{/if}
 	</PageHeader>
@@ -321,9 +338,8 @@
 							<div class="flex items-center gap-2">
 								<Button
 									size="sm"
-									variant="border"
-									startIcon={{ icon: FileJson }}
-									color="dark"
+									color="light"
+									startIcon={{ icon: CopyIcon }}
 									on:click={() => {
 										if (!workerGroups) {
 											return sendUserToast('No worker groups found', true)

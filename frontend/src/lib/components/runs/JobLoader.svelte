@@ -20,7 +20,8 @@
 	export let label: string | null = null
 	export let folder: string | null
 	export let path: string | null
-	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined = undefined
+	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined =
+		undefined
 	export let isSkipped: boolean = false
 	export let showSchedules: boolean = true
 	export let showFutureJobs: boolean = true
@@ -46,7 +47,9 @@
 	export let refreshRate = 5000
 	export let syncQueuedRunsCount: boolean = true
 	export let allWorkspaces: boolean = false
-	export let computeMinAndMax: (() => { minTs: string; maxTs: string } | undefined) | undefined
+	export let computeMinAndMax:
+		| (() => { minTs: string; maxTs: string | undefined } | undefined)
+		| undefined
 	export let lookback: number = 0
 	export let perPage: number | undefined = undefined
 
@@ -120,10 +123,26 @@
 	}
 
 	let loadingFetch = false
+
+	export async function loadExtraJobs(): Promise<boolean> {
+		if (jobs && jobs.length > 0) {
+			const lastJob = jobs[jobs.length - 1]
+			// const minCreated = lastJob?.created_at
+			const minCreated = new Date(new Date(lastJob.created_at!).getTime() - 1).toISOString()
+
+			let olderJobs = await fetchJobs(undefined, minTs, undefined, minCreated)
+			jobs = jobs.concat(olderJobs)
+			computeCompletedJobs()
+			return olderJobs?.length < 1000
+		}
+		return false
+	}
+
 	async function fetchJobs(
 		startedBefore: string | undefined,
 		startedAfter: string | undefined,
-		startedAfterCompletedJobs: string | undefined
+		startedAfterCompletedJobs: string | undefined,
+		createdBefore: string | undefined
 	): Promise<Job[]> {
 		loadingFetch = true
 		try {
@@ -136,22 +155,28 @@
 				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 				schedulePath,
 				scriptPathExact,
+				createdBefore,
 				createdBy: user === null || user === '' ? undefined : user,
 				scriptPathStart: scriptPathStart,
 				jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
-				running: (success == 'running' || success == 'suspended' ) ? true : (success == 'waiting' ) ? false : undefined,
+				running:
+					success == 'running' || success == 'suspended'
+						? true
+						: success == 'waiting'
+						? false
+						: undefined,
 				isSkipped: isSkipped ? undefined : false,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
-				hasNullParent:
-					scriptPathExact != undefined || scriptPathStart != undefined || jobKindsCat != 'all'
-						? true
-						: undefined,
+				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
-				scheduledForBeforeNow: showFutureJobs == false || (success == 'waiting' || success == 'suspended') ? true : undefined,
+				scheduledForBeforeNow:
+					showFutureJobs == false || success == 'waiting' || success == 'suspended'
+						? true
+						: undefined,
 				args:
 					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
 						? argFilter
@@ -256,7 +281,7 @@
 			// lookback won't be needed anymore (just filter ended_at > minTs instead
 			const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 			if (concurrencyKey == null || concurrencyKey === '') {
-				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs)
+				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs, undefined)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -296,8 +321,11 @@
 	}
 
 	async function getCount() {
-		const { database_length, suspended} = (await JobService.getQueueCount({ workspace: $workspaceStore!, allWorkspaces }))
-			
+		const { database_length, suspended } = await JobService.getQueueCount({
+			workspace: $workspaceStore!,
+			allWorkspaces
+		})
+
 		if (queue_count) {
 			queue_count.set(database_length)
 		} else {
@@ -307,7 +335,6 @@
 			suspended_count.set(suspended ?? 0)
 		} else {
 			suspended_count = tweened(suspended ?? 0, { duration: 1000 })
-
 		}
 	}
 
@@ -362,7 +389,7 @@
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined)
+						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined, undefined)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? ts)

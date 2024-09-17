@@ -69,6 +69,7 @@
 </script>
 
 <div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
+	<!-- svelte-ignore a11y-autofocus -->
 	<input
 		type="date"
 		bind:value={date}

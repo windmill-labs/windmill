@@ -137,14 +137,14 @@
 			<input type="text" bind:value={bucket_config.region} />
 		</label>
 		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Access Key ID</span>
+			<span class="text-primary font-semibold text-sm">Access key ID</span>
 			<span class="text-tertiary text-2xs"
 				>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2 profile</span
 			>
 			<input type="text" bind:value={bucket_config.access_key} />
 		</label>
 		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Secret Key</span>
+			<span class="text-primary font-semibold text-sm">Secret key</span>
 			<span class="text-tertiary text-2xs"
 				>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
 			>
@@ -160,20 +160,20 @@
 		<div class="block pb-2">
 			<span class="text-tertiary text-2xs">Disable if using https only policy</span>
 			<div>
-				<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'allow http' }} />
+				<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'Allow http' }} />
 			</div>
 		</div>
 	{:else if bucket_config.type === 'Azure'}
 		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Account Name</span>
+			<span class="text-primary font-semibold text-sm">Account name</span>
 			<input type="text" placeholder="account-name" bind:value={bucket_config.accountName} />
 		</label>
 		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Container Name</span>
+			<span class="text-primary font-semibold text-sm">Container name</span>
 			<input type="text" placeholder="container-name" bind:value={bucket_config.containerName} />
 		</label>
 		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Access Key</span>
+			<span class="text-primary font-semibold text-sm">Access key</span>
 			<input type="password" autocomplete="new-password" bind:value={bucket_config.accessKey} />
 		</label>
 		<label class="block pb-2">

@@ -102,6 +102,7 @@
 						mod.value.skip_failures ? '(skip failures)' : ''
 					}`}
 					id={mod.id}
+					on:changeId
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
 					on:click={() => dispatch('select', mod.id)}
@@ -120,6 +121,7 @@
 			{:else if mod.value.type === 'branchone'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
 					on:click={() => dispatch('select', mod.id)}
@@ -135,6 +137,7 @@
 			{:else if mod.value.type === 'branchall'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
 					on:click={() => dispatch('select', mod.id)}
@@ -150,6 +153,7 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					on:changeId
 					on:click={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}

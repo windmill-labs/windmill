@@ -16,7 +16,6 @@
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
-	export let rebuildOnChange: any = undefined
 
 	let drawer: Drawer | undefined = undefined
 	let paneWidth = 0

@@ -51,10 +51,10 @@
 			{#if job.is_flow_step}
 				<div class="flex flex-row gap-2 items-center text-sm">
 					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
-					<span class="whitespace-nowrap">
+					<span class="whitespace-nowrap text-sm">
 						Step of flow
 						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
-							{job.parent_job}
+							{truncateRev(job.parent_job, 18)}
 						</a>
 					</span>
 				</div>
@@ -74,6 +74,7 @@
 				<Calendar size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 				<span class="whitespace-nowrap">
 					Schedule:
+					<!-- svelte-ignore a11y-invalid-attribute -->
 					<a
 						href="#"
 						class="break-words text-blue-600 font-normal"

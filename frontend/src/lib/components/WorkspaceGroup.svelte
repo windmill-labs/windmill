@@ -17,6 +17,7 @@
 	import Label from './Label.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import YAML from 'yaml'
+	import Toggle from './Toggle.svelte'
 
 	export let name: string
 	export let config:
@@ -29,6 +30,7 @@
 				init_bash?: string
 				additional_python_paths?: string[]
 				pip_local_dependencies?: string[]
+				min_alive_workers_alert_threshold?: number
 		  }
 	export let activeWorkers: number
 	export let customTags: string[] | undefined
@@ -44,8 +46,8 @@
 				if (ping.vcpus) {
 					vcpus += ping.vcpus
 				}
-				if (ping.memory_usage) {
-					memory += ping.memory_usage
+				if (ping.memory) {
+					memory += ping.memory
 				}
 			}
 		}
@@ -62,6 +64,7 @@
 		env_vars_allowlist?: string[]
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
+		min_alive_workers_alert_threshold?: number
 	} = {}
 
 	function loadNConfig() {
@@ -112,7 +115,8 @@
 		'flow',
 		'other',
 		'bun',
-		'php'
+		'php',
+		'rust'
 	]
 	const nativeTags = [
 		'nativets',
@@ -464,6 +468,42 @@
 					{/if}
 				{/if}
 			</Section>
+			{#if nconfig !== undefined}
+				<div class="mt-8" />
+				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
+					<Toggle
+						size="sm"
+						options={{
+							right: 'Send an alert when the number of alive workers falls below a given threshold'
+						}}
+						checked={nconfig?.min_alive_workers_alert_threshold !== undefined ?? false}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
+								dirty = true
+							}
+						}}
+						disabled{!$enterpriseLicense}
+					/>
+					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
+						<div class="flex flex-row items-center justify-between">
+							<div class="flex flex-row items-center text-sm gap-2">
+								<p>Triggered when number of workers in group is lower than</p>
+								<input
+									type="number"
+									class="!w-14 text-center"
+									disabled={!$enterpriseLicense}
+									min="1"
+									bind:value={nconfig.min_alive_workers_alert_threshold}
+									on:change={(ev) => {
+										dirty = true
+									}}
+								/>
+							</div>
+						</div>
+					{/if}
+				</Section>
+			{/if}
 		{:else if selected == 'dedicated'}
 			{#if nconfig?.dedicated_worker != undefined}
 				<input
@@ -788,6 +828,13 @@
 						variant="contained"
 						color="dark"
 						on:click={async () => {
+							if (
+								nconfig?.min_alive_workers_alert_threshold &&
+								nconfig?.min_alive_workers_alert_threshold < 1
+							) {
+								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
+								return
+							}
 							customEnvVars.forEach((envvar) => {
 								if (
 									nconfig.env_vars_static !== undefined &&
@@ -823,8 +870,9 @@
 	<div class="text-xs"
 		>{pluralize(activeWorkers, 'worker')}
 		{#if vcpus_memory?.vcpus}
-			- {vcpus_memory?.vcpus} vCPUs{/if}{#if vcpus_memory?.memory}
-			- {vcpus_memory?.memory} MB{/if}</div
+			- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
+		{#if vcpus_memory?.memory}
+			- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}</div
 	>
 	<div class="flex gap-2 items-center justify-end flex-row my-2">
 		{#if $superadmin}

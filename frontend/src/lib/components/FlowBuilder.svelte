@@ -81,6 +81,7 @@
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
+	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -97,6 +98,7 @@
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
+	export let disableAi: boolean = false
 
 	$: setContext('customUi', customUi)
 
@@ -218,6 +220,7 @@
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
+			dispatch('saveDraftError', error)
 		}
 		loadingDraft = false
 	}
@@ -332,6 +335,7 @@
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
+			dispatch('deployError', err)
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
 		}
@@ -879,7 +883,7 @@
 						Object.keys(flowModule.value.input_transforms).forEach((key) => {
 							if (key !== 'prev_output') {
 								const schema = $flowStateStore[module.id].schema
-								const schemaProperty = Object.entries(schema.properties).find(
+								const schemaProperty = Object.entries(schema?.properties ?? {}).find(
 									(x) => x[0] === key
 								)?.[1]
 								const snakeKey = snakeCase(key)
@@ -888,7 +892,7 @@
 									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
-									if (schema.required.includes(snakeKey)) {
+									if (schema?.required.includes(snakeKey)) {
 										copilotFlowRequiredInputs.push(snakeKey)
 									}
 								}
@@ -1007,6 +1011,7 @@
 	let flowTutorials: FlowTutorials | undefined = undefined
 
 	let jsonViewerDrawer: Drawer | undefined = undefined
+	let yamlEditorDrawer: Drawer | undefined = undefined
 	let flowHistory: FlowHistory | undefined = undefined
 
 	export function triggerTutorial() {
@@ -1049,6 +1054,11 @@
 							displayName: 'Export',
 							icon: FileJson,
 							action: () => jsonViewerDrawer?.openDrawer()
+						},
+						{
+							displayName: 'Edit in YAML',
+							icon: FileJson,
+							action: () => yamlEditorDrawer?.openDrawer()
 						}
 				  ]
 				: [])
@@ -1069,6 +1079,7 @@
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
 		{/if}
+		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
@@ -1093,7 +1104,10 @@
 					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
-					<Summary bind:value={$flowStore.summary} />
+					<Summary
+						disabled={customUi?.topBar?.editableSummary == false}
+						bind:value={$flowStore.summary}
+					/>
 
 					<UndoRedo
 						undoProps={{ disabled: $history.index === 0 }}
@@ -1238,7 +1252,7 @@
 							</div>
 						</Button>
 					{/if}
-					{#if customUi?.topBar?.aiBuilder != false}
+					{#if !disableAi && customUi?.topBar?.aiBuilder != false}
 						<FlowCopilotStatus
 							{copilotLoading}
 							bind:copilotStatus
@@ -1302,7 +1316,7 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
-					enableAi={customUi?.stepInputs?.ai != false}
+					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
 					{loading}
 					on:reload={() => {

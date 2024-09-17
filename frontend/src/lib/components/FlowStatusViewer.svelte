@@ -6,8 +6,10 @@
 	import type { FlowStatusViewerContext } from './graph'
 	import { isOwner as loadIsOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import type { Job } from '$lib/gen'
 
 	export let jobId: string
+	export let initialJob: Job | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let flowStateStore: Writable<FlowState> = writable({})
 	export let selectedJobStep: string | undefined = undefined
@@ -15,6 +17,7 @@
 	export let hideTimeline = false
 	export let hideDownloadInGraph = false
 	export let hideNodeDefinition = false
+	export let hideJobId = false
 
 	export let isOwner = false
 	export let wideResults = false
@@ -29,7 +32,8 @@
 		retryStatus,
 		hideDownloadInGraph,
 		hideNodeDefinition,
-		hideTimeline
+		hideTimeline,
+		hideJobId
 	})
 
 	function loadOwner(path: string) {
@@ -66,6 +70,7 @@
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done
+	{initialJob}
 	{jobId}
 	{workspaceId}
 	{isOwner}

@@ -53,12 +53,12 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { writable } from 'svelte/store'
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -87,7 +87,7 @@
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	buildWorkerDefinition('../../../workers', import.meta.url)
+	buildWorkerDefinition()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''

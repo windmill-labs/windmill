@@ -26,7 +26,6 @@
 	const {
 		selectedComponent,
 		app,
-		mode,
 		connectingInput,
 		summary,
 		focusedGrid,
@@ -126,14 +125,7 @@
 		}}
 		bind:clientWidth={$parentWidth}
 	>
-		<div
-			class={twMerge(
-				!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
-				'subgrid  overflow-visible  z-100',
-				'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1 '
-			)}
-			style={`transform: scale(${$scale / 100});`}
-		>
+		<div class="subgrid overflow-visible z-100" style={`transform: scale(${$scale / 100});`}>
 			<Grid
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
@@ -144,6 +136,7 @@
 				}}
 				let:dataItem
 				let:hidden
+				let:overlapped
 				cols={columnConfiguration}
 			>
 				<ComponentWrapper
@@ -184,6 +177,7 @@
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
+							overlapped={overlapped !== undefined}
 						/>
 					</GridEditorMenu>
 				</ComponentWrapper>
@@ -201,10 +195,6 @@
 {/if}
 
 <style global>
-	.svlt-grid-shadow {
-		/* Back shadow */
-		background: #93c4fdd0 !important;
-	}
 	.svlt-grid-active {
 		opacity: 1 !important;
 	}

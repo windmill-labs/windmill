@@ -70,7 +70,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-COPY --from=frontend /frontend /frontend
+RUN mkdir -p /frontend
+
+COPY --from=frontend /frontend/build /frontend/build
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml
 COPY .git/ .git/
 
@@ -86,17 +88,24 @@ ARG POWERSHELL_VERSION=7.3.5
 ARG POWERSHELL_DEB_VERSION=7.3.5-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
+ARG GO_VERSION=1.22.5
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
-
+ARG WITH_GIT=true
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
+    && apt-get install -y ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1  software-properties-common \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+RUN if [ "$WITH_GIT" = "true" ]; then \
+    apt-get update  -y \
+    && apt-get install -y git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*; \
+    else echo 'Building the image without git'; fi;
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
     if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && apt-get clean \
@@ -131,14 +140,14 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
-    'amd64') \
-    targz='go1.22.5.linux-amd64.tar.gz'; \
+    "amd64") \
+    targz="go${GO_VERSION}.linux-amd64.tar.gz"; \
     ;; \
-    'arm64') \
-    targz='go1.22.5.linux-arm64.tar.gz'; \
+    "arm64") \
+    targz="go${GO_VERSION}.linux-arm64.tar.gz"; \
     ;; \
-    'armhf') \
-    targz='go1.22.5.linux-armv6l.tar.gz'; \
+    "armhf") \
+    targz="go${GO_VERSION}.linux-armv6l.tar.gz"; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
@@ -149,7 +158,7 @@ ENV GO_PATH=/usr/local/go/bin/go
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
@@ -161,15 +170,18 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:1.45.4 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:1.46.3 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.25 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.27 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+
+ENV RUSTUP_HOME="/usr/local/rustup"
+ENV CARGO_HOME="/usr/local/cargo"
 
 WORKDIR ${APP}
 

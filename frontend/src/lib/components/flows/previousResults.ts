@@ -134,7 +134,7 @@ export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, a
 	)
 
 	const flowInput = getFlowInput(
-		dfs(flow.value.modules[0].id, flow),
+		dfs(flow.value.modules?.[0]?.id, flow),
 		flowState,
 		args,
 		flow.schema as Schema

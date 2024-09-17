@@ -22,7 +22,7 @@
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argNames: string[] = []
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> } | undefined = undefined
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -130,7 +130,7 @@ input_name2: expression2
 		const properties = {
 			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
 			...newFlowInputs.reduce((acc, x) => {
-				acc[x] = (schema.properties ?? {})[x]
+				acc[x] = (schema?.properties ?? {})[x]
 				return acc
 			}, {})
 		}

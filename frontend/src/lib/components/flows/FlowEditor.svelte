@@ -17,7 +17,6 @@
 	export let disableAi = false
 	export let disableSettings = false
 	export let smallErrorHandler = false
-	export let enableAi = true
 
 	let size = 40
 
@@ -61,7 +60,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel {enableAi} />
+				<FlowEditorPanel enableAi={!disableAi} />
 			{/if}
 		</Pane>
 	</Splitpanes>

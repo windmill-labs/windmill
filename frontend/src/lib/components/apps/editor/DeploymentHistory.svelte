@@ -76,6 +76,7 @@
 						<div class="flex gap-2 flex-col">
 							{#each versions ?? [] as version}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
 								<div
 									class={classNames(
 										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',

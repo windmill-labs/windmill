@@ -19,15 +19,9 @@
 	const rd = $page.url.searchParams.get('rd') ?? undefined
 
 	let showPassword = false
+	let firstTime = false
 
 	async function redirectUser() {
-		const firstTimeCookie =
-			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
-		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
-			goto('/user/first-time')
-			return
-		}
-
 		if (rd?.startsWith('http')) {
 			window.location.href = rd
 			return
@@ -81,9 +75,14 @@
 		redirectUser()
 	}
 
+	async function checkFirstTimeSetup() {
+		firstTime = await (await fetch('/api/auth/is_first_time_setup')).json()
+	}
+
 	try {
 		setLicense()
 		redirectIfNecessary()
+		checkFirstTimeSetup()
 	} catch {
 		clearStores()
 	}
@@ -113,6 +112,6 @@
 		<div class="flex justify-end">
 			<DarkModeToggle forcedDarkMode={false} />
 		</div>
-		<Login {rd} {error} {password} {email} />
+		<Login {firstTime} {rd} {error} {password} {email} />
 	</div>
 </div>
