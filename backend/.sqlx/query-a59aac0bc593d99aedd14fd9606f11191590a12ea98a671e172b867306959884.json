@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO password (email, login_type, verified, username) VALUES ($1, 'saml', true, $2) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a59aac0bc593d99aedd14fd9606f11191590a12ea98a671e172b867306959884"
+}
