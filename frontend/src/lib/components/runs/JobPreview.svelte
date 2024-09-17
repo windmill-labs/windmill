@@ -25,7 +25,6 @@
 	let job: Job | undefined = undefined
 	let watchJob: ((id: string) => Promise<void>) | undefined = undefined
 	let getLogs: (() => Promise<void>) | undefined = undefined
-	let progress: number | undefined = undefined;
 
 	let result: any
 
@@ -66,7 +65,6 @@
 	bind:job={currentJob}
 	bind:getLogs
 	bind:watchJob
-	bind:progress
 	on:done={onDone}
 />
 
