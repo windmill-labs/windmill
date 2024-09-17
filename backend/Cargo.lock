@@ -10811,7 +10811,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.394.6"
+version = "1.395.0"
 dependencies = [
  "anyhow",
  "serde_json",
