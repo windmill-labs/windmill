@@ -67,6 +67,7 @@
 	bind:watchJob
 	on:done={onDone}
 />
+
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
 		<div class="flex gap-2 flex-wrap">

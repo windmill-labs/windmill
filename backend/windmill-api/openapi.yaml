@@ -5993,6 +5993,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -6011,6 +6015,8 @@ paths:
                   log_offset:
                     type: integer
                   mem_peak:
+                    type: integer
+                  progress:
                     type: integer
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
@@ -8647,6 +8653,52 @@ paths:
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
 
+  /w/{workspace}/job_metrics/set_progress/{id}:
+    post:
+      summary: set job metrics
+      operationId: setJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        description: parameters for statistics retrieval
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                percent:
+                  type: integer
+                flow_job_id:
+                  type: string
+                  format: uuid
+
+      responses:
+        "200":
+          description: Job progress updated
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_metrics/get_progress/{id}:
+    get:
+      summary: get job progress
+      operationId: getJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job progress between 0 and 99
+          content:
+            application/json:
+              schema:
+                type: integer
   /service_logs/list_files:
     get:
       summary: list log files ordered by timestamp
@@ -8710,7 +8762,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /concurrency_groups/list:
     get:
