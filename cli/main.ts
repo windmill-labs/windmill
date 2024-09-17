@@ -145,6 +145,17 @@ const command = new Command()
   .command("completions", new CompletionsCommand());
 
 export let showDiffs = false;
+
+let isWin: boolean | undefined = undefined;
+
+export async function getIsWin() {
+  if (isWin === undefined) {
+    const os = await import("node:os");
+    isWin = os.platform() === "win32";
+  }
+  return isWin;
+}
+
 async function main() {
   try {
     if (Deno.args.length === 0) {
@@ -161,6 +172,7 @@ async function main() {
       handlers: {
         console: new log.ConsoleHandler(LOG_LEVEL, {
           formatter: ({ msg }) => `${msg}`,
+          useColors: isWin ? false : true,
         }),
       },
       loggers: {
