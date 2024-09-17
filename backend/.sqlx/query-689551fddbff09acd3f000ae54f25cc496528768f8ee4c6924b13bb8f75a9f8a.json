@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE instance_group SET external_id = $1 WHERE name = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "689551fddbff09acd3f000ae54f25cc496528768f8ee4c6924b13bb8f75a9f8a"
+}

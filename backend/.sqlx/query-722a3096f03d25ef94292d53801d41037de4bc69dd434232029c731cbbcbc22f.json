@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1-2')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "722a3096f03d25ef94292d53801d41037de4bc69dd434232029c731cbbcbc22f"
+}
