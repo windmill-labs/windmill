@@ -236,7 +236,7 @@ struct EditCopilotConfig {
 struct LargeFileStorageWithSecondary {
     #[serde(flatten)]
     large_file_storage: LargeFileStorage,
-
+    #[serde(default)]
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
 
