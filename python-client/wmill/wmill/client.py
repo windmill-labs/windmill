@@ -108,14 +108,19 @@ class Windmill:
         path: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        # can only be set to false if this the job will be fully await and not concurrent with any other job
+        # as otherwise the child flow and its own child will store their state in the parent job which will
+        # lead to incorrectness and failures
+        do_not_track_in_parent: bool = True,
     ) -> str:
         """Create a flow job and return its job id."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
-        if os.environ.get("WM_JOB_ID"):
-            params["parent_job"] = os.environ.get("WM_JOB_ID")
-        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
-            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        if not do_not_track_in_parent:
+            if os.environ.get("WM_JOB_ID"):
+                params["parent_job"] = os.environ.get("WM_JOB_ID")
+            if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+                params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/f/{path}"
         else:
@@ -655,11 +660,16 @@ def run_flow_async(
     path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
+    # can only be set to false if this the job will be fully await and not concurrent with any other job
+    # as otherwise the child flow and its own child will store their state in the parent job which will
+    # lead to incorrectness and failures
+    do_not_track_in_parent: bool = True,
 ) -> str:
     return _client.run_flow_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        do_not_track_in_parent=do_not_track_in_parent,
     )
 
 

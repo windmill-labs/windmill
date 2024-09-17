@@ -13,7 +13,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import Slider from '$lib/components/Slider.svelte'
-	import { enterpriseLicense, workerTags, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { copyToClipboard } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -36,10 +36,6 @@
 	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$pathStore}`
 	$: syncedUrl = `${hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$pathStore}`
 
-	$: if ($selectedId == 'settings-worker-group') {
-		$workerTags = undefined
-	}
-
 	function asSchema(x: any) {
 		return x as Schema
 	}
@@ -50,6 +46,7 @@
 <div class="h-full overflow-hidden">
 	<FlowCard {noEditor} title="Settings">
 		<div class="h-full flex-1">
+			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>
 				{#if !noEditor && customUi?.settingsTabs?.schedule != false}

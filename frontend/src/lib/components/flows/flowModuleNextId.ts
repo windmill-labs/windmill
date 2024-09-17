@@ -7,12 +7,7 @@ import { charsToNumber, numberToChars } from './idUtils'
 export function nextId(flowState: FlowState, fullFlow: OpenFlow): string {
 	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
 	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
-		if (
-			key === 'failure' ||
-			key === 'preprocessor' ||
-			key.includes('branch') ||
-			key.includes('loop')
-		) {
+		if (key.length >= 4) {
 			return acc
 		} else {
 			const num = charsToNumber(key)

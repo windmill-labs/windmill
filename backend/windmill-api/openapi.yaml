@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.389.0
+  version: 1.395.0
   title: Windmill API
 
   contact:
@@ -2587,6 +2587,36 @@ paths:
               schema:
                 type: string
 
+  
+  /oauth/connect_slack_callback:
+    post:
+      summary: connect slack callback instance
+      operationId: connectSlackCallbackInstance
+      tags:
+        - oauth
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: success message
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /oauth/connect_callback/{client_name}:
     post:
       summary: connect callback
@@ -4712,26 +4742,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/flows/input_history/p/{path}:
-    get:
-      summary: list inputs for previous completed flow jobs
-      operationId: getFlowInputHistoryByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: input history for completed jobs with this flow path
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/raw_apps/list:
     get:
@@ -5841,6 +5851,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/CreatedBefore"
+        - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
@@ -6783,7 +6795,7 @@ paths:
               properties:
                 handler_type:
                   type: string
-                  enum: ["error", "recovery"]
+                  enum: ["error", "recovery", "success"]
                 override_existing:
                   type: boolean
                 path:
@@ -8571,6 +8583,38 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/job_helpers/load_table_count/{path}:
+    get:
+      summary: Load the table row count
+      operationId: loadTableRowCount
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Table count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+
   /w/{workspace}/job_helpers/load_csv_preview/{path}:
     get:
       summary: Load a preview of a csv file
@@ -9261,6 +9305,20 @@ components:
       in: query
       schema:
         type: string
+    CreatedBefore:
+      name: created_before
+      description: filter on created before (inclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedAfter:
+      name: created_after
+      description: filter on created after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
     StartedBefore:
       name: started_before
       description: filter on started before (inclusive) timestamp
@@ -10673,6 +10731,10 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
         retry:
@@ -10751,6 +10813,10 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
         retry:
@@ -10795,6 +10861,10 @@ components:
         on_recovery_times:
           type: number
         on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean

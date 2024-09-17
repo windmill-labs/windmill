@@ -198,7 +198,7 @@
 				argName,
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
-				$flowStateStore[$selectedId]?.schema ?? {},
+				$flowStateStore[$selectedId]?.schema,
 				dfs($flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
 			).then((flowStepWarnings) => {
 				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
@@ -255,7 +255,6 @@
 							flowModule,
 							$selectedId,
 							$flowStateStore[flowModule.id].schema,
-							$flowStore,
 							$pathStore
 						)
 						flowModule = module
@@ -505,6 +504,7 @@
 															using `$args[name_of_arg]`</Tooltip
 														>
 													</svelte:fragment>
+													<!-- svelte-ignore a11y-autofocus -->
 													<input
 														type="text"
 														autofocus

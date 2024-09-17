@@ -120,7 +120,7 @@ pub async fn shutdown_signal(
         },
     }
 
-    println!("signal received, starting graceful shutdown");
+    tracing::info!("signal received, starting graceful shutdown");
     let _ = tx.send(());
     Ok(())
 }
@@ -167,7 +167,7 @@ pub async fn serve_metrics(
         if let Err(e) = axum::serve(listener, router.into_make_service())
             .with_graceful_shutdown(async move {
                 rx.recv().await.ok();
-                println!("Graceful shutdown of metrics");
+                tracing::info!("Graceful shutdown of metrics");
             })
             .await
         {

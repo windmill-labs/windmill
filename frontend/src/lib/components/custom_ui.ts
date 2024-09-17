@@ -9,6 +9,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		tutorials?: boolean
 		diff?: boolean
 		extraDeployOptions?: boolean
+		editableSummary?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -54,6 +55,8 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		path?: boolean
 		settings?: boolean
 		extraDeployOptions?: boolean
+		editableSummary?: boolean
+		diff?: boolean
 	}
 	editorBar?: EditorBarUi
 }

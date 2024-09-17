@@ -100,7 +100,7 @@
 	</div>
 {/if}
 
-<style>
+<style lang="postcss">
 	:global(.ql-toolbar) {
 		@apply rounded-t-md;
 	}

@@ -1,3 +1,5 @@
+import { isTypescriptRelativePath } from '$lib/relative_imports'
+
 /** Converts some of the known global imports to node so that we grab the right info */
 export const mapModuleNameToModule = (moduleSpecifier: string) => {
 	// in node repl:
@@ -61,7 +63,7 @@ export const mapModuleNameToModule = (moduleSpecifier: string) => {
 		return 'node'
 	}
 
-	if (isRelativePath(moduleSpecifier)) {
+	if (isTypescriptRelativePath(moduleSpecifier)) {
 		return moduleSpecifier
 	}
 	// strip module filepath e.g. lodash/identity => lodash
@@ -69,14 +71,4 @@ export const mapModuleNameToModule = (moduleSpecifier: string) => {
 	const moduleName = a.startsWith('@') ? `${a}/${b}` : a
 
 	return moduleName
-}
-
-export function isRelativePath(d: string) {
-	return (
-		d.startsWith('./') ||
-		d.startsWith('../') ||
-		d.startsWith('/') ||
-		d.startsWith('.../') ||
-		d.startsWith('/')
-	)
 }

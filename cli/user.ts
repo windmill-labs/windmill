@@ -12,7 +12,6 @@ import {
   Command,
   GlobalUserInfo,
   log,
-  passwordGenerator,
   Table,
   UserService,
   GroupService,
@@ -57,6 +56,10 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
+function rdString() {
+  return Math.random().toString(36).slice(2, 7);
+}
+
 async function add(
   opts: GlobalOptions & {
     superadmin?: boolean;
@@ -67,7 +70,7 @@ async function add(
   password?: string
 ) {
   await requireLogin(opts);
-  const password_final = password ?? passwordGenerator("*", 15);
+  const password_final = password ?? rdString();
   await UserService.createUserGlobally({
     requestBody: {
       email,

@@ -2734,7 +2734,8 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
-                }) if lock.len() > 0)
+                }) if lock.len() > 0),
+            "{:?}", m.value
             );
         });
 }
@@ -2981,6 +2982,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
         on_recovery_times: None,
         on_recovery_extra_args: None,
+        on_success: None,
+        on_success_extra_args: None,
         path: "f/system/failing_script_schedule".to_string(),
         script_path: "f/system/failing_script".to_string(),
         timezone: "UTC".to_string(),
@@ -3048,6 +3051,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
                 on_recovery_times: None,
                 on_recovery_extra_args: None,
+                on_success: None,
+                on_success_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
                 ws_error_handler_muted: None,
@@ -3126,6 +3131,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
         on_recovery_times: None,
         on_recovery_extra_args: None,
+        on_success: None,
+        on_success_extra_args: None,
         path: "f/system/failing_flow_schedule".to_string(),
         script_path: "f/system/failing_flow".to_string(),
         timezone: "UTC".to_string(),
@@ -3194,6 +3201,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
                 on_recovery_times: None,
                 on_recovery_extra_args: None,
+                on_success: None,
+                on_success_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
                 ws_error_handler_muted: None,

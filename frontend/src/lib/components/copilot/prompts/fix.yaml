@@ -45,6 +45,7 @@ prompts:
       {resourceTypes}
       </resourceTypes>
       Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      Naming conventions are guidelines, but follow the user's naming choices in the existing code.
       </contextual_information>
       I get the following error: {error}
       Fix my code.
@@ -161,6 +162,7 @@ prompts:
       {resourceTypes}
       </resourceTypes>
       Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      Naming conventions are guidelines, but follow the user's naming choices in the existing code.
       </contextual_information>
       I get the following error: {error}
       Fix my code.
@@ -179,6 +181,7 @@ prompts:
       {resourceTypes}
       </resourceTypes>
       Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      Naming conventions are guidelines, but follow the user's naming choices in the existing code.
       </contextual_information>
       I get the following error: {error}
       Fix my code.

@@ -36,11 +36,14 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::Hash,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
     },
     time::Duration,
 };
+#[cfg(feature = "benchmark")]
+use std::sync::atomic::AtomicUsize;
+
 
 use uuid::Uuid;
 
@@ -51,19 +54,19 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::StripPath,
-    worker::{to_raw_value, update_ping, CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
+    worker::{update_ping, CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy,
-    PushArgs, PushIsolationLevel, WrappedError, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result,  pull, push, CanceledBy,
+    PushArgs, PushIsolationLevel, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
 use windmill_queue::register_metric;
 
-use serde_json::{json, value::RawValue};
+use serde_json::value::RawValue;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use tokio::fs::symlink;
@@ -83,7 +86,6 @@ use tokio::{
 
 use rand::Rng;
 
-use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
@@ -576,75 +578,23 @@ macro_rules! add_time {
 }
 
 #[cfg(feature = "prometheus")]
-type Histo = Arc<prometheus::Histogram>;
+pub type Histo = Arc<prometheus::Histogram>;
 #[cfg(feature = "prometheus")]
 type GGauge = Arc<GenericGauge<AtomicI64>>;
 
 #[cfg(not(feature = "prometheus"))]
-type Histo = ();
+pub type Histo = ();
 #[cfg(not(feature = "prometheus"))]
 type GGauge = ();
-
-async fn handle_receive_completed_job<
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
->(
-    jc: JobCompleted,
-    base_internal_url: &str,
-    db: &Pool<Postgres>,
-    worker_dir: &str,
-    same_worker_tx: &Sender<SameWorkerPayload>,
-    rsmq: Option<R>,
-    worker_name: &str,
-    worker_save_completed_job_duration: Option<Histo>,
-    worker_flow_transition_duration: Option<Histo>,
-    job_completed_tx: Sender<SendResult>,
-) {
-    let token = jc.token.clone();
-    let workspace = jc.job.workspace_id.clone();
-    let client = AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        workspace,
-        token,
-        force_client: None,
-    };
-    let job = jc.job.clone();
-    let mem_peak = jc.mem_peak.clone();
-    let canceled_by = jc.canceled_by.clone();
-    if let Err(err) = process_completed_job(
-        jc,
-        &client,
-        db,
-        &worker_dir,
-        same_worker_tx.clone(),
-        rsmq.clone(),
-        worker_name,
-        worker_save_completed_job_duration,
-        worker_flow_transition_duration,
-        job_completed_tx.clone(),
-    )
-    .await
-    {
-        handle_job_error(
-            db,
-            &client,
-            job.as_ref(),
-            mem_peak,
-            canceled_by,
-            err,
-            false,
-            same_worker_tx.clone(),
-            &worker_dir,
-            rsmq.clone(),
-            worker_name,
-            job_completed_tx,
-        )
-        .await;
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct JobCompletedSender(Sender<SendResult>, Option<GGauge>, Option<Histo>);
+
+
+#[derive(Clone)]
+pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
+
 
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
@@ -668,6 +618,17 @@ impl JobCompletedSender {
         r
     }
 }
+
+impl SameWorkerSender {
+    pub async fn send(
+        &self,
+        payload: SameWorkerPayload,
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<SameWorkerPayload>> {
+        self.1.fetch_add(1, Ordering::Relaxed);
+        self.0.send(payload).await
+    }
+}
+
 
 // on linux, we drop caches every DROP_CACHE_PERIOD to avoid OOM killer believing we are using too much memory just because we create lots of files when executing jobs
 #[cfg(any(target_os = "linux"))]
@@ -1105,12 +1066,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         worker_completed_channel_queue_send_duration,
     );
 
+    let same_worker_queue_size = Arc::new(AtomicU16::new(0));
+    let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
+
     let db2 = db.clone();
     let base_internal_url2 = base_internal_url.to_string();
     let same_worker_tx2 = same_worker_tx.clone();
     let rsmq2 = rsmq.clone();
     let worker_dir2 = worker_dir.clone();
-    let thread_count = Arc::new(AtomicUsize::new(0));
 
     let is_dedicated_worker = WORKER_CONFIG.read().await.dedicated_worker.is_some();
 
@@ -1194,97 +1157,107 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
     let job_completed_sender = job_completed_tx.0.clone();
-    let send_result = tokio::spawn((async move {
-        while let Some(sr) = job_completed_rx.recv().await {
-            match sr {
-                SendResult::JobCompleted(jc) => {
-                    #[cfg(feature = "prometheus")]
-                    if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
-                        wj.dec();
-                    }
-                    let rsmq2 = rsmq2.clone();
 
-                    let is_init_script_and_failure =
-                        !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
-                    let is_dependency_job = matches!(
-                        jc.job.job_kind,
-                        JobKind::Dependencies | JobKind::FlowDependencies);
-                    handle_receive_completed_job(
-                        jc,
-                        &base_internal_url2,
-                        &db2,
-                        &worker_dir2,
-                        &same_worker_tx2,
-                        rsmq2,
-                        &worker_name2,
-                        worker_save_completed_job_duration2.clone(),
-                        worker_flow_transition_duration2.clone(),
-                        job_completed_sender.clone(),
-                    )
-                    .await;
-                    if is_init_script_and_failure {
-                        tracing::error!("init script errored, exiting");
-                        killpill_tx2.send(()).unwrap_or_default();
-                    }
-                    if is_dependency_job && is_dedicated_worker {
-                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                        sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
-                    .execute(&db2)
-                    .await
-                    .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx2.send(()).unwrap_or_default();
+    let job_completed_processor_is_done = Arc::new(AtomicBool::new(false));
 
+    let job_completed_processor_is_done2 = job_completed_processor_is_done.clone();
+    let same_worker_queue_size2 = same_worker_queue_size.clone();
+    let send_result = tokio::spawn(
+        (async move {
+            let mut has_been_killed = false;
+
+            //if we have been killed, we want to drain the queue of jobs
+            while let Some(sr) = if has_been_killed && same_worker_queue_size2.load(Ordering::SeqCst) == 0 { job_completed_rx.try_recv().ok() } else { job_completed_rx.recv().await }{
+                match sr {
+                    SendResult::JobCompleted(jc) => {
+                        #[cfg(feature = "prometheus")]
+                        if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
+                            wj.dec();
+                        }
+                        let rsmq2 = rsmq2.clone();
+            
+                        let is_init_script_and_failure = !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                        let is_dependency_job = matches!(
+                            jc.job.job_kind,
+                            JobKind::Dependencies | JobKind::FlowDependencies
+                        );
+                        handle_receive_completed_job(
+                            jc,
+                            &base_internal_url2,
+                            &db2,
+                            &worker_dir2,
+                            &same_worker_tx2,
+                            rsmq2,
+                            &worker_name2,
+                            worker_save_completed_job_duration2.clone(),
+                            worker_flow_transition_duration2.clone(),
+                            job_completed_sender.clone(),
+                        )
+                        .await;
+                        if is_init_script_and_failure {
+                            tracing::error!("init script errored, exiting");
+                            killpill_tx2.send(()).unwrap_or_default();
+                        }
+                        if is_dependency_job && is_dedicated_worker {
+                            tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                            sqlx::query!(
+                                "UPDATE config SET config = config WHERE name = $1",
+                                format!("worker__{}", *WORKER_GROUP)
+                            )
+                            .execute(&db2)
+                            .await
+                            .expect("update config to trigger restart of all dedicated workers at that config");
+                            killpill_tx2.send(()).unwrap_or_default();
+                        }
                     }
-                }
-                SendResult::UpdateFlow {
-                    flow,
-                    w_id,
-                    success,
-                    result,
-                    worker_dir,
-                    stop_early_override,
-                    token,
-                } => {
-                    // let r;
-                    tracing::info!(parent_flow = %flow, "updating flow status");
-                    if let Err(e) = update_flow_status_after_job_completion(
-                        &db2,
-                        &AuthedClient {
-                            base_internal_url: base_internal_url2.to_string(),
-                            workspace: w_id.clone(),
-                            token: token.clone(),
-                            force_client: None,
-                        },
+                    SendResult::UpdateFlow {
                         flow,
-                        &Uuid::nil(),
-                        &w_id,
+                        w_id,
                         success,
-                        Arc::new(result),
-                        true,
-                        same_worker_tx2.clone(),
-                        &worker_dir,
+                        result,
+                        worker_dir,
                         stop_early_override,
-                        rsmq2.clone(),
-                        &worker_name2,
-                        job_completed_sender.clone(),
-                    )
-                    .await
-                    {
-                        tracing::error!("Error updating flow status after job completion for {flow} on {worker_name2}: {e:#}");
+                        token,
+                    } => {
+                        // let r;
+                        tracing::info!(parent_flow = %flow, "updating flow status");
+                        if let Err(e) = update_flow_status_after_job_completion(
+                            &db2,
+                            &AuthedClient {
+                                base_internal_url: base_internal_url2.to_string(),
+                                workspace: w_id.clone(),
+                                token: token.clone(),
+                                force_client: None,
+                            },
+                            flow,
+                            &Uuid::nil(),
+                            &w_id,
+                            success,
+                            Arc::new(result),
+                            true,
+                            same_worker_tx2.clone(),
+                            &worker_dir,
+                            stop_early_override,
+                            rsmq2.clone(),
+                            &worker_name2,
+                            job_completed_sender.clone(),
+                        )
+                        .await
+                        {
+                            tracing::error!("Error updating flow status after job completion for {flow} on {worker_name2}: {e:#}");
+                        }
                     }
-                }
-                SendResult::Kill => {
-                    break;
+                    SendResult::Kill => {
+                        has_been_killed = true;
+                    }
                 }
             }
-        }
 
-        tracing::info!("stopped processing new completed jobs");
-        while thread_count.load(Ordering::SeqCst) > 0 {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        tracing::info!("finished processing all completed jobs");
-    }).instrument(tracing::Span::current()));
+            job_completed_processor_is_done2.store(true, Ordering::SeqCst);
+            tracing::info!("finished processing all completed jobs");
+        })
+        .instrument(tracing::Span::current()),
+    );
 
     let mut last_executed_job: Option<Instant> = None;
     let mut last_checked_suspended = Instant::now();
@@ -1365,6 +1338,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut suspend_first_success = false;
     let mut last_reading = Instant::now() - Duration::from_secs(NUM_SECS_READINGS + 1);
 
+    let mut killed_but_draining_same_worker_jobs = false;
     loop {
         #[cfg(feature = "benchmark")]
         let loop_start = Instant::now();
@@ -1457,32 +1431,43 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 started = true
             }
 
-            if let Ok(_) = killpill_rx.try_recv() {
-                println!("received killpill for worker {}", i_worker);
-                job_completed_tx.0.send(SendResult::Kill).await.unwrap();
-                break;
-            }
-
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
+                same_worker_queue_size.fetch_sub(1, Ordering::SeqCst);
                 tracing::debug!(
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
-                let r = sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                    .bind(same_worker_job.job_id)
-                    .fetch_optional(db)
-                    .await
-                    .map_err(|_| {
-                        Error::InternalErr("Impossible to fetch same_worker job".to_string())
-                    });
+                let r = sqlx::query_as::<_, QueuedJob>(
+                    "UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *",
+                )
+                .bind(same_worker_job.job_id)
+                .fetch_optional(db)
+                .await
+                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         "failed to fetch same_worker job on a non recoverable job, exiting"
                     );
-                    job_completed_tx.0.send(SendResult::Kill).await.unwrap();
+                    job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
                     break;
                 } else {
                     r
+                }
+            } else if let Ok(_) = killpill_rx.try_recv() {
+                if !killed_but_draining_same_worker_jobs {
+                    tracing::info!("received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
+                    killed_but_draining_same_worker_jobs = true;
+                    job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
+                }
+                continue;
+            } else if killed_but_draining_same_worker_jobs {
+                if job_completed_processor_is_done.load(Ordering::SeqCst) {
+                    tracing::info!("all running jobs have completed and all completed jobs have been fully processed, exiting");
+                    break;
+                } else {
+                    tracing::info!("there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    continue;
                 }
             } else {
                 let pull_time = Instant::now();
@@ -1862,7 +1847,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
 async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     db: &Pool<Postgres>,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    same_worker_tx: SameWorkerSender,
     worker_name: &str,
     rsmq: Option<R>,
 ) -> error::Result<()> {
@@ -1931,118 +1916,6 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 //     logs: String,
 // ) -> error::Result<()> {
 
-#[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
-pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
-    client: &AuthedClient,
-    db: &DB,
-    worker_dir: &str,
-    same_worker_tx: Sender<SameWorkerPayload>,
-    rsmq: Option<R>,
-    worker_name: &str,
-    _worker_save_completed_job_duration: Option<Histo>,
-    _worker_flow_transition_duration: Option<Histo>,
-    job_completed_tx: Sender<SendResult>,
-) -> windmill_common::error::Result<()> {
-    if success {
-        // println!("bef completed job{:?}",  SystemTime::now());
-        if let Some(cached_path) = cached_res_path {
-            save_in_cache(db, client, &job, cached_path.to_string(), &result).await;
-        }
-
-        let is_flow_step = job.is_flow_step;
-        let parent_job = job.parent_job.clone();
-        let job_id = job.id.clone();
-        let workspace_id = job.workspace_id.clone();
-        #[cfg(feature = "prometheus")]
-        let timer = _worker_save_completed_job_duration
-            .as_ref()
-            .map(|x| x.start_timer());
-        add_completed_job(
-            db,
-            &job,
-            true,
-            false,
-            Json(&result),
-            mem_peak.to_owned(),
-            canceled_by,
-            rsmq.clone(),
-            false,
-        )
-        .await?;
-        drop(job);
-
-        #[cfg(feature = "prometheus")]
-        timer.map(|x| x.stop_and_record());
-
-        if is_flow_step {
-            if let Some(parent_job) = parent_job {
-                #[cfg(feature = "prometheus")]
-                let timer = _worker_flow_transition_duration
-                    .as_ref()
-                    .map(|x| x.start_timer());
-                tracing::info!(parent_flow = %parent_job, subflow = %job_id, "updating flow status (2)");
-                update_flow_status_after_job_completion(
-                    db,
-                    client,
-                    parent_job,
-                    &job_id,
-                    &workspace_id,
-                    true,
-                    result,
-                    false,
-                    same_worker_tx.clone(),
-                    &worker_dir,
-                    None,
-                    rsmq.clone(),
-                    worker_name,
-                    job_completed_tx,
-                )
-                .await?;
-                #[cfg(feature = "prometheus")]
-                timer.map(|x| x.stop_and_record());
-            }
-        }
-    } else {
-        let result = add_completed_job_error(
-            db,
-            &job,
-            mem_peak.to_owned(),
-            canceled_by,
-            serde_json::from_str(result.get()).unwrap_or_else(
-                |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
-            ),
-            rsmq.clone(),
-            worker_name,
-            false,
-        )
-        .await?;
-        if job.is_flow_step {
-            if let Some(parent_job) = job.parent_job {
-                tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
-                update_flow_status_after_job_completion(
-                    db,
-                    client,
-                    parent_job,
-                    &job.id,
-                    &job.workspace_id,
-                    false,
-                    Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
-                    false,
-                    same_worker_tx,
-                    &worker_dir,
-                    None,
-                    rsmq,
-                    worker_name,
-                    job_completed_tx,
-                )
-                .await?;
-            }
-        }
-    }
-    Ok(())
-}
-
 // fn build_language_metrics(
 //     worker_execution_failed: &HashMap<
 //         Option<ScriptLang>,
@@ -2078,137 +1951,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
 //     *barrier = None;
 //     tracing::debug!("leader worker done waiting for");
 // }
-
-#[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
-pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    db: &Pool<Postgres>,
-    client: &AuthedClient,
-    job: &QueuedJob,
-    mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
-    err: Error,
-    unrecoverable: bool,
-    same_worker_tx: Sender<SameWorkerPayload>,
-    worker_dir: &str,
-    rsmq: Option<R>,
-    worker_name: &str,
-    job_completed_tx: Sender<SendResult>,
-) {
-    let err = match err {
-        Error::JsonErr(err) => err,
-        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
-    };
-
-    let rsmq_2 = rsmq.clone();
-    let update_job_future = || async {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("Unexpected error during job execution:\n{err:#?}"),
-            db,
-        )
-        .await;
-        add_completed_job_error(
-            db,
-            job,
-            mem_peak,
-            canceled_by.clone(),
-            err.clone(),
-            rsmq_2,
-            worker_name,
-            false,
-        )
-        .await
-    };
-
-    let update_job_future = if job.is_flow_step || job.is_flow() {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
-            if let Err(e) = update_job_future().await {
-                tracing::error!(
-                    "error updating job future for job {} for handle_job_error: {e:#}",
-                    job.id
-                );
-            }
-            (parent_job_id, job.id)
-        } else {
-            (job.id, Uuid::nil())
-        };
-
-        let wrapped_error = WrappedError { error: err.clone() };
-        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err:?}");
-        let updated_flow = update_flow_status_after_job_completion(
-            db,
-            client,
-            flow,
-            &job_status_to_update,
-            &job.workspace_id,
-            false,
-            Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
-            unrecoverable,
-            same_worker_tx,
-            worker_dir,
-            None,
-            rsmq.clone(),
-            worker_name,
-            job_completed_tx.clone(),
-        )
-        .await;
-
-        if let Err(err) = updated_flow {
-            if let Some(parent_job_id) = job.parent_job {
-                if let Ok(Some(parent_job)) =
-                    get_queued_job(&parent_job_id, &job.workspace_id, &db).await
-                {
-                    let e = json!({"message": err.to_string(), "name": "InternalErr"});
-                    append_logs(
-                        &parent_job.id,
-                        &job.workspace_id,
-                        format!("Unexpected error during flow job error handling:\n{err}"),
-                        db,
-                    )
-                    .await;
-                    let _ = add_completed_job_error(
-                        db,
-                        &parent_job,
-                        mem_peak,
-                        canceled_by.clone(),
-                        e,
-                        rsmq,
-                        worker_name,
-                        false,
-                    )
-                    .await;
-                }
-            }
-        }
-
-        None
-    } else {
-        Some(update_job_future)
-    };
-    if let Some(f) = update_job_future {
-        let _ = f().await;
-    }
-    tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
-}
-
-#[derive(Debug, Serialize)]
-struct SerializedError {
-    message: String,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    step_id: Option<String>,
-}
-fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
-    return to_raw_value(&SerializedError {
-        message: format!(
-            "ExitCode: {i}, last log lines:\n{}",
-            ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()
-        ),
-        name: "ExecutionErr".to_string(),
-        step_id,
-    });
-}
 
 pub enum SendResult {
     JobCompleted(JobCompleted),
@@ -2299,7 +2041,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    same_worker_tx: SameWorkerSender,
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
@@ -2612,120 +2354,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     Ok(())
 }
 
-async fn process_result(
-    job: Arc<QueuedJob>,
-    result: error::Result<Arc<Box<RawValue>>>,
-    job_dir: &str,
-    job_completed_tx: JobCompletedSender,
-    mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
-    cached_res_path: Option<String>,
-    token: String,
-    column_order: Option<Vec<String>>,
-    new_args: Option<HashMap<String, Box<RawValue>>>,
-    db: &DB,
-) -> error::Result<()> {
-    match result {
-        Ok(r) => {
-            let job = if column_order.is_some() || new_args.is_some() {
-                let mut updated_job = (*job).clone();
-                if let Some(column_order) = column_order {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "column_order": column_order
-                                    }
-                                }))));
-                        }
-                    }
-                }
-                if let Some(new_args) = new_args {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            if let Some(args) = updated_job.args.as_mut() {
-                                args.0.remove(ENTRYPOINT_OVERRIDE);
-                            }
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "original_args": updated_job.args
-                                    }
-                                }))));
-                        }
-                    }
-                    updated_job.args = Some(Json(new_args));
-                }
-                Arc::new(updated_job)
-            } else {
-                job
-            };
-            job_completed_tx
-                .send(JobCompleted {
-                    job,
-                    result: r,
-                    mem_peak,
-                    canceled_by,
-                    success: true,
-                    cached_res_path,
-                    token: token,
-                })
-                .await
-                .expect("send job completed");
-        }
-        Err(e) => {
-            let error_value = match e {
-                Error::ExitStatus(i) => {
-                    let res = read_result(job_dir).await.ok();
-
-                    if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
-                        res.unwrap()
-                    } else {
-                        let last_10_log_lines = sqlx::query_scalar!(
-                            "SELECT right(logs, 600) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-                            &job.id,
-                            &job.workspace_id
-                        ).fetch_one(db).await.ok().flatten().unwrap_or("".to_string());
-
-                        let log_lines = last_10_log_lines
-                            .split("CODE EXECUTION ---")
-                            .last()
-                            .unwrap_or(&last_10_log_lines);
-
-                        extract_error_value(log_lines, i, job.flow_step_id.clone())
-                    }
-                }
-                err @ _ => to_raw_value(&SerializedError {
-                    message: format!("error during execution of the script:\n{}", err),
-                    name: "ExecutionErr".to_string(),
-                    step_id: job.flow_step_id.clone(),
-                }),
-            };
-
-            // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
-            job_completed_tx
-                .send(JobCompleted {
-                    job: job,
-                    result: Arc::new(to_raw_value(&error_value)),
-                    mem_peak,
-                    canceled_by,
-                    success: false,
-                    cached_res_path,
-                    token: token,
-                })
-                .await
-                .expect("send job completed");
-        }
-    };
-    Ok(())
-}
 
 pub fn build_envs(
     envs: Option<Vec<String>>,

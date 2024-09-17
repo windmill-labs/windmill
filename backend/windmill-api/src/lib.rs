@@ -399,7 +399,7 @@ pub async fn run_server(
 
     let server = server.with_graceful_shutdown(async move {
         rx.recv().await.ok();
-        println!("Graceful shutdown of server");
+        tracing::info!("Graceful shutdown of server");
     });
 
     server.await?;

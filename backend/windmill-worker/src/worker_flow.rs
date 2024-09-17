@@ -15,7 +15,10 @@ use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, JOB_TOKEN, KEEP_JOB_DIR};
+use crate::{
+    AuthedClient, PreviousResult, SameWorkerPayload, SameWorkerSender, SendResult, JOB_TOKEN,
+    KEEP_JOB_DIR,
+};
 use anyhow::Context;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
@@ -67,7 +70,7 @@ pub async fn update_flow_status_after_job_completion<
     success: bool,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     rsmq: Option<R>,
@@ -183,7 +186,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     mut success: bool,
     result: Arc<Box<RawValue>>,
     unrecoverable: bool,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
@@ -1464,7 +1467,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_result: Option<Arc<Box<RawValue>>>,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<SendResult>,
@@ -1585,7 +1588,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<SendResult>,
@@ -3658,7 +3661,14 @@ async fn script_to_payload(
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
-        script_path_to_payload(script_path, db, &flow_job.workspace_id, Some(true)).await?
+        let (jp, tag, delete_after_use, script_timeout) =
+            script_path_to_payload(script_path, db, &flow_job.workspace_id, Some(true)).await?;
+        (
+            jp,
+            tag_override.to_owned().or(tag),
+            delete_after_use,
+            script_timeout,
+        )
     } else {
         let hash = script_hash.clone().unwrap();
         let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;

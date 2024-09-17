@@ -46,6 +46,7 @@
 	<div class="ml-2 my-2">
 		{#if subGrids.length > 1}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
 				class={classNames(
 					'px-1 py-0.5 flex justify-between items-center font-semibold text-xs border-l border-y w-full cursor-pointer',

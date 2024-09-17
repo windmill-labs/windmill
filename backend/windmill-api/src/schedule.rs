@@ -69,6 +69,8 @@ pub struct NewSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub on_success: Option<String>,
+    pub on_success_extra_args: Option<serde_json::Value>,
     pub ws_error_handler_muted: Option<bool>,
     pub retry: Option<serde_json::Value>,
     pub tag: Option<String>,
@@ -92,6 +94,7 @@ pub struct ErrorOrRecoveryHandler {
 pub enum HandlerType {
     Error,
     Recovery,
+    Success,
 }
 
 async fn check_path_conflict<'c>(
@@ -134,6 +137,13 @@ async fn create_schedule(
     }
 
     #[cfg(not(feature = "enterprise"))]
+    if ns.on_success.is_some() {
+        return Err(Error::BadRequest(
+            "on_success is only available in enterprise version".to_string(),
+        ));
+    }
+
+    #[cfg(not(feature = "enterprise"))]
     if ns.on_failure_times.is_some() && ns.on_failure_times.unwrap() > 1 {
         return Err(Error::BadRequest(
             "on_failure with a number of times > 1 is only available in enterprise version"
@@ -158,9 +168,10 @@ async fn create_schedule(
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
             is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, \
             on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, \
+            on_success, on_success_extra_args, \
             ws_error_handler_muted, retry, summary, no_flow_overlap, tag, paused_until \
         ) VALUES ( \
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23 \
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25 \
         ) RETURNING *")
         .bind(&w_id)
         .bind(&ns.path)
@@ -179,6 +190,8 @@ async fn create_schedule(
         .bind(&ns.on_recovery)
         .bind(&ns.on_recovery_times)
         .bind(&ns.on_recovery_extra_args)
+        .bind(&ns.on_success)
+        .bind(&ns.on_success_extra_args)
         .bind(&ns.ws_error_handler_muted.unwrap_or(false))
         .bind(&ns.retry)
         .bind(&ns.summary)
@@ -248,9 +261,10 @@ async fn edit_schedule(
     let schedule = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, \
             on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
-            on_recovery_extra_args = $10, ws_error_handler_muted = $11, retry = $12, summary = $13, \
-            no_flow_overlap = $14, tag = $15, paused_until = $16
-        WHERE path = $17 AND workspace_id = $18 RETURNING *")
+            on_recovery_extra_args = $10, on_success = $11, on_success_extra_args = $12, \
+            ws_error_handler_muted = $13, retry = $14, summary = $15, \
+            no_flow_overlap = $16, tag = $17, paused_until = $18
+        WHERE path = $19 AND workspace_id = $20 RETURNING *")
         .bind(&es.schedule)
         .bind(&es.timezone)
         .bind(&es.args)
@@ -261,6 +275,8 @@ async fn edit_schedule(
         .bind(&es.on_recovery)
         .bind(&es.on_recovery_times)
         .bind(&es.on_recovery_extra_args)
+        .bind(&es.on_success)
+        .bind(&es.on_success_extra_args)
         .bind(&es.ws_error_handler_muted.unwrap_or(false))
         .bind(&es.retry)
         .bind(&es.summary)
@@ -376,6 +392,8 @@ pub struct ScheduleWJobs {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub on_success: Option<String>,
+    pub on_success_extra_args: Option<serde_json::Value>,
     pub ws_error_handler_muted: bool,
     pub retry: Option<serde_json::Value>,
     pub jobs: Option<Vec<serde_json::Value>>,
@@ -680,6 +698,18 @@ async fn set_default_error_handler(
                 (key, None)
             }
         }
+        HandlerType::Success => {
+            let key = format!("default_success_handler_{}", w_id);
+            if let Some(payload_path) = payload.path.as_ref() {
+                let value = serde_json::json!({
+                    "successHandlerPath": payload_path,
+                    "successHandlerExtraArgs": payload.extra_args,
+                });
+                (key, Some(value))
+            } else {
+                (key, None)
+            }
+        }
     };
 
     if let Some(value_content) = value {
@@ -727,6 +757,25 @@ async fn set_default_error_handler(
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1 RETURNING path",
+                        w_id,
+                    )
+                    .fetch_all(&db)
+                    .await?;
+                }
+            }
+            HandlerType::Success => {
+                if payload.path.is_some() {
+                    updated_schedules = sqlx::query_scalar!(
+                        "UPDATE schedule SET on_success = $1, on_success_extra_args = $2 WHERE workspace_id = $3 RETURNING path",
+                        payload.path,
+                        payload.extra_args,
+                        w_id,
+                    )
+                    .fetch_all(&db)
+                    .await?;
+                } else {
+                    updated_schedules = sqlx::query_scalar!(
+                        "UPDATE schedule SET on_success = NULL, on_success_extra_args = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
                     .fetch_all(&db)
@@ -790,6 +839,8 @@ pub struct EditSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub on_success: Option<String>,
+    pub on_success_extra_args: Option<serde_json::Value>,
     pub ws_error_handler_muted: Option<bool>,
     pub retry: Option<serde_json::Value>,
     pub no_flow_overlap: Option<bool>,

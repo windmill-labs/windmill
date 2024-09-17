@@ -148,6 +148,9 @@
 					dispatch('select', modId)
 				}
 			},
+			changeId: (detail) => {
+				dispatch('changeId', detail)
+			},
 			delete: (detail, label) => {
 				$selectedId = label
 
@@ -277,6 +280,7 @@
 			showLock={false}
 			showZoom={false}
 			showFitView={false}
+			class="!shadow-none"
 		>
 			{#if showDataflow}
 				<Toggle
@@ -294,7 +298,7 @@
 	</SvelteFlow>
 </div>
 
-<style>
+<style lang="postcss">
 	:global(.svelte-flow__handle) {
 		opacity: 0;
 	}

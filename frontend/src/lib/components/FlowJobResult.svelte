@@ -40,6 +40,8 @@
 	let logOffset = 0
 	async function getLogs() {
 		if (jobId) {
+			console.log('getLogs')
+
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspaceId ?? $workspaceStore!,
 				id: jobId,

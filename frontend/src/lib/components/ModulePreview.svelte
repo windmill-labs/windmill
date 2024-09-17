@@ -20,7 +20,7 @@
 	import ScriptFix from './copilot/ScriptFix.svelte'
 
 	export let mod: FlowModule
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> }
 	export let pickableProperties: PickableProperties | undefined
 	export let lang: Script['language']
 	export let editor: Editor | undefined

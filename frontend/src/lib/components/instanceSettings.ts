@@ -18,6 +18,7 @@ export interface Setting {
 		| 'license_key'
 		| 'object_store_config'
 		| 'critical_error_channels'
+		| 'slack_connect'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
 	error?: string
@@ -29,7 +30,7 @@ export type SettingStorage = 'setting' | 'config'
 export const settings: Record<string, Setting[]> = {
 	Core: [
 		{
-			label: 'Base Url',
+			label: 'Base url',
 			description: 'Public base url of the instance',
 			key: 'base_url',
 			fieldType: 'text',
@@ -53,7 +54,7 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'mail.windmill.com'
 		},
 		{
-			label: 'Request Size Limit In MB',
+			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
 			key: 'request_size_limit_mb',
@@ -70,7 +71,7 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
-			label: 'Max Timeout for sync endpoints',
+			label: 'Max timeout for sync endpoints',
 			key: 'timeout_wait_result',
 			cloudonly: true,
 			fieldType: 'seconds',
@@ -78,8 +79,8 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'config'
 		},
 		{
-			label: 'License Key',
-			description: 'License Key required to use the EE (switch image for windmill-ee)',
+			label: 'License key',
+			description: 'License key required to use the EE (switch image for windmill-ee)',
 			key: 'license_key',
 			fieldType: 'license_key',
 			placeholder: 'only needed to prepare upgrade to EE',
@@ -90,11 +91,10 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Whether we should consider the reported usage of this instance as non-prod',
 			key: 'dev_instance',
 			fieldType: 'boolean',
-			storage: 'setting',
-			ee_only: 'This is only relevant for EE'
+			storage: 'setting'
 		},
 		{
-			label: 'Retention Period in secs',
+			label: 'Retention period in secs',
 			key: 'retention_period_secs',
 			description: 'How long to keep the jobs data in the database (max 30 days on CE)',
 			fieldType: 'seconds',
@@ -105,14 +105,14 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Expose metrics',
-			description: 'Expose prometheus metrics for workers and servers on port 8001 at /metrics',
+			description: 'Expose Prometheus metrics for workers and servers on port 8001 at /metrics',
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
 		},
 		{
-			label: 'S3/Azure for Python/Go Cache & Large Logs',
+			label: 'S3/Azure for Python/Go cache & large logs',
 			description: 'Bucket to store large logs and global cache for Python and Go.',
 			key: 'object_store_cache_config',
 			fieldType: 'object_store_config',
@@ -120,9 +120,9 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Critical Alert Channels',
+			label: 'Critical alert channels',
 			description:
-				'Channels to send critical alerts to. SMTP must be configured for the email channel.',
+				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel.',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
@@ -138,8 +138,8 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Private hub base url',
-			description: 'Base url of your private hub instance, without trailing slash',
+			label: 'Private Hub base url',
+			description: 'Base url of your private Hub instance, without trailing slash',
 			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
@@ -229,9 +229,18 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'config'
 		}
 	],
+	Slack: [
+		{
+			label: 'Slack',
+			key: 'slack',
+			fieldType: 'slack_connect',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
 	'SCIM/SAML': [
 		{
-			label: 'SCIM Token',
+			label: 'SCIM token',
 			description: 'Token used to authenticate requests from the IdP',
 			key: 'scim_token',
 			fieldType: 'text',
@@ -251,14 +260,14 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Debug: [
 		{
-			label: 'Keep Job Directories',
+			label: 'Keep job directories',
 			key: 'keep_job_dir',
 			fieldType: 'boolean',
 			tooltip: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
 			storage: 'setting'
 		},
 		{
-			label: 'Expose Debug Metrics',
+			label: 'Expose debug metrics',
 			key: 'expose_debug_metrics',
 			fieldType: 'boolean',
 			tooltip: 'Expose additional metrics (require metrics to be enabled)',

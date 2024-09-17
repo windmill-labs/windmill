@@ -157,9 +157,8 @@ async fn get_queue_metrics(
             FROM metrics
             WHERE id LIKE 'queue_%'
                 AND created_at > now() - interval '14 day'
-            ORDER BY created_at ASC
         )
-        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at)) as \"values!\"
+        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at) ORDER BY created_at ASC) as \"values!\"
         FROM queue_metrics
         GROUP BY id
         ORDER BY id ASC"

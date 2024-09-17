@@ -697,7 +697,7 @@
 			{/if}
 
 			<SplitPanesWrapper>
-				<Splitpanes id="o1" class="max-w-full">
+				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div
 							class={twMerge(

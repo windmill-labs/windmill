@@ -3,7 +3,10 @@ use std::{
     fmt::Display,
     ops::Mul,
     str::FromStr,
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicU16, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -55,8 +58,8 @@ use windmill_common::{
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SendResult,
-    BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
+    SendResult, BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
     PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
@@ -802,7 +805,9 @@ pub async fn reload_s3_cache_setting(db: &DB) {
                     secret_key: None,
                     endpoint: None,
                     store_logs: None,
+                    path_style: None,
                     allow_http: None,
+                    port: None,
                 })
                 .await
                 .ok();
@@ -1040,7 +1045,7 @@ pub async fn monitor_db(
 
     let worker_groups_alerts_f = async {
         #[cfg(feature = "enterprise")]
-        if server_mode {
+        if server_mode && !initial_load {
             worker_groups_alerts(&db).await;
         }
     };
@@ -1307,6 +1312,8 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) =
             mpsc::channel::<SameWorkerPayload>(1);
+        let same_worker_tx_never_used =
+            SameWorkerSender(same_worker_tx_never_used, Arc::new(AtomicU16::new(0)));
         let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
         let label = if job.permissioned_as != format!("u/{}", job.created_by)
@@ -1377,11 +1384,13 @@ async fn handle_zombie_flows(
 
     for flow in flows {
         let status = flow.parse_flow_status();
-        if status.is_some_and(|s| {
-            s.modules
-                .get(0)
-                .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-        }) {
+        if !flow.same_worker
+            && status.is_some_and(|s| {
+                s.modules
+                    .get(0)
+                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
+            })
+        {
             let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
                 flow.id, flow.workspace_id

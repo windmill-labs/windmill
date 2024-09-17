@@ -214,7 +214,20 @@
 			error = 'Required'
 			valid && (valid = false)
 		} else {
-			if (pattern && !testRegex(pattern, v)) {
+			if (inputCat == 'number' && typeof v === 'number') {
+				let min = extra['min']
+				let max = extra['max']
+				if (min != undefined && typeof min == 'number' && v < min) {
+					error = `Should be greater than or equal to ${min}`
+					valid && (valid = false)
+				} else if (max != undefined && typeof max == 'number' && v > max) {
+					error = `Should be less than or equal to ${max}`
+					valid && (valid = false)
+				} else {
+					error = ''
+					!valid && (valid = true)
+				}
+			} else if (pattern && !testRegex(pattern, v)) {
 				if (!emptyString(customErrorMessage)) {
 					error = customErrorMessage ?? ''
 				} else if (format == 'email') {
@@ -569,7 +582,8 @@
 							randomFileKey={true}
 							on:addition={(evt) => {
 								value = {
-									s3: evt.detail?.path ?? ''
+									s3: evt.detail?.path ?? '',
+									filename: evt.detail?.filename ?? ''
 								}
 							}}
 							on:deletion={(evt) => {
@@ -816,7 +830,9 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
-							{#if onlyMaskPassword}
+							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+								<input type="text" bind:value />
+							{:else if onlyMaskPassword}
 								<Password
 									{disabled}
 									bind:password={value}
@@ -905,5 +921,6 @@
 	/* Firefox */
 	input[type='number'] {
 		-moz-appearance: textfield !important;
+		appearance: textfield !important;
 	}
 </style>

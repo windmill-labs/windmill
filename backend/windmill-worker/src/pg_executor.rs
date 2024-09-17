@@ -232,15 +232,21 @@ pub async fn do_postgresql(
                 .danger_accept_invalid_hostnames(true);
         }
 
-        let (client, connection) = tokio_postgres::connect(
-            &database_string,
-            MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio_postgres::connect(
+                &database_string,
+                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
+            ),
         )
         .await
+        .map_err(to_anyhow)?
         .map_err(to_anyhow)?;
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
+            if let Err(e) =
+                tokio::time::timeout(std::time::Duration::from_secs(20), connection).await
+            {
                 let mut mtex = CONNECTION_CACHE.lock().await;
                 *mtex = None;
                 tracing::error!("connection error: {}", e);
@@ -249,11 +255,18 @@ pub async fn do_postgresql(
         Some((client, handle))
     } else {
         tracing::info!("Creating new connection");
-        let (client, connection) = tokio_postgres::connect(&database_string, NoTls)
-            .await
-            .map_err(to_anyhow)?;
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio_postgres::connect(&database_string, NoTls),
+        )
+        .await
+        .map_err(to_anyhow)?
+        .map_err(to_anyhow)?;
+
         let handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
+            if let Err(e) =
+                tokio::time::timeout(std::time::Duration::from_secs(20), connection).await
+            {
                 let mut mtex = CONNECTION_CACHE.lock().await;
                 *mtex = None;
                 tracing::error!("connection error: {}", e);

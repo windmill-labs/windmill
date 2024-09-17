@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, setContext } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { get, writable, type Writable } from 'svelte/store'
 	import { buildWorld } from '../rx'
 	import type {
 		App,
@@ -85,11 +85,8 @@
 	function onContextChange(context: any) {
 		Object.assign(ncontext, context)
 		ncontext = ncontext
-		worldStore.update((x) => {
-			Object.entries(context).forEach(([key, value]) => {
-				x.outputsById?.['ctx']?.[key].set(value, true)
-			})
-			return x
+		Object.entries(context).forEach(([key, value]) => {
+			get(worldStore).outputsById?.['ctx']?.[key].set(value, true)
 		})
 	}
 

@@ -52,6 +52,23 @@ async function tryResolveWorkspace(
 export async function resolveWorkspace(
   opts: GlobalOptions
 ): Promise<Workspace> {
+  if (opts.baseUrl) {
+    if (opts.workspace && opts.token) {
+      return {
+        remote: new URL(opts.baseUrl).toString(), // add trailing slash if not present
+        workspaceId: opts.workspace,
+        name: opts.workspace,
+        token: opts.token,
+      };
+    } else {
+      log.info(
+        colors.red(
+          "If you specify a base URL with --base-url, you must also specify a workspace (--workspace) and token (--token)."
+        )
+      );
+      return Deno.exit(-1);
+    }
+  }
   const res = await tryResolveWorkspace(opts);
   if (res.isError) {
     log.info(colors.red.bold(res.error));
@@ -96,7 +113,7 @@ export async function requireLogin(
 }
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
-  const requestHeaders: HeadersInit = new Headers();
+  const requestHeaders = new Headers();
 
   const extraHeaders = getHeaders();
   if (extraHeaders) {

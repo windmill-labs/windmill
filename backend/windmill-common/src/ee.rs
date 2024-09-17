@@ -1,3 +1,4 @@
+#[cfg(feature = "enterprise")]
 use crate::db::DB;
 use crate::ee::LicensePlan::Community;
 #[cfg(feature = "enterprise")]
@@ -27,10 +28,15 @@ pub async fn get_license_plan() -> LicensePlan {
 #[serde(untagged)]
 pub enum CriticalErrorChannel {}
 
+pub enum CriticalAlertKind {
+    #[cfg(feature = "enterprise")]
+    CriticalError,
+    #[cfg(feature = "enterprise")]
+    RecoveredCriticalError,
+}
+
 #[cfg(feature = "enterprise")]
-pub async fn send_critical_error(_error_message: String) {}
-#[cfg(feature = "enterprise")]
-pub async fn send_recovered_critical_error(_error_message: String) {}
+pub async fn send_critical_alert(_error_message: String, _db: &DB, _kind: CriticalAlertKind) {}
 
 #[cfg(feature = "enterprise")]
 pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
@@ -42,6 +48,7 @@ pub async fn renew_license_key(
     _http_client: &reqwest::Client,
     _db: &crate::db::DB,
     _key: Option<String>,
+    _manual: bool,
 ) -> String {
     // Implementation is not open source
     "".to_string()
