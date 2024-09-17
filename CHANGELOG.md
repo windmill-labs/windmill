@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.395.0](https://github.com/windmill-labs/windmill/compare/v1.394.6...v1.395.0) (2024-09-17)
+
+
+### Features
+
+* failed key renewal alert + renew on start if no recent renewal ([#4387](https://github.com/windmill-labs/windmill/issues/4387)) ([de78f6c](https://github.com/windmill-labs/windmill/commit/de78f6c19266c67d43c7f80016a94b7988347e01))
+
+
+### Bug Fixes
+
+* cannot create duplicate apps and raw_apps ([d57b139](https://github.com/windmill-labs/windmill/commit/d57b139df2267d1650749b31a3cce5742a3654d9))
+* **cli:** update CLI schema parsers to latest ([6ba77d5](https://github.com/windmill-labs/windmill/commit/6ba77d533fc1c50cf4153730adaf1b14a466f10a))
+* **deno:** replace lock-write with frozen=false ([277d085](https://github.com/windmill-labs/windmill/commit/277d085dbed0b9b1424348cc580ba601d935759b))
+* **frontend:** add support for step id change for forloops and branch… ([#4395](https://github.com/windmill-labs/windmill/issues/4395)) ([97839a3](https://github.com/windmill-labs/windmill/commit/97839a3583ef398c11e2f51058aaceed8e7382fb))
+* **frontend:** new resource type name must be snake case ([#4396](https://github.com/windmill-labs/windmill/issues/4396)) ([9297ffc](https://github.com/windmill-labs/windmill/commit/9297ffcac4d2092022463cd68b4e8ce8f02dcb3c))
+* improve vscode extension handling of relative paths ([8ae6c32](https://github.com/windmill-labs/windmill/commit/8ae6c3262a75af378a261b49f0e3a08d668c74b3))
+* update bun to 1.1.27 ([39374d7](https://github.com/windmill-labs/windmill/commit/39374d7ee13ffa0fe1e4ded146c91869acad144c))
+
 ## [1.394.6](https://github.com/windmill-labs/windmill/compare/v1.394.5...v1.394.6) (2024-09-15)
 
 
