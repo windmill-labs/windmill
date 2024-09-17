@@ -358,7 +358,7 @@ class Windmill:
             },
         )        
 
-    def get_progress(self,job_id: Optional[str] = None ) -> Any:
+    def get_progress(self, job_id: Optional[str] = None ) -> Any:
         workspace = get_workspace()
         job_id = job_id or os.environ.get("WM_JOB_ID")
 
@@ -366,7 +366,7 @@ class Windmill:
             f"/w/{workspace}/job_metrics/get_progress/{job_id}",
         )        
         if r.status_code == 404:
-            print(f"Job {flow_id} does not exist")
+            print(f"Job {job_id} does not exist")
             return None
         else:
             return r.json()
