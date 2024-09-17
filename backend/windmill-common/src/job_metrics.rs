@@ -112,7 +112,7 @@ pub async fn record_metric(
     .await?;
 
     if metric_kind_opt.is_none() {
-        return Err(error::Error::BadRequest(format!(
+        return Err(error::Error::MetricNotFound(format!(
             "Metric {} not yet registered for job {}.",
             metric_id, job_id
         )));

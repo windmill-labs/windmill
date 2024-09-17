@@ -1520,14 +1520,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::debug!("set worker busy to 1");
         }
 
+
         match next_job {
             Ok(Some(job)) => {
+
+
                 last_executed_job = None;
                 jobs_executed += 1;
 
                 tracing::debug!("started handling of job {}", job.id);
 
+
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
+
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {
                             job.flow_step_id.as_ref().map(|x| x.to_string())

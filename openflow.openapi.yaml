@@ -481,6 +481,8 @@ components:
           format: uuid
         count:
           type: integer
+        progress:
+          type: integer
         iterator:
           type: object
           properties:
