@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Job, MetricsService } from '$lib/gen'
+	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
@@ -24,28 +24,10 @@
 			error = 0;			
 		}	else {
 			error = undefined;			
-		}
-		
+		}		
 		// Anything that is success automatically gets 100% progress
 		if (job['success'] && scriptProgress)	
 			index = 1, subLength = 0, subIndex = 0, scriptProgress = 100;				
-		else if (!scriptProgress && job.type == "CompletedJob"){
-			// If error occured and job is completed
-			// than we fetch progress from server to display on what progress did it fail
-			// Could be displayed after run or as a historical page
-			// If opening page without running job (e.g. reloading page after run) progress will be displayed instantly
-			MetricsService.getJobProgress({
-				workspace: job.workspace_id ?? "NO_WORKSPACE",
-				id: job.id,
-			}).then(progress => {
-			  // Returned progress is not always 100%, could be 65%, 33%, anything
-			  // Its ok if its a failure and we want to keep that value
-			  // But we want progress to be 100% if job has been succeeded
-				scriptProgress = progress;
-				// In order to do that we will invoke updateJobProgress one more time, but this time with progress != undefined
-				updateJobProgress(job);
-			});
-		}
 	}
 
 	let resetP: any
@@ -62,7 +44,6 @@
 
 </script>
 
-{#if scriptProgress}
 <ProgressBar
 	bind:resetP
 	{length}
@@ -75,4 +56,3 @@
 	bind:compact
 	bind:hideStepTitle
 />
-{/if}

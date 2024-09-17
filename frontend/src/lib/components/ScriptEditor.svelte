@@ -102,7 +102,8 @@
 	}
 
 	function runTest() {
-		jobProgressReset();
+		// Not defined if JobProgressBar not loaded
+		if (jobProgressReset) jobProgressReset();
 		//@ts-ignore
 		testJobLoader.runPreview(path, code, lang, args, tag)
 	}
@@ -400,8 +401,10 @@
 							{diffEditor}
 							{args}
 						>
-						<!-- Put to the slot in logpanel -->
-						<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
+						{#if scriptProgress}
+							<!-- Put to the slot in logpanel -->
+							<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
+						{/if}
 						</LogPanel>
 					</Pane>
 				</Splitpanes>

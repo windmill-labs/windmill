@@ -53,7 +53,8 @@
 	}
 
 	export async function runTest(args: any) {
-		jobProgressReset();
+		// Not defined if JobProgressBar not loaded
+		if (jobProgressReset) jobProgressReset();
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
@@ -152,7 +153,9 @@
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
-		<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
+			{#if scriptProgress}
+				<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
+			{/if}
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
