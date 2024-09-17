@@ -23,8 +23,17 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
-const KINDS: [&str; 9] = [
-    "script", "group_", "resource", "schedule", "variable", "flow", "folder", "app", "raw_app",
+const KINDS: [&str; 10] = [
+    "script",
+    "group_",
+    "resource",
+    "schedule",
+    "variable",
+    "flow",
+    "folder",
+    "app",
+    "raw_app",
+    "trigger_http",
 ];
 
 pub fn workspaced_service() -> Router {
@@ -77,10 +86,10 @@ async fn add_granular_acl(
         }
     }
 
-    let (kind, sub_condition) = if kind == "http_route" {
-        ("trigger", " AND kind = 'http'")
+    let (kind, sub_condition) = if kind.starts_with("trigger_") {
+        ("trigger", format!(" AND kind = '{}'", &kind[8..]))
     } else {
-        (kind, "")
+        (kind, "".to_string())
     };
 
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
@@ -200,10 +209,10 @@ async fn remove_granular_acl(
     if identifier == "path" {
         require_owner_of_path(&authed, path)?;
     }
-    let (kind, sub_condition) = if kind == "http_route" {
-        ("trigger", " AND kind = 'http'")
+    let (kind, sub_condition) = if kind.starts_with("trigger_") {
+        ("trigger", format!(" AND kind = '{}'", &kind[8..]))
     } else {
-        (kind, "")
+        (kind, "".to_string())
     };
 
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
@@ -299,10 +308,10 @@ async fn get_granular_acls(
     let mut tx = user_db.begin(&authed).await?;
 
     let identifier = if kind == "group_" { "name" } else { "path" };
-    let (kind, sub_condition) = if kind == "http_route" {
-        ("trigger", " AND kind = 'http'")
+    let (kind, sub_condition) = if kind.starts_with("trigger_") {
+        ("trigger", format!(" AND kind = '{}'", &kind[8..]))
     } else {
-        (kind, "")
+        (kind, "".to_string())
     };
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2{sub_condition}"

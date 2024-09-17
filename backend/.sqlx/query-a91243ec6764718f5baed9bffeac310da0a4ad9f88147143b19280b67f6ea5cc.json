@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE trigger \n                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, kind = $6, http_method = $7, edited_by = $8, email = $9, summary = $10, is_async = $11, requires_auth = $12, edited_at = now() \n                WHERE workspace_id = $13 AND path = $14 AND kind = $15",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "http",
+                "email"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "http",
+                "email"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a91243ec6764718f5baed9bffeac310da0a4ad9f88147143b19280b67f6ea5cc"
+}

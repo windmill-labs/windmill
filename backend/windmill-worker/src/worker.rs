@@ -8,7 +8,6 @@
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
-    jobs::ENTRYPOINT_OVERRIDE,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
@@ -88,27 +87,14 @@ use rand::Rng;
 
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
-    bun_executor::handle_bun_job,
-    common::{
+    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
-        read_result, save_in_cache, NO_LOGS_AT_ALL, SLOW_LOGS,
-    },
-    deno_executor::handle_deno_job,
-    go_executor::handle_go_job,
-    graphql_executor::do_graphql,
-    js_eval::{eval_fetch_timeout, transpile_ts},
-    mysql_executor::do_mysql,
-    pg_executor::do_postgresql,
-    php_executor::handle_php_job,
-    python_executor::handle_python_job,
-    rust_executor::handle_rust_job,
-    worker_flow::{
+        NO_LOGS_AT_ALL, SLOW_LOGS,
+    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    },
-    worker_lockfiles::{
+    }, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    },
+    }
 };
 
 #[cfg(feature = "enterprise")]

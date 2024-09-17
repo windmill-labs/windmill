@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as \"http_method: _\" FROM trigger WHERE workspace_id = $1 AND kind = 'http'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "route_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_async",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "requires_auth",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "http_method: _",
+        "type_info": {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a140ee379492c41fa5bc64c8338a9655e31355a56411cba371991604e8a884a2"
+}
