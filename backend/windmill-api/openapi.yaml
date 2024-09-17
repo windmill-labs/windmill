@@ -6988,8 +6988,13 @@ paths:
                 kind:
                   type: string
                   enum: ["http", "email"]
+                http_method:
+                  type: string
+                  enum: ["get", "post", "put", "delete", "patch"]
               required:
                 - kind
+                - route_path
+                - http_method
       responses:
         "200":
           description: route exists
@@ -7842,7 +7847,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                trigger,
+                http_route,
               ]
       responses:
         "200":
@@ -7879,7 +7884,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                trigger,
+                http_route,
               ]
       requestBody:
         description: acl to add
@@ -7927,7 +7932,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                trigger,
+                http_route,
               ]
       requestBody:
         description: acl to add

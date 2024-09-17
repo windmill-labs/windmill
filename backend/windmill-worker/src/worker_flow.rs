@@ -2192,10 +2192,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } else {
                 Ok(Marc::new(HashMap::new()))
             }
-        } else if is_preprocessor_step {
-            let mut new_args = HashMap::new();
-            new_args.insert("args".to_string(), to_raw_value(&flow_job.args));
-            Ok(Marc::new(new_args))
         } else {
             match &module.get_value() {
                 Ok(

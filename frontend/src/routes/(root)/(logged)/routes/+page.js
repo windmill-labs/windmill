@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'HTTP Routes' }
+		stuff: { title: 'HTTP API' }
 	}
 }

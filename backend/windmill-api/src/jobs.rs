@@ -18,7 +18,6 @@ use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use tower::ServiceBuilder;
-use windmill_common::db::Authable;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,

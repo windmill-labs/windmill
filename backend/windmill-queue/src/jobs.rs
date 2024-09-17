@@ -3117,10 +3117,10 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             apply_preprocessor,
         } => {
             if apply_preprocessor {
-                let trigger_kind = if user.starts_with("http-route-") {
-                    "http-route"
-                } else if user.starts_with("email-trigger-") {
-                    "email-trigger"
+                let trigger_kind = if user.starts_with("http-api-") {
+                    "http-api"
+                } else if user.starts_with("email-") {
+                    "email"
                 } else {
                     "default-webhook"
                 };
@@ -3456,10 +3456,10 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
-                let trigger_kind = if user.starts_with("http-route-") {
-                    "http-route"
-                } else if user.starts_with("email-trigger-") {
-                    "email-trigger"
+                let trigger_kind = if user.starts_with("http-api-") {
+                    "http-api"
+                } else if user.starts_with("email-") {
+                    "email"
                 } else {
                     "default-webhook"
                 };

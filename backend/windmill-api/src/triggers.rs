@@ -29,6 +29,10 @@ use crate::{
     users::OptAuthed,
 };
 
+lazy_static::lazy_static! {
+    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/:\w+").unwrap();
+}
+
 pub fn routes_global_service() -> Router {
     Router::new().route("/*path", any(route_job))
 }
@@ -103,6 +107,7 @@ struct Trigger {
     workspace_id: String,
     path: String,
     route_path: String,
+    route_path_key: String,
     script_path: String,
     is_flow: bool,
     kind: TriggerKind,
@@ -142,7 +147,7 @@ async fn list_triggers(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, kind)): Path<(String, TriggerKind)>,
-    Query(lst): Query<(ListTriggerQuery)>,
+    Query(lst): Query<ListTriggerQuery>,
 ) -> error::JsonResult<Vec<Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
@@ -183,7 +188,7 @@ async fn get_trigger(
     let path = path.to_path();
     let trigger = sqlx::query_as!(
         Trigger,
-        r#"SELECT workspace_id, path, route_path, script_path, is_flow, kind as "kind: _", http_method as "http_method: _", edited_by, email, edited_at, extra_perms, summary, is_async, requires_auth
+        r#"SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, kind as "kind: _", http_method as "http_method: _", edited_by, email, edited_at, extra_perms, summary, is_async, requires_auth
             FROM trigger
             WHERE workspace_id = $1 AND path = $2 AND kind = $3"#,
         w_id,
@@ -206,13 +211,17 @@ async fn create_trigger(
     Json(ct): Json<NewTrigger>,
 ) -> error::Result<(StatusCode, String)> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(ct.route_path.as_str(), ":key");
+
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO trigger (workspace_id, summary, path, route_path, script_path, is_flow, kind, is_async, requires_auth, http_method, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())",
+        "INSERT INTO trigger (workspace_id, summary, path, route_path, route_path_key, script_path, is_flow, kind, is_async, requires_auth, http_method, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())",
         w_id,
         ct.summary,
         ct.path,
         ct.route_path,
+        &route_path_key,
         ct.script_path,
         ct.is_flow,
         ct.kind as TriggerKind,
@@ -248,12 +257,23 @@ async fn update_trigger(
 ) -> error::Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
+
     if authed.is_admin {
+        if ct.route_path.is_none() {
+            return Err(error::Error::BadRequest(
+                "route_path is required".to_string(),
+            ));
+        }
+
+        let route_path_key =
+            ROUTE_PATH_KEY_RE.replace_all(ct.route_path.as_ref().unwrap().as_str(), ":key");
+
         sqlx::query!(
             "UPDATE trigger 
-                SET route_path = $1, script_path = $2, path = $3, is_flow = $4, kind = $5, http_method = $6, edited_by = $7, email = $8, summary = $9, edited_at = now() 
-                WHERE workspace_id = $10 AND path = $11 AND kind = $12",
+                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, kind = $6, http_method = $7, edited_by = $8, email = $9, summary = $10, is_async = $11, requires_auth = $12, edited_at = now() 
+                WHERE workspace_id = $13 AND path = $14 AND kind = $15",
             ct.route_path,
+            &route_path_key,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -262,6 +282,8 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.summary,
+            ct.is_async,
+            ct.requires_auth,
             w_id,
             path,
             kind as TriggerKind
@@ -371,28 +393,32 @@ async fn exists_trigger(
 struct RouteExists {
     route_path: String,
     kind: TriggerKind,
+    http_method: HttpMethod,
 }
 
 async fn exists_route(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(RouteExists { route_path, kind }): Json<RouteExists>,
+    Json(RouteExists { route_path, kind, http_method }): Json<RouteExists>,
 ) -> JsonResult<bool> {
+    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(route_path.as_str(), ":key");
     let exists = if *CLOUD_HOSTED {
         sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path = $1 AND workspace_id = $2 AND kind = $3)",
-                    route_path,
+                    "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path_key = $1 AND workspace_id = $2 AND kind = $3 AND http_method = $4)",
+                    &route_path_key,
                     w_id,
-                    kind as TriggerKind
+                    kind as TriggerKind,
+                    http_method as HttpMethod
                 )
                 .fetch_one(&db)
                 .await?
                 .unwrap_or(false)
     } else {
         sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path = $1 AND kind = $2)",
-            route_path,
-            kind as TriggerKind
+            "SELECT EXISTS(SELECT 1 FROM trigger WHERE route_path_key = $1 AND kind = $2 AND http_method = $3)",
+            &route_path_key,
+            kind as TriggerKind,
+            http_method as HttpMethod
         )
         .fetch_one(&db)
         .await?
@@ -402,6 +428,7 @@ async fn exists_route(
 }
 
 struct TriggerRoute {
+    path: String,
     script_path: String,
     is_flow: bool,
     route_path: String,
@@ -449,7 +476,7 @@ async fn get_http_route_trigger(
         let route_path = StripPath(splitted.collect::<Vec<_>>().join("/"));
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _" FROM trigger WHERE workspace_id = $1 AND kind = 'http'"#,
+            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _" FROM trigger WHERE workspace_id = $1 AND kind = 'http'"#,
             w_id
         )
         .fetch_all(db)
@@ -458,7 +485,7 @@ async fn get_http_route_trigger(
     } else {
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _" FROM trigger WHERE kind = 'http'"#,
+            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _" FROM trigger WHERE kind = 'http'"#,
         )
         .fetch_all(db)
         .await?;
@@ -495,9 +522,9 @@ async fn get_http_route_trigger(
             // check that the user has access to the trigger
             let mut tx = user_db.begin(&authed).await?;
             let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM trigger WHERE workspace_id = $1 AND path = $2)",
+                "SELECT EXISTS(SELECT 1 FROM trigger WHERE workspace_id = $1 AND path = $2 AND kind = 'http')",
                 trigger.workspace_id,
-                trigger.route_path
+                trigger.path
             )
             .fetch_one(&mut *tx)
             .await?
@@ -581,7 +608,7 @@ async fn route_job(
         }
     }
 
-    let label_prefix = Some(format!("http-route-{}-", trigger.route_path));
+    let label_prefix = Some(format!("http-api-{}-", trigger.route_path));
 
     if trigger.is_flow {
         if trigger.is_async {

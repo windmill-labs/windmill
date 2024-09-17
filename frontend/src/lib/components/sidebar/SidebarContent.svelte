@@ -48,7 +48,10 @@
 			icon: DollarSign,
 			disabled: $userStore?.operator
 		},
-		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator },
+		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator }
+	]
+
+	$: triggerMenuLinks = [
 		{
 			label: 'Schedules',
 			href: `${base}/schedules`,
@@ -69,7 +72,7 @@
 
 	const defaultExtraTriggerLinks = [
 		{
-			label: 'Routes',
+			label: 'HTTP API',
 			href: '/routes',
 			icon: Route,
 			disabled: $userStore?.operator,
@@ -217,42 +220,55 @@
 		noGap ? 'gap-0' : 'gap-16'
 	)}
 >
-	<div class={twMerge('space-y-1 pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
-		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
-		{/each}
-		{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
-			<Menu>
-				<div
-					slot="trigger"
-					class="w-full text-gray-400 text-2xs flex flex-row justify-center gap-1 items-center"
-				>
-					<Plus size={14} />
-				</div>
-				{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-					<MenuItem>
-						<div class="py-1" role="none">
-							<a
-								href={subItem.href}
-								class={twMerge(
-									'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
-								)}
-								role="menuitem"
-								tabindex="-1"
-							>
-								<div class="flex flex-row items-center gap-2">
-									{#if subItem.icon}
-										<svelte:component this={subItem.icon} size={16} />
-									{/if}
-
-									{subItem.label}
-								</div>
-							</a>
-						</div>
-					</MenuItem>
+	<div class={twMerge('pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
+		<div class="space-y-1">
+			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+			{/each}
+		</div>
+		<div class="pt-4">
+			<div
+				class="text-gray-400 text-[0.5rem] uppercase transition-opacity"
+				class:opacity-0={isCollapsed}>Triggers</div
+			>
+			<div class="space-y-1">
+				{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
-			</Menu>
-		{/if}
+				{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
+					<Menu>
+						<div
+							slot="trigger"
+							class="w-full text-gray-400 text-2xs flex flex-row justify-center gap-1 items-center"
+						>
+							<Plus size={14} />
+						</div>
+						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+							<MenuItem>
+								<div class="py-1" role="none">
+									<a
+										href={subItem.href}
+										class={twMerge(
+											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
+										)}
+										role="menuitem"
+										tabindex="-1"
+									>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<svelte:component this={subItem.icon} size={16} />
+											{/if}
+
+											{subItem.label}
+										</div>
+									</a>
+								</div>
+							</MenuItem>
+						{/each}
+					</Menu>
+				{/if}
+			</div>
+		</div>
 	</div>
 	<div class="flex flex-col h-full justify-end">
 		<div class={twMerge('space-y-0.5 mb-6 md:mb-10', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>

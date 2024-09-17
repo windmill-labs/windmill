@@ -282,8 +282,17 @@ pub async fn handle_python_job(
         transforms,
         spread,
         main_name,
-        apply_preprocessor,
-    ) = prepare_wrapper(job_dir, inner_content, &script_path, job.args.as_ref()).await?;
+        pre_spread,
+    ) = prepare_wrapper(
+        job_dir,
+        inner_content,
+        &script_path,
+        job.args.as_ref(),
+        false,
+    )
+    .await?;
+
+    let apply_preprocessor = pre_spread.is_some();
 
     create_args_and_out_file(
         &client,
@@ -300,12 +309,17 @@ pub async fn handle_python_job(
     )
     .await?;
 
-    let preprocessor = if apply_preprocessor {
+    let preprocessor = if let Some(pre_spread) = pre_spread {
         format!(
             r#"if inner_script.preprocessor is None or not callable(inner_script.preprocessor):
         raise ValueError("preprocessor is missing or not a function")
     else:
-        kwargs = inner_script.preprocessor(kwargs)
+        pre_args = {{}}
+        {pre_spread}
+        for k, v in list(pre_args.items()):
+            if v == '<function call>':
+                del pre_args[k]
+        kwargs = inner_script.preprocessor(**pre_args)
         kwrags_json = res_to_json(kwargs)    
         with open("args.json", 'w') as f:
             f.write(kwrags_json)"#
@@ -337,9 +351,6 @@ with open("args.json") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
 {transforms}
-for k, v in list(args.items()):
-    if v == '<function call>':
-        del args[k]
 
 def to_b_64(v: bytes):
     import base64
@@ -368,6 +379,9 @@ def res_to_json(res):
 try:
     {preprocessor}
     {spread}
+    for k, v in list(args.items()):
+        if v == '<function call>':
+            del args[k]
     res = inner_script.{main_override}(**args)
     res_json = res_to_json(res)
     with open(result_json, 'w') as f:
@@ -510,6 +524,7 @@ async fn prepare_wrapper(
     inner_content: &str,
     script_path: &str,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    skip_preprocessor: bool,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -520,11 +535,11 @@ async fn prepare_wrapper(
     String,
     String,
     Option<String>,
-    bool,
+    Option<String>,
 )> {
     let (main_override, apply_preprocessor) = match get_main_override(args) {
         Some(main_override) => {
-            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
+            if !skip_preprocessor && main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
                 (None, true)
             } else {
                 (Some(main_override), false)
@@ -572,7 +587,20 @@ async fn prepare_wrapper(
     }
 
     let sig = windmill_parser_py::parse_python_signature(inner_content, main_override.clone())?;
-    let transforms = sig
+
+    let pre_sig = if apply_preprocessor {
+        Some(windmill_parser_py::parse_python_signature(
+            inner_content,
+            Some("preprocessor".to_string()),
+        )?)
+    } else {
+        None
+    };
+
+    // transforms should be applied based on the signature of the first function called
+    let init_sig = pre_sig.as_ref().unwrap_or(&sig);
+
+    let transforms = init_sig
         .args
         .iter()
         .map(|x| match x.typ {
@@ -600,7 +628,7 @@ async fn prepare_wrapper(
     } else {
         ""
     };
-    let import_base64 = if sig
+    let import_base64 = if init_sig
         .args
         .iter()
         .any(|x| x.typ == windmill_parser::Typ::Bytes)
@@ -609,7 +637,7 @@ async fn prepare_wrapper(
     } else {
         ""
     };
-    let import_datetime = if sig
+    let import_datetime = if init_sig
         .args
         .iter()
         .any(|x| x.typ == windmill_parser::Typ::Datetime)
@@ -638,6 +666,32 @@ async fn prepare_wrapper(
             .join("\n    ")
     };
 
+    let pre_spread = if let Some(pre_sig) = pre_sig {
+        let spread = if pre_sig.star_kwargs {
+            "pre_args = kwargs".to_string()
+        } else {
+            pre_sig
+                .args
+                .into_iter()
+                .map(|x| {
+                    let name = &x.name;
+                    if x.default.is_none() {
+                        format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
+                    } else {
+                        format!(
+                            r#"pre_args["{name}"] = kwargs.get("{name}")
+    if pre_args["{name}"] is None:
+        del pre_args["{name}"]"#
+                        )
+                    }
+                })
+                .join("\n    ")
+        };
+        Some(spread)
+    } else {
+        None
+    };
+
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
     Ok((
@@ -650,7 +704,7 @@ async fn prepare_wrapper(
         transforms,
         spread,
         main_override,
-        apply_preprocessor,
+        pre_spread,
     ))
 }
 
@@ -1145,7 +1199,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref()).await?;
+    ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref(), true).await?;
 
     {
         let indented_transforms = transforms

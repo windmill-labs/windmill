@@ -11,7 +11,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Calendar, Code, Eye, List, Pen, Plus, Share, Trash } from 'lucide-svelte'
+	import { Route, Code, Eye, Pen, Plus, Share, Trash } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -54,7 +54,7 @@
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
-		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'trigger' | 'script_flow') ?? 'trigger'
+		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'route' | 'script_flow') ?? 'route'
 	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
 
 	$: storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
@@ -62,12 +62,12 @@
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TriggerW,
-		selectedFilterKind: 'trigger' | 'script_flow',
+		selectedFilterKind: 'route' | 'script_flow',
 		filterUserFolders: boolean
 	) {
 		if ($workspaceStore == 'admins') return true
 		if (filterUserFolders) {
-			if (selectedFilterKind === 'trigger') {
+			if (selectedFilterKind === 'route') {
 				return (
 					!item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
 				)
@@ -84,7 +84,7 @@
 
 	$: preFilteredItems =
 		ownerFilter != undefined
-			? selectedFilterKind === 'trigger'
+			? selectedFilterKind === 'route'
 				? triggers?.filter(
 						(x) =>
 							x.path.startsWith(ownerFilter + '/' ?? '') &&
@@ -104,7 +104,7 @@
 	}
 
 	$: owners =
-		selectedFilterKind === 'trigger'
+		selectedFilterKind === 'route'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 			  ).sort()
@@ -133,7 +133,7 @@
 		let queryFilterKind = url.searchParams.get(TRIGGER_PATH_KIND_FILTER_SETTING)
 		let queryFilterUserFolders = url.searchParams.get(FILTER_USER_FOLDER_SETTING_NAME)
 		if (queryFilterKind) {
-			selectedFilterKind = queryFilterKind as 'trigger' | 'script_flow'
+			selectedFilterKind = queryFilterKind as 'route' | 'script_flow'
 		}
 		if (queryFilterUserFolders) {
 			filterUserFolders = queryFilterUserFolders == 'true'
@@ -158,8 +158,9 @@
 
 <CenteredPage>
 	<PageHeader
-		title="HTTP Routes"
-		documentationLink="https://www.windmill.dev/docs/core_concepts/routing"
+		title="HTTP API"
+		tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/http_api"
 	>
 		{#if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
@@ -173,7 +174,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Trigger" icon={Calendar} />
+					<ToggleButton small value="route" label="Route" icon={Route} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -196,10 +197,10 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, summary, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, summary, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 					<div
@@ -227,7 +228,7 @@
 									route: {path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									endpoint: /{route_path}
+									endpoint: {http_method ? http_method.toUpperCase() + ' ' : ''}/{route_path}
 								</div>
 							</a>
 
@@ -239,10 +240,14 @@
 								<Button
 									on:click={() => routeEditor?.openEdit(path, is_flow)}
 									size="xs"
-									startIcon={{ icon: Pen }}
+									startIcon={canWrite
+										? { icon: Pen }
+										: {
+												icon: Eye
+										  }}
 									color="dark"
 								>
-									Edit
+									{canWrite ? 'Edit' : 'View'}
 								</Button>
 								<Dropdown
 									items={[
@@ -257,7 +262,7 @@
 											displayName: 'Delete',
 											type: 'delete',
 											icon: Trash,
-											disabled: !canWrite,
+											disabled: !canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
 											action: async () => {
 												await TriggerService.deleteTrigger({
 													workspace: $workspaceStore ?? '',
@@ -268,21 +273,11 @@
 											}
 										},
 										{
-											displayName: 'Edit',
-											icon: Pen,
-											disabled: !canWrite,
+											displayName: canWrite ? 'Edit' : 'View',
+											icon: canWrite ? Pen : Eye,
 											action: () => {
 												routeEditor?.openEdit(path, is_flow)
 											}
-										},
-										{
-											displayName: 'View runs',
-											icon: List,
-											href:
-												base +
-												'/runs/?trigger_path=' +
-												path +
-												'&show_triggers=true&show_future_jobs=true'
 										},
 										{
 											displayName: 'Audit logs',
@@ -293,7 +288,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'trigger')
+												shareModal.openDrawer(path, 'http_route')
 											}
 										}
 									]}

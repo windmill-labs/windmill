@@ -155,18 +155,19 @@
 		isCloudHosted() ? $workspaceStore + '/' : ''
 	}${route_path}`
 
-	async function routeExists(route_path: string) {
+	async function routeExists(route_path: string, method: typeof http_method) {
 		return await TriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
-				kind: 'http'
+				kind: 'http',
+				http_method
 			}
 		})
 	}
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	async function validateRoute(path: string): Promise<void> {
+	async function validateRoute(path: string, method: typeof http_method): Promise<void> {
 		routeError = ''
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
@@ -174,7 +175,7 @@
 		validateTimeout = setTimeout(async () => {
 			if (!/^[\w-:]+(\/[\w-:]+)*$/.test(path)) {
 				routeError = 'Endpoint not valid'
-			} else if (initialRoutePath !== path && (await routeExists(path))) {
+			} else if (initialRoutePath !== path && (await routeExists(path, method))) {
 				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''
@@ -183,19 +184,19 @@
 		}, 500)
 	}
 
-	$: validateRoute(route_path)
+	$: validateRoute(route_path, http_method)
 </script>
 
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
-		title={edit ? `Edit route ${initialPath}` : 'New route'}
+		title={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
-			{#if !drawerLoading}
+			{#if !drawerLoading && can_write}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' || routeError != '' || emptyString(script_path)}
+					disabled={pathError != '' || routeError != '' || emptyString(script_path) || !can_write}
 					on:click={triggerScript}
 				>
 					Save
@@ -241,8 +242,9 @@
 							{initialPath}
 							checkInitialPathExistence={!edit}
 							namePlaceholder="route"
-							kind="trigger"
+							kind="http_route"
 							hideUser
+							disabled={!can_write}
 						/>
 					</Label>
 				</div>
@@ -250,12 +252,12 @@
 				<Section label="Endpoint">
 					{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Alert type="info" title="Admin only" collapsible>
-							Routes can only be edited by workspace admins
+							Route endpoints can only be edited by workspace admins
 						</Alert>
 						<div class="my-2" />
 					{/if}
-					<div class="flex flex-col w-full">
-						<label class="block grow w-full max-w-md">
+					<div class="flex flex-col w-full gap-4">
+						<label class="block grow w-full">
 							<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
 								<div>
 									Path
@@ -266,15 +268,27 @@
 							<!-- svelte-ignore a11y-autofocus -->
 							<input
 								type="text"
-								id="route-"
 								autocomplete="off"
 								bind:value={route_path}
+								disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
 								class={routeError === ''
 									? ''
 									: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
 							/>
 						</label>
-						<div class="flex flex-col w-full mt-4">
+
+						<ToggleButtonGroup
+							class="w-auto"
+							bind:selected={http_method}
+							disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+						>
+							<ToggleButton label="GET" value="get" />
+							<ToggleButton label="POST" value="post" />
+							<ToggleButton label="PUT" value="put" />
+							<ToggleButton label="PATCH" value="patch" />
+							<ToggleButton label="DELETE" value="delete" />
+						</ToggleButtonGroup>
+						<div class="flex flex-col w-full mt-2">
 							<div class="flex justify-start w-full">
 								<Badge
 									color="gray"
@@ -283,7 +297,6 @@
 									Full endpoint
 								</Badge>
 								<input
-									disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
 									type="text"
 									readonly
 									value={fullRoute}
@@ -327,16 +340,6 @@
 									value={false}
 									tooltip="Triggers the execution, wait for the job to complete and return it as a response."
 								/>
-							</ToggleButtonGroup>
-						</div>
-						<div class="flex flex-row justify-between">
-							<div class="text-sm font-semibold flex flex-row items-center">Allowed method</div>
-							<ToggleButtonGroup class="w-auto" bind:selected={http_method} disabled={!can_write}>
-								<ToggleButton label="GET" value="get" />
-								<ToggleButton label="POST" value="post" />
-								<ToggleButton label="PUT" value="put" />
-								<ToggleButton label="PATCH" value="patch" />
-								<ToggleButton label="DELETE" value="delete" />
 							</ToggleButtonGroup>
 						</div>
 						<div class="flex flex-row justify-between">

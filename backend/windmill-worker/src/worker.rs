@@ -1931,16 +1931,6 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 //     logs: String,
 // ) -> error::Result<()> {
 
-#[derive(Deserialize, Serialize)]
-struct TransformerFlowStatusMetadata {
-    main_job_id: Uuid,
-}
-
-#[derive(Deserialize, Serialize)]
-struct TransformerFlowStatusy {
-    _metadata: TransformerFlowStatusMetadata,
-}
-
 #[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
@@ -2325,7 +2315,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     }
 
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
-    if job.created_by.starts_with("email-trigger-") {
+    if job.created_by.starts_with("email-") {
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
         ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));

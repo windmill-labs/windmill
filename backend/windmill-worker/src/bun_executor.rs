@@ -936,11 +936,21 @@ pub async fn handle_bun_job(
         };
 
         let preprocessor = if apply_preprocessor {
+            let pre_args = windmill_parser_ts::parse_deno_signature(
+                inner_content,
+                true,
+                Some("preprocessor".to_string()),
+            )?
+            .args;
+            let pre_spread = pre_args.into_iter().map(|x| x.name).join(",");
             format!(
                 r#"if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
         throw new Error("preprocessor is missing or not a function");
     }}
-    args = await Main.preprocessor(args);
+    function preArgsObjToArr({{ {pre_spread} }}) {{
+        return [ {pre_spread} ];
+    }}
+    args = await Main.preprocessor(...preArgsObjToArr(args));
     await fs.writeFile('args.json', JSON.stringify(args), {{ encoding: 'utf8' }})"#
             )
         } else {

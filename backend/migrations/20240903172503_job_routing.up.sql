@@ -7,6 +7,7 @@ CREATE TABLE trigger (
   path VARCHAR(255) NOT NULL,
   kind trigger_kind NOT NULL,
   route_path VARCHAR(255) NOT NULL,
+  route_path_key VARCHAR(255) NOT NULL,
   script_path VARCHAR(255) NOT NULL,
   is_flow BOOLEAN NOT NULL,
   workspace_id VARCHAR(50) NOT NULL,
@@ -16,13 +17,15 @@ CREATE TABLE trigger (
   extra_perms JSONB NOT NULL DEFAULT '{}',
   is_async BOOLEAN NOT NULL DEFAULT FALSE,
   requires_auth BOOLEAN NOT NULL DEFAULT FALSE,
-  http_method http_method NULL, 
+  http_method http_method NULL,
   PRIMARY KEY (path, workspace_id, kind)
 );
 
 
 GRANT SELECT, UPDATE ON trigger TO windmill_user;
 GRANT ALL ON trigger TO windmill_admin;
+
+ALTER TABLE trigger ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY see_folder_extra_perms_user_select ON trigger FOR SELECT TO windmill_user
 USING (SPLIT_PART(trigger.path, '/', 1) = 'f' AND SPLIT_PART(trigger.path, '/', 2) = any(regexp_split_to_array(current_setting('session.folders_read'), ',')::text[]));
@@ -47,7 +50,7 @@ CREATE OR REPLACE FUNCTION prevent_route_path_change()
 RETURNS TRIGGER AS $$
 BEGIN
     IF CURRENT_USER <> 'windmill_admin' AND NEW.route_path <> OLD.route_path THEN
-        RAISE EXCEPTION 'Modification of route_path is only allowed for admins';
+        RAISE EXCEPTION 'Modification of route_path is only allowed by admins';
     END IF;
     RETURN NEW;
 END;

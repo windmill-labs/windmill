@@ -430,9 +430,13 @@ export async function main(approver?: string) {
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
 export const BUN_PREPROCESSOR_MODULE_CODE = `
-export async function main(args: any, trigger_kind: 'default-webhook' | 'http-router' | 'email-trigger') {
-	// do something with the args
-	return args
+export async function main(
+	wm_trigger_kind: 'http-route' | 'email' | 'default-webhook',
+	/* your other args */ 
+) {
+	return {
+		// return the args to be passed to the flow
+	}
 }
 `
 
@@ -463,12 +467,14 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import Any
-
-def main(args: Any, trigger_kind: str):
-	# trigger_kind can be 'default-webhook', 'http-router', 'email-trigger'
-	# do something with the args
-	return args
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `def main(
+	wm_trigger_kind: str,
+	# your other args
+):
+	# wm_trigger kind can be 'http-route', 'email', 'default-webhook'
+	return {
+		# return the args to be passed to the flow
+	}
 `
 
 export const DOCKER_INIT_CODE = `# shellcheck shell=bash

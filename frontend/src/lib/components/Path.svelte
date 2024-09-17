@@ -36,7 +36,7 @@
 		| 'schedule'
 		| 'app'
 		| 'raw_app'
-		| 'trigger'
+		| 'http_route'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -207,7 +207,7 @@
 			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'app') {
 			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
-		} else if (kind == 'trigger') {
+		} else if (kind == 'http_route') {
 			return await TriggerService.existsTrigger({
 				workspace: $workspaceStore!,
 				path: path,
@@ -469,7 +469,7 @@
 		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
 
-	{#if kind != 'app' && kind != 'schedule' && kind != 'trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
+	{#if kind != 'app' && kind != 'schedule' && kind != 'http_route' && initialPath != '' && initialPath != undefined && initialPath != path}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables
