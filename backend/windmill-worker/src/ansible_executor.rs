@@ -23,10 +23,10 @@ use crate::{
 
 lazy_static::lazy_static! {
     static ref ANSIBLE_PLAYBOOK_PATH: String =
-    std::env::var("ANSIBLE_PLAYBOOK_PATH").unwrap_or("/bin/ansible-playbook".to_string());
+    std::env::var("ANSIBLE_PLAYBOOK_PATH").unwrap_or("/usr/local/bin/ansible-playbook".to_string());
 
     static ref ANSIBLE_GALAXY_PATH: String =
-    std::env::var("ANSIBLE_GALAXY_PATH").unwrap_or("/bin/ansible-galaxy".to_string());
+    std::env::var("ANSIBLE_GALAXY_PATH").unwrap_or("/usr/local/bin/ansible-galaxy".to_string());
 }
 
 async fn handle_ansible_python_deps(
