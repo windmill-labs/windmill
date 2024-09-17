@@ -126,7 +126,7 @@ pub async fn generate_deno_lock(
             "--unstable-worker-options",
             "--unstable-http",
             "--lock=lock.json",
-            "--frozen=false",
+            "--lock-write",
             "--import-map",
             &import_map_path,
             "main.ts",

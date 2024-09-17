@@ -1,10 +1,8 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME:
-    ${{ github.event_name != 'pull_request' && github.repository ||
+  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.repository ||
     'windmill-labs/windmill-test' }}
-  DEV_SHA:
-    ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
+  DEV_SHA: ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
     github.event.number) }}
 
 name: Build windmill:main
@@ -476,6 +474,7 @@ jobs:
           file: "./docker/DockerfileNsjail"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
+            ghcr.io/windmill-labs/windmill-ee-nsjail:main
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
