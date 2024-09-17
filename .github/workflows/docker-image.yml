@@ -744,7 +744,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          file: "./docker/DockerfileRust"
+          file: "./docker/DockerfileFull"
           tags: |
             ${{ steps.meta-public.outputs.tags }}
           labels: |
@@ -789,7 +789,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          file: "./docker/DockerfileRustEe"
+          file: "./docker/DockerfileFullEe"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
