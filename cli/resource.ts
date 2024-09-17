@@ -15,6 +15,7 @@ import {
   SEP,
   Table,
 } from "./deps.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface ResourceFile {
   value: any;
@@ -39,6 +40,10 @@ export async function pushResource(
     // flow doesn't exist
   }
 
+  if (localResource.value["content"]?.startsWith("!inline ")) {
+    const basePath = localResource.value["content"].split(" ")[1];
+    localResource.value["content"] = readInlinePathSync(basePath);
+  }
   if (resource) {
     if (isSuperset(localResource, resource)) {
       return;
