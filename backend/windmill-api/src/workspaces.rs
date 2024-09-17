@@ -2898,34 +2898,6 @@ async fn tarball_workspace(
     Ok((headers, body))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
-struct LocalFileResourceExtension {
-    name: String,
-    format_extension: Option<String>,
-}
-
-async fn file_resource_ext_to_resource_type(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    // Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-) -> JsonResult<Vec<LocalFileResourceExtension>> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    let r = sqlx::query_as!(LocalFileResourceExtension, "
-        SELECT name, format_extension FROM resource_type WHERE format_extension IS NOT NULL AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
-        .fetch_all(&mut *tx)
-        .await?;
- //    let r = sqlx::query_as!(LocalFileResourceExtension,
- //        "SELECT name, schema ->> 'format_extension' AS format_extension FROM resource_type WHERE schema ? 'format_extension'
- //            AND (workspace_id = $1 OR workspace_id = 'admins')
- // AND jsonb_typeof(schema -> 'format_extension') = 'string'", &w_id)
- //        .fetch_all(&mut *tx)
- //        .await?;
-
-    Ok(Json(r))
-}
-
 async fn get_workspace_name(
     authed: ApiAuthed,
     Path(w_id): Path<String>,

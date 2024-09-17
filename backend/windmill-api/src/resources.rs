@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
@@ -56,6 +58,7 @@ pub fn workspaced_service() -> Router {
         .route("/type/exists/:name", get(exists_resource_type))
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
+        .route("/file_resource_type_to_file_ext_map", get(file_resource_ext_to_resource_type))
         .route("/type/create", post(create_resource_type))
 }
 
@@ -913,6 +916,35 @@ async fn update_resource_value(
     );
 
     Ok(format!("value of resource {} updated", path))
+}
+
+async fn file_resource_ext_to_resource_type(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<HashMap<String, String>> {
+    #[derive(Serialize, sqlx::FromRow)]
+    struct LocalFileResourceExtension {
+        name: String,
+        format_extension: Option<String>,
+    }
+
+    let r = sqlx::query_as!(LocalFileResourceExtension, "
+        SELECT name, format_extension FROM resource_type WHERE format_extension IS NOT NULL AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
+        .fetch_all(&db)
+        .await?;
+
+    let hashmap: HashMap<String, String> = r
+        .into_iter()
+        .filter_map(|entry| {
+            if let Some(format_extension) = entry.format_extension {
+                Some((entry.name, format_extension))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(Json(hashmap))
 }
 
 async fn list_resource_types(
