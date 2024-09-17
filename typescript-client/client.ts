@@ -406,7 +406,7 @@ export async function setProgress(percent: number, jobId?: any): Promise<void> {
     flowId = job.parent_job;
   }
 
-  MetricsService.setJobProgress({
+  await MetricsService.setJobProgress({
     id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
     workspace,
     requestBody: {
@@ -422,7 +422,7 @@ export async function setProgress(percent: number, jobId?: any): Promise<void> {
  */
 export async function getProgress(jobId?: any): Promise<number | null> {
   // TODO: Delete or set to 100 completed job metrics
-  return MetricsService.getJobProgress({
+  return await MetricsService.getJobProgress({
     id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
     workspace: getWorkspace(),
   }); 
