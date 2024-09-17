@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, process::Stdio};
 
 use anyhow::anyhow;
 use serde_json::value::RawValue;
@@ -14,11 +14,11 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_and_check_result,
+        get_reserved_variables, handle_child, read_and_check_result,
         start_child_process, transform_json,
     },
     python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, HOME_ENV, PATH_ENV, TZ_ENV,
+    AuthedClientBackgroundTask,
 };
 
 lazy_static::lazy_static! {
