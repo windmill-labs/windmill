@@ -1045,7 +1045,7 @@ pub async fn monitor_db(
 
     let worker_groups_alerts_f = async {
         #[cfg(feature = "enterprise")]
-        if server_mode {
+        if server_mode && !initial_load {
             worker_groups_alerts(&db).await;
         }
     };

@@ -48,6 +48,7 @@ pub async fn renew_license_key(
     _http_client: &reqwest::Client,
     _db: &crate::db::DB,
     _key: Option<String>,
+    _manual: bool,
 ) -> String {
     // Implementation is not open source
     "".to_string()

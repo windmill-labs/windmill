@@ -2734,7 +2734,8 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
-                }) if lock.len() > 0)
+                }) if lock.len() > 0),
+            "{:?}", m.value
             );
         });
 }

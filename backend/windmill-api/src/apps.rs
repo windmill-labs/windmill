@@ -609,7 +609,7 @@ async fn create_app(
     }
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
+        "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
         &app.path,
         w_id
     )
