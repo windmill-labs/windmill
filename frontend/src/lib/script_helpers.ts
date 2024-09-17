@@ -483,39 +483,48 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 Write-Output "Hello $Msg"`
 
 export const ANSIBLE_PLAYBOOK_INIT_CODE = `---
-- dependencies:
-    galaxy:
-      collections:
-        - name: community.windows
-        - name: ansible.utils
-    python:
-      - jmespath
-      - pandas>=2.0.0
+inventory:
+  - resource_type: ansible_inventory
+    # You can pin an inventory to this script by hardcoding the resource path:
+    # resource: u/user/your_resource
+
+# File resources will be written in the relative \`target\` location before
+# running the playbook
+# file_resources:
+  # - resource: u/user/fabulous_jinja_template
+  #  target:  ./config_template.j2
+
+# Define the arguments of the windmill script
+extra_vars:
+  world_qualifier:
+    type: string
+
+dependencies:
+  galaxy:
+    collections:
+      - name: community.general
+      - name: community.vmware
+  python:
+    - jmespath
 ---
-- name: Filter users with role 'admin' using json_query
-  hosts: localhost
-  gather_facts: no
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
   vars:
-    users_file: "users.json"  # JSON file path
-    query: "[?role == 'admin']"  # JMESPath query to filter admins
+    my_result:
+      a: 2
+      b: true
+      c: "Hello"
 
   tasks:
-    - name: Read JSON file
-      ansible.builtin.slurp:
-        src: "{{ users_file }}"
-      register: json_data
-
-    - name: Parse JSON content
-      set_fact:
-        users: "{{ json_data.content | b64decode | from_json }}"
-
-    - name: Filter users with role 'admin'
-      set_fact:
-        admins: "{{ users | community.general.json_query(query) }}"
-
-    - name: Display filtered users
-      debug:
-        var: admins
+  - name: Print debug message
+    debug:
+      msg: "Hello, {{world_qualifier}} world!"
+  - name: Write variable my_result to result.json
+    delegate_to: localhost
+    copy:
+      content: "{{ my_result | to_json }}"
+      dest: result.json
 `
 
 const ALL_INITIAL_CODE = [
