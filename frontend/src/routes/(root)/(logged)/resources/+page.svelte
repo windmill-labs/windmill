@@ -31,7 +31,14 @@
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, classNames, emptySchema, removeMarkdown, truncate, validateFileExtension } from '$lib/utils'
+	import {
+		canWrite,
+		classNames,
+		emptySchema,
+		removeMarkdown,
+		truncate,
+		validateFileExtension
+	} from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { convert } from '@redocly/json-to-json-schema'
@@ -67,7 +74,8 @@
 	let resourceTypeViewerObj = {
 		rt: '',
 		description: '',
-		schema: emptySchema()
+		schema: emptySchema(),
+		formatExtension: undefined as string | undefined
 	}
 
 	let resourceTypeDrawer: Drawer
@@ -83,8 +91,7 @@
 	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: '',
-		format_extension: undefined
+		description: ''
 	}
 	let resourceEditor: ResourceEditorDrawer | undefined
 	let shareModal: ShareModal
@@ -200,11 +207,11 @@
 	}
 
 	async function addResourceType(): Promise<void> {
-		if (newResourceType.formatExtension === "") {
-			throw new Error("Invalid empty file extension (make sure it is selected)")
+		if (newResourceType.formatExtension === '') {
+			throw new Error('Invalid empty file extension (make sure it is selected)')
 		}
-		if ( !validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
-			throw new Error("Invalid file extension")
+		if (!validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
+			throw new Error('Invalid file extension')
 		}
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
@@ -255,7 +262,8 @@
 		newResourceType = {
 			name: 'my_resource_type',
 			schema: emptySchema(),
-			description: ''
+			description: '',
+			formatExtension: undefined
 		}
 		validateResourceTypeName()
 
@@ -366,6 +374,18 @@
 			.toLowerCase()
 		validateResourceTypeName()
 	}
+
+	let resourceNameToFileExtMap: any = undefined
+
+	async function resourceNameToFileExt(resourceName: string) {
+		if (resourceNameToFileExtMap == undefined) {
+			resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
+				workspace: $workspaceStore!
+			})
+		}
+
+		return resourceNameToFileExtMap[resourceName]
+	}
 </script>
 
 <ConfirmationModal
@@ -413,11 +433,17 @@
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		<div>
-			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} /></h1>
+			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} formatExtension={resourceTypeViewerObj.formatExtension} /></h1>
 			<div class="py-2 box prose mb-8 text-secondary">
 				{resourceTypeViewerObj.description ?? ''}
 			</div>
-			<SchemaViewer schema={resourceTypeViewerObj.schema} />
+			{#if resourceTypeViewerObj.formatExtension}
+		<Alert type="info" title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})">
+						This resource type represents a plain text file with a <b>.{resourceTypeViewerObj.formatExtension}</b> extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>)
+		</Alert>
+			{:else}
+				<SchemaViewer schema={resourceTypeViewerObj.schema} />
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -704,7 +730,8 @@
 														rt: linkedRt.name,
 														//@ts-ignore
 														schema: linkedRt.schema,
-														description: linkedRt.description ?? ''
+														description: linkedRt.description ?? '',
+														formatExtension: linkedRt.format_extension
 													}
 													resourceTypeViewer.openDrawer?.()
 												} else {
@@ -715,7 +742,7 @@
 												}
 											}}
 										>
-											<IconedResourceType name={resource_type} after={true} />
+											<IconedResourceType name={resource_type} after={true} formatExtension={resourceNameToFileExt(resource_type)}/>
 										</a>
 									</Cell>
 									<Cell>
@@ -882,7 +909,7 @@
 					</Head>
 					<tbody class="divide-y bg-surface">
 						{#if resourceTypes}
-							{#each resourceTypes as { name, description, schema, canWrite }}
+							{#each resourceTypes as { name, description, schema, canWrite, format_extension }}
 								<Row>
 									<Cell first>
 										<a
@@ -892,13 +919,14 @@
 													rt: name,
 													//@ts-ignore
 													schema: schema,
-													description: description ?? ''
+													description: description ?? '',
+													formatExtension: format_extension
 												}
 
 												resourceTypeViewer.openDrawer?.()
 											}}
 										>
-											<IconedResourceType after={true} {name} />
+											<IconedResourceType after={true} {name} formatExtension={format_extension} />
 										</a>
 									</Cell>
 									<Cell>

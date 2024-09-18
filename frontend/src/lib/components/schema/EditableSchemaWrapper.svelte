@@ -109,7 +109,6 @@
 					}
 				}}
 				itemFilterFunction={(listItem, searchWords) => {
-					console.log(searchWords)
 					if (searchWords.length == 0 || listItem === 'Choose another extension') {
 						return true
 					}
