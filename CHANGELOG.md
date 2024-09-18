@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.396.0](https://github.com/windmill-labs/windmill/compare/v1.395.0...v1.396.0) (2024-09-17)
+
+
+### Features
+
+* Allow setProgress and getProgress from within the script ([#4400](https://github.com/windmill-labs/windmill/issues/4400)) ([d6d4756](https://github.com/windmill-labs/windmill/commit/d6d4756b7a40249dbc622c8a93633e8d8b8333da))
+
 ## [1.395.0](https://github.com/windmill-labs/windmill/compare/v1.394.6...v1.395.0) (2024-09-17)
 
 
