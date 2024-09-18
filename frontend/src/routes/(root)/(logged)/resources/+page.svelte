@@ -91,7 +91,8 @@
 	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: ''
+		description: '',
+		formatExtension: undefined as string | undefined
 	}
 	let resourceEditor: ResourceEditorDrawer | undefined
 	let shareModal: ShareModal
@@ -275,7 +276,8 @@
 		editResourceType = {
 			name: rt.name,
 			schema: rt.schema as any,
-			description: rt.description ?? ''
+			description: rt.description ?? '',
+			formatExtension: rt.format_extension,
 		}
 		editResourceTypeDrawer.openDrawer?.()
 	}
@@ -481,8 +483,14 @@
 				/></label
 			>
 			<div>
-				<div class="mb-1 font-semibold text-secondary">Schema</div>
-				<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+				{#if editResourceType.formatExtension}
+					<Alert type="info" title="Plain text file resource (.{editResourceType.formatExtension})">
+									This resource type represents a plain text file with a <b>.{editResourceType.formatExtension}</b> extension. (e.g. <b>my_file.{editResourceType.formatExtension}</b>). The schema only contains a `content` field and thus cannot be edited.
+					</Alert>
+				{:else}
+					<div class="mb-1 font-semibold text-secondary">Schema</div>
+					<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+				{/if}
 			</div>
 		</div>
 	</DrawerContent>
