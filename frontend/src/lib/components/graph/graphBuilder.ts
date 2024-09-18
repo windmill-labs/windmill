@@ -406,23 +406,6 @@ export default function graphBuilder(
 				} else {
 					addNode(module, currentOffset, 'module', modules)
 
-					if (failureModule) {
-						const id = parentIndex ? `failure-${parentIndex}` : 'failure'
-						const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
-
-						if (failureState) {
-							addNode(
-								{
-									...failureModule,
-									id: id
-								},
-								0,
-								'module'
-							)
-							addEdge(module.id, id, { type: 'empty' })
-						}
-					}
-
 					previousId = module.id
 				}
 
@@ -440,6 +423,23 @@ export default function graphBuilder(
 					})
 				}
 			})
+
+			if (failureModule) {
+				const id = parentIndex ? `failure-${parentIndex}` : 'failure'
+				const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
+
+				if (failureState && failureState.parent_module) {
+					addNode(
+						{
+							...failureModule,
+							id: id
+						},
+						0,
+						'module'
+					)
+					addEdge(failureState.parent_module, id, { type: 'empty' })
+				}
+			}
 		}
 	}
 
