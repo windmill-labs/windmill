@@ -492,7 +492,7 @@ inventory:
 # running the playbook
 # file_resources:
   # - resource: u/user/fabulous_jinja_template
-  #  target:  ./config_template.j2
+  #   target:  ./config_template.j2
 
 # Define the arguments of the windmill script
 extra_vars:
