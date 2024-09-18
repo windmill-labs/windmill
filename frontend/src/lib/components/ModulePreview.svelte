@@ -13,6 +13,7 @@
 	import LogViewer from './LogViewer.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
@@ -31,9 +32,12 @@
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
+	let scriptProgress = undefined;
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
+
+	let jobProgressReset: () => void
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
 		Object.keys(schema.properties ?? {}).map((k) => [
@@ -49,6 +53,9 @@
 	}
 
 	export async function runTest(args: any) {
+		// Not defined if JobProgressBar not loaded
+		if (jobProgressReset) jobProgressReset();
+
 		const val = mod.value
 		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
@@ -91,9 +98,12 @@
 	let forceJson = false
 </script>
 
+
+
 <TestJobLoader
 	toastError={noEditor}
 	on:done={() => jobDone()}
+	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -143,6 +153,9 @@
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
+			{#if scriptProgress}
+				<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
+			{/if}
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
@@ -167,7 +180,9 @@
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}
+							{#if !scriptProgress}
 							<Loader2 class="animate-spin" />
+							{/if}
 						{:else}
 							Test to see the result here
 						{/if}

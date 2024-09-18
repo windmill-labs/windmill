@@ -476,6 +476,7 @@ jobs:
           file: "./docker/DockerfileNsjail"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
+            ghcr.io/windmill-labs/windmill-ee-nsjail:main
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
