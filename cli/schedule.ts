@@ -1,19 +1,15 @@
 // deno-lint-ignore-file no-explicit-any
-import {
-  colors,
-  Command,
-  Schedule,
-  ScheduleService,
-  log,
-  Table,
-} from "./deps.ts";
+import { colors, Command, log, Table } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import {
   GlobalOptions,
   isSuperset,
   parseFromFile,
   removeType,
 } from "./types.ts";
+import { Schedule } from "./gen/types.gen.ts";
 
 export interface ScheduleFile {
   schedule: string;
@@ -28,7 +24,7 @@ async function list(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const schedules = await ScheduleService.listSchedules({
+  const schedules = await wmill.listSchedules({
     workspace: workspace.workspaceId,
   });
 
@@ -52,7 +48,7 @@ export async function pushSchedule(
 
   // deleting old app if it exists in raw mode
   try {
-    schedule = await ScheduleService.getSchedule({ workspace, path });
+    schedule = await wmill.getSchedule({ workspace, path });
     log.debug(`Schedule ${path} exists on remote`);
   } catch {
     log.debug(`Schedule ${path} does not exist on remote`);
@@ -66,7 +62,7 @@ export async function pushSchedule(
     }
     log.debug(`Schedule ${path} is not up-to-date, updating...`);
     try {
-      await ScheduleService.updateSchedule({
+      await wmill.updateSchedule({
         workspace: workspace,
         path,
         requestBody: {
@@ -80,7 +76,7 @@ export async function pushSchedule(
   } else {
     console.log(colors.bold.yellow("Creating new schedule: " + path));
     try {
-      await ScheduleService.createSchedule({
+      await wmill.createSchedule({
         workspace: workspace,
         requestBody: {
           path: path,
