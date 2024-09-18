@@ -2,17 +2,9 @@
 import { GlobalOptions } from "./types.ts";
 import { getRootStore } from "./store.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
-import {
-  colors,
-  Command,
-  Input,
-  log,
-  setClient,
-  Table,
-  UserService,
-  WorkspaceService,
-  SettingService,
-} from "./deps.ts";
+import { colors, Command, Input, log, setClient, Table } from "./deps.ts";
+
+import * as wmill from "./gen/services.gen.ts";
 import { requireLogin } from "./context.ts";
 
 export interface Workspace {
@@ -196,7 +188,7 @@ export async function add(
   );
   let alreadyExists = false;
   try {
-    alreadyExists = await WorkspaceService.existsWorkspace({
+    alreadyExists = await wmill.existsWorkspace({
       requestBody: { id: workspaceId },
     });
   } catch (e) {
@@ -213,10 +205,10 @@ export async function add(
         )
       );
       const automateUsernameCreation: boolean =
-        ((await SettingService.getGlobal({
+        ((await wmill.getGlobal({
           key: "automate_username_creation",
         })) as any) ?? false;
-      await WorkspaceService.createWorkspace({
+      await wmill.createWorkspace({
         requestBody: {
           id: workspaceId,
           name: opts.createWorkspaceName ?? workspaceName,
@@ -233,7 +225,7 @@ export async function add(
     log.info(
       "On that instance and with those credentials, the workspaces that you can access are:"
     );
-    const workspaces = await WorkspaceService.listWorkspaces();
+    const workspaces = await wmill.listWorkspaces();
     for (const workspace of workspaces) {
       log.info(`- ${workspace.id} (name: ${workspace.name})`);
     }
@@ -313,7 +305,7 @@ async function remove(_opts: GlobalOptions, name: string) {
 
 async function whoami(_opts: GlobalOptions) {
   await requireLogin(_opts);
-  log.info(await UserService.globalWhoami());
+  log.info(await wmill.globalWhoami());
   const activeName = await getActiveWorkspaceName(_opts);
   log.info("Active: " + colors.green.bold(activeName || "none"));
 }

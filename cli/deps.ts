@@ -14,7 +14,7 @@ export { CompletionsCommand } from "jsr:@windmill-labs/cliffy-command@1.0.0-rc.5
 // std
 export { ensureDir } from "jsr:@std/fs";
 export { SEPARATOR as SEP } from "jsr:@std/path";
-export * as path from "jsr:@std/path/";
+export * as path from "jsr:@std/path";
 export { encodeHex } from "jsr:@std/encoding";
 export { writeAllSync } from "jsr:@std/io/write-all";
 export { copy } from "jsr:@std/io/copy";
@@ -35,3 +35,24 @@ export { WebSocketServer, WebSocket } from "npm:ws";
 export * as getPort from "npm:get-port@7.1.0";
 export * as open from "npm:open";
 export * as esMain from "npm:es-main";
+
+import { OpenAPI } from "./gen/index.ts";
+
+export function setClient(token?: string, baseUrl?: string) {
+  if (baseUrl === undefined) {
+    baseUrl =
+      getEnv("BASE_INTERNAL_URL") ??
+      getEnv("BASE_URL") ??
+      "http://localhost:8000";
+  }
+  if (token === undefined) {
+    token = getEnv("WM_TOKEN") ?? "no_token";
+  }
+  OpenAPI.WITH_CREDENTIALS = true;
+  OpenAPI.TOKEN = token;
+  OpenAPI.BASE = baseUrl + "/api";
+}
+
+const getEnv = (key: string) => {
+  return Deno.env.get(key);
+};

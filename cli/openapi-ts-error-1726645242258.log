@@ -1,8 +1,0 @@
-🚫 client needs to be set to generate services - which HTTP client do you want to use?
-Error: 🚫 client needs to be set to generate services - which HTTP client do you want to use?
-    at /home/rfiszel/.npm/_npx/1bf48cabc0afbe80/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:39246
-    at rn (/home/rfiszel/.npm/_npx/1bf48cabc0afbe80/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:39453)
-    at xn (/home/rfiszel/.npm/_npx/1bf48cabc0afbe80/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:50589)
-    at async /home/rfiszel/.npm/_npx/1bf48cabc0afbe80/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:188290
-    at async exports.createClient (/home/rfiszel/.npm/_npx/1bf48cabc0afbe80/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:188682)
-    at async start (/home/rfiszel/.npm/_npx/1bf48cabc0afbe80/node_modules/@hey-api/openapi-ts/bin/index.cjs:80:5)
