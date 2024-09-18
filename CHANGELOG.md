@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.396.1](https://github.com/windmill-labs/windmill/compare/v1.396.0...v1.396.1) (2024-09-18)
+
+
+### Bug Fixes
+
+* postgres scripts that take longer than 20s do not timeout anymore ([37d152f](https://github.com/windmill-labs/windmill/commit/37d152feeb6abeb061daa5c93c24916e520b1fd0))
+
 ## [1.396.0](https://github.com/windmill-labs/windmill/compare/v1.395.0...v1.396.0) (2024-09-17)
 
 
