@@ -7,23 +7,13 @@ import {
   minimatch,
   JSZip,
   path,
-  ScriptService,
-  FolderService,
-  ResourceService,
-  VariableService,
-  AppService,
-  FlowService,
-  OpenFlow,
-  FlowModule,
-  RawScript,
   log,
   yamlStringify,
   yamlParse,
-  ScheduleService,
   SEP,
-  UserService,
-  GroupService,
 } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import {
   getTypeStrFromPath,
   GlobalOptions,
@@ -51,6 +41,7 @@ import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
 } from "./metadata.ts";
+import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -1308,60 +1299,60 @@ export async function push(opts: GlobalOptions & SyncOptions) {
         const workspaceId = workspace.workspaceId;
         switch (typ) {
           case "script": {
-            const script = await ScriptService.getScriptByPath({
+            const script = await wmill.getScriptByPath({
               workspace: workspaceId,
               path: removeExtensionToPath(change.path),
             });
-            await ScriptService.archiveScriptByHash({
+            await wmill.archiveScriptByHash({
               workspace: workspaceId,
               hash: script.hash,
             });
             break;
           }
           case "folder":
-            await FolderService.deleteFolder({
+            await wmill.deleteFolder({
               workspace: workspaceId,
               name: change.path.split(SEP)[1],
             });
             break;
           case "resource":
-            await ResourceService.deleteResource({
+            await wmill.deleteResource({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".resource.json"),
             });
             break;
           case "resource-type":
-            await ResourceService.deleteResourceType({
+            await wmill.deleteResourceType({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".resource-type.json"),
             });
             break;
           case "flow":
-            await FlowService.deleteFlowByPath({
+            await wmill.deleteFlowByPath({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".flow/flow.json"),
             });
             break;
           case "app":
-            await AppService.deleteApp({
+            await wmill.deleteApp({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".app/app.json"),
             });
             break;
           case "schedule":
-            await ScheduleService.deleteSchedule({
+            await wmill.deleteSchedule({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".schedule.json"),
             });
             break;
           case "variable":
-            await VariableService.deleteVariable({
+            await wmill.deleteVariable({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".variable.json"),
             });
             break;
           case "user": {
-            const users = await UserService.listUsers({
+            const users = await wmill.listUsers({
               workspace: workspaceId,
             });
 
@@ -1373,14 +1364,14 @@ export async function push(opts: GlobalOptions & SyncOptions) {
             if (!user) {
               throw new Error(`User ${email} not found`);
             }
-            await UserService.deleteUser({
+            await wmill.deleteUser({
               workspace: workspaceId,
               username: user.username,
             });
             break;
           }
           case "group":
-            await GroupService.deleteGroup({
+            await wmill.deleteGroup({
               workspace: workspaceId,
               name: removeSuffix(
                 removePathPrefix(change.path, "groups"),

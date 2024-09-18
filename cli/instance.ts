@@ -1,6 +1,5 @@
 import {
   Select,
-  WorkspaceService,
   path,
   Confirm,
   yamlStringify,
@@ -8,6 +7,8 @@ import {
   Command,
   setClient,
 } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import { Input, colors, log } from "./deps.ts";
 import { loginInteractive } from "./login.ts";
 import { getRootStore } from "./store.ts";
@@ -247,7 +248,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
-    const remoteWorkspaces = await WorkspaceService.listWorkspacesAsSuperAdmin({
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
@@ -405,7 +406,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       default: instance.prefix as unknown,
     })) as unknown as string;
 
-    const remoteWorkspaces = await WorkspaceService.listWorkspacesAsSuperAdmin({
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
@@ -475,7 +476,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
       if (confirmDelete) {
         for (const workspace of workspacesToDelete) {
-          await WorkspaceService.deleteWorkspace({ workspace: workspace.id });
+          await wmill.deleteWorkspace({ workspace: workspace.id });
           log.info(colors.green.underline("Deleted workspace " + workspace.id));
         }
       }

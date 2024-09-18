@@ -1,19 +1,14 @@
 // deno-lint-ignore-file no-explicit-any
-import {
-  colors,
-  Command,
-  Folder,
-  FolderService,
-  log,
-  SEP,
-  Table,
-} from "./deps.ts";
+import { colors, Command, log, SEP, Table } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions, isSuperset, parseFromFile } from "./types.ts";
+import { Folder } from "./gen/types.gen.ts";
 
 export interface FolderFile {
   owners: Array<string> | undefined;
-  extra_perms: Map<string, boolean> | undefined;
+  extra_perms: { [record: string]: boolean } | undefined;
   display_name: string | undefined;
 }
 
@@ -21,7 +16,7 @@ async function list(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const folders = await FolderService.listFolders({
+  const folders = await wmill.listFolders({
     workspace: workspace.workspaceId,
   });
 
@@ -56,7 +51,7 @@ export async function pushFolder(
 
   // deleting old app if it exists in raw mode
   try {
-    folder = await FolderService.getFolder({ workspace, name });
+    folder = await wmill.getFolder({ workspace, name });
     log.debug(`Folder ${name} exists on remote`);
   } catch {
     log.debug(`Folder ${name} does not exist on remote`);
@@ -70,7 +65,7 @@ export async function pushFolder(
     }
     log.debug(`Folder ${name} is not up-to-date, updating...`);
     try {
-      await FolderService.updateFolder({
+      await wmill.updateFolder({
         workspace: workspace,
         name: name,
         requestBody: {
@@ -84,7 +79,7 @@ export async function pushFolder(
   } else {
     console.log(colors.bold.yellow("Creating new folder: " + name));
     try {
-      await FolderService.createFolder({
+      await wmill.createFolder({
         workspace: workspace,
         requestBody: {
           name: name,
