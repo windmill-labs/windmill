@@ -1,27 +1,32 @@
 <script lang="ts">
 	import { Button } from '../common'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { TriggerService, type Trigger } from '$lib/gen'
 	import { RouteIcon } from 'lucide-svelte'
 
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
+	import { canWrite } from '$lib/utils'
 
 	export let isFlow: boolean
 	export let path: string
 
 	let routeEditor: RouteEditor
 
-	let triggers: Trigger[] | undefined = undefined
+	let triggers: (Trigger & { canWrite: boolean })[] | undefined = undefined
 
 	$: path && loadTriggers()
 	async function loadTriggers() {
 		try {
-			triggers = await TriggerService.listTriggers({
-				workspace: $workspaceStore ?? '',
-				path,
-				isFlow,
-				kind: 'http'
+			triggers = (
+				await TriggerService.listTriggers({
+					workspace: $workspaceStore ?? '',
+					path,
+					isFlow,
+					kind: 'http'
+				})
+			).map((x) => {
+				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 		} catch (e) {
 			console.error('impossible to load http routes')
@@ -37,15 +42,17 @@
 />
 
 <div class="p-2 flex flex-col">
-	<Button
-		on:click={() => routeEditor?.openNew(isFlow, path)}
-		variant="border"
-		color="light"
-		size="xs"
-		startIcon={{ icon: RouteIcon }}
-	>
-		New Route
-	</Button>
+	{#if $userStore?.is_admin || $userStore?.is_super_admin}
+		<Button
+			on:click={() => routeEditor?.openNew(isFlow, path)}
+			variant="border"
+			color="light"
+			size="xs"
+			startIcon={{ icon: RouteIcon }}
+		>
+			New Route
+		</Button>
+	{/if}
 </div>
 
 {#if triggers}
@@ -57,7 +64,13 @@
 				<div class="grid grid-cols-5 text-2xs items-center py-2">
 					<div class="col-span-2 truncate">{trigger.path}</div>
 					<div class="col-span-2 truncate">endpoint: /{trigger.route_path}</div>
-					<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)}>Edit</button>
+					<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)}>
+						{#if trigger.canWrite}
+							Edit
+						{:else}
+							View
+						{/if}
+					</button>
 				</div>
 			{/each}
 		</div>

@@ -7859,7 +7859,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                http_route,
+                trigger_http,
               ]
       responses:
         "200":
@@ -7896,7 +7896,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                http_route,
+                trigger_http,
               ]
       requestBody:
         description: acl to add
@@ -7944,7 +7944,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                http_route,
+                trigger_http,
               ]
       requestBody:
         description: acl to add

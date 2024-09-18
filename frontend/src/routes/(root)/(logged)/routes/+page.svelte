@@ -288,7 +288,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'http_route')
+												shareModal.openDrawer(path, 'trigger_http')
 											}
 										}
 									]}
