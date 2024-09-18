@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.397.0](https://github.com/windmill-labs/windmill/compare/v1.396.1...v1.397.0) (2024-09-18)
+
+
+### Features
+
+* ansible playbook support ([#4399](https://github.com/windmill-labs/windmill/issues/4399)) ([6855b8d](https://github.com/windmill-labs/windmill/commit/6855b8da9ad92aed514ee1ab214c9550d04e7a22))
+
 ## [1.396.1](https://github.com/windmill-labs/windmill/compare/v1.396.0...v1.396.1) (2024-09-18)
 
 
