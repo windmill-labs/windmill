@@ -90,7 +90,6 @@ import VismaIcon from './VismaIcon.svelte'
 import JumpCloudIcon from './JumpCloudIcon.svelte'
 import KeycloakIcon from './KeycloakIcon.svelte'
 import ZitadelIcon from './ZitadelIcon.svelte'
-import { FileText } from 'lucide-svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
