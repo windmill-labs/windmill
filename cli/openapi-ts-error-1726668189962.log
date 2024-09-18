@@ -1,7 +1,0 @@
-🚫 invalid client - select a valid client value
-Error: 🚫 invalid client - select a valid client value
-    at /home/rfiszel/.npm/_npx/3edf264585e6d883/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:185361
-    at Array.map (<anonymous>)
-    at ea (/home/rfiszel/.npm/_npx/3edf264585e6d883/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:184715)
-    at async exports.createClient (/home/rfiszel/.npm/_npx/3edf264585e6d883/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:186586)
-    at async start (/home/rfiszel/.npm/_npx/3edf264585e6d883/node_modules/@hey-api/openapi-ts/bin/index.cjs:80:5)
