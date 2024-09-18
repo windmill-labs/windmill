@@ -51,14 +51,10 @@
 			return 0
 		}
 
-		const itemLetters = listItem.split('')
-		// const itemKeywords = [listItem]
-
 		let matches = 0
 		searchWords.forEach((searchWord) => {
-			const itemLetters = searchWord.split('')
-			if (itemLetters.every((l) => listItem.includes(l))) {
-				// if (itemKeywords.includes(searchWord)) {
+			const searchLetters = searchWord.split('')
+			if (searchLetters.every((l) => listItem.includes(l))) {
 				matches++
 			}
 		})
