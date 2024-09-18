@@ -42,3 +42,9 @@ OUT_DIR="pkg-rust"
 wasm-pack build --release --target web --out-dir $OUT_DIR --features "rust-parser" \
 	-Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
 sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-rust"/' $OUT_DIR/package.json
+
+# ansible
+OUT_DIR="pkg-yaml"
+wasm-pack build --release --target web --out-dir $OUT_DIR --features "ansible-parser" \
+	-Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
+sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-yaml"/' $OUT_DIR/package.json

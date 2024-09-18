@@ -17,7 +17,7 @@ import { pushResourceType } from "./resource-type.ts";
 import { pushVariable } from "./variable.ts";
 import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
-import { deepEqual } from "./utils.ts";
+import { deepEqual, isFileResource } from "./utils.ts";
 import { pushSchedule } from "./schedule.ts";
 import { pushWorkspaceUser } from "./user.ts";
 import { pushGroup } from "./user.ts";
@@ -114,7 +114,8 @@ export async function pushObj(
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
-  message?: string
+  alreadySynced: string[],
+  message?: string,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -129,7 +130,10 @@ export async function pushObj(
     const flowName = p.split(".flow" + SEP)[0];
     await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
-    await pushResource(workspace, p, befObj, newObj);
+    if (!alreadySynced.includes(p)) {
+      alreadySynced.push(p);
+      await pushResource(workspace, p, befObj, newObj);
+    }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
@@ -220,6 +224,9 @@ export function getTypeStrFromPath(
   ) {
     return typeEnding;
   } else {
+    if (isFileResource(p)) {
+      return "resource"
+    }
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
   }
 }

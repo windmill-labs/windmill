@@ -84,4 +84,24 @@ function main() {
   return "Hello world";
 }
 `,
+
+  rust: `fn main() -> Result<(), String> {
+  println!("Hello World");
+  Ok(())
+}
+`,
+
+  ansible: `---
+inventory:
+  - resource_type: ansible_inventory
+---
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
+
+  tasks:
+  - name: Print debug message
+    debug:
+      msg: "Hello, world!"
+`
 };

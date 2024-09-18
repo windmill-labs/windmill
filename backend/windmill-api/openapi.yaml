@@ -3088,6 +3088,22 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/resources/file_resource_type_to_file_ext_map:
+    get:
+      summary: get map from resource type to format extension
+      operationId: fileResourceTypeToFileExtMap
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: map from resource type to file ext
+          content:
+            application/json:
+              schema: {}
+
+
   /w/{workspace}/resources/type/delete/{path}:
     delete:
       summary: delete resource_type
@@ -9362,6 +9378,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         kind:
           type: string
@@ -9461,6 +9478,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         kind:
           type: string
@@ -9679,6 +9697,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         email:
           type: string
@@ -9795,6 +9814,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         is_skipped:
           type: boolean
@@ -10335,6 +10355,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         tag:
           type: string
@@ -10482,6 +10503,8 @@ components:
         edited_at:
           type: string
           format: date-time
+        format_extension:
+          type: string
       required:
         - name
 
@@ -11478,6 +11501,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
       required:
         - raw_code

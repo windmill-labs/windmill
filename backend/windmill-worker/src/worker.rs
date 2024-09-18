@@ -87,7 +87,7 @@ use rand::Rng;
 
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
+    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
          NO_LOGS_AT_ALL, SLOW_LOGS,
     }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_job_error, handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
@@ -2821,6 +2821,23 @@ mount {{
                 envs,
             )
             .await
+        }
+        Some(ScriptLang::Ansible) => {
+
+            handle_ansible_job(
+                requirements_o,
+                job_dir,
+                worker_dir,
+                worker_name,
+                job,
+                mem_peak,
+                canceled_by,
+                db,
+                client,
+                &inner_content,
+                base_internal_url,
+                envs,
+            ).await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };

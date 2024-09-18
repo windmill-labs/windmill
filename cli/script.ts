@@ -96,6 +96,41 @@ async function push(opts: PushOptions, filePath: string) {
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
+export async function findResourceFile(path: string) {
+
+  const splitPath = path.split(".");
+
+  const contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
+  const contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
+
+  const validCandidates = (
+    await Promise.all(
+      [contentBasePathJSON, contentBasePathYAML].map((x) => {
+        return Deno.stat(x)
+          .catch(() => undefined)
+          .then((x) => x?.isFile)
+          .then((e) => {
+            return { path: x, file: e };
+          });
+      })
+    )
+  )
+    .filter((x) => x.file)
+    .map((x) => x.path);
+  if (validCandidates.length > 1) {
+    throw new Error(
+      "Found two resource files for the same resource" +
+        validCandidates.join(", ")
+    );
+  }
+  if (validCandidates.length < 1) {
+    throw new Error(
+      `No resource matching file resource: ${path}.`
+    );
+  }
+  return validCandidates[0];
+}
+
 export async function handleScriptMetadata(
   path: string,
   workspace: Workspace,
@@ -487,6 +522,10 @@ export function filePathExtensionFromContentType(
     return ".ps1";
   } else if (language === "php") {
     return ".php";
+  } else if (language === "rust") {
+    return ".rs";
+  } else if (language === "ansible") {
+    return ".playbook.yml";
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -509,6 +548,8 @@ export const exts = [
   ".gql",
   ".ps1",
   ".php",
+  ".rs",
+  ".playbook.yml",
 ];
 
 export function removeExtensionToPath(path: string): string {
