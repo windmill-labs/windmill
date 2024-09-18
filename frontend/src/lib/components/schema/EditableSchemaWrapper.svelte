@@ -24,7 +24,10 @@
 
 	$: !resourceIsTextFile && (formatExtension = undefined)
 
-	$: invalidExtension = formatExtension && formatExtension != '' ? !validateFileExtension(formatExtension ?? "txt") : false
+	$: invalidExtension =
+		formatExtension && formatExtension != ''
+			? !validateFileExtension(formatExtension ?? 'txt')
+			: false
 
 	function switchResourceIsFile() {
 		if (!resourceIsTextFile) {
@@ -42,7 +45,27 @@
 		}
 		dispatch('change', schema)
 	}
-	let suggestedFileExtensions = ['json', 'yaml']
+
+	function numberOfMatches(listItem: string | undefined, searchWords: string[]): number {
+		if (!listItem) {
+			return 0
+		}
+
+		const itemLetters = listItem.split('')
+		// const itemKeywords = [listItem]
+
+		let matches = 0
+		searchWords.forEach((searchWord) => {
+			const itemLetters = searchWord.split('')
+			if (itemLetters.every((l) => listItem.includes(l))) {
+				// if (itemKeywords.includes(searchWord)) {
+				matches++
+			}
+		})
+		return matches
+	}
+
+	let suggestedFileExtensions = ['json', 'yaml', 'jinja', 'j2', 'ini', 'cfg', 'toml', 'html', 'xml', 'yml']
 	let autocompleteExtension = true
 </script>
 
@@ -75,7 +98,7 @@
 {#if resourceIsTextFile}
 	<div class="flex items-center space-x-2 w-5/12">
 		<label for="format-extension" class="text-base font-medium whitespace-nowrap">
-			File extension:
+			File extension{autocompleteExtension ? "" : " (free text)"}:
 		</label>
 		{#if autocompleteExtension}
 			<AutoComplete
@@ -88,12 +111,21 @@
 						autocompleteExtension = false
 					}
 				}}
+				itemFilterFunction={(listItem, searchWords) => {
+					console.log(searchWords)
+					if (searchWords.length == 0 || listItem === 'Choose another extension') {
+						return true
+					}
+					return numberOfMatches(listItem, searchWords) > 0
+				}}
 				noResultsText="No matches, try the 'Choose another extension' option"
 				bind:selectedItem={formatExtension}
 				inputClassName="!h-[32px] py-1 !text-xs !w-64"
 				hideArrow
 				className={'!font-bold'}
 				dropdownClassName="!font-normal !w-64 !max-w-64"
+				maxItemsToShowInList={8}
+				moreItemsText={null}
 			/>
 		{:else}
 			<input
@@ -103,7 +135,8 @@
 				placeholder="Enter your extension"
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {
-						if (formatExtension) suggestedFileExtensions.push(formatExtension)
+						if (formatExtension && !suggestedFileExtensions.includes(formatExtension))
+							suggestedFileExtensions.push(formatExtension)
 
 						autocompleteExtension = true
 					}
@@ -114,9 +147,8 @@
 
 	{#if invalidExtension}
 		<Alert title="Invalid file extension" type="error">
-			The provided extension (<span class="font-bold font-mono">.{formatExtension}</span>)
-			contains invalid characters. Note that you shouldn't add the leading dot, (e.g `json` and not
-			`.json`)
+			The provided extension (<span class="font-bold font-mono">.{formatExtension}</span>) contains
+			invalid characters. Note that you shouldn't add the leading dot, (i.e. enter `json` instead of `.json`)
 		</Alert>
 	{:else if formatExtension && formatExtension !== ''}
 		<Alert title={`Example: my_file.${formatExtension}`} type="info">
@@ -130,9 +162,9 @@
 <Toggle
 	bind:checked={resourceIsTextFile}
 	options={{
-		right: 'This resource type represents a text file (clears current schema)',
+		right: 'This resource type represents a plain text file (clears current schema)',
 		rightTooltip:
-			'A text file such as a config file, template, or any other file format that contains pure text'
+			'A text file such as a config file, template, or any other file format that contains plain text'
 	}}
 	on:change={() => switchResourceIsFile()}
 />
