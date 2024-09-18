@@ -1,6 +1,3 @@
-// windmill
-export * from "npm:windmill-client@1.364.0";
-
 // cliffy
 export { Command } from "jsr:@windmill-labs/cliffy-command@1.0.0-rc.5";
 export { Table } from "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5";

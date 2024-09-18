@@ -1,0 +1,13 @@
+{
+  "extends": ["plugin:import/typescript"],
+  "rules": {
+    "import/extensions": [
+      "error",
+      "ignorePackages",
+      {
+        "ts": "always",
+        "tsx": "always"
+      }
+    ]
+  }
+}
