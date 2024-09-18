@@ -57,7 +57,8 @@
                 "mssql",
                 "php",
                 "bunnative",
-                "rust"
+                "rust",
+                "ansible"
               ]
             }
           }

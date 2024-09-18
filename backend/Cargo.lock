@@ -10806,6 +10806,17 @@ dependencies = [
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
+ "windmill-parser-yaml",
+]
+
+[[package]]
+name = "windmill-parser-yaml"
+version = "1.396.1"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "windmill-parser",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -10921,7 +10932,9 @@ dependencies = [
  "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
+ "windmill-parser-yaml",
  "windmill-queue",
+ "yaml-rust",
  "zstd 0.12.4",
 ]
 
@@ -11179,6 +11192,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
 dependencies = [
  "lzma-sys",
+]
+
+[[package]]
+name = "yaml-rust"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
+dependencies = [
+ "linked-hash-map",
 ]
 
 [[package]]

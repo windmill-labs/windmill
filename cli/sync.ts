@@ -28,12 +28,13 @@ import {
   exts,
   findContentFile,
   findGlobalDeps,
+  findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual } from "./utils.ts";
+import { deepEqual, isFileResource } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
@@ -41,7 +42,11 @@ import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
 } from "./metadata.ts";
+<<<<<<< HEAD
+import { pushResource } from "./resource.ts";
+=======
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
+>>>>>>> origin/main
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -324,6 +329,8 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "nativets") ext = "native.ts";
     else if (language == "frontend") ext = "frontend.js";
     else if (language == "php") ext = "php";
+    else if (language == "rust") ext = "rs";
+    else if (language == "ansible") ext = "playbook.yml";
     else ext = "no_ext";
 
     return [`${name}.inline_script.`, ext];
@@ -334,18 +341,21 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
-  defaultTs: "bun" | "deno"
+  defaultTs: "bun" | "deno",
+  resourceTypeToFormatExtension: Map<string, string>,
 ): DynFSElement {
   async function _internal_file(
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "other" = p.endsWith("flow.json")
+    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith("flow.json")
       ? "flow"
       : p.endsWith("app.json")
       ? "app"
       : p.endsWith("script.json")
       ? "script"
+      : p.endsWith("resource.json")
+      ? "resource"
       : "other";
 
     const isJson = p.endsWith(".json");
@@ -447,6 +457,22 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
+          if (kind == 'resource') {
+            const content = await f.async("text");
+            const parsed = JSON.parse(content);
+            const formatExtension = resourceTypeToFormatExtension[parsed["resource_type"]]
+
+            if (formatExtension) {
+              parsed["value"]["content"] = "!inline "
+                + removeSuffix(p.replaceAll(SEP, "/"), ".resource.json")
+                + ".resource.file." + formatExtension
+
+            }
+            return useYaml
+              ? yamlStringify(parsed, yamlOptions)
+              : JSON.stringify(parsed, null, 2);
+          }
+
           return useYaml && isJson
             ? yamlStringify(JSON.parse(content), yamlOptions)
             : content;
@@ -465,6 +491,24 @@ function ZipFSElement(
           // deno-lint-ignore require-await
           async getContentText() {
             return lock;
+          },
+        });
+      }
+    }
+    if (kind == "resource") {
+      const content = await f.async("text");
+      const parsed = JSON.parse(content);
+      const formatExtension = resourceTypeToFormatExtension[parsed["resource_type"]]
+
+      if (formatExtension) {
+        const fileContent: string = parsed["value"]["content"];
+        r.push({
+          isDirectory: false,
+          path: removeSuffix(finalPath, ".resource.json") + ".resource.file." + formatExtension,
+          async *getChildren() {},
+          // deno-lint-ignore require-await
+          async getContentText() {
+            return fileContent;
           },
         });
       }
@@ -579,6 +623,7 @@ export async function elementsToMap(
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+    if (skips.skipResources && isFileResource(path)) continue;
 
     if (
       ![
@@ -594,7 +639,10 @@ export async function elementsToMap(
         "php",
         "js",
         "lock",
-      ].includes(path.split(".").pop() ?? "")
+        "rs",
+        "yml",
+      ].includes(path.split(".").pop() ?? "") &&
+      !isFileResource(path)
     )
       continue;
     const content = await entry.getContentText();
@@ -819,6 +867,7 @@ export async function ignoreF(wmillconf: {
   }
 
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
+
   return (p: string, isDirectory: boolean) => {
     return (
       !isWhitelisted(p) &&
@@ -845,6 +894,9 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       "Computing the files to update locally to match remote (taking wmill.yaml into account)"
     )
   );
+
+  const resourceTypeToFormatExtension =
+      await wmill.fileResourceTypeToFileExtMap({ workspace: workspace.workspaceId })
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -860,7 +912,8 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.defaultTs
     ))!,
     !opts.json,
-    opts.defaultTs ?? "bun"
+    opts.defaultTs ?? "bun",
+    resourceTypeToFormatExtension,
   );
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases)
@@ -1135,6 +1188,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
     )
   );
+    const resourceTypeToFormatExtension =
+        await wmill.fileResourceTypeToFileExtMap({ workspace: workspace.workspaceId })
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -1150,7 +1205,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.defaultTs
     ))!,
     !opts.json,
-    opts.defaultTs ?? "bun"
+    opts.defaultTs ?? "bun",
+    resourceTypeToFormatExtension,
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
@@ -1233,6 +1289,27 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           await ensureDir(path.dirname(stateTarget));
           log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
+
+        if (isFileResource(change.path)) {
+          const resourceFilePath = await findResourceFile(change.path)
+          if (!alreadySynced.includes(resourceFilePath)) {
+            alreadySynced.push(resourceFilePath);
+
+            const newObj = parseFromPath(resourceFilePath, await Deno.readTextFile(resourceFilePath));
+
+            await pushResource(
+              workspace.workspaceId,
+              resourceFilePath,
+              undefined,
+              newObj,
+            );
+            if (opts.stateful && stateExists) {
+              await Deno.writeTextFile(stateTarget, change.after);
+            }
+            continue;
+          }
+
+        }
         const oldObj = parseFromPath(change.path, change.before);
         const newObj = parseFromPath(change.path, change.after);
 
@@ -1242,7 +1319,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           oldObj,
           newObj,
           opts.plainSecrets ?? false,
-          opts.message
+          alreadySynced,
+          opts.message,
         );
 
         if (opts.stateful && stateExists) {
@@ -1252,7 +1330,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
         if (
           change.path.endsWith(".script.json") ||
           change.path.endsWith(".script.yaml") ||
-          change.path.endsWith(".lock")
+          change.path.endsWith(".lock") ||
+          isFileResource(change.path)
         ) {
           continue;
         } else if (
@@ -1279,7 +1358,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           undefined,
           obj,
           opts.plainSecrets ?? false,
-          opts.message
+          [],
+          opts.message,
         );
 
         if (opts.stateful && stateExists) {

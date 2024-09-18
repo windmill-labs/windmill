@@ -23,6 +23,7 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
+    "./parsers/windmill-parser-yaml",
 ]
 
 [workspace.package]
@@ -118,6 +119,7 @@ windmill-parser-py = { path = "./parsers/windmill-parser-py" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
+windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -277,3 +279,4 @@ toml = "0.7"
 syn = { version = "2.0.74", features = ["full"] }
 quote = "1.0.36"
 regex-lite = "0.1.6"
+yaml-rust = "0.4.5"

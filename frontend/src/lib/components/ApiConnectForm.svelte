@@ -61,12 +61,17 @@
 
 	$: rawCode && parseJson()
 
+	$: textFileContent && parseTextFileContent()
+
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
 		if (asJson) {
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
+			if (resourceTypeInfo?.format_extension) {
+				textFileContent = args.content
+			}
 		}
 	}
 
@@ -103,6 +108,13 @@
 	}
 
 	let rawCodeEditor: SimpleEditor | undefined = undefined
+	let textFileContent: string
+
+	function parseTextFileContent() {
+		args = {
+			content: textFileContent
+		}
+	}
 </script>
 
 {#if !notFound}
@@ -181,13 +193,29 @@
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2" />{/if}
-	<SimpleEditor
-		bind:this={rawCodeEditor}
-		autoHeight
-		lang="json"
-		bind:code={rawCode}
-		fixedOverflowWidgets={false}
-	/>
+	<div class="h-full w-full border p-1 rounded">
+		<SimpleEditor
+			bind:this={rawCodeEditor}
+			autoHeight
+			lang="json"
+			bind:code={rawCode}
+			fixedOverflowWidgets={false}
+		/>
+	</div>
+{:else if resourceTypeInfo?.format_extension}
+	<h5 class="mt-4 inline-flex items-center gap-4">
+		File content ({resourceTypeInfo.format_extension})
+	</h5>
+	<div class="py-2" />
+	<div class="h-full w-full border p-1 rounded">
+		<SimpleEditor
+			bind:this={rawCodeEditor}
+			autoHeight
+			lang={resourceTypeInfo.format_extension}
+			bind:code={textFileContent}
+			fixedOverflowWidgets={false}
+		/>
+	</div>
 {:else}
 	<SchemaForm
 		onlyMaskPassword
