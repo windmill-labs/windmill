@@ -1,26 +1,36 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { ClipboardCopy, Download } from 'lucide-svelte'
-	import Drawer from '../common/drawer/Drawer.svelte'
-	import DrawerContent from '../common/drawer/DrawerContent.svelte'
-	import { Highlight } from 'svelte-highlight'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { json } from 'svelte-highlight/languages'
-	import { copyToClipboard } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
+	// import { ClipboardCopy, Download } from 'lucide-svelte'
+	// import Drawer from '../common/drawer/Drawer.svelte'
+	// import DrawerContent from '../common/drawer/DrawerContent.svelte'
+	// import { Highlight } from 'svelte-highlight'
+	// import Button from '$lib/components/common/button/Button.svelte'
+	// import { json } from 'svelte-highlight/languages'
+	// import { copyToClipboard } from '$lib/utils'
+	// import { deepEqual } from 'fast-equals'
 
 	export let flowStatus: any
 
-	$: args =
-		'_metadata' in flowStatus && 'original_args' in flowStatus['_metadata']
-			? flowStatus['_metadata']['original_args']
-			: undefined
+	// $: args =
+	// 	'_metadata' in flowStatus && 'original_args' in flowStatus['_metadata']
+	// 		? flowStatus['_metadata']['original_args']
+	// 		: undefined
 
-	$: argsStr = args !== undefined ? JSON.stringify(args, null, 4) : undefined
+	$: hasPreprocessedArgs =
+		'_metadata' in flowStatus && !!flowStatus['_metadata']['preprocessed_args']
 
-	let jsonViewer: Drawer | undefined = undefined
+	// $: argsStr = args !== undefined ? JSON.stringify(args, null, 4) : undefined
+
+	// let jsonViewer: Drawer | undefined = undefined
 </script>
 
+{#if hasPreprocessedArgs}
+	<div>
+		<Badge color="yellow">preprocessed args</Badge>
+	</div>
+{/if}
+
+<!-- 
 {#if args !== undefined && argsStr !== undefined}
 	<Drawer bind:this={jsonViewer} size="900px">
 		<DrawerContent title="Original args" on:close={jsonViewer.closeDrawer}>
@@ -64,4 +74,4 @@
 	>
 		<Badge color="yellow">preprocessed args</Badge>
 	</button>
-{/if}
+{/if} -->

@@ -24,7 +24,7 @@
 		let newError: number | undefined = undefined
 		let newNextInProgress = false
 
-		let maxDone = job?.flow_status?.step ?? 0
+		let maxDone = Math.max(job?.flow_status?.step ?? 0, 0)
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
 			if (nextModule.type === 'InProgress') {

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM trigger WHERE path = $1 AND workspace_id = $2 AND kind = $3)",
+  "query": "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE route_path_key = $1 AND workspace_id = $2 AND http_method = $3)",
   "describe": {
     "columns": [
       {
@@ -15,11 +15,14 @@
         "Text",
         {
           "Custom": {
-            "name": "trigger_kind",
+            "name": "http_method",
             "kind": {
               "Enum": [
-                "http",
-                "email"
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
               ]
             }
           }
@@ -30,5 +33,5 @@
       null
     ]
   },
-  "hash": "f57d2b6af07cb57c495f0f4ed2d9c6478738dcad5300c6610bc72c7070f180f3"
+  "hash": "867e0f8299e22a6b8e02d21adeb0281b1a10593715db823a5adeeac3ab1058cd"
 }

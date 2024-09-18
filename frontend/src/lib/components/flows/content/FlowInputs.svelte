@@ -43,12 +43,8 @@
 		) as [string, SupportedLanguage | 'docker'][]
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
-		if (lang == 'bun' || lang == 'python3') {
+		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
 			return true
-		}
-
-		if (lang == 'deno') {
-			return !preprocessorModule
 		}
 
 		if (lang == 'go') {

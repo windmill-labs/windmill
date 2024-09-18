@@ -33,7 +33,7 @@ const KINDS: [&str; 10] = [
     "folder",
     "app",
     "raw_app",
-    "trigger_http",
+    "http_trigger",
 ];
 
 pub fn workspaced_service() -> Router {
@@ -86,15 +86,9 @@ async fn add_granular_acl(
         }
     }
 
-    let (kind, sub_condition) = if kind.starts_with("trigger_") {
-        ("trigger", format!(" AND kind = '{}'", &kind[8..]))
-    } else {
-        (kind, "".to_string())
-    };
-
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
-         true) WHERE {identifier} = $3 AND workspace_id = $4{sub_condition} RETURNING extra_perms"
+         true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
     .bind(vec![owner])
     .bind(write.unwrap_or(false))
@@ -209,15 +203,10 @@ async fn remove_granular_acl(
     if identifier == "path" {
         require_owner_of_path(&authed, path)?;
     }
-    let (kind, sub_condition) = if kind.starts_with("trigger_") {
-        ("trigger", format!(" AND kind = '{}'", &kind[8..]))
-    } else {
-        (kind, "".to_string())
-    };
 
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {kind} SET extra_perms = extra_perms - $1 WHERE {identifier} = $2 AND \
-         workspace_id = $3{sub_condition} RETURNING extra_perms"
+         workspace_id = $3 RETURNING extra_perms"
     ))
     .bind(owner)
     .bind(path)
@@ -308,13 +297,8 @@ async fn get_granular_acls(
     let mut tx = user_db.begin(&authed).await?;
 
     let identifier = if kind == "group_" { "name" } else { "path" };
-    let (kind, sub_condition) = if kind.starts_with("trigger_") {
-        ("trigger", format!(" AND kind = '{}'", &kind[8..]))
-    } else {
-        (kind, "".to_string())
-    };
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2{sub_condition}"
+        "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2"
     ))
     .bind(path)
     .bind(w_id)

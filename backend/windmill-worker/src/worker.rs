@@ -91,7 +91,7 @@ use crate::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         NO_LOGS_AT_ALL, SLOW_LOGS,
     }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
-        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
     }, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     }
@@ -2080,7 +2080,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         )
         .await?;
 
-        r
+        Some(r)
     } else {
         if let Some(parent_job) = job.parent_job {
             if let Err(e) = sqlx::query_scalar!(
@@ -2132,7 +2132,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .await
             .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e:#}")))?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
-            let step = step.unwrap_or(-1);
+            let step = match step.unwrap() {
+                Step::Step(i) => i.to_string(),
+                Step::PreprocessorStep => "preprocessor".to_string(),
+                Step::FailureStep => "failure".to_string(),
+            };
             Some(format!(
                 "{flow_path}/cache/{version_hash}/{step}/{args_hash}"
             ))
@@ -2718,6 +2722,7 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
+                new_args,
             )
             .await
         }

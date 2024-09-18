@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { TriggerService, type Trigger } from '$lib/gen'
+	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { RouteIcon } from 'lucide-svelte'
 
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
@@ -13,17 +13,16 @@
 
 	let routeEditor: RouteEditor
 
-	let triggers: (Trigger & { canWrite: boolean })[] | undefined = undefined
+	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 
 	$: path && loadTriggers()
 	async function loadTriggers() {
 		try {
 			triggers = (
-				await TriggerService.listTriggers({
+				await HttpTriggerService.listHttpTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
-					isFlow,
-					kind: 'http'
+					isFlow
 				})
 			).map((x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }

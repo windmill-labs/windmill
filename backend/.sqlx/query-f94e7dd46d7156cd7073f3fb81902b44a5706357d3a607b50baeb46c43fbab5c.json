@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, kind as \"kind: _\", http_method as \"http_method: _\", edited_by, email, edited_at, extra_perms, summary, is_async, requires_auth\n            FROM trigger\n            WHERE workspace_id = $1 AND path = $2 AND kind = $3",
+  "query": "SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, http_method as \"http_method: _\", edited_by, email, edited_at, extra_perms, summary, is_async, requires_auth\n            FROM http_trigger\n            WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [
       {
@@ -35,21 +35,6 @@
       },
       {
         "ordinal": 6,
-        "name": "kind: _",
-        "type_info": {
-          "Custom": {
-            "name": "trigger_kind",
-            "kind": {
-              "Enum": [
-                "http",
-                "email"
-              ]
-            }
-          }
-        }
-      },
-      {
-        "ordinal": 7,
         "name": "http_method: _",
         "type_info": {
           "Custom": {
@@ -67,37 +52,37 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "edited_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "edited_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "extra_perms",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "summary",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "is_async",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "requires_auth",
         "type_info": "Bool"
       }
@@ -105,18 +90,7 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text",
-        {
-          "Custom": {
-            "name": "trigger_kind",
-            "kind": {
-              "Enum": [
-                "http",
-                "email"
-              ]
-            }
-          }
-        }
+        "Text"
       ]
     },
     "nullable": [
@@ -127,7 +101,6 @@
       false,
       false,
       false,
-      true,
       false,
       false,
       false,
@@ -137,5 +110,5 @@
       false
     ]
   },
-  "hash": "fdb8f6712da60f83864bc877b2715466e7d992d9b67047472daf42187bce47a5"
+  "hash": "f94e7dd46d7156cd7073f3fb81902b44a5706357d3a607b50baeb46c43fbab5c"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as \"http_method: _\" FROM trigger WHERE kind = 'http'",
+  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as \"http_method: _\" FROM http_trigger WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -68,7 +68,9 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
       false,
@@ -80,8 +82,8 @@
       false,
       false,
       false,
-      true
+      false
     ]
   },
-  "hash": "dc7ae8fd67d2898fdf18af1586892fbb2903c316e49cb619049c6dbed6ef518b"
+  "hash": "02f1a6eeb27067dc438459238e7b016f5ccf9e3fe0ffbe88471f15aad8f74441"
 }

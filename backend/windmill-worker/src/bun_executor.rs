@@ -950,7 +950,23 @@ pub async fn handle_bun_job(
         let args =
             windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
                 .args;
-        let dates = args
+
+        let pre_args = if apply_preprocessor {
+            Some(
+                windmill_parser_ts::parse_deno_signature(
+                    inner_content,
+                    true,
+                    Some("preprocessor".to_string()),
+                )?
+                .args,
+            )
+        } else {
+            None
+        };
+
+        let dates = pre_args
+            .as_ref()
+            .unwrap_or(&args)
             .iter()
             .enumerate()
             .filter_map(|(i, x)| {
@@ -974,23 +990,18 @@ pub async fn handle_bun_job(
             "./main.ts"
         };
 
-        let preprocessor = if apply_preprocessor {
-            let pre_args = windmill_parser_ts::parse_deno_signature(
-                inner_content,
-                true,
-                Some("preprocessor".to_string()),
-            )?
-            .args;
+        let preprocessor = if let Some(pre_args) = pre_args {
             let pre_spread = pre_args.into_iter().map(|x| x.name).join(",");
             format!(
                 r#"if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
-        throw new Error("preprocessor is missing or not a function");
+        throw new Error("preprocessor function is missing");
     }}
     function preArgsObjToArr({{ {pre_spread} }}) {{
         return [ {pre_spread} ];
     }}
     args = await Main.preprocessor(...preArgsObjToArr(args));
-    await fs.writeFile('args.json', JSON.stringify(args), {{ encoding: 'utf8' }})"#
+    const args_json = JSON.stringify(args ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    await fs.writeFile('args.json', args_json, {{ encoding: 'utf8' }})"#
             )
         } else {
             "".to_string()
@@ -1016,6 +1027,9 @@ BigInt.prototype.toJSON = function () {{
 async function run() {{
     {preprocessor}
     const argsArr = argsObjToArr(args);
+    if (Main.{main_name} === undefined || typeof Main.{main_name} !== 'function') {{
+        throw new Error("{main_name} function is missing");
+    }}
     let res = await Main.{main_name}(...argsArr);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);

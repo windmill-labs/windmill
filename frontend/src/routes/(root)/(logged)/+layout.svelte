@@ -8,7 +8,7 @@
 		RawAppService,
 		ScriptService,
 		SettingService,
-		TriggerService,
+		HttpTriggerService,
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -187,7 +187,8 @@
 	}
 
 	async function loadUsedTriggerKinds() {
-		$usedTriggerKinds = await TriggerService.usedTriggerKinds({ workspace: $workspaceStore ?? '' })
+		const httpUsed = await HttpTriggerService.used({ workspace: $workspaceStore ?? '' })
+		$usedTriggerKinds = httpUsed ? ['http'] : []
 	}
 
 	function pathInAppMode(pathname: string | undefined): boolean {

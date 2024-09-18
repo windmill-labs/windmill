@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use windmill_common::{
     error::{self, Error},
-    jobs::{QueuedJob, ENTRYPOINT_OVERRIDE},
+    jobs::QueuedJob,
     worker::to_raw_value,
     DB,
 };
@@ -81,13 +81,14 @@ pub async fn process_result(
                             tracing::warn!("flow_status was expected to be none");
                         }
                         None => {
-                            if let Some(args) = updated_job.args.as_mut() {
-                                args.0.remove(ENTRYPOINT_OVERRIDE);
-                            }
+                            // TODO save original args somewhere
+                            // if let Some(args) = updated_job.args.as_mut() {
+                            //     args.0.remove(ENTRYPOINT_OVERRIDE);
+                            // }
                             updated_job.flow_status =
                                 Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
                                     "_metadata": {
-                                        "original_args": updated_job.args
+                                        "preprocessed_args": true
                                     }
                                 }))));
                         }

@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { TriggerService } from '$lib/gen'
+	import { HttpTriggerService } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -83,10 +83,9 @@
 
 	let can_write = true
 	async function loadTrigger(): Promise<void> {
-		const s = await TriggerService.getTrigger({
+		const s = await HttpTriggerService.getHttpTrigger({
 			workspace: $workspaceStore!,
-			path: initialPath,
-			kind: 'http'
+			path: initialPath
 		})
 		summary = s.summary
 		script_path = s.script_path
@@ -105,7 +104,7 @@
 
 	async function triggerScript(): Promise<void> {
 		if (edit) {
-			await TriggerService.updateTrigger({
+			await HttpTriggerService.updateHttpTrigger({
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
@@ -116,14 +115,12 @@
 					is_async,
 					requires_auth,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
-					kind: 'http',
 					http_method
-				},
-				kind: 'http'
+				}
 			})
 			sendUserToast(`Route ${path} updated`)
 		} else {
-			await TriggerService.createTrigger({
+			await HttpTriggerService.createHttpTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
@@ -133,7 +130,6 @@
 					is_async,
 					requires_auth,
 					route_path,
-					kind: 'http',
 					http_method
 				}
 			})
@@ -156,11 +152,10 @@
 	}${route_path}`
 
 	async function routeExists(route_path: string, method: typeof http_method) {
-		return await TriggerService.existsRoute({
+		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
-				kind: 'http',
 				http_method
 			}
 		})
@@ -242,7 +237,7 @@
 							{initialPath}
 							checkInitialPathExistence={!edit}
 							namePlaceholder="route"
-							kind="http_route"
+							kind="http_trigger"
 							hideUser
 							disabled={!can_write}
 						/>

@@ -352,7 +352,11 @@ impl FlowStatusModule {
 impl FlowStatus {
     pub fn new(f: &FlowValue) -> Self {
         Self {
-            step: 0,
+            step: if f.preprocessor_module.is_some() {
+                -1
+            } else {
+                0
+            },
             approval_conditions: None,
             modules: f
                 .modules

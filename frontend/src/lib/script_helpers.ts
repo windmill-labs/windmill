@@ -430,8 +430,27 @@ export async function main(approver?: string) {
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
 export const BUN_PREPROCESSOR_MODULE_CODE = `
-export async function main(
-	wm_trigger_kind: 'http-route' | 'email' | 'default-webhook',
+export async function preprocessor(
+	wm_trigger: {
+		kind: 'http_route' | 'email' | 'default_webhook',
+		http_path?: string
+		http_path_params?: Record<string, string>
+	},
+	/* your other args */ 
+) {
+	return {
+		// return the args to be passed to the flow
+	}
+}
+`
+
+export const DENO_PREPROCESSOR_MODULE_CODE = `
+export async function preprocessor(
+	wm_trigger: {
+		kind: 'http_route' | 'email' | 'default_webhook',
+		http_path?: string
+		http_path_params?: Record<string, string>
+	},
 	/* your other args */ 
 ) {
 	return {
@@ -467,11 +486,17 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `def main(
-	wm_trigger_kind: str,
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+
+class WmTrigger(TypedDict):
+    kind: Literal["http_route", "email", "default_webhook"]
+    http_path: str | None
+    http_path_params: dict[str, str] | None
+
+def preprocesor(
+	wm_trigger: WmTrigger,
 	# your other args
 ):
-	# wm_trigger kind can be 'http-route', 'email', 'default-webhook'
 	return {
 		# return the args to be passed to the flow
 	}
@@ -518,6 +543,7 @@ const ALL_INITIAL_CODE = [
 	PYTHON_PREPROCESSOR_MODULE_CODE,
 	DENO_INIT_CODE_APPROVAL,
 	DENO_FAILURE_MODULE_CODE,
+	DENO_PREPROCESSOR_MODULE_CODE,
 	BUN_INIT_CODE,
 	BUN_INIT_CODE_CLEAR,
 	BUN_INIT_CODE_APPROVAL,
@@ -568,6 +594,8 @@ export function initialCode(
 				return MYSQL_INIT_CODE
 			} else if (subkind === 'fetch') {
 				return FETCH_INIT_CODE
+			} else if (subkind === 'preprocessor') {
+				return DENO_PREPROCESSOR_MODULE_CODE
 			} else {
 				return DENO_INIT_CODE
 			}

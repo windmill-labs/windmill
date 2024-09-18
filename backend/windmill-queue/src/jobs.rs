@@ -3215,32 +3215,19 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             priority,
             apply_preprocessor,
         } => {
+            let extra = args.extra.get_or_insert_with(HashMap::new);
             if apply_preprocessor {
-                let trigger_kind = if user.starts_with("http-api-") {
-                    "http-api"
-                } else if user.starts_with("email-") {
-                    "email"
-                } else {
-                    "default-webhook"
-                };
-                match args.extra.as_mut() {
-                    Some(extra) => {
-                        extra.insert(
-                            ENTRYPOINT_OVERRIDE.to_string(),
-                            to_raw_value(&PREPROCESSOR_FAKE_ENTRYPOINT),
-                        );
-                        extra.insert("wm_trigger_kind".to_string(), to_raw_value(&trigger_kind));
-                    }
-                    None => {
-                        args.extra = Some(HashMap::from([
-                            (
-                                ENTRYPOINT_OVERRIDE.to_string(),
-                                to_raw_value(&PREPROCESSOR_FAKE_ENTRYPOINT),
-                            ),
-                            ("wm_trigger_kind".to_string(), to_raw_value(&trigger_kind)),
-                        ]));
-                    }
-                }
+                extra.insert(
+                    ENTRYPOINT_OVERRIDE.to_string(),
+                    to_raw_value(&PREPROCESSOR_FAKE_ENTRYPOINT),
+                );
+                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
+                    to_raw_value(&serde_json::json!({
+                        "kind": "default_webhook",
+                    }))
+                });
+            } else {
+                extra.remove("wm_trigger");
             }
             (
                 Some(hash.0),
@@ -3555,27 +3542,17 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s.clone();
             let concurrent_limit = value.concurrent_limit.clone();
+
+            let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
                 value.preprocessor_module = None;
+                extra.remove("wm_trigger");
             } else {
-                let trigger_kind = if user.starts_with("http-api-") {
-                    "http-api"
-                } else if user.starts_with("email-") {
-                    "email"
-                } else {
-                    "default-webhook"
-                };
-                match args.extra.as_mut() {
-                    Some(extra) => {
-                        extra.insert("wm_trigger_kind".to_string(), to_raw_value(&trigger_kind));
-                    }
-                    None => {
-                        args.extra = Some(HashMap::from([(
-                            "wm_trigger_kind".to_string(),
-                            to_raw_value(&trigger_kind),
-                        )]));
-                    }
-                }
+                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
+                    to_raw_value(&serde_json::json!({
+                        "kind": "default_webhook",
+                    }))
+                });
             }
             let status = Some(FlowStatus::new(&value));
             (

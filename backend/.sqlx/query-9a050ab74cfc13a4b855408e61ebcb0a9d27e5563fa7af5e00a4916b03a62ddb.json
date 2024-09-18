@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM trigger WHERE workspace_id = $1 AND path = $2 AND kind = 'http')",
+  "query": "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE path = $1 AND workspace_id = $2)",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "c759da8199fe733957a69d6e3be02e85bfd8e66b6352b413c840c7aa5b9abb55"
+  "hash": "9a050ab74cfc13a4b855408e61ebcb0a9d27e5563fa7af5e00a4916b03a62ddb"
 }

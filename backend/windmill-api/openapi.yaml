@@ -6816,119 +6816,96 @@ paths:
           description: default error handler set
 
 
-  /w/{workspace}/triggers/create:
+  /w/{workspace}/http_triggers/create:
     post:
-      summary: create trigger
-      operationId: createTrigger
+      summary: create http trigger
+      operationId: createHttpTrigger
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: new trigger
+        description: new http trigger
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NewTrigger"
+              $ref: "#/components/schemas/NewHttpTrigger"
       responses:
         "201":
-          description: trigger created
+          description: http trigger created
           content:
             text/plain:
               schema:
                 type: string
 
-  /w/{workspace}/triggers/update/{kind}/{path}:
+  /w/{workspace}/http_triggers/update/{path}:
     post:
-      summary: update trigger
-      operationId: updateTrigger
+      summary: update http trigger
+      operationId: updateHttpTrigger
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: kind
-          in: path
-          schema:
-            type: string
-            enum: ["http", "email"]
-          required: true
       requestBody:
         description: updated trigger
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EditTrigger"
+              $ref: "#/components/schemas/EditHttpTrigger"
       responses:
         "200":
-          description: trigger updated
+          description: http trigger updated
           content:
             text/plain:
               schema:
                 type: string
 
-  /w/{workspace}/triggers/delete/{kind}/{path}:
+  /w/{workspace}/http_triggers/delete/{path}:
     delete:
-      summary: delete trigger
-      operationId: deleteTrigger
+      summary: delete http trigger
+      operationId: deleteHttpTrigger
       tags:
-        - trigger
+        -  http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: kind
-          in: path
-          schema:
-            type: string
-            enum: ["http", "email"]
-          required: true
       responses:
         "200":
-          description: trigger deleted
+          description: http trigger deleted
           content:
             text/plain:
               schema:
                 type: string
 
-  /w/{workspace}/triggers/get/{kind}/{path}:
+  /w/{workspace}/http_triggers/get/{path}:
     get:
-      summary: get trigger
-      operationId: getTrigger
+      summary: get http trigger
+      operationId: getHttpTrigger
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: kind
-          in: path
-          schema:
-            type: string
-            enum: ["http", "email"]
-          required: true
       responses:
         "200":
-          description: trigger deleted
+          description: http trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Trigger"
+                $ref: "#/components/schemas/HttpTrigger"
 
   
-  /w/{workspace}/triggers/list/{kind}:
+  /w/{workspace}/http_triggers/list:
     get:
-      summary: list triggers
-      operationId: listTriggers
+      summary: list http triggers
+      operationId: listHttpTriggers
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: kind
-          in: path
-          schema:
-            type: string
-            enum: ["http", "email"]
           required: true
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -6947,44 +6924,38 @@ paths:
             type: string
       responses:
         "200":
-          description: trigger list
+          description: http trigger list
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Trigger"
+                  $ref: "#/components/schemas/HttpTrigger"
 
   
-  /w/{workspace}/triggers/exists/{kind}/{path}:
+  /w/{workspace}/http_triggers/exists/{path}:
     get:
-      summary: does trigger exists
-      operationId: existsTrigger
+      summary: does http trigger exists
+      operationId: existsHttpTrigger
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: kind
-          in: path
-          required: true
-          schema:
-            type: string
-            enum: ["http", "email"]
       responses:
         "200":
-          description: trigger exists
+          description: http trigger exists
           content:
             application/json:
               schema:
                 type: boolean
 
-  /w/{workspace}/triggers/route_exists:
+  /w/{workspace}/http_triggers/route_exists:
     post:
       summary: does route exists
       operationId: existsRoute
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -6997,9 +6968,6 @@ paths:
               properties:
                 route_path:
                   type: string
-                kind:
-                  type: string
-                  enum: ["http", "email"]
                 http_method:
                   type: string
                   enum: ["get", "post", "put", "delete", "patch"]
@@ -7015,23 +6983,21 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/triggers/used:
+  /w/{workspace}/http_triggers/used:
     get:
-      summary: used trigger kinds
-      operationId: usedTriggerKinds
+      summary: whether http triggers are used
+      operationId: used
       tags:
-        - trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: used trigger kinds
+          description: whether http triggers are used
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: boolean
 
   /groups/list:
     get:
@@ -7859,7 +7825,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                trigger_http,
+                http_trigger,
               ]
       responses:
         "200":
@@ -7896,7 +7862,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                trigger_http,
+                http_trigger,
               ]
       requestBody:
         description: acl to add
@@ -7944,7 +7910,7 @@ paths:
                 folder,
                 app,
                 raw_app,
-                trigger_http,
+                http_trigger,
               ]
       requestBody:
         description: acl to add
@@ -10886,7 +10852,7 @@ components:
         - is_flow
         - args
 
-    Trigger:
+    HttpTrigger:
       type: object
       properties:
         path:
@@ -10910,9 +10876,6 @@ components:
           type: string
         workspace_id:
           type: string
-        kind:
-          type: string
-          enum: ["http", "email"]
         http_method:
           type: string
           enum:
@@ -10938,12 +10901,12 @@ components:
         - is_flow
         - email
         - workspace_id
-        - kind
         - summary
         - is_async
         - requires_auth
+        - http_method
 
-    NewTrigger:
+    NewHttpTrigger:
       type: object
       properties:
         path:
@@ -10954,9 +10917,6 @@ components:
           type: string
         is_flow:
           type: boolean
-        kind:
-          type: string
-          enum: ["http", "email"]
         http_method:
           type: string
           enum:
@@ -10977,13 +10937,12 @@ components:
         - script_path
         - route_path
         - is_flow
-        - kind
         - summary
         - is_async
         - requires_auth
+        - http_method
 
-    
-    EditTrigger:
+    EditHttpTrigger:
       type: object
       properties:
         path:
@@ -10994,9 +10953,6 @@ components:
           type: string
         is_flow:
           type: boolean
-        kind:
-          type: string
-          enum: ["http", "email"]
         http_method:
           type: string
           enum:
@@ -11020,6 +10976,7 @@ components:
         - summary
         - is_async
         - requires_auth
+        - http_method
 
     Group:
       type: object

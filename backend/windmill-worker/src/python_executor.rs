@@ -312,7 +312,7 @@ pub async fn handle_python_job(
     let preprocessor = if let Some(pre_spread) = pre_spread {
         format!(
             r#"if inner_script.preprocessor is None or not callable(inner_script.preprocessor):
-        raise ValueError("preprocessor is missing or not a function")
+        raise ValueError("preprocessor function is missing")
     else:
         pre_args = {{}}
         {pre_spread}
@@ -382,6 +382,8 @@ try:
     for k, v in list(args.items()):
         if v == '<function call>':
             del args[k]
+    if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
+        raise ValueError("{main_override} function is missing")
     res = inner_script.{main_override}(**args)
     res_json = res_to_json(res)
     with open(result_json, 'w') as f:

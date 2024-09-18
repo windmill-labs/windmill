@@ -2788,7 +2788,7 @@ pub async fn run_flow_by_path_inner(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (tag, dedicated_worker, has_preprocessor) = sqlx::query!(
-        "SELECT tag, dedicated_worker, flow_version.value->'preprocessor_module' IS NOT NULL as has_preprocessor 
+        "SELECT tag, dedicated_worker, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor 
         FROM flow 
         LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
@@ -3765,7 +3765,7 @@ pub async fn run_wait_result_flow_by_path_internal(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let (tag, dedicated_worker, early_return, has_preprocessor) = sqlx::query!(
-        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->'preprocessor_module' IS NOT NULL as has_preprocessor
+        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor
         FROM flow 
         LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]

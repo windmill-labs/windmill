@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { TriggerService, type Trigger } from '$lib/gen'
+	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -22,18 +22,18 @@
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
 
-	type TriggerW = Trigger & { canWrite: boolean }
+	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
 
 	async function loadTriggers(): Promise<void> {
-		triggers = (
-			await TriggerService.listTriggers({ workspace: $workspaceStore!, kind: 'http' })
-		).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-		})
+		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
+			(x) => {
+				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			}
+		)
 		loading = false
 	}
 
@@ -264,10 +264,9 @@
 											icon: Trash,
 											disabled: !canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
 											action: async () => {
-												await TriggerService.deleteTrigger({
+												await HttpTriggerService.deleteHttpTrigger({
 													workspace: $workspaceStore ?? '',
-													path,
-													kind: 'http'
+													path
 												})
 												loadTriggers()
 											}
@@ -288,7 +287,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'trigger_http')
+												shareModal.openDrawer(path, 'http_trigger')
 											}
 										}
 									]}

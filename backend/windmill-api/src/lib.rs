@@ -60,6 +60,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
@@ -82,7 +83,6 @@ pub mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
-mod triggers;
 mod users;
 mod utils;
 mod variables;
@@ -285,7 +285,7 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/triggers", triggers::triggers_workspaced_service()),
+                        .nest("/http_triggers", http_triggers::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -350,7 +350,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/r",
-                    triggers::routes_global_service()
+                    http_triggers::routes_global_service()
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors),
                 )
