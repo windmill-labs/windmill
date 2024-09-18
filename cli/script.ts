@@ -5,18 +5,16 @@ import {
   colors,
   Command,
   Confirm,
-  JobService,
   log,
-  NewScript,
   readAll,
-  Script,
-  ScriptService,
   SEP,
   Table,
   writeAllSync,
   yamlStringify,
 } from "./deps.ts";
 import { deepEqual } from "./utils.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import {
   defaultScriptMetadata,
   scriptBootstrapCode,
@@ -50,6 +48,7 @@ import fs from "node:fs";
 import { type Tarball } from "npm:@ayonli/jsext/archive";
 
 import { execSync } from "node:child_process";
+import { NewScript, Script } from "./gen/types.gen.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -227,7 +226,7 @@ export async function handleFile(
 
     let remote = undefined;
     try {
-      remote = await ScriptService.getScriptByPath({
+      remote = await wmill.getScriptByPath({
         workspace: workspaceId,
         path: remotePath,
       });
@@ -372,7 +371,7 @@ async function createScript(
   if (!bundleContent) {
     try {
       // no parent hash
-      await ScriptService.createScript({
+      await wmill.createScript({
         workspace: workspaceId,
         requestBody: body,
       });
@@ -535,7 +534,7 @@ async function list(
   const perPage = 10;
   const total: Script[] = [];
   while (true) {
-    const res = await ScriptService.listScripts({
+    const res = await wmill.listScripts({
       workspace: workspace.workspaceId,
       page,
       perPage,
@@ -588,7 +587,7 @@ async function run(
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
-  const id = await JobService.runScriptByPath({
+  const id = await wmill.runScriptByPath({
     workspace: workspace.workspaceId,
     path,
     requestBody: input,
@@ -602,7 +601,7 @@ async function run(
     try {
       const result =
         (
-          await JobService.getCompletedJob({
+          await wmill.getCompletedJob({
             workspace: workspace.workspaceId,
             id,
           })
@@ -623,7 +622,7 @@ async function run(
 
 export async function track_job(workspace: string, id: string) {
   try {
-    const result = await JobService.getCompletedJob({ workspace, id });
+    const result = await wmill.getCompletedJob({ workspace, id });
 
     log.info(result.logs);
     log.info("\n");
@@ -646,7 +645,7 @@ export async function track_job(workspace: string, id: string) {
       new_logs?: string | undefined;
     };
     try {
-      updates = await JobService.getJobUpdates({
+      updates = await wmill.getJobUpdates({
         workspace,
         id,
         logOffset,
@@ -684,7 +683,7 @@ export async function track_job(workspace: string, id: string) {
   await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
 
   try {
-    const final_job = await JobService.getCompletedJob({ workspace, id });
+    const final_job = await wmill.getCompletedJob({ workspace, id });
     if ((final_job.logs?.length ?? -1) > logOffset) {
       log.info(final_job.logs!.substring(logOffset));
     }
@@ -703,7 +702,7 @@ export async function track_job(workspace: string, id: string) {
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const s = await ScriptService.getScriptByPath({
+  const s = await wmill.getScriptByPath({
     workspace: workspace.workspaceId,
     path,
   });
