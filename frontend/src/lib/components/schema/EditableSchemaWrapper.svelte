@@ -34,6 +34,7 @@
 			schema = emptySchema()
 			formatExtension = undefined
 		} else {
+			formatExtension = ""
 			schema = emptySchema()
 			schema.order = ['content']
 			schema.properties = {
@@ -122,6 +123,7 @@
 				dropdownClassName="!font-normal !w-64 !max-w-64"
 				maxItemsToShowInList={8}
 				moreItemsText={null}
+				lock={true}
 			/>
 		{:else}
 			<input

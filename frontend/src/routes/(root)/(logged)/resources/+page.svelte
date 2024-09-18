@@ -31,7 +31,7 @@
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
+	import { canWrite, classNames, emptySchema, removeMarkdown, truncate, validateFileExtension } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { convert } from '@redocly/json-to-json-schema'
@@ -200,6 +200,12 @@
 	}
 
 	async function addResourceType(): Promise<void> {
+		if (newResourceType.formatExtension === "") {
+			throw new Error("Invalid empty file extension (make sure it is selected)")
+		}
+		if ( !validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
+			throw new Error("Invalid file extension")
+		}
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
 			requestBody: {
