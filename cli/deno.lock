@@ -58,7 +58,6 @@
       "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5": "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-table@^1.0.0-rc.5": "jsr:@windmill-labs/cliffy-table@1.0.0-rc.5",
       "npm:@ayonli/jsext": "npm:@ayonli/jsext@0.9.58",
-      "npm:@hey-api/client-fetch@^0.3.0": "npm:@hey-api/client-fetch@0.3.0",
       "npm:@oakserver/oak@12": "npm:@oakserver/oak@12.6.2",
       "npm:@types/diff@^5.2.2": "npm:@types/diff@5.2.2",
       "npm:@types/node": "npm:@types/node@18.16.19",
@@ -478,10 +477,6 @@
       },
       "@fastify/busboy@2.1.1": {
         "integrity": "sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==",
-        "dependencies": {}
-      },
-      "@hey-api/client-fetch@0.3.0": {
-        "integrity": "sha512-dbR+afBhPyiKGujd5knShMopkqcAxDFmG1pYhE6DgtdiLVfwDJQxFUVmzto4jp4Bk0POt7XwKdHK+X0N4N/MWw==",
         "dependencies": {}
       },
       "@humanwhocodes/config-array@0.13.0": {
@@ -2327,7 +2322,6 @@
       "jsr:@windmill-labs/cliffy-command@^1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-prompt@^1.0.0-rc.5",
       "jsr:@windmill-labs/cliffy-table@^1.0.0-rc.5",
-      "npm:@hey-api/client-fetch@^0.3.0",
       "npm:@types/diff@^5.2.2"
     ]
   }
