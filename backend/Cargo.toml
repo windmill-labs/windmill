@@ -256,7 +256,7 @@ mail-parser = "^0"
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
-zstd = "=0.12.4"
+zstd = "=0.13.2"
 aws-config = "^1"
 aws-sdk-sts = "^1"
 
