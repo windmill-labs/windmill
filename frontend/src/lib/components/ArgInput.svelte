@@ -253,7 +253,10 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
-		if ((e.ctrlKey || e.metaKey) && e.key == 'Enter') {
+		if (
+			(e.ctrlKey || e.metaKey) &&
+			(e.key == 'Enter' || e.key == 'c' || e.key == 'v' || e.key == 'x')
+		) {
 			return
 		}
 		e.stopPropagation()
