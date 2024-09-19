@@ -155,7 +155,7 @@
 				<div class="text-xs">Anchored: The component cannot be moved</div>
 			</div>
 		</div>
-	{:else if moveMode === 'insert' && isContainer(component) && componentDraggedId && componentDraggedId !== component.id}
+	{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id}
 		<div
 			class={twMerge(
 				'absolute inset-0 center-center flex-col z-50  rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
@@ -167,7 +167,7 @@
 				<div class="text-xs">Drop component inside container</div>
 			</div>
 		</div>
-	{:else if componentDraggedId && moveMode === 'move' && componentDraggedId !== component.id && isContainer(component)}
+	{:else if componentDraggedId && moveMode === 'move' && componentDraggedId !== component.id && isContainer(component.type)}
 		<div class={twMerge('absolute inset-0 center-center flex-col z-50 bg-surface bg-opacity-50 ')}>
 			<div
 				class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2 border text-xs w-48 text-center"

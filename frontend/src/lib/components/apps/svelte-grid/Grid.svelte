@@ -5,7 +5,13 @@
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
-	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT, sortGridItemsPosition } from '../editor/appUtils'
+	import {
+		isContainer,
+		ROW_GAP_X,
+		ROW_GAP_Y,
+		ROW_HEIGHT,
+		sortGridItemsPosition
+	} from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
@@ -130,8 +136,15 @@
 				}
 
 				if (isCtrlOrMetaPressed) {
+					const initialFixedStates = new Map()
+
 					const fixedContainer = sortedItems.map((item) => {
-						if (item.data['type'] === 'containercomponent') {
+						if (isContainer(item.data['type'])) {
+							initialFixedStates.set(item, {
+								item3Fixed: item[3].fixed,
+								item12Fixed: item[12].fixed
+							})
+
 							item[3].fixed = true
 							item[12].fixed = true
 						}
@@ -139,6 +152,15 @@
 					})
 
 					let { overlap } = moveItem(activeItem, fixedContainer, getComputedCols)
+
+					// After the move, restore the initial fixed state using the map
+					fixedContainer.forEach((item) => {
+						if (initialFixedStates.has(item)) {
+							const initialState = initialFixedStates.get(item)
+							item[3].fixed = initialState.item3Fixed
+							item[12].fixed = initialState.item12Fixed
+						}
+					})
 
 					sortedItems = sortedItems
 

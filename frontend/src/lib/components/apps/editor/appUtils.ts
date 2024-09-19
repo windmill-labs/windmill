@@ -1136,14 +1136,14 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 	)
 }
 
-export function isContainer(component: AppComponent): boolean {
+export function isContainer(type: string): boolean {
 	return (
-		component.type === 'containercomponent' ||
-		component.type === 'tabscomponent' ||
-		component.type === 'verticalsplitpanescomponent' ||
-		component.type === 'horizontalsplitpanescomponent' ||
-		component.type === 'steppercomponent' ||
-		component.type === 'listcomponent' ||
-		component.type === 'decisiontreecomponent'
+		type === 'containercomponent' ||
+		type === 'tabscomponent' ||
+		type === 'verticalsplitpanescomponent' ||
+		type === 'horizontalsplitpanescomponent' ||
+		type === 'steppercomponent' ||
+		type === 'listcomponent' ||
+		type === 'decisiontreecomponent'
 	)
 }
