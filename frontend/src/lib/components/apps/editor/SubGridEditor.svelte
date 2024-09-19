@@ -152,6 +152,7 @@
 					let:hidden
 					let:overlapped
 					let:moveMode
+					let:componentDraggedId
 					cols={columnConfiguration}
 					scroller={container}
 					parentWidth={$parentWidth - 17}
@@ -217,6 +218,7 @@
 									$app = $app
 								}}
 								{moveMode}
+								{componentDraggedId}
 							/>
 						</GridEditorMenu>
 					</ComponentWrapper>

@@ -158,7 +158,9 @@
 	{:else if moveMode === 'insert' && isContainer(component) && componentDraggedId && componentDraggedId !== component.id}
 		<div
 			class={twMerge(
-				'absolute inset-0 center-center flex-col z-50  outline-dashed -outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700 rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50'
+				'absolute inset-0 center-center flex-col z-50  rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
+				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
+				overlapped === component.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
 			)}
 		>
 			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2 border">
