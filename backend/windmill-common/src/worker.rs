@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     io::Write,
-    path::Path,
+    path::{Component, Path, PathBuf},
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
 };
@@ -40,6 +40,8 @@ lazy_static::lazy_static! {
         "mssql".to_string(),
         "graphql".to_string(),
         "php".to_string(),
+        "rust".to_string(),
+        "ansible".to_string(),
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
@@ -161,6 +163,61 @@ pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path)?;
+    file.write_all(content.as_bytes())?;
+    file.flush()?;
+    Ok(file)
+}
+
+/// from : https://github.com/rust-lang/cargo/blob/fede83ccf973457de319ba6fa0e36ead454d2e20/src/cargo/util/paths.rs#L61
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut components = path.components().peekable();
+    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+        components.next();
+        PathBuf::from(c.as_os_str())
+    } else {
+        PathBuf::new()
+    };
+
+    for component in components {
+        match component {
+            Component::Prefix(..) => unreachable!(),
+            Component::RootDir => {
+                ret.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                ret.pop();
+            }
+            Component::Normal(c) => {
+                ret.push(c);
+            }
+        }
+    }
+    ret
+}
+pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &str, content: &str) -> error::Result<File> {
+    let job_dir = Path::new(job_dir);
+    let user_path = PathBuf::from(user_defined_path);
+
+    let full_path = job_dir.join(&user_path);
+
+    // let normalized_job_dir = std::fs::canonicalize(job_dir)?;
+    // let normalized_full_path = std::fs::canonicalize(&full_path)?;
+    let normalized_job_dir = normalize_path(job_dir);
+    let normalized_full_path = normalize_path(&full_path);
+
+    if !normalized_full_path.starts_with(&normalized_job_dir) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Path is outside the allowed job directory.",
+        ).into());
+    }
+
+    if let Some(parent_dir) = full_path.parent() {
+        std::fs::create_dir_all(parent_dir)?;
+    }
+
+    let mut file = File::create(full_path)?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
     Ok(file)

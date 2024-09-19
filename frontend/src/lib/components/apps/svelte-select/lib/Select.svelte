@@ -582,6 +582,7 @@
 
 <svelte:window on:click={handleClickOutside} on:keydown={handleKeyDown} />
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={twMerge('svelte-select', containerClasses)}
 	class:disabled
@@ -842,7 +843,7 @@
 		right: 0;
 		bottom: 0;
 		left: 0;
-		background: transparent;
+		background: transparent !important;
 		font-size: var(--font-size, 16px);
 	}
 

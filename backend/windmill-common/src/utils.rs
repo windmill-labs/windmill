@@ -6,18 +6,20 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-#[cfg(feature = "enterprise")]
-use crate::ee::trigger_critical_error_channels;
 use crate::ee::LICENSE_KEY_ID;
+#[cfg(feature = "enterprise")]
+use crate::ee::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
 use crate::DB;
 use anyhow::Context;
+use gethostname::gethostname;
 use git_version::git_version;
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
@@ -27,6 +29,14 @@ pub const DEFAULT_PER_PAGE: usize = 1000;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+
+lazy_static::lazy_static! {
+    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .timeout(std::time::Duration::from_secs(20))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build().unwrap();
+}
 
 #[derive(Deserialize)]
 pub struct Pagination {
@@ -53,6 +63,13 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn hostname() -> String {
+    gethostname()
+        .to_str()
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| rd_string(5))
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -193,6 +210,18 @@ pub enum Mode {
     Indexer,
 }
 
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Worker => write!(f, "worker"),
+            Mode::Agent => write!(f, "agent"),
+            Mode::Server => write!(f, "server"),
+            Mode::Standalone => write!(f, "standalone"),
+            Mode::Indexer => write!(f, "indexer"),
+        }
+    }
+}
+
 pub async fn send_email(
     subject: &str,
     content: &str,
@@ -245,8 +274,35 @@ pub async fn send_email(
     return Ok(());
 }
 
-pub async fn report_critical_error(error_message: String) -> () {
+pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
+
+    if let Err(err) = sqlx::query!(
+        "INSERT INTO alerts (alert_type, message) VALUES ('critical_error', $1)",
+        error_message
+    )
+    .execute(&_db)
+    .await
+    {
+        tracing::error!("Failed to save critical error to database: {}", err);
+    }
+
     #[cfg(feature = "enterprise")]
-    trigger_critical_error_channels(error_message).await;
+    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError).await;
+}
+
+pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
+    tracing::info!("RECOVERED CRITICAL ERROR: {message}");
+
+    if let Err(err) = sqlx::query!(
+        "INSERT INTO alerts (alert_type, message) VALUES ('recovered_critical_error', $1)",
+        message
+    )
+    .execute(&_db)
+    .await
+    {
+        tracing::error!("Failed to save critical error to database: {}", err);
+    }
+    #[cfg(feature = "enterprise")]
+    send_critical_alert(message, &_db, CriticalAlertKind::RecoveredCriticalError).await;
 }

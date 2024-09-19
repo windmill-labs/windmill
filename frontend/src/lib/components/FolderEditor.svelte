@@ -225,7 +225,7 @@
 					size="sm"
 					on:click={addToFolder}
 				>
-					Grant permission to folder
+					Grant
 				</Button>
 			</div>
 		{/if}

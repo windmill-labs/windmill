@@ -11,7 +11,9 @@ use windmill_common::{
 };
 use windmill_queue::{append_logs, CanceledBy};
 
-const BIN_BASH: &str = "/bin/bash";
+lazy_static::lazy_static! {
+    static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
+}
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
@@ -55,7 +57,7 @@ pub async fn handle_bash_job(
     write_file(
         job_dir,
         "wrapper.sh",
-        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n /bin/bash ./main.sh \"$@\" 2>&1 | tee bp\nwait $!"),
+        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n {bash} ./main.sh \"$@\" 2>&1 | tee bp\nwait $!", bash = BIN_BASH.as_str()),
     )?;
 
     let token = client.get_token().await;
@@ -96,7 +98,7 @@ pub async fn handle_bash_job(
             "--config",
             "run.config.proto",
             "--",
-            "/bin/bash",
+            BIN_BASH.as_str(),
             "wrapper.sh",
         ];
         cmd_args.extend(args);
@@ -114,7 +116,7 @@ pub async fn handle_bash_job(
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
-        let mut bash_cmd = Command::new(BIN_BASH);
+        let mut bash_cmd = Command::new(BIN_BASH.as_str());
         bash_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -126,7 +128,7 @@ pub async fn handle_bash_job(
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bash_cmd, BIN_BASH).await?
+        start_child_process(bash_cmd, BIN_BASH.as_str()).await?
     };
     handle_child(
         &job.id,
@@ -255,7 +257,7 @@ pub async fn handle_powershell_job(
     if !install_string.is_empty() {
         logs1.push_str("\n\nInstalling modules...");
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
-        let child = Command::new("pwsh")
+        let child = Command::new(POWERSHELL_PATH.as_str())
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -332,7 +334,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             "--config",
             "run.config.proto",
             "--",
-            "/bin/bash",
+            BIN_BASH.as_str(),
             "wrapper.sh",
         ];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
@@ -350,7 +352,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new("/bin/bash")
+        Command::new(BIN_BASH.as_str())
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)

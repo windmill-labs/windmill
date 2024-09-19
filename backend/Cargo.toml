@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.386.0"
+version = "1.397.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -18,14 +18,16 @@ members = [
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-go",
+    "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
+    "./parsers/windmill-parser-yaml",
 ]
 
 [workspace.package]
-version = "1.386.0"
+version = "1.397.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -47,7 +49,7 @@ flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 pg_embed = ["dep:pg-embed"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
@@ -84,7 +86,9 @@ gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
+object_store = { workspace = true, optional = true }
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
+quote.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -114,6 +118,8 @@ windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
+windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
+windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -136,6 +142,7 @@ chrono = { version = "0.4.35", features = ["serde"] }
 chrono-tz = "^0"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
+tracing-appender = "^0"
 prometheus = { version = "^0", default-features = false }
 cookie = { version = "0.17.0" }
 phf = { version = "0.11", features = ["macros"] }
@@ -214,7 +221,7 @@ rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "0.2.92"
+wasm-bindgen = "=0.2.92"
 serde-wasm-bindgen = "0.6.5"
 wasm-bindgen-test = "0.3.42"
 convert_case = "0.6.0"
@@ -266,4 +273,10 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "<0.1.12"
 
 tantivy = "0.22.0"
+
+pulldown-cmark = "0.9"
+toml = "0.7"
+syn = { version = "2.0.74", features = ["full"] }
+quote = "1.0.36"
 regex-lite = "0.1.6"
+yaml-rust = "0.4.5"

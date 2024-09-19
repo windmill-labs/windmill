@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.386.0
+  version: 1.397.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -281,6 +281,8 @@ components:
           type: string
           enum:
             - script
+        tag_override:
+          type: string
       required:
         - type
         - path
@@ -478,6 +480,8 @@ components:
           type: string
           format: uuid
         count:
+          type: integer
+        progress:
           type: integer
         iterator:
           type: object

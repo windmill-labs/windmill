@@ -36,7 +36,9 @@ export type FlowStatusViewerContext = {
 	hideDownloadInGraph?: boolean
 	hideTimeline?: boolean
 	hideNodeDefinition?: boolean
+	hideJobId?: boolean
 }
+
 export type GraphModuleState = {
 	type: FlowStatusModule['type']
 	args: any

@@ -45,7 +45,7 @@
 	}
 
 	const outputs = initOutput($worldStore, id, {
-		result: [] as { path: string }[] | undefined,
+		result: [] as { path: string; filename: string }[] | undefined,
 		loading: false,
 		jobId: undefined
 	})

@@ -1,16 +1,9 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
 import { Confirm, SEP, log, yamlStringify } from "./deps.ts";
-import {
-  colors,
-  Command,
-  Flow,
-  FlowModule,
-  FlowService,
-  JobService,
-  Table,
-  yamlParse,
-} from "./deps.ts";
+import { colors, Command, Table, yamlParse } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
@@ -18,6 +11,7 @@ import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
 import { readInlinePathSync } from "./utils.ts";
+import { Flow, FlowModule } from "./gen/types.gen.ts";
 
 export interface FlowFile {
   summary: string;
@@ -82,7 +76,7 @@ export async function pushFlow(
   remotePath = remotePath.replaceAll(SEP, "/");
   let flow: Flow | undefined = undefined;
   try {
-    flow = await FlowService.getFlowByPath({
+    flow = await wmill.getFlowByPath({
       workspace: workspace,
       path: remotePath,
     });
@@ -104,7 +98,7 @@ export async function pushFlow(
       return;
     }
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
-    await FlowService.updateFlow({
+    await wmill.updateFlow({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
       requestBody: {
@@ -116,7 +110,7 @@ export async function pushFlow(
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
     try {
-      await FlowService.createFlow({
+      await wmill.createFlow({
         workspace: workspace,
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
@@ -155,7 +149,7 @@ async function list(
   const perPage = 10;
   const total: Flow[] = [];
   while (true) {
-    const res = await FlowService.listFlows({
+    const res = await wmill.listFlows({
       workspace: workspace.workspaceId,
       page,
       perPage,
@@ -188,7 +182,7 @@ async function run(
 
   const input = opts.data ? await resolve(opts.data) : {};
 
-  const id = await JobService.runFlowByPath({
+  const id = await wmill.runFlowByPath({
     workspace: workspace.workspaceId,
     path,
     requestBody: input,
@@ -196,7 +190,7 @@ async function run(
 
   let i = 0;
   while (true) {
-    const jobInfo = await JobService.getJob({
+    const jobInfo = await wmill.getJob({
       workspace: workspace.workspaceId,
       id,
     });
@@ -226,7 +220,7 @@ async function run(
     log.info(colors.green.underline.bold("Flow ran to completion"));
     log.info("\n");
   }
-  const jobInfo = await JobService.getCompletedJob({
+  const jobInfo = await wmill.getCompletedJob({
     workspace: workspace.workspaceId,
     id,
   });

@@ -95,11 +95,11 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const componentActive = editorContext?.componentActive
+
 	const movingcomponents = editorContext?.movingcomponents
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
-
-	const componentActive = editorContext?.componentActive
 
 	let initializing: boolean | undefined = undefined
 	let errorHandledByComponent: boolean = false
@@ -415,7 +415,6 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
-				actionsOrder={component.actionsOrder ?? undefined}
 				{render}
 			/>
 		{:else if component.type === 'aggridinfinitecomponentee'}
@@ -427,7 +426,6 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
-				actionsOrder={component.actionsOrder ?? undefined}
 				{render}
 			/>
 		{:else if component.type === 'textcomponent'}

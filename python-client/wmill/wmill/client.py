@@ -108,14 +108,19 @@ class Windmill:
         path: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        # can only be set to false if this the job will be fully await and not concurrent with any other job
+        # as otherwise the child flow and its own child will store their state in the parent job which will
+        # lead to incorrectness and failures
+        do_not_track_in_parent: bool = True,
     ) -> str:
         """Create a flow job and return its job id."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
-        if os.environ.get("WM_JOB_ID"):
-            params["parent_job"] = os.environ.get("WM_JOB_ID")
-        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
-            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        if not do_not_track_in_parent:
+            if os.environ.get("WM_JOB_ID"):
+                params["parent_job"] = os.environ.get("WM_JOB_ID")
+            if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+                params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/f/{path}"
         else:
@@ -340,6 +345,36 @@ class Windmill:
 
     def set_state(self, value: Any):
         self.set_resource(value, path=self.state_path, resource_type="state")
+
+    def set_progress(self, value: int, job_id: Optional[str] = None):
+        workspace = get_workspace()
+        flow_id = os.environ.get("WM_FLOW_JOB_ID")
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        if job_id != None:
+            job = self.get_job(job_id)
+            flow_id = job.get("parent_job")
+
+        self.post(
+            f"/w/{workspace}/job_metrics/set_progress/{job_id}",
+            json={
+                "percent": value,
+                "flow_job_id": flow_id or None,
+            },
+        )        
+
+    def get_progress(self, job_id: Optional[str] = None ) -> Any:
+        workspace = get_workspace()
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        r = self.get(
+            f"/w/{workspace}/job_metrics/get_progress/{job_id}",
+        )        
+        if r.status_code == 404:
+            print(f"Job {job_id} does not exist")
+            return None
+        else:
+            return r.json()
 
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
@@ -655,11 +690,16 @@ def run_flow_async(
     path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
+    # can only be set to false if this the job will be fully await and not concurrent with any other job
+    # as otherwise the child flow and its own child will store their state in the parent job which will
+    # lead to incorrectness and failures
+    do_not_track_in_parent: bool = True,
 ) -> str:
     return _client.run_flow_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        do_not_track_in_parent=do_not_track_in_parent,
     )
 
 
@@ -827,6 +867,20 @@ def set_state(value: Any) -> None:
     Set the state
     """
     return _client.set_state(value)
+
+@init_global_client
+def set_progress(value: int, job_id: Optional[str] = None) -> None:
+    """
+    Set the progress
+    """
+    return _client.set_progress(value, job_id)
+
+@init_global_client
+def get_progress(job_id: Optional[str] = None) -> Any:
+    """
+    Get the progress
+    """
+    return _client.get_progress(job_id)
 
 
 def set_shared_state_pickle(value: Any, path="state.pickle") -> None:

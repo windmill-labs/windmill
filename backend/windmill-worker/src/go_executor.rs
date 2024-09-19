@@ -1,12 +1,8 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
-use tokio::{
-    fs::{create_dir, DirBuilder, File},
-    io::AsyncReadExt,
-    process::Command,
-};
+use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
@@ -51,6 +47,11 @@ pub async fn handle_go_job(
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
+    DirBuilder::new()
+        .recursive(true)
+        .create(&job_dir)
+        .expect("could not create go job dir");
+
     let hash = calculate_hash(&format!(
         "{}{}v2",
         inner_content,
@@ -64,7 +65,6 @@ pub async fn handle_go_job(
     let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
-        create_dir(job_dir).await?;
         (true, true)
     } else if let Some(requirements) = requirements_o {
         gen_go_mod(inner_content, job_dir, &requirements).await?
@@ -467,7 +467,6 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     DirBuilder::new()
         .recursive(true)
         .create(&mymod_dir)
-        .await
         .expect("could not create go's mymod dir");
 
     write_file(&mymod_dir, "inner_main.go", &code)?;

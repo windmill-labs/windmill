@@ -4,11 +4,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, {
-	parse_deno,
-	parse_outputs,
-	parse_ts_imports
-} from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -18,29 +14,27 @@ import initRegexParsers, {
 	parse_mssql,
 	parse_db_resource,
 	parse_bash,
-	parse_powershell,
+	parse_powershell
 } from 'windmill-parser-wasm-regex'
-import initPythonParser, {
-	parse_python,
-} from 'windmill-parser-wasm-py'
-import initGoParser, {
-	parse_go,
-} from 'windmill-parser-wasm-go'
-import initPhpParser, {
-	parse_php,
-} from 'windmill-parser-wasm-php'
+import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
+import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
+import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
+import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
+import initYamlParser, { parse_ansible } from 'windmill-parser-wasm-yaml'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlPy from 'windmill-parser-wasm-py/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlGo from 'windmill-parser-wasm-go/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlPhp from 'windmill-parser-wasm-php/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlRust from 'windmill-parser-wasm-rust/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlYaml from 'windmill-parser-wasm-yaml/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
-let initializeTsPromise : Promise<any> | undefined = undefined;
+let initializeTsPromise: Promise<any> | undefined = undefined
 export async function initWasmTs() {
 	if (initializeTsPromise == undefined) {
 		initializeTsPromise = initTsParser(wasmUrlTs)
@@ -56,18 +50,14 @@ async function initWasmPython() {
 async function initWasmPhp() {
 	await initPhpParser(wasmUrlPhp)
 }
+async function initWasmRust() {
+	await initRustParser(wasmUrlRust)
+}
 async function initWasmGo() {
 	await initGoParser(wasmUrlGo)
 }
-
-export function parseDeps(code: string): string[] {
-	let r = JSON.parse(parse_ts_imports(code))
-	if (r.error) {
-		console.error(r.error)
-		return []
-	} else {
-		return r.imports
-	}
+async function initWasmYaml() {
+	await initYamlParser(wasmUrlYaml)
 }
 
 export async function inferArgs(
@@ -160,6 +150,12 @@ export async function inferArgs(
 		} else if (language == 'php') {
 			await initWasmPhp()
 			inferedSchema = JSON.parse(parse_php(code))
+		} else if (language == 'rust') {
+			await initWasmRust()
+			inferedSchema = JSON.parse(parse_rust(code))
+		} else if (language == 'ansible') {
+			await initWasmYaml()
+			inferedSchema = JSON.parse(parse_ansible(code))
 		} else {
 			return null
 		}

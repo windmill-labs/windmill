@@ -1,6 +1,5 @@
 import {
   Select,
-  WorkspaceService,
   path,
   Confirm,
   yamlStringify,
@@ -8,7 +7,9 @@ import {
   Command,
   setClient,
 } from "./deps.ts";
-import { DelimiterStream, Input, colors, log } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
+import { Input, colors, log } from "./deps.ts";
 import { loginInteractive } from "./login.ts";
 import { getRootStore } from "./store.ts";
 import { push, pull } from "./sync.ts";
@@ -43,46 +44,20 @@ export interface Instance {
   prefix: string;
 }
 
-function makeInstanceStream(
-  readable: ReadableStream<Uint8Array>
-): ReadableStream<Instance> {
-  return readable
-    .pipeThrough(new DelimiterStream(new TextEncoder().encode("\n")))
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(
-      new TransformStream({
-        transform(line, controller) {
-          try {
-            if (line.length <= 2) {
-              return;
-            }
-            const instance = JSON.parse(line) as Instance;
-            controller.enqueue(instance);
-          } catch {
-            /* ignore */
-          }
-        },
-      })
-    );
-}
-
-async function getInstanceStream() {
-  const file = await Deno.open((await getRootStore()) + "instances.ndjson", {
-    write: false,
-    read: true,
-  });
-  return makeInstanceStream(file.readable);
-}
-
 export async function allInstances(): Promise<Instance[]> {
   try {
-    const instanceStream = await getInstanceStream();
-    const instances: Instance[] = [];
-    for await (const instance of instanceStream) {
-      instances.push(instance);
-    }
-
-    return instances;
+    const file = (await getRootStore()) + "instances.ndjson";
+    const txt = await Deno.readTextFile(file);
+    return txt
+      .split("\n")
+      .map((line) => {
+        if (line.length <= 2) {
+          return;
+        }
+        const instance = JSON.parse(line) as Instance;
+        return instance;
+      })
+      .filter(Boolean) as Instance[];
   } catch (_) {
     return [];
   }
@@ -273,7 +248,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
-    const remoteWorkspaces = await WorkspaceService.listWorkspacesAsSuperAdmin({
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
@@ -306,6 +281,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
       await pull({
         workspace: workspaceName,
         token: undefined,
+        baseUrl: undefined,
         includeGroups: true,
         includeSchedules: true,
         includeSettings: true,
@@ -430,7 +406,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       default: instance.prefix as unknown,
     })) as unknown as string;
 
-    const remoteWorkspaces = await WorkspaceService.listWorkspacesAsSuperAdmin({
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
@@ -460,6 +436,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
           {
             token: instance.token,
             workspace: undefined,
+            baseUrl: undefined,
             create: true,
             createWorkspaceName: workspaceSettings.name,
             createUsername: undefined,
@@ -477,6 +454,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       await push({
         workspace: localWorkspace.name,
         token: undefined,
+        baseUrl: undefined,
         includeGroups: true,
         includeSchedules: true,
         includeSettings: true,
@@ -498,7 +476,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
       if (confirmDelete) {
         for (const workspace of workspacesToDelete) {
-          await WorkspaceService.deleteWorkspace({ workspace: workspace.id });
+          await wmill.deleteWorkspace({ workspace: workspace.id });
           log.info(colors.green.underline("Deleted workspace " + workspace.id));
         }
       }

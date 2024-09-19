@@ -48,7 +48,7 @@
 							variant="border"
 							size="sm"
 							startIcon={{ icon: Clipboard }}
-							btnClasses="absolute top-2 right-2 w-min"
+							btnClasses="absolute top-2 right-2 w-min z-20"
 						>
 							Copy content
 						</Button>

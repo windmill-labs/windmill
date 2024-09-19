@@ -483,6 +483,8 @@
 	let refreshCount: number = 0
 	let footerRenderCount: number = 0
 	let computedOrder: string[] | undefined = undefined
+
+	let footerHeight: number = 0
 </script>
 
 {#if actionsOrder}
@@ -539,7 +541,7 @@
 				on:pointerdown|stopPropagation={() => {
 					$selectedComponent = [id]
 				}}
-				style:height="{clientHeight}px"
+				style:height="{clientHeight - (resolvedConfig.footer ? footerHeight : 0)}px"
 				style:width="{clientWidth}px"
 				class="ag-theme-alpine relative"
 				class:ag-theme-alpine-dark={$darkMode}
@@ -571,7 +573,10 @@
 			</div>
 			{#if resolvedConfig.footer}
 				{#key footerRenderCount}
-					<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
+					<div
+						class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2"
+						bind:clientHeight={footerHeight}
+					>
 						<div>
 							<Popover>
 								<svelte:fragment slot="text">Download</svelte:fragment>

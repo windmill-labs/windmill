@@ -65,6 +65,7 @@
 	>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row gap-2 pb-4">
+				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					type="text"
 					placeholder="Search {itemName}s"

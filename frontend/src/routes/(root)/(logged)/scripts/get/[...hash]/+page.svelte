@@ -8,7 +8,13 @@
 		type Script,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
+	import {
+		defaultIfEmptyString,
+		emptyString,
+		canWrite,
+		truncateHash,
+		copyToClipboard
+	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
@@ -56,7 +62,8 @@
 		Share,
 		Table2,
 		Trash,
-		Play
+		Play,
+		ClipboardCopy
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -72,6 +79,7 @@
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -578,15 +586,16 @@
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
 								{#if script.lock_error_logs}
-									<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+									<div
+										class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
+										role="alert"
+									>
 										<p class="font-bold">Error deploying this script</p>
 										<p>
 											This script has not been deployed successfully because of the following
 											errors:
 										</p>
-										<pre class="w-full text-xs mt-2 whitespace-pre-wrap"
-											>{script.lock_error_logs}</pre
-										>
+										<LogViewer content={script.lock_error_logs} isLoading={false} tag={undefined} />
 									</div>
 								{/if}
 								{#if topHash}
@@ -736,9 +745,21 @@
 							<TabContent value="dependencies">
 								<div>
 									{#if script?.lock}
-										<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
-											>{script.lock}</pre
-										>
+										<div class="relative overflow-x-auto w-full">
+											<Button
+												wrapperClasses="absolute top-2 right-2 z-20"
+												on:click={() => copyToClipboard(script?.lock)}
+												color="light"
+												size="xs2"
+												startIcon={{
+													icon: ClipboardCopy
+												}}
+												iconOnly
+											/>
+											<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+												>{script.lock}</pre
+											>
+										</div>
 									{:else}
 										<p class="bg-surface-secondary text-sm p-2">
 											There is no lock file for this script

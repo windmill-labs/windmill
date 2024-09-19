@@ -2,6 +2,7 @@
 	import { Pen } from 'lucide-svelte'
 
 	export let value: string
+	export let disabled = false
 
 	function blur(e: KeyboardEvent) {
 		e.key === 'Enter' && (e?.target as any)?.blur()
@@ -16,9 +17,12 @@
 			placeholder="Untitled"
 			class="windmillapp app-title text-sm w-full font-semibold"
 			bind:value
+			{disabled}
 			on:keydown={blur}
 		/>
-		<Pen class="absolute top-2 right-2 pen-icon -z-10 opacity-60" size={14} />
+		{#if !disabled}
+			<Pen class="absolute top-2 right-2 pen-icon -z-10 opacity-60" size={14} />
+		{/if}
 	</div>
 </div>
 

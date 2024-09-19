@@ -1,11 +1,13 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command, ResourceService, SettingService, log } from "./deps.ts";
+import { Command, log } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 
-async function pull(opts: GlobalOptions) {
+export async function pull(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
   if (workspace.workspaceId !== "admins") {
@@ -17,12 +19,12 @@ async function pull(opts: GlobalOptions) {
 
   const userInfo = await requireLogin(opts);
 
-  const uid = (await SettingService.getGlobal({
+  const uid = (await wmill.getGlobal({
     key: "uid",
   })) as string;
 
   const hubBaseUrl =
-    (await SettingService.getGlobal({
+    (await wmill.getGlobal({
       key: "hubBaseUrl",
     })) ?? "https://hub.windmill.dev";
 
@@ -48,7 +50,7 @@ async function pull(opts: GlobalOptions) {
   }[] = await fetch(hubBaseUrl + "/resource_types/list", {
     headers,
   })
-    .then((r) => r.json())
+    .then((r) => r.json() as Promise<{ id: number; name: string }[]>)
     .then((list: { id: number; name: string }[]) =>
       list.map((x) =>
         fetch(hubBaseUrl + "/resource_types/" + x.id + "/" + x.name, {
@@ -68,9 +70,13 @@ async function pull(opts: GlobalOptions) {
       )
     )
     .then((x) => Promise.all(x))
-    .then((x) => x.filter((x) => x).map((x) => x.resource_type));
+    .then((x) =>
+      (x as { resource_type: any }[])
+        .filter((x) => x)
+        .map((x) => x.resource_type)
+    );
 
-  const resourceTypes = await ResourceService.listResourceType({
+  const resourceTypes = await wmill.listResourceType({
     workspace: workspace.workspaceId,
   });
 

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.386.0
+  version: 1.397.0
   title: Windmill API
 
   contact:
@@ -2587,6 +2587,36 @@ paths:
               schema:
                 type: string
 
+  
+  /oauth/connect_slack_callback:
+    post:
+      summary: connect slack callback instance
+      operationId: connectSlackCallbackInstance
+      tags:
+        - oauth
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: success message
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /oauth/connect_callback/{client_name}:
     post:
       summary: connect callback
@@ -3057,6 +3087,22 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/resources/file_resource_type_to_file_ext_map:
+    get:
+      summary: get map from resource type to format extension
+      operationId: fileResourceTypeToFileExtMap
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: map from resource type to file ext
+          content:
+            application/json:
+              schema: {}
+
 
   /w/{workspace}/resources/type/delete/{path}:
     delete:
@@ -4707,26 +4753,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/flows/input_history/p/{path}:
-    get:
-      summary: list inputs for previous completed flow jobs
-      operationId: getFlowInputHistoryByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: input history for completed jobs with this flow path
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/raw_apps/list:
     get:
@@ -5826,6 +5852,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/CreatedBefore"
+        - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
@@ -5981,6 +6009,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -5999,6 +6031,8 @@ paths:
                   log_offset:
                     type: integer
                   mem_peak:
+                    type: integer
+                  progress:
                     type: integer
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
@@ -6137,7 +6171,7 @@ paths:
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
-      summary: cancel queued job
+      summary: cancel queued or running job
       operationId: cancelQueuedJob
       tags:
         - job
@@ -6768,7 +6802,7 @@ paths:
               properties:
                 handler_type:
                   type: string
-                  enum: ["error", "recovery"]
+                  enum: ["error", "recovery", "success"]
                 override_existing:
                   type: boolean
                 path:
@@ -8335,6 +8369,38 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/job_helpers/load_table_count/{path}:
+    get:
+      summary: Load the table row count
+      operationId: loadTableRowCount
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Table count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+
   /w/{workspace}/job_helpers/load_csv_preview/{path}:
     get:
       summary: Load a preview of a csv file
@@ -8602,6 +8668,116 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
+
+  /w/{workspace}/job_metrics/set_progress/{id}:
+    post:
+      summary: set job metrics
+      operationId: setJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        description: parameters for statistics retrieval
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                percent:
+                  type: integer
+                flow_job_id:
+                  type: string
+                  format: uuid
+
+      responses:
+        "200":
+          description: Job progress updated
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_metrics/get_progress/{id}:
+    get:
+      summary: get job progress
+      operationId: getJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job progress between 0 and 99
+          content:
+            application/json:
+              schema:
+                type: integer
+  /service_logs/list_files:
+    get:
+      summary: list log files ordered by timestamp
+      operationId: listLogFiles
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - name: with_error
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: time
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hostname:
+                      type: string
+                    mode:
+                      type: string
+                    worker_group:
+                      type: string
+                    log_ts:
+                      type: string
+                      format: date-time
+                    file_path:
+                      type: string
+                    ok_lines:
+                      type: integer
+                    err_lines:
+                      type: integer
+                    json_fmt:
+                      type: boolean
+                  required:
+                    - hostname
+                    - mode
+                    - log_ts
+                    - file_path
+                    - json_fmt
+
+  /service_logs/get_log_file/{path}:
+    get:
+      summary: get log file by path
+      operationId: getLogFile
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Path"            
+      responses:
+        "200":
+          description: log stream
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /concurrency_groups/list:
     get:
@@ -8960,6 +9136,20 @@ components:
       in: query
       schema:
         type: string
+    CreatedBefore:
+      name: created_before
+      description: filter on created before (inclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedAfter:
+      name: created_after
+      description: filter on created after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
     StartedBefore:
       name: started_before
       description: filter on started before (inclusive) timestamp
@@ -8970,6 +9160,13 @@ components:
     StartedAfter:
       name: started_after
       description: filter on started after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Before:
+      name: before
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
@@ -9046,13 +9243,6 @@ components:
     After:
       name: after
       description: filter on created after (exclusive) timestamp
-      in: query
-      schema:
-        type: string
-        format: date-time
-    Before:
-      name: before
-      description: filter on created before (exclusive) timestamp
       in: query
       schema:
         type: string
@@ -9187,6 +9377,8 @@ components:
               nativets,
               bun,
               php,
+              rust,
+              ansible,
             ]
         kind:
           type: string
@@ -9285,6 +9477,8 @@ components:
               nativets,
               bun,
               php,
+              rust,
+              ansible,
             ]
         kind:
           type: string
@@ -9502,6 +9696,8 @@ components:
               nativets,
               bun,
               php,
+              rust,
+              ansible,
             ]
         email:
           type: string
@@ -9617,6 +9813,8 @@ components:
               nativets,
               bun,
               php,
+              rust,
+              ansible,
             ]
         is_skipped:
           type: boolean
@@ -10155,7 +10353,9 @@ components:
               graphql,
               nativets,
               bun,
-              php
+              php,
+              rust,
+              ansible,
             ]
         tag:
           type: string
@@ -10303,6 +10503,8 @@ components:
         edited_at:
           type: string
           format: date-time
+        format_extension:
+          type: string
       required:
         - name
 
@@ -10357,6 +10559,10 @@ components:
         on_recovery_times:
           type: number
         on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
@@ -10436,6 +10642,10 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
         retry:
@@ -10480,6 +10690,10 @@ components:
         on_recovery_times:
           type: number
         on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_success:
+          type: string
+        on_success_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
@@ -11285,7 +11499,9 @@ components:
               graphql,
               nativets,
               bun,
-              php
+              php,
+              rust,
+              ansible,
             ]
       required:
         - raw_code

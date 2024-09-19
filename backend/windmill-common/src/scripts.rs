@@ -43,6 +43,8 @@ pub enum ScriptLang {
     Graphql,
     Mssql,
     Php,
+    Rust,
+    Ansible,
 }
 
 impl ScriptLang {
@@ -63,6 +65,8 @@ impl ScriptLang {
             ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
             ScriptLang::Php => "php",
+            ScriptLang::Rust => "rust",
+            ScriptLang::Ansible => "ansible",
         }
     }
 }

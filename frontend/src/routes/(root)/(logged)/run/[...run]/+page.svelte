@@ -8,7 +8,10 @@
 		type Script,
 		type WorkflowStatus,
 		type NewScript,
-		ConcurrencyGroupsService
+		ConcurrencyGroupsService,
+
+		MetricsService
+
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -68,6 +71,7 @@
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -90,6 +94,8 @@
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
+
+	let scriptProgress: number | undefined = undefined;
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -190,6 +196,24 @@
 	let persistentScriptDefinition: Script | undefined = undefined
 
 	async function onJobLoaded() {
+		// We want to set up scriptProgress once job is loaded
+		// We need this to show progress bar if job has progress and is finished
+		if (job && job.type == "CompletedJob"){
+			// If error occured and job is completed
+			// than we fetch progress from server to display on what progress did it fail
+			// Could be displayed after run or as a historical page
+			// If opening page without running job (e.g. reloading page after run) progress will be displayed instantly
+			MetricsService.getJobProgress({
+				workspace: job.workspace_id ?? "NO_WORKSPACE",
+				id: job.id,
+			}).then(progress => {
+			  // Returned progress is not always 100%, could be 65%, 33%, anything
+			  // Its ok if its a failure and we want to keep that value
+			  // But we want progress to be 100% if job has been succeeded
+				scriptProgress = progress;
+			});
+		}
+
 		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
 			return
 		}
@@ -200,6 +224,7 @@
 		if (script.restart_unless_cancelled ?? false) {
 			persistentScriptDefinition = script
 		}
+
 	}
 
 	$: {
@@ -319,6 +344,7 @@
 
 <TestJobLoader
 	lazyLogs
+	bind:scriptProgress 
 	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
@@ -333,7 +359,7 @@
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
-{#if notfound}
+{#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
@@ -647,7 +673,7 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'nativets', 'bash', 'powershell', 'php', 'other', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
@@ -731,6 +757,9 @@
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}
+				{#if scriptProgress}
+					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true}/>
+				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
 					<Tabs bind:selected={viewTab}>
@@ -793,6 +822,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					initialJob={job}
 					workspaceId={$workspaceStore}
 					bind:selectedJobStep
 				/>

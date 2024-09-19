@@ -182,6 +182,7 @@
 						<GridEditorMenu id={dataItem.id}>
 							<Component
 								{hidden}
+								{overlapped}
 								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 								render={visible}
 								component={dataItem.data}
@@ -215,7 +216,6 @@
 									}
 									$app = $app
 								}}
-								{overlapped}
 								{moveMode}
 							/>
 						</GridEditorMenu>
