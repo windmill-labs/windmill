@@ -116,7 +116,8 @@
 		'other',
 		'bun',
 		'php',
-		'rust'
+		'rust',
+		'ansible'
 	]
 	const nativeTags = [
 		'nativets',
@@ -476,7 +477,7 @@
 						options={{
 							right: 'Send an alert when the number of alive workers falls below a given threshold'
 						}}
-						checked={nconfig?.min_alive_workers_alert_threshold !== undefined ?? false}
+						checked={nconfig?.min_alive_workers_alert_threshold !== undefined}
 						on:change={(ev) => {
 							if (nconfig !== undefined) {
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined

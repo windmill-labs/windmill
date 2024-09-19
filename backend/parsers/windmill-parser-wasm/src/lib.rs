@@ -122,3 +122,9 @@ pub fn parse_php(code: &str) -> String {
 pub fn parse_rust(code: &str) -> String {
     wrap_sig(windmill_parser_rust::parse_rust_signature(code))
 }
+
+#[cfg(feature = "ansible-parser")]
+#[wasm_bindgen]
+pub fn parse_ansible(code: &str) -> String {
+    wrap_sig(windmill_parser_yaml::parse_ansible_sig(code))
+}

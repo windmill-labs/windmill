@@ -4507,6 +4507,7 @@ pub async fn run_job_by_hash_inner(
 pub struct JobUpdateQuery {
     pub running: bool,
     pub log_offset: i32,
+    pub get_progress: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -4516,6 +4517,7 @@ pub struct JobUpdate {
     pub new_logs: Option<String>,
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
+    pub progress: Option<i32>,
     pub flow_status: Option<Box<serde_json::value::RawValue>>,
 }
 
@@ -4583,7 +4585,7 @@ async fn get_job_update(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { running, log_offset, get_progress }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let record = sqlx::query_as::<_, JobUpdateRow>(
         "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) as logs, mem_peak, 
@@ -4598,6 +4600,20 @@ async fn get_job_update(
     .bind(&job_id)
     .fetch_optional(&db)
     .await?;
+
+    let progress: Option<i32> = if get_progress == Some(true){
+         sqlx::query_scalar!(
+                "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                &w_id,
+                 job_id,
+                "progress_perc"
+                
+            )
+            .fetch_one(&db)
+            .await?
+    } else {
+        None
+    };
 
     if let Some(record) = record {
         if opt_authed.is_none() && record.created_by != "anonymous" {
@@ -4616,6 +4632,7 @@ async fn get_job_update(
             completed: None,
             new_logs: record.logs,
             mem_peak: record.mem_peak,
+            progress,
             flow_status: record
                 .flow_status
                 .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
@@ -4648,6 +4665,7 @@ async fn get_job_update(
                 log_offset: record.log_offset,
                 new_logs: record.logs,
                 mem_peak: record.mem_peak,
+                progress,
                 flow_status: record
                     .flow_status
                     .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),

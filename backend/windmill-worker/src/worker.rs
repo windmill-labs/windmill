@@ -32,13 +32,10 @@ use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::Hash,
-    sync::{
+    collections::{hash_map::DefaultHasher, HashMap}, fs::DirBuilder, hash::Hash, sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
-    },
-    time::Duration,
+    }, time::Duration
 };
 #[cfg(feature = "benchmark")]
 use std::sync::atomic::AtomicUsize;
@@ -74,7 +71,6 @@ use tokio::fs::symlink;
 use tokio::fs::symlink_file as symlink;
 
 use tokio::{
-    fs::DirBuilder,
     sync::{
         mpsc::{self, Sender},
         RwLock,
@@ -87,7 +83,7 @@ use rand::Rng;
 
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
+    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
          NO_LOGS_AT_ALL, SLOW_LOGS,
     }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_job_error, handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
@@ -736,7 +732,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     DirBuilder::new()
         .recursive(true)
         .create(&worker_dir)
-        .await
         .expect("could not create initial worker dir");
 
     if !*DISABLE_NSJAIL {
@@ -1520,14 +1515,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::debug!("set worker busy to 1");
         }
 
+
         match next_job {
             Ok(Some(job)) => {
+
+
                 last_executed_job = None;
                 jobs_executed += 1;
 
                 tracing::debug!("started handling of job {}", job.id);
 
+
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
+
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {
                             job.flow_step_id.as_ref().map(|x| x.to_string())
@@ -1650,12 +1650,21 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     DirBuilder::new()
                         .recursive(true)
                         .create(&job_dir)
-                        .await
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-
-                    let target = &format!("{job_dir}/shared");
+                    
+                    let folder = if job.language == Some(ScriptLang::Go) {
+                        DirBuilder::new()
+                            .recursive(true)
+                            .create(&format!("{job_dir}/go"))
+                            .expect("could not create go dir");
+                        "/go"
+                    } else {
+                        ""
+                    };
+                    
+                    let target = &format!("{job_dir}{folder}/shared");
 
                     if same_worker && job.parent_job.is_some() {
                         if tokio::fs::metadata(target).await.is_err() {
@@ -1664,7 +1673,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             DirBuilder::new()
                                 .recursive(true)
                                 .create(&parent_shared_dir)
-                                .await
                                 .expect("could not create parent shared dir");
 
                             symlink(&parent_shared_dir, target)
@@ -1675,7 +1683,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         DirBuilder::new()
                             .recursive(true)
                             .create(target)
-                            .await
                             .expect("could not create shared dir");
                     }
 
@@ -2658,11 +2665,12 @@ async fn handle_code_execution_job(
     );
 
     let shared_mount = if job.same_worker && job.language != Some(ScriptLang::Deno) {
+        let folder = if job.language == Some(ScriptLang::Go) { "/go" } else { "" };
         format!(
             r#"
 mount {{
-    src: "{job_dir}/shared"
-    dst: "/tmp/shared"
+    src: "{job_dir}{folder}/shared"
+    dst: "/tmp{folder}/shared"
     is_bind: true
     rw: true
 }}
@@ -2816,6 +2824,23 @@ mount {{
                 envs,
             )
             .await
+        }
+        Some(ScriptLang::Ansible) => {
+
+            handle_ansible_job(
+                requirements_o,
+                job_dir,
+                worker_dir,
+                worker_name,
+                job,
+                mem_peak,
+                canceled_by,
+                db,
+                client,
+                &inner_content,
+                base_internal_url,
+                envs,
+            ).await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };

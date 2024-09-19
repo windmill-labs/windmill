@@ -1,6 +1,5 @@
 import {
   Select,
-  WorkspaceService,
   path,
   Confirm,
   yamlStringify,
@@ -9,6 +8,8 @@ import {
   setClient,
   Table,
 } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import { Input, colors, log } from "./deps.ts";
 import { loginInteractive } from "./login.ts";
 import { getRootStore } from "./store.ts";
@@ -62,40 +63,49 @@ export async function allInstances(): Promise<Instance[]> {
     return [];
   }
 }
-export async function addInstance() {
-  let remote = await Input.prompt({
-    message: "Enter the remote url of this instance",
-    default: "https://my.windmill.dev/",
-  });
-  remote = new URL(remote).toString(); // add trailing slash in all cases!
+export async function addInstance(
+  opts: {},
+  instanceName: string | undefined,
+  remote: string | undefined,
+  token: string | undefined
+) {
+  if (!remote) {
+    remote = await Input.prompt({
+      message: "Enter the remote url of this instance",
+      default: "https://my.windmill.dev/",
+    });
+    remote = new URL(remote).toString(); // add trailing slash in all cases!
+  }
 
-  const defaultName = new URL(remote).hostname.split(".")[0];
+  if (!instanceName) {
+    const defaultName = new URL(remote).hostname.split(".")[0];
 
-  const name = await Input.prompt({
-    message: "Enter a name for this instance",
-    default: defaultName,
-  });
+    instanceName = await Input.prompt({
+      message: "Enter a name for this instance",
+      default: defaultName,
+    });
+  }
+  const prefix = instanceName.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  const prefix = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-  let token: string | undefined = undefined;
   while (!token) {
     token = await loginInteractive(remote);
   }
 
   await appendInstance({
-    name,
+    name: instanceName,
     remote,
     token,
     prefix,
   });
   log.info(
-    colors.green.underline(`Added instance ${name} with remote ${remote}!`)
+    colors.green.underline(
+      `Added instance ${instanceName} with remote ${remote}!`
+    )
   );
 
-  await switchI({}, name);
+  await switchI({}, instanceName);
   return {
-    name,
+    name: instanceName,
     remote,
     token,
     prefix,
@@ -183,7 +193,7 @@ async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
   );
   if (!instance) {
     if (instances.length < 1) {
-      instance = await addInstance();
+      instance = await addInstance({}, undefined, undefined, undefined);
     } else {
       const choice = (await Select.prompt({
         message: "Select an instance",
@@ -197,7 +207,7 @@ async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
       })) as unknown as string;
 
       if (choice === "new") {
-        instance = await addInstance();
+        instance = await addInstance({}, undefined, undefined, undefined);
       } else {
         instance = instances.find((i) => i.name === choice)!;
       }
@@ -265,7 +275,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
-    const remoteWorkspaces = await WorkspaceService.listWorkspacesAsSuperAdmin({
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
@@ -398,7 +408,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       default: instance.prefix as unknown,
     })) as unknown as string;
 
-    const remoteWorkspaces = await WorkspaceService.listWorkspacesAsSuperAdmin({
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
@@ -468,7 +478,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
       if (confirmDelete) {
         for (const workspace of workspacesToDelete) {
-          await WorkspaceService.deleteWorkspace({ workspace: workspace.id });
+          await wmill.deleteWorkspace({ workspace: workspace.id });
           log.info(colors.green.underline("Deleted workspace " + workspace.id));
         }
       }
@@ -498,7 +508,7 @@ async function switchI(opts: {}, instanceName: string) {
   log.info(colors.green.underline(`Switched to instance ${instanceName}`));
 }
 
-async function getActiveInstance(opts: {
+export async function getActiveInstance(opts: {
   instance?: string;
 }): Promise<string | undefined> {
   if (opts.instance) {
@@ -517,21 +527,22 @@ const command = new Command()
   )
   .action(async () => {
     log.info(
-      "4 actions available, add, switch, pull and push. Use -h to display help."
+      "4 actions available, add, remove, switch, pull and push. Use -h to display help."
     );
+    const activeInstance = await getActiveInstance({});
+
     new Table()
       .header(["name", "remote", "token"])
       .padding(2)
       .border(true)
       .body(
         (await allInstances()).map((x) => [
-          x.name,
+          x.name === activeInstance ? colors.underline(x.name) : x.name,
           x.remote,
           x.token.substring(0, 7) + "***",
         ])
       )
       .render();
-    const activeInstance = await getActiveInstance({});
     if (activeInstance) {
       log.info(`Selected instance: ${activeInstance}`);
     } else {
@@ -542,6 +553,7 @@ const command = new Command()
   .command("add")
   .description("Add a new instance")
   .action(addInstance as any)
+  .arguments("[instance_name:string] [remote:string] [token:string]")
   .command("remove")
   .description("Remove an instance")
   .complete("instance", async () => (await allInstances()).map((x) => x.name))

@@ -111,6 +111,9 @@
 				if (resourceType.schema) {
 					resourceSchema = resourceType.schema as Schema
 				}
+				if (resourceTypeInfo?.format_extension) {
+					textFileContent = args.content
+				}
 			} catch (err) {
 				resourceSchema = undefined
 				loadingSchema = false
@@ -137,12 +140,24 @@
 		})
 	}
 
+	let textFileContent: string = ''
+	$: textFileContent && parseTextFileContent()
+
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
 		if (asJson) {
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
+			if (resourceTypeInfo?.format_extension) {
+				textFileContent = args.content
+			}
+		}
+	}
+
+	function parseTextFileContent() {
+		args = {
+			content: textFileContent
 		}
 	}
 </script>
@@ -215,15 +230,31 @@
 			{#if loadingSchema}
 				<Skeleton layout={[[4]]} />
 			{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
-				<SchemaForm
-					onlyMaskPassword
-					noDelete
-					disabled={!can_write}
-					compact
-					schema={resourceSchema}
-					bind:args
-					bind:isValid
-				/>
+				{#if resourceTypeInfo?.format_extension}
+						<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
+							File content ({resourceTypeInfo.format_extension})
+						</h5>
+					<div class="h-full w-full border p-1 rounded">
+
+						<SimpleEditor
+							autoHeight
+							class="editor"
+							lang={resourceTypeInfo.format_extension}
+							bind:code={textFileContent}
+							fixedOverflowWidgets={false}
+						/>
+					</div>
+				{:else}
+					<SchemaForm
+						onlyMaskPassword
+						noDelete
+						disabled={!can_write}
+						compact
+						schema={resourceSchema}
+						bind:args
+						bind:isValid
+					/>
+				{/if}
 			{:else if !can_write}
 				<input type="text" disabled value={rawCode} />
 			{:else}

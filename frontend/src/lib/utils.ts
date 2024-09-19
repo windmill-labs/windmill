@@ -494,7 +494,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -504,7 +504,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -720,7 +720,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -939,4 +939,10 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 		type: 'object',
 		order: Object.keys(properties).filter((k) => k !== 'label')
 	}
+}
+
+export function validateFileExtension(ext: string) {
+	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
+	return validExtensionRegex.test(ext)
+
 }

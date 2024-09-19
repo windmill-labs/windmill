@@ -482,6 +482,51 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
+export const ANSIBLE_PLAYBOOK_INIT_CODE = `---
+inventory:
+  - resource_type: ansible_inventory
+    # You can pin an inventory to this script by hardcoding the resource path:
+    # resource: u/user/your_resource
+
+# File resources will be written in the relative \`target\` location before
+# running the playbook
+# file_resources:
+  # - resource: u/user/fabulous_jinja_template
+  #   target:  ./config_template.j2
+
+# Define the arguments of the windmill script
+extra_vars:
+  world_qualifier:
+    type: string
+
+dependencies:
+  galaxy:
+    collections:
+      - name: community.general
+      - name: community.vmware
+  python:
+    - jmespath
+---
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
+  vars:
+    my_result:
+      a: 2
+      b: true
+      c: "Hello"
+
+  tasks:
+  - name: Print debug message
+    debug:
+      msg: "Hello, {{world_qualifier}} world!"
+  - name: Write variable my_result to result.json
+    delegate_to: localhost
+    copy:
+      content: "{{ my_result | to_json }}"
+      dest: result.json
+`
+
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
 	PYTHON_INIT_CODE_TRIGGER,
@@ -504,6 +549,7 @@ const ALL_INITIAL_CODE = [
 	POWERSHELL_INIT_CODE,
 	PHP_INIT_CODE,
 	RUST_INIT_CODE,
+	ANSIBLE_PLAYBOOK_INIT_CODE,
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -592,6 +638,8 @@ export function initialCode(
 		return PHP_INIT_CODE
 	} else if (language == 'rust') {
 		return RUST_INIT_CODE
+	} else if (language == 'ansible') {
+		return ANSIBLE_PLAYBOOK_INIT_CODE
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (language == 'bunnative' || subkind === 'bunnative') {
 			return BUNNATIVE_INIT_CODE

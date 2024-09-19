@@ -17,6 +17,7 @@
 	import type { Script } from '$lib/gen'
 	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
 	import RustIcon from '$lib/components/icons/RustIcon.svelte'
+	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -48,7 +49,8 @@
 		mssql: 'MS SQL Server',
 		bun: 'TypeScript',
 		php: 'PHP',
-		rust: 'Rust'
+		rust: 'Rust',
+		ansible: 'Ansible Playbook'
 	}
 
 	const langToComponent: Record<
@@ -75,7 +77,8 @@
 		nativets: RestIcon,
 		graphql: GraphqlIcon,
 		php: PHPIcon,
-		rust: RustIcon
+		rust: RustIcon,
+		ansible: AnsibleIcon
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

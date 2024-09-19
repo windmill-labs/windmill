@@ -476,6 +476,7 @@ jobs:
           file: "./docker/DockerfileNsjail"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
+            ghcr.io/windmill-labs/windmill-ee-nsjail:main
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
@@ -744,7 +745,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          file: "./docker/DockerfileRust"
+          file: "./docker/DockerfileFull"
           tags: |
             ${{ steps.meta-public.outputs.tags }}
           labels: |
@@ -789,7 +790,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          file: "./docker/DockerfileRustEe"
+          file: "./docker/DockerfileFullEe"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |

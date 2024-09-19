@@ -256,7 +256,7 @@
 				shiftKey: e.shiftKey
 			}
 
-			if (obj.ctrlKey && obj.key == 'a') {
+			if ((obj.ctrlKey || obj.metaKey) && obj.key == 'a') {
 				e.stopPropagation()
 				return
 			}
@@ -402,6 +402,9 @@
 			document.execCommand('copy')
 		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
 			document.execCommand('cut')
+		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
+			event.preventDefault()
+			document.execCommand('paste')
 		}
 	}
 

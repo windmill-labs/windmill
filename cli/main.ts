@@ -19,10 +19,12 @@ import folder from "./folder.ts";
 import schedule from "./schedule.ts";
 import sync from "./sync.ts";
 import instance from "./instance.ts";
+import workerGroups from "./worker_groups.ts";
+
 import dev from "./dev.ts";
 import { fetchVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
-import { OpenAPI } from "./deps.ts";
+import { OpenAPI } from "./gen/index.ts";
 import { getHeaders } from "./utils.ts";
 import { NpmProvider } from "./upgrade.ts";
 import { pull as hubPull } from "./hub.ts";
@@ -56,7 +58,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.395.0";
+export const VERSION = "1.397.0";
 
 const command = new Command()
   .name("wmill")
@@ -117,6 +119,7 @@ const command = new Command()
   .command("dev", dev)
   .command("sync", sync)
   .command("instance", instance)
+  .command("worker-groups", workerGroups)
 
   .command("version", "Show version information")
   .action(async (opts) => {
@@ -205,10 +208,12 @@ function isMain() {
 
   if (isDeno) {
     const isMain = import.meta.main;
-    if (isMain && !Deno.args.includes("completions")) {
-      log.warn(
-        "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli"
-      );
+    if (isMain) {
+      if (!Deno.args.includes("completions")) {
+        log.warn(
+          "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli"
+        );
+      }
     }
     return isMain;
   } else {
