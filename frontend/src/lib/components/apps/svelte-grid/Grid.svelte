@@ -190,6 +190,8 @@
 	let moveResizes: Record<string, MoveResize> = {}
 	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
 
+	let componentDraggedId: string | undefined = undefined
+
 	export function handleMove({ detail }) {
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
@@ -199,7 +201,9 @@
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 	}
 
-	export function handleInitMove({ detail }) {
+	export function handleInitMove(id: string) {
+		componentDraggedId = id
+
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
 				moveResize?.initmove()
@@ -215,7 +219,7 @@
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			<MoveResize
-				on:initmove={handleInitMove}
+				on:initmove={() => handleInitMove(item.id)}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}
 				bind:this={moveResizes[item.id]}
@@ -225,10 +229,11 @@
 				{xPerPx}
 				{yPerPx}
 				on:dropped={(e) => {
+					componentDraggedId = undefined
+
 					if (!isCtrlOrMetaPressed) {
 						return
 					}
-
 					dispatch('dropped', e.detail)
 					overlapped = undefined
 				}}
@@ -255,6 +260,7 @@
 						hidden={false}
 						{overlapped}
 						moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
+						{componentDraggedId}
 					/>
 				{/if}
 			</MoveResize>

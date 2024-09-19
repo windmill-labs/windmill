@@ -179,6 +179,7 @@
 				let:hidden
 				let:overlapped
 				let:moveMode
+				let:componentDraggedId
 				cols={columnConfiguration}
 				on:dropped={(e) => {
 					const { id, overlapped } = e.detail
@@ -234,6 +235,7 @@
 							}}
 							{overlapped}
 							{moveMode}
+							{componentDraggedId}
 						/>
 					</GridEditorMenu>
 				</ComponentWrapper>

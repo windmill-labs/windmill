@@ -1135,3 +1135,15 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		}
 	)
 }
+
+export function isContainer(component: AppComponent): boolean {
+	return (
+		component.type === 'containercomponent' ||
+		component.type === 'tabscomponent' ||
+		component.type === 'verticalsplitpanescomponent' ||
+		component.type === 'horizontalsplitpanescomponent' ||
+		component.type === 'steppercomponent' ||
+		component.type === 'listcomponent' ||
+		component.type === 'decisiontreecomponent'
+	)
+}
