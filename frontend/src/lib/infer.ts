@@ -20,6 +20,7 @@ import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
+import initYamlParser, { parse_ansible } from 'windmill-parser-wasm-yaml'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -27,6 +28,7 @@ import wasmUrlPy from 'windmill-parser-wasm-py/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlGo from 'windmill-parser-wasm-go/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlPhp from 'windmill-parser-wasm-php/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRust from 'windmill-parser-wasm-rust/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlYaml from 'windmill-parser-wasm-yaml/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
@@ -54,6 +56,9 @@ async function initWasmRust() {
 }
 async function initWasmGo() {
 	await initGoParser(wasmUrlGo)
+}
+async function initWasmYaml() {
+	await initYamlParser(wasmUrlYaml)
 }
 
 export async function inferArgs(
@@ -153,6 +158,9 @@ export async function inferArgs(
 		} else if (language == 'rust') {
 			await initWasmRust()
 			inferedSchema = JSON.parse(parse_rust(code))
+		} else if (language == 'ansible') {
+			await initWasmYaml()
+			inferedSchema = JSON.parse(parse_ansible(code))
 		} else {
 			return null
 		}

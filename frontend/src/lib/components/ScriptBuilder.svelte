@@ -651,6 +651,9 @@
 												>
 													<LanguageIcon {lang} />
 													<span class="ml-2 py-2 truncate">{label}</span>
+													{#if lang === 'ansible'}
+														<span class="text-tertiary !text-xs"> BETA </span>
+													{/if}
 												</Button>
 												<svelte:fragment slot="text"
 													>{label} is only available with an enterprise license</svelte:fragment

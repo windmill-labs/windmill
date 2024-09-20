@@ -28,8 +28,8 @@ use windmill_common::s3_helpers::{
 };
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
 use windmill_common::worker::{
-    get_windmill_memory_usage, get_worker_memory_usage, write_file, CLOUD_HOSTED, ROOT_CACHE_DIR,
-    TMP_DIR, WORKER_CONFIG,
+    get_windmill_memory_usage, get_worker_memory_usage, to_raw_value, write_file, CLOUD_HOSTED,
+    ROOT_CACHE_DIR, TMP_DIR, WORKER_CONFIG,
 };
 use windmill_common::{
     error::{self, Error},
@@ -37,7 +37,7 @@ use windmill_common::{
     variables::ContextualVariable,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use windmill_queue::{append_logs, CanceledBy};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -349,19 +349,55 @@ pub fn unsafe_raw(json: String) -> Box<RawValue> {
     unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
 }
 
-pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
-    let content = read_file_content(path).await?;
-
-    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
+fn check_result_too_big(size: usize) -> error::Result<()> {
+    if *CLOUD_HOSTED && size > MAX_RESULT_SIZE {
         return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
     };
+    Ok(())
+}
+
+/// This function assumes that the file contains valid json and will result in UB if it isn't. If
+/// the file is user generated or otherwise not guaranteed to be valid used the
+/// `read_and_check_file` instead
+pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
+    let content = read_file_content(path).await?;
+
+    check_result_too_big(content.len())?;
 
     let r = unsafe_raw(content);
     return Ok(r);
 }
+
+/// Read the `result.json` file. This function assumes that the file contains valid json and will
+/// result in undefined behaviour if it isn't. If the result.json is user generated or otherwise
+/// not guaranteed to be valid, use `read_and_check_result`
 pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
     return read_file(&format!("{job_dir}/result.json")).await;
+}
+
+pub async fn read_and_check_file(path: &str) -> error::Result<Box<RawValue>> {
+    let content = read_file_content(path).await?;
+
+    check_result_too_big(content.len())?;
+
+    let raw_value: Box<RawValue> = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("{} is not valid json: {}", path, e))?;
+    Ok(raw_value)
+}
+
+/// Use this to read `result.json` that were user-generated
+pub async fn read_and_check_result(job_dir: &str) -> error::Result<Box<RawValue>> {
+    let result_path = format!("{job_dir}/result.json");
+
+    if let Ok(metadata) = tokio::fs::metadata(&result_path).await {
+        if metadata.len() > 0 {
+            return read_and_check_file(&result_path)
+                .await
+                .map_err(|e| anyhow!("Failed to read result: {}", e).into());
+        }
+    }
+    Ok(to_raw_value(&json!("null")))
 }
 
 pub fn capitalize(s: &str) -> String {

@@ -1,5 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, GlobalUserInfo, log, setClient, UserService } from "./deps.ts";
+import { colors, log, setClient } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+import { GlobalUserInfo } from "./gen/types.gen.ts";
+
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
 import { getHeaders } from "./utils.ts";
@@ -91,7 +94,7 @@ export async function requireLogin(
   setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
 
   try {
-    return await UserService.globalWhoami();
+    return await wmill.globalWhoami();
   } catch {
     log.info(
       "! Could not reach API given existing credentials. Attempting to reauth..."
@@ -108,7 +111,7 @@ export async function requireLogin(
       token,
       workspace.remote.substring(0, workspace.remote.length - 1)
     );
-    return await UserService.globalWhoami();
+    return await wmill.globalWhoami();
   }
 }
 

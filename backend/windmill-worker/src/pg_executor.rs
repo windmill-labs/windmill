@@ -244,9 +244,7 @@ pub async fn do_postgresql(
         .map_err(to_anyhow)?;
 
         let handle = tokio::spawn(async move {
-            if let Err(e) =
-                tokio::time::timeout(std::time::Duration::from_secs(20), connection).await
-            {
+            if let Err(e) = connection.await {
                 let mut mtex = CONNECTION_CACHE.lock().await;
                 *mtex = None;
                 tracing::error!("connection error: {}", e);
@@ -264,9 +262,7 @@ pub async fn do_postgresql(
         .map_err(to_anyhow)?;
 
         let handle = tokio::spawn(async move {
-            if let Err(e) =
-                tokio::time::timeout(std::time::Duration::from_secs(20), connection).await
-            {
+            if let Err(e) = connection.await {
                 let mut mtex = CONNECTION_CACHE.lock().await;
                 *mtex = None;
                 tracing::error!("connection error: {}", e);

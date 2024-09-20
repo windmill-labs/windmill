@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.395.0
+  version: 1.397.2
   title: Windmill API
 
   contact:
@@ -3088,6 +3088,22 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/resources/file_resource_type_to_file_ext_map:
+    get:
+      summary: get map from resource type to format extension
+      operationId: fileResourceTypeToFileExtMap
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: map from resource type to file ext
+          content:
+            application/json:
+              schema: {}
+
+
   /w/{workspace}/resources/type/delete/{path}:
     delete:
       summary: delete resource_type
@@ -6008,6 +6024,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: get_progress
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -6026,6 +6046,8 @@ paths:
                   log_offset:
                     type: integer
                   mem_peak:
+                    type: integer
+                  progress:
                     type: integer
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
@@ -8849,6 +8871,52 @@ paths:
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
 
+  /w/{workspace}/job_metrics/set_progress/{id}:
+    post:
+      summary: set job metrics
+      operationId: setJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        description: parameters for statistics retrieval
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                percent:
+                  type: integer
+                flow_job_id:
+                  type: string
+                  format: uuid
+
+      responses:
+        "200":
+          description: Job progress updated
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_metrics/get_progress/{id}:
+    get:
+      summary: get job progress
+      operationId: getJobProgress
+      tags:
+        - metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job progress between 0 and 99
+          content:
+            application/json:
+              schema:
+                type: integer
   /service_logs/list_files:
     get:
       summary: list log files ordered by timestamp
@@ -8912,7 +8980,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /concurrency_groups/list:
     get:
@@ -9513,6 +9580,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         kind:
           type: string
@@ -9615,6 +9683,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         kind:
           type: string
@@ -9835,6 +9904,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         email:
           type: string
@@ -9951,6 +10021,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         is_skipped:
           type: boolean
@@ -10495,6 +10566,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
         tag:
           type: string
@@ -10642,6 +10714,8 @@ components:
         edited_at:
           type: string
           format: date-time
+        format_extension:
+          type: string
       required:
         - name
 
@@ -11754,6 +11828,7 @@ components:
               bun,
               php,
               rust,
+              ansible,
             ]
       required:
         - raw_code

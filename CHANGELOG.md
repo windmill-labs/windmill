@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.397.2](https://github.com/windmill-labs/windmill/compare/v1.397.1...v1.397.2) (2024-09-20)
+
+
+### Bug Fixes
+
+* **bun:** never pre-bundle BASE_URL env variable ([69b8754](https://github.com/windmill-labs/windmill/commit/69b8754aef32682bf812be783f79b81cd8526c7a))
+
+## [1.397.1](https://github.com/windmill-labs/windmill/compare/v1.397.0...v1.397.1) (2024-09-20)
+
+
+### Bug Fixes
+
+* **go:** put shared directory in job dir and not go parent ([623ece8](https://github.com/windmill-labs/windmill/commit/623ece8c6791b2c18648a68c562fcd5c8291be9b))
+* improve ability to paste from macos in vscode extension ([07372e7](https://github.com/windmill-labs/windmill/commit/07372e7e65d77df338718929f133e477a1daf993))
+* update git sync script ([30fe28c](https://github.com/windmill-labs/windmill/commit/30fe28ceecb9043eee6811dce8c3e2cd9224927b))
+
+## [1.397.0](https://github.com/windmill-labs/windmill/compare/v1.396.1...v1.397.0) (2024-09-18)
+
+
+### Features
+
+* ansible playbook support ([#4399](https://github.com/windmill-labs/windmill/issues/4399)) ([6855b8d](https://github.com/windmill-labs/windmill/commit/6855b8da9ad92aed514ee1ab214c9550d04e7a22))
+
+## [1.396.1](https://github.com/windmill-labs/windmill/compare/v1.396.0...v1.396.1) (2024-09-18)
+
+
+### Bug Fixes
+
+* postgres scripts that take longer than 20s do not timeout anymore ([37d152f](https://github.com/windmill-labs/windmill/commit/37d152feeb6abeb061daa5c93c24916e520b1fd0))
+
+## [1.396.0](https://github.com/windmill-labs/windmill/compare/v1.395.0...v1.396.0) (2024-09-17)
+
+
+### Features
+
+* Allow setProgress and getProgress from within the script ([#4400](https://github.com/windmill-labs/windmill/issues/4400)) ([d6d4756](https://github.com/windmill-labs/windmill/commit/d6d4756b7a40249dbc622c8a93633e8d8b8333da))
+
 ## [1.395.0](https://github.com/windmill-labs/windmill/compare/v1.394.6...v1.395.0) (2024-09-17)
 
 

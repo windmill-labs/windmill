@@ -1,14 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import {
-  FlowValue,
-  SEP,
-  colors,
-  log,
-  path,
-  yamlParse,
-  yamlStringify,
-} from "./deps.ts";
+import { SEP, colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -43,6 +35,7 @@ import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
 import { getIsWin } from "./main.ts";
+import { FlowValue } from "./gen/types.gen.ts";
 
 export async function generateAllMetadata() {}
 

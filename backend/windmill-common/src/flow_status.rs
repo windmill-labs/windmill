@@ -117,6 +117,7 @@ struct UntaggedFlowStatusModule {
     type_: String,
     id: Option<String>,
     count: Option<u16>,
+    progress: Option<u8>,
     job: Option<Uuid>,
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
@@ -147,6 +148,8 @@ pub enum FlowStatusModule {
     InProgress {
         id: String,
         job: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<u8>,
         #[serde(skip_serializing_if = "Option::is_none")]
         iterator: Option<Iterator>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,6 +241,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
                 while_loop: untagged.while_loop.unwrap_or(false),
+                progress: untagged.progress,
             }),
             "Success" => Ok(FlowStatusModule::Success {
                 id: untagged

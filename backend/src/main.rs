@@ -173,7 +173,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     None,
                     &job_dir,
                     "cache_init",
-                    windmill_worker::get_common_bun_proc_envs("").await,
+                    windmill_worker::get_common_bun_proc_envs(None).await,
                     false,
                 )
                 .await?;

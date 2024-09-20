@@ -2,3 +2,5 @@ FROM ghcr.io/windmill-labs/windmill:dev
 
 COPY --from=rust:1.80.1 /usr/local/cargo /usr/local/cargo
 COPY --from=rust:1.80.1 /usr/local/rustup /usr/local/rustup
+
+RUN pip3 install ansible

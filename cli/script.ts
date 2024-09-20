@@ -5,18 +5,16 @@ import {
   colors,
   Command,
   Confirm,
-  JobService,
   log,
-  NewScript,
   readAll,
-  Script,
-  ScriptService,
   SEP,
   Table,
   writeAllSync,
   yamlStringify,
 } from "./deps.ts";
 import { deepEqual } from "./utils.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import {
   defaultScriptMetadata,
   scriptBootstrapCode,
@@ -50,6 +48,7 @@ import fs from "node:fs";
 import { type Tarball } from "npm:@ayonli/jsext/archive";
 
 import { execSync } from "node:child_process";
+import { NewScript, Script } from "./gen/types.gen.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -95,6 +94,41 @@ async function push(opts: PushOptions, filePath: string) {
     codebases
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
+}
+
+export async function findResourceFile(path: string) {
+
+  const splitPath = path.split(".");
+
+  const contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
+  const contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
+
+  const validCandidates = (
+    await Promise.all(
+      [contentBasePathJSON, contentBasePathYAML].map((x) => {
+        return Deno.stat(x)
+          .catch(() => undefined)
+          .then((x) => x?.isFile)
+          .then((e) => {
+            return { path: x, file: e };
+          });
+      })
+    )
+  )
+    .filter((x) => x.file)
+    .map((x) => x.path);
+  if (validCandidates.length > 1) {
+    throw new Error(
+      "Found two resource files for the same resource" +
+        validCandidates.join(", ")
+    );
+  }
+  if (validCandidates.length < 1) {
+    throw new Error(
+      `No resource matching file resource: ${path}.`
+    );
+  }
+  return validCandidates[0];
 }
 
 export async function handleScriptMetadata(
@@ -227,7 +261,7 @@ export async function handleFile(
 
     let remote = undefined;
     try {
-      remote = await ScriptService.getScriptByPath({
+      remote = await wmill.getScriptByPath({
         workspace: workspaceId,
         path: remotePath,
       });
@@ -372,7 +406,7 @@ async function createScript(
   if (!bundleContent) {
     try {
       // no parent hash
-      await ScriptService.createScript({
+      await wmill.createScript({
         workspace: workspaceId,
         requestBody: body,
       });
@@ -488,6 +522,10 @@ export function filePathExtensionFromContentType(
     return ".ps1";
   } else if (language === "php") {
     return ".php";
+  } else if (language === "rust") {
+    return ".rs";
+  } else if (language === "ansible") {
+    return ".playbook.yml";
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -510,6 +548,8 @@ export const exts = [
   ".gql",
   ".ps1",
   ".php",
+  ".rs",
+  ".playbook.yml",
 ];
 
 export function removeExtensionToPath(path: string): string {
@@ -535,7 +575,7 @@ async function list(
   const perPage = 10;
   const total: Script[] = [];
   while (true) {
-    const res = await ScriptService.listScripts({
+    const res = await wmill.listScripts({
       workspace: workspace.workspaceId,
       page,
       perPage,
@@ -588,7 +628,7 @@ async function run(
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
-  const id = await JobService.runScriptByPath({
+  const id = await wmill.runScriptByPath({
     workspace: workspace.workspaceId,
     path,
     requestBody: input,
@@ -602,7 +642,7 @@ async function run(
     try {
       const result =
         (
-          await JobService.getCompletedJob({
+          await wmill.getCompletedJob({
             workspace: workspace.workspaceId,
             id,
           })
@@ -623,7 +663,7 @@ async function run(
 
 export async function track_job(workspace: string, id: string) {
   try {
-    const result = await JobService.getCompletedJob({ workspace, id });
+    const result = await wmill.getCompletedJob({ workspace, id });
 
     log.info(result.logs);
     log.info("\n");
@@ -646,7 +686,7 @@ export async function track_job(workspace: string, id: string) {
       new_logs?: string | undefined;
     };
     try {
-      updates = await JobService.getJobUpdates({
+      updates = await wmill.getJobUpdates({
         workspace,
         id,
         logOffset,
@@ -684,7 +724,7 @@ export async function track_job(workspace: string, id: string) {
   await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
 
   try {
-    const final_job = await JobService.getCompletedJob({ workspace, id });
+    const final_job = await wmill.getCompletedJob({ workspace, id });
     if ((final_job.logs?.length ?? -1) > logOffset) {
       log.info(final_job.logs!.substring(logOffset));
     }
@@ -703,7 +743,7 @@ export async function track_job(workspace: string, id: string) {
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const s = await ScriptService.getScriptByPath({
+  const s = await wmill.getScriptByPath({
     workspace: workspace.workspaceId,
     path,
   });

@@ -77,7 +77,8 @@ export function langToExt(lang: string): string {
 			return 'gql'
 		case 'css':
 			return 'css'
-
+		case 'ansible':
+			return 'yml'
 		default:
 			return 'unknown'
 	}

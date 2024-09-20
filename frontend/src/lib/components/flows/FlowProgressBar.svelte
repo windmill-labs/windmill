@@ -10,6 +10,7 @@
 	let subLength: number | undefined = undefined
 	let length = 1
 	let nextInProgress = false
+	let subIndexIsPercent: boolean = false
 
 	$: if (job) updateJobProgress(job)
 
@@ -38,7 +39,8 @@
 				newError = maxDone
 				maxDone = maxDone + 1
 			}
-		}
+		}		
+		subIndexIsPercent = false;
 
 		// Loop is still iterating
 		if (module?.iterator) {
@@ -51,6 +53,12 @@
 		} else if (module?.branchall) {
 			subStepIndex = module.branchall.branch
 			subStepLength = module.branchall.len
+		} else if (module?.progress) {		
+			const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
+			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99)
+			//                  Jitter protection >^^^^^^^^
+			subStepLength = 100
+			subIndexIsPercent = true;
 		}
 
 		error = newError
@@ -81,5 +89,6 @@
 	{subLength}
 	{subIndex}
 	{error}
+	bind:subIndexIsPercent
 	class={$$props.class}
 />
