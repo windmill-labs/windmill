@@ -106,9 +106,8 @@ pub async fn create_args_and_out_file(
     job: &QueuedJob,
     job_dir: &str,
     db: &Pool<Postgres>,
-    args_override: Option<Json<HashMap<String, Box<RawValue>>>>,
 ) -> Result<(), Error> {
-    if let Some(args) = args_override.as_ref().or(job.args.as_ref()) {
+    if let Some(args) = job.args.as_ref() {
         if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
             write_file(
                 job_dir,
@@ -381,8 +380,8 @@ pub async fn read_and_check_file(path: &str) -> error::Result<Box<RawValue>> {
 
     check_result_too_big(content.len())?;
 
-    let raw_value: Box<RawValue> = serde_json::from_str(&content)
-        .map_err(|e| anyhow!("{} is not valid json: {}", path, e))?;
+    let raw_value: Box<RawValue> =
+        serde_json::from_str(&content).map_err(|e| anyhow!("{} is not valid json: {}", path, e))?;
     Ok(raw_value)
 }
 

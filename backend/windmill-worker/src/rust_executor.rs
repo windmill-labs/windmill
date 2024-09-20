@@ -279,7 +279,7 @@ pub async fn handle_rust_job(
             ))
         })?;
 
-        create_args_and_out_file(client, job, job_dir, db, None).await?;
+        create_args_and_out_file(client, job, job_dir, db).await?;
         cache_logs
     } else {
         let logs1 = format!("{cache_logs}\n\n--- CARGO BUILD ---\n");
@@ -293,7 +293,7 @@ pub async fn handle_rust_job(
             }
         }
 
-        create_args_and_out_file(client, job, job_dir, db, None).await?;
+        create_args_and_out_file(client, job, job_dir, db).await?;
 
         build_rust_crate(
             &job.id,

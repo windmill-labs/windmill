@@ -35,7 +35,7 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::{QueuedJob, ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     scripts::ScriptLang,
     worker::{exists_in_cache, get_annotation, save_cache, write_file},
     DB,
@@ -1054,20 +1054,7 @@ try {{
     let reserved_variables_args_out_f = async {
         let args_and_out_f = async {
             if !annotation.native_mode {
-                create_args_and_out_file(
-                    &client,
-                    job,
-                    job_dir,
-                    db,
-                    if apply_preprocessor && job.args.is_some() {
-                        let mut cleaned_args = job.args.clone().unwrap();
-                        cleaned_args.0.remove(ENTRYPOINT_OVERRIDE);
-                        Some(cleaned_args)
-                    } else {
-                        None
-                    },
-                )
-                .await?;
+                create_args_and_out_file(&client, job, job_dir, db).await?;
             }
             Ok(()) as Result<()>
         };

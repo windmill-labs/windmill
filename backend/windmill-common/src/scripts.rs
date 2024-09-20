@@ -66,7 +66,7 @@ impl ScriptLang {
             ScriptLang::Graphql => "graphql",
             ScriptLang::Php => "php",
             ScriptLang::Rust => "rust",
-            ScriptLang::Ansible => "ansible",,
+            ScriptLang::Ansible => "ansible",
         }
     }
 }

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
-    jobs::{QueuedJob, ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
     worker::{write_file, WORKER_CONFIG},
     DB,
@@ -294,20 +294,7 @@ pub async fn handle_python_job(
 
     let apply_preprocessor = pre_spread.is_some();
 
-    create_args_and_out_file(
-        &client,
-        job,
-        job_dir,
-        db,
-        if apply_preprocessor && job.args.is_some() {
-            let mut cleaned_args = job.args.clone().unwrap();
-            cleaned_args.0.remove(ENTRYPOINT_OVERRIDE);
-            Some(cleaned_args)
-        } else {
-            None
-        },
-    )
-    .await?;
+    create_args_and_out_file(&client, job, job_dir, db).await?;
 
     let preprocessor = if let Some(pre_spread) = pre_spread {
         format!(
