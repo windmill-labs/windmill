@@ -72,7 +72,7 @@
 
 	const defaultExtraTriggerLinks = [
 		{
-			label: 'HTTP API',
+			label: 'HTTP',
 			href: '/routes',
 			icon: Route,
 			disabled: $userStore?.operator,

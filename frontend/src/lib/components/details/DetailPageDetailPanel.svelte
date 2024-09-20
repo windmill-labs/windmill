@@ -64,7 +64,7 @@
 									<Tab value="routes">
 										<span class="flex flex-row gap-2 items-center">
 											<Route size={14} />
-											Routes
+											HTTP
 										</span>
 									</Tab>
 									<Tab value="email">

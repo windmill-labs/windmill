@@ -158,7 +158,7 @@
 
 <CenteredPage>
 	<PageHeader
-		title="HTTP API"
+		title="Custom HTTP routes"
 		tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/http_api"
 	>
