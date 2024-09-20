@@ -19,6 +19,13 @@ export type FlowInput = Record<
 	}
 >
 
+export type ExtendedOpenFlow = OpenFlow & {
+	tag?: string
+	ws_error_handler_muted?: boolean
+	dedicated_worker?: boolean
+	visible_to_runner_only?: boolean
+}
+
 export type FlowEditorContext = {
 	selectedId: Writable<string>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
@@ -27,14 +34,7 @@ export type FlowEditorContext = {
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
-	flowStore: Writable<
-		OpenFlow & {
-			tag?: string
-			ws_error_handler_muted?: boolean
-			dedicated_worker?: boolean
-			visible_to_runner_only?: boolean
-		}
-	>
+	flowStore: Writable<ExtendedOpenFlow>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void

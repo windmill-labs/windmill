@@ -9,6 +9,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		tutorials?: boolean
 		diff?: boolean
 		extraDeployOptions?: boolean
+		editableSummary?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -38,8 +39,9 @@ export type EditorBarUi = {
 	assistants?: boolean
 	multiplayer?: boolean
 	autoformatting?: boolean
+	vimMode?: boolean
 	aiGen?: boolean
-	aiFix?: boolean
+	aiCompletion?: boolean
 	library?: boolean
 	useVsCode?: boolean
 }
@@ -53,6 +55,8 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		path?: boolean
 		settings?: boolean
 		extraDeployOptions?: boolean
+		editableSummary?: boolean
+		diff?: boolean
 	}
 	editorBar?: EditorBarUi
 }

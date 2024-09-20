@@ -92,7 +92,7 @@
 					? `animate-border border-dashed border-2 min-h-full ${
 							isActive && !$selectedComponent?.includes(id)
 								? 'border-orange-600'
-								: 'border-gray-600'
+								: 'dark:border-gray-600 border-gray-400'
 					  }`
 					: ''}
 			>
@@ -108,6 +108,7 @@
 					selectedIds={$selectedComponent}
 					let:dataItem
 					let:hidden
+					let:overlapped
 					cols={columnConfiguration}
 					scroller={container}
 					parentWidth={$parentWidth - 17}
@@ -125,6 +126,7 @@
 						<GridEditorMenu id={dataItem.id}>
 							<Component
 								{hidden}
+								{overlapped}
 								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 								render={visible}
 								component={dataItem.data}

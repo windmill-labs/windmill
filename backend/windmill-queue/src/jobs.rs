@@ -506,8 +506,9 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
 
     let result = WrappedError { error: e };
     tracing::error!(
-        "job {} did not succeed: {}",
+        "job {} in {} did not succeed: {}",
         queued_job.id,
+        queued_job.workspace_id,
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
     let _ = add_completed_job(
@@ -886,16 +887,19 @@ pub async fn add_completed_job<
         if queued_job.email == ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
             let w_id = &queued_job.workspace_id;
-            report_critical_error(format!(
-                "Workspace error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
-                queued_job.id,
-                queued_job
-                    .parent_job
-                    .map(|id| format!(
-                        " trying to handle failed job ({base_url}/run/{id}?workspace={w_id})"
-                    ))
-                    .unwrap_or("".to_string()),
-            ))
+            report_critical_error(
+                format!(
+                    "Workspace error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
+                    queued_job.id,
+                    queued_job
+                        .parent_job
+                        .map(|id| format!(
+                            " trying to handle failed job ({base_url}/run/{id}?workspace={w_id})"
+                        ))
+                        .unwrap_or("".to_string()),
+                ),
+                db.clone(),
+            )
             .await;
         } else if queued_job.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
@@ -961,7 +965,7 @@ pub async fn add_completed_job<
                             "Could not push workspace error handler for failed job ({base_url}/run/{}?workspace={w_id}): {}",
                             queued_job.id,
                             err
-                        ))
+                        ), db.clone())
                         .await;
                     }
                 }
@@ -1143,10 +1147,10 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel<
                 queued_job.id,
                 err
             );
-            report_critical_error(error_message).await;
+            report_critical_error(error_message, db.clone()).await;
         }
     } else {
-        report_critical_error(error_message).await;
+        report_critical_error(error_message, db.clone()).await;
     }
 }
 
@@ -1372,7 +1376,25 @@ async fn apply_schedule_handlers<
         }
     } else {
         #[cfg(feature = "enterprise")]
-        if let Some(on_recovery_path) = schedule.on_recovery.clone() {
+        if let Some(ref on_success_path) = schedule.on_success {
+            handle_successful_schedule(
+                db,
+                rsmq.clone(),
+                job_id,
+                &schedule.path,
+                script_path,
+                schedule.is_flow,
+                w_id,
+                on_success_path,
+                result,
+                started_at,
+                schedule.on_success_extra_args.clone(),
+            )
+            .await?;
+        }
+
+        #[cfg(feature = "enterprise")]
+        if let Some(ref on_recovery_path) = schedule.on_recovery.clone() {
             let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
@@ -1625,6 +1647,86 @@ async fn handle_recovered_schedule<
     .await?;
     tracing::info!(
         "Pushed on_recovery job {} for {} to queue",
+        uuid,
+        schedule_path
+    );
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn handle_successful_schedule<
+    'a,
+    'c,
+    T: Serialize + Send + Sync,
+    R: rsmq_async::RsmqConnection + Clone + Send + 'c,
+>(
+    db: &Pool<Postgres>,
+    rsmq: Option<R>,
+    job_id: Uuid,
+    schedule_path: &str,
+    script_path: &str,
+    is_flow: bool,
+    w_id: &str,
+    on_success_path: &str,
+    successful_job_result: Json<&'a T>,
+    successful_job_started_at: DateTime<Utc>,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<()> {
+    let (payload, tag) = get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
+
+    let mut extra = HashMap::new();
+    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert(
+        "success_result".to_string(),
+        serde_json::from_str::<Box<RawValue>>(
+            &serde_json::to_string(&successful_job_result).unwrap(),
+        )
+        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap()),
+    );
+    extra.insert(
+        "success_started_at".to_string(),
+        to_raw_value(&successful_job_started_at),
+    );
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        w_id,
+        payload,
+        PushArgs { extra: Some(extra), args: &HashMap::new() },
+        SCHEDULE_RECOVERY_HANDLER_USERNAME,
+        SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
+        ERROR_HANDLER_USER_GROUP.to_string(),
+        None,
+        None,
+        Some(job_id),
+        Some(job_id),
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tracing::info!(
+        "Pushed on_success job {} for {} to queue",
         uuid,
         schedule_path
     );
@@ -2151,8 +2253,8 @@ pub async fn get_result_by_id(
                         job.parse_flow_status()
                             .map(|status| status.restarted_from)
                             .flatten(),
-                        "Flow result by id in leaf jobs",
-                        format!("{}, {}", flow_id, node_id),
+                        "Id not found in the result's mapping of the root job and root job had no restarted from information",
+                        format!("parent: {}, root: {}, id: {}", flow_id, job.id, node_id),
                     )?;
 
                     get_result_by_id_from_original_flow(
@@ -2203,8 +2305,8 @@ pub async fn get_result_by_id_from_running_flow(
 
     let flow_job_result = windmill_common::utils::not_found_if_none(
         flow_job_result,
-        "Flow result by id in leaf jobs",
-        format!("{}, {}", flow_id, node_id),
+        "Root job of parent runnnig flow",
+        format!("parent: {}, id: {}", flow_id, node_id),
     )?;
 
     let job_result = flow_job_result
@@ -2225,7 +2327,7 @@ pub async fn get_result_by_id_from_running_flow(
     let result_id = windmill_common::utils::not_found_if_none(
         job_result,
         "Flow result by id",
-        format!("{}, {}", flow_id, node_id),
+        format!("parent: {}, id: {}", flow_id, node_id),
     )?;
 
     extract_result_from_job_result(db, w_id, result_id, json_path).await
@@ -2267,7 +2369,8 @@ async fn get_completed_flow_node_result_rec(
                 .await
                 .map(Some),
                 _ => Err(error::Error::NotFound(format!(
-                    "Flow result by id in leaf jobs not found at name {}",
+                    "Flow result by id not found going top-down in subflows (currently: {}), (id: {})",
+                    subflow.id,
                     node_id,
                 ))),
             };
@@ -2304,14 +2407,14 @@ async fn get_result_by_id_from_original_flow(
 
     let flow_job = windmill_common::utils::not_found_if_none(
         flow_job,
-        "Flow result by id in leaf jobs",
-        format!("{}, {}", completed_flow_id, node_id),
+        "Root completed job",
+        format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
     match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id, json_path).await? {
         Some(res) => Ok(res),
         None => Err(error::Error::NotFound(format!(
-            "Flow result by id in leaf jobs not found at name {}, {}",
+            "Flow result by id not found going top-down from {}, (id: {})",
             completed_flow_id, node_id
         ))),
     }
@@ -3408,6 +3511,9 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 })?;
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
+            if same_worker {
+                value.same_worker = true;
+            }
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s.clone();
@@ -3707,8 +3813,8 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
                 flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
-                flow_step_id, cache_ttl, priority)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) \
+                flow_step_id, cache_ttl, priority, last_ping)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, NULL) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -3990,6 +4096,7 @@ async fn restarted_flows_resolution(
                             }),
                             parallel: parallel,
                             while_loop: false,
+                            progress: None,
                         });
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
@@ -4027,6 +4134,7 @@ async fn restarted_flows_resolution(
                             branchall: None,
                             parallel: parallel,
                             while_loop: false,
+                            progress: None,
                         });
                     }
                     _ => {

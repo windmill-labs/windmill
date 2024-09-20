@@ -6,15 +6,10 @@ import {
   removeType,
 } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import {
-  colors,
-  Command,
-  log,
-  Resource,
-  ResourceService,
-  SEP,
-  Table,
-} from "./deps.ts";
+import { colors, Command, log, SEP, Table } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+import { Resource } from "./gen/types.gen.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface ResourceFile {
   value: any;
@@ -31,7 +26,7 @@ export async function pushResource(
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
-    resource = await ResourceService.getResource({
+    resource = await wmill.getResource({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
     });
@@ -39,12 +34,16 @@ export async function pushResource(
     // flow doesn't exist
   }
 
+  if (localResource.value["content"]?.startsWith("!inline ")) {
+    const basePath = localResource.value["content"].split(" ")[1];
+    localResource.value["content"] = readInlinePathSync(basePath);
+  }
   if (resource) {
     if (isSuperset(localResource, resource)) {
       return;
     }
 
-    await ResourceService.updateResource({
+    await wmill.updateResource({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
       requestBody: { ...localResource },
@@ -59,7 +58,7 @@ export async function pushResource(
     }
 
     log.info(colors.yellow.bold("Creating new resource..."));
-    await ResourceService.createResource({
+    await wmill.createResource({
       workspace: workspace,
       requestBody: {
         path: remotePath.replaceAll(SEP, "/"),
@@ -101,7 +100,7 @@ async function list(opts: GlobalOptions) {
   const perPage = 10;
   const total: Resource[] = [];
   while (true) {
-    const res = await ResourceService.listResource({
+    const res = await wmill.listResource({
       workspace: workspace.workspaceId,
       page,
       perPage,

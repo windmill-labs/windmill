@@ -46,8 +46,8 @@ struct WorkerPing {
     started_at: chrono::DateTime<chrono::Utc>,
     ip: String,
     jobs_executed: i32,
-    current_job_id: Option<Uuid>,
-    current_job_workspace_id: Option<String>,
+    last_job_id: Option<Uuid>,
+    last_job_workspace_id: Option<String>,
     custom_tags: Option<Vec<String>>,
     worker_group: String,
     wm_version: String,
@@ -88,7 +88,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate, memory, vcpus, memory_usage, wm_memory_usage
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate, memory, vcpus, memory_usage, wm_memory_usage
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
@@ -157,9 +157,8 @@ async fn get_queue_metrics(
             FROM metrics
             WHERE id LIKE 'queue_%'
                 AND created_at > now() - interval '14 day'
-            ORDER BY created_at ASC
         )
-        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at)) as \"values!\"
+        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at) ORDER BY created_at ASC) as \"values!\"
         FROM queue_metrics
         GROUP BY id
         ORDER BY id ASC"

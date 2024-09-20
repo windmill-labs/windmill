@@ -12,7 +12,7 @@ export const NODE = {
 export function getStateColor(
 	state: FlowStatusModule['type'] | undefined,
 	isDark: boolean,
-	lightModeBackground: string = '#dfe6ee'
+	nonVirtualItem?: boolean
 ): string {
 	switch (state) {
 		case 'Success':
@@ -26,6 +26,10 @@ export function getStateColor(
 		case 'WaitingForExecutor':
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:
-			return isDark ? '#2e3440' : lightModeBackground
+			if (nonVirtualItem) {
+				return isDark ? '#2E3440' : 'white'
+			} else {
+				return isDark ? '#313742' : '#dfe6ee'
+			}
 	}
 }

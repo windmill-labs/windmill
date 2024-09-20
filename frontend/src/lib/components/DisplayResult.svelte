@@ -123,7 +123,7 @@
 	let download_as_csv = false
 	function inferResultKind(result: any) {
 		try {
-			if (result == 'WINDMILL_TOO_BIG') {
+			if (result === 'WINDMILL_TOO_BIG') {
 				largeObject = true
 				return 'json'
 			}
@@ -140,7 +140,7 @@
 				return 'plain'
 			}
 			try {
-				let keys = result && typeof result == 'object' ? Object.keys(result) : []
+				let keys = result && typeof result === 'object' ? Object.keys(result) : []
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -195,18 +195,18 @@
 				}
 
 				if (keys.length != 0) {
-					if (keys.length == 1 && keys[0] == 'html') {
+					if (keys.length == 1 && keys[0] === 'html') {
 						return 'html'
-					} else if (keys.length == 1 && keys[0] == 'map') {
+					} else if (keys.length == 1 && keys[0] === 'map') {
 						return 'map'
-					} else if (keys.length == 1 && keys[0] == 'file') {
+					} else if (keys.length == 1 && keys[0] === 'file') {
 						return 'file'
 					} else if (
 						keys.includes('windmill_content_type') &&
 						result['windmill_content_type'].startsWith('text/')
 					) {
 						return 'plain'
-					} else if (keys.length == 1 && keys[0] == 'error') {
+					} else if (keys.length == 1 && keys[0] === 'error') {
 						return 'error'
 					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
 						return 'file'
@@ -258,11 +258,16 @@
 		}
 	}
 
-	function contentOrRootString(obj: string | { filename: string; content: string }) {
+	function contentOrRootString(obj: string | { filename: string; content: string } | undefined) {
+		if (obj == undefined || obj == null) {
+			return ''
+		}
 		if (typeof obj === 'string') {
 			return obj
+		} else if (typeof obj === 'object') {
+			return obj?.['content']
 		} else {
-			return obj.content
+			return ''
 		}
 	}
 
@@ -389,7 +394,7 @@
 			/>
 		{/each}</div
 	>
-{:else if resultKind == 'nondisplayable'}<div class="text-red-400">Non displayable object</div
+{:else if resultKind === 'nondisplayable'}<div class="text-red-400">Non displayable object</div
 	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
@@ -447,16 +452,16 @@
 					{/if}
 				</div>
 			</div><div class="grow"
-				>{#if !forceJson && resultKind == 'table-col'}
+				>{#if !forceJson && resultKind === 'table-col'}
 					{@const data = 'table-col' in result ? result['table-col'] : result}
 					<AutoDataTable objects={objectOfArraysToObjects(data)} />
-				{:else if !forceJson && resultKind == 'table-row'}
+				{:else if !forceJson && resultKind === 'table-row'}
 					{@const data = 'table-row' in result ? result['table-row'] : result}
 					<AutoDataTable objects={arrayOfRowsToObjects(data)} />
-				{:else if !forceJson && resultKind == 'table-row-object'}
+				{:else if !forceJson && resultKind === 'table-row-object'}
 					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
 					<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
-				{:else if !forceJson && resultKind == 'html'}
+				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
 						{#if !requireHtmlApproval || enableHtml}
 							{@html result.html}
@@ -484,7 +489,7 @@
 							</div>
 						{/if}
 					</div>
-				{:else if !forceJson && resultKind == 'map'}
+				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full">
 						<MapResult
 							lat={result.map.lat}
@@ -493,7 +498,7 @@
 							markers={result.map.markers}
 						/>
 					</div>
-				{:else if !forceJson && resultKind == 'png'}
+				{:else if !forceJson && resultKind === 'png'}
 					<div class="h-full">
 						<img
 							alt="png rendered"
@@ -501,7 +506,7 @@
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
 						/>
 					</div>
-				{:else if !forceJson && resultKind == 'jpeg'}
+				{:else if !forceJson && resultKind === 'jpeg'}
 					<div class="h-full">
 						<img
 							alt="jpeg rendered"
@@ -509,13 +514,13 @@
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 						/>
 					</div>
-				{:else if !forceJson && resultKind == 'svg'}
+				{:else if !forceJson && resultKind === 'svg'}
 					<div
 						><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a
 						>
 					</div>
 					<div class="h-full overflow-auto">{@html result.svg} </div>
-				{:else if !forceJson && resultKind == 'gif'}
+				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
 						<img
 							alt="gif rendered"
@@ -523,12 +528,12 @@
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 						/>
 					</div>
-				{:else if !forceJson && resultKind == 'plain'}<div class="h-full text-2xs"
-						><pre>{typeof result == 'string' ? result : result?.['result']}</pre>{#if !noControls}
+				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
+						><pre>{typeof result === 'string' ? result : result?.['result']}</pre>{#if !noControls}
 							<div class="flex">
 								<Button
 									on:click={() =>
-										copyToClipboard(typeof result == 'string' ? result : result?.['result'])}
+										copyToClipboard(typeof result === 'string' ? result : result?.['result'])}
 									color="light"
 									size="xs"
 								>
@@ -537,7 +542,7 @@
 							</div>
 						{/if}
 					</div>
-				{:else if !forceJson && resultKind == 'file'}
+				{:else if !forceJson && resultKind === 'file'}
 					<div>
 						<a
 							download={result.filename ?? result.file?.filename ?? 'windmill.file'}
@@ -545,7 +550,7 @@
 							>Download</a
 						>
 					</div>
-				{:else if !forceJson && resultKind == 'error' && result?.error}
+				{:else if !forceJson && resultKind === 'error' && result?.error}
 					<div class="flex flex-col items-start">
 						<span class="text-red-500 pt-2 font-semibold !text-xs whitespace-pre-wrap"
 							>{#if result.error.name || result.error.message}{result.error.name}: {result.error
@@ -556,7 +561,7 @@
 						>
 						<slot />
 					</div>
-					{#if language == 'bun'}
+					{#if language === 'bun'}
 						<div class="pt-20" />
 						<Alert size="xs" type="info" title="Seeing an odd error?">
 							Bun script are bundled for performance reasons. If you see an odd error that doesn't
@@ -565,7 +570,9 @@
 							team.
 						</Alert>
 					{/if}
-				{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
+				{:else if !forceJson && resultKind === 'approval'}<div
+						class="flex flex-col gap-3 mt-2 mx-4"
+					>
 						<Button
 							color="green"
 							variant="border"
@@ -586,9 +593,9 @@
 							></div
 						>
 					</div>
-				{:else if !forceJson && resultKind == 's3object'}
+				{:else if !forceJson && resultKind === 's3object'}
 					<div
-						class="h-full w-full {typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')
+						class="h-full w-full {typeof result?.s3 === 'string' && result?.s3?.endsWith('.parquet')
 							? 'h-min-[600px]'
 							: ''}"
 					>
@@ -636,18 +643,29 @@
 								</button>
 							{/if}
 						</div>
-						{#if typeof result?.s3 == 'string' && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
-							{#key result.s3}
-								<ParqetTableRenderer
-									disable_download={result?.disable_download}
-									{workspaceId}
-									s3resource={result?.s3}
-									storage={result?.storage}
-								/>
-							{/key}
+						{#if typeof result?.s3 === 'string'}
+							{#if result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv')}
+								{#key result.s3}
+									<ParqetTableRenderer
+										disable_download={result?.disable_download}
+										{workspaceId}
+										s3resource={result?.s3}
+										storage={result?.storage}
+									/>
+								{/key}
+							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
+								<div class="h-full mt-2">
+									<img
+										alt="preview rendered"
+										class="w-auto h-full"
+										src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
+							{/if}
 						{/if}
 					</div>
-				{:else if !forceJson && resultKind == 's3object-list'}
+				{:else if !forceJson && resultKind === 's3object-list'}
 					<div class="h-full w-full">
 						<div class="flex flex-col gap-2">
 							<Toggle
@@ -693,16 +711,35 @@
 											>open table preview <ArrowDownFromLine />
 										</button>
 									{/if}
+								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+									{#if seeS3PreviewFileFromList == s3object?.s3}
+										<div class="h-full mt-2">
+											<img
+												alt="preview rendered"
+												class="w-auto h-full"
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										</div>
+									{:else}
+										<button
+											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											on:click={() => {
+												seeS3PreviewFileFromList = s3object?.s3
+											}}
+											>open image preview <ArrowDownFromLine />
+										</button>
+									{/if}
 								{/if}
 							{/each}
 						</div>
 					</div>
-				{:else if !forceJson && resultKind == 'markdown'}
+				{:else if !forceJson && resultKind === 'markdown'}
 					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
 						<Markdown md={result?.md ?? result?.markdown} />
 					</div>
 				{:else if largeObject}
-					{#if result && typeof result == 'object' && 'file' in result}
+					{#if result && typeof result === 'object' && 'file' in result}
 						<div
 							><a
 								download={result.filename ?? result.file?.filename ?? 'windmill.file'}
@@ -743,7 +780,7 @@
 							<ObjectViewer json={result} />
 						{/if}
 					{/if}
-				{:else if typeof result == 'string' && result.length > 0}
+				{:else if typeof result === 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
 							<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
 								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
@@ -758,7 +795,7 @@
 					/>
 				{/if}
 			</div>
-		{:else if typeof result == 'string' && resultKind == 'plain'}
+		{:else if typeof result === 'string' && resultKind === 'plain'}
 			<div class="h-full text-xs">
 				<pre>{result}</pre>
 				{#if !noControls}

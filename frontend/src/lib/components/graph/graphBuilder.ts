@@ -12,6 +12,7 @@ export type GraphEventHandlers = {
 	newBranch: (module: FlowModule) => void
 	move: (module: FlowModule, modules: FlowModule[]) => void
 	selectedIteration: (detail, moduleId: string) => void
+	changeId: (newId: string) => void
 }
 
 export default function graphBuilder(
@@ -353,6 +354,7 @@ export default function graphBuilder(
 							branchIndex: -1,
 							modules: module.value.default,
 							eventHandlers: eventHandlers,
+							branchOne: true,
 							...extra
 						},
 						position: { x: -1, y: -1 },
@@ -378,11 +380,8 @@ export default function graphBuilder(
 							id: `${module.id}-branch-${branchIndex}`,
 							data: {
 								offset: currentOffset,
-								label:
-									defaultIfEmptyString(branch.summary, 'Branch ' + (branchIndex + 1)) +
-									'\n`' +
-									branch.expr +
-									'`',
+								label: defaultIfEmptyString(branch.summary, 'Branch ' + (branchIndex + 1)),
+								preLabel: branch.summary ? '' : branch.expr,
 								id: module.id,
 								branchIndex: branchIndex,
 								modules: modules,

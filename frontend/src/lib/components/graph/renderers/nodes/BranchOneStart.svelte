@@ -10,6 +10,7 @@
 
 	export let data: {
 		label: string
+		preLabel: string | undefined
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		id: string
@@ -21,7 +22,7 @@
 	}
 
 	$: borderStatus = computeBorderStatus(
-		data.branchIndex,
+		data.branchIndex + 1,
 		'branchone',
 		data.flowModuleStates?.[data.id]
 	)
@@ -30,18 +31,18 @@
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={data.label}
+		preLabel={data.preLabel}
 		selectable
 		selected={data.selected}
 		bgColor={getStateColor(undefined, darkMode)}
-		borderColor={borderStatus
-			? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
-			: undefined}
+		borderColor={borderStatus ? getStateColor(borderStatus, darkMode) : undefined}
 		on:select={() => {
 			data.eventHandlers.select(data.id)
 		}}
 	/>
 	{#if data.insertable}
 		<button
+			title="Delete branch"
 			class="z-50 absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] center-center text-primary
 border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
 hover:border-red-700"

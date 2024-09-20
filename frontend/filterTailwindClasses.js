@@ -10,15 +10,18 @@ function filterTailwindClasses(classes) {
 		{ pattern: /^text-[^/]*$/ },
 		{ pattern: /^bg-[^/]*$/ },
 		{ pattern: /^border-[^/]*$/ },
-		{ pattern: /^ring-[^/]*$/ }
+		{ pattern: /^ring-[^/]*$/ },
+		{ pattern: /^outline-[^/]*$/ }
 	]
 
-	return classes.filter((className) => {
-		return filters.some((filter) => filter.pattern.test(className))
-	})
+	return classes
+		.filter((className) => {
+			return filters.some((filter) => filter.pattern.test(className))
+		})
+		.concat(['shadow', 'border', 'ring', 'rounded', 'outline'])
 }
 
 const filteredClasses = filterTailwindClasses(tailwindClasses)
 
-const output = `export const filteredTailwindClasses = ${JSON.stringify(filteredClasses, null, 2)};`
+const output = `export const tailwindClasses = ${JSON.stringify(filteredClasses, null, 2)};`
 fs.writeFileSync('filteredTailwindClasses.ts', output)

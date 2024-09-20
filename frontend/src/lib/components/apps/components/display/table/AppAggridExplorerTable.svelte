@@ -40,7 +40,7 @@
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
-	const { app, selectedComponent, componentControl, darkMode } = context
+	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
 
@@ -150,7 +150,7 @@
 					outputs?.inputs.set(inputs, true)
 				},
 				onRemove: (id, rowIndex) => {
-					if (inputs?.[id] == undefined) {
+				if (inputs?.[id] == undefined) {
 						return
 					}
 					delete inputs[id][rowIndex]
@@ -442,7 +442,24 @@
 			class="ag-theme-alpine"
 			class:ag-theme-alpine-dark={$darkMode}
 		>
-			<div bind:this={eGui} style:height="100%" />
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div
+				bind:this={eGui}
+				style:height="100%"
+				on:keydown={(e) => {
+					if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
+						const selectedCell = api?.getFocusedCell()
+						if (selectedCell) {
+							const rowIndex = selectedCell.rowIndex
+							const colId = selectedCell.column?.getId()
+							const rowNode = api?.getDisplayedRowAtIndex(rowIndex)
+							const selectedValue = rowNode?.data?.[colId]
+							navigator.clipboard.writeText(selectedValue)
+							sendUserToast('Copied cell value to clipboard', false)
+						}
+					}
+				}}
+			/>
 		</div>
 		{#if resolvedConfig && 'footer' in resolvedConfig && resolvedConfig.footer}
 			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">

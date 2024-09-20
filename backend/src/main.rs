@@ -7,8 +7,8 @@
  */
 
 use anyhow::Context;
-use gethostname::gethostname;
 use git_version::git_version;
+use monitor::{send_current_log_file_to_object_store, send_logs_to_object_store};
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
@@ -20,6 +20,7 @@ use tokio::{
     fs::{create_dir_all, DirBuilder, File},
     io::AsyncReadExt,
 };
+use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
@@ -36,9 +37,10 @@ use windmill_common::{
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
+    scripts::ScriptLang,
     stats_ee::schedule_stats,
-    utils::{rd_string, Mode},
-    worker::{reload_custom_tags_setting, WORKER_GROUP},
+    utils::{hostname, rd_string, Mode},
+    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 
@@ -61,8 +63,8 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
@@ -134,7 +136,52 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(HUB_CACHE_DIR).await?;
 
     for path in paths.values() {
-        get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+        tracing::info!("Caching hub script at {path}");
+        let res = get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+        if res
+            .language
+            .as_ref()
+            .is_some_and(|x| x == &ScriptLang::Deno)
+        {
+            let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
+            create_dir_all(&job_dir).await?;
+            let _ = windmill_worker::generate_deno_lock(
+                &Uuid::nil(),
+                &res.content,
+                &mut 0,
+                &mut None,
+                &job_dir,
+                None,
+                "global",
+                "global",
+                "",
+            )
+            .await?;
+            tokio::fs::remove_dir_all(job_dir).await?;
+        } else if res.language.as_ref().is_some_and(|x| x == &ScriptLang::Bun) {
+            let job_id = Uuid::new_v4();
+            let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
+            create_dir_all(&job_dir).await?;
+            if let Some(lockfile) = res.lockfile {
+                let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
+
+                let _ = windmill_worker::install_bun_lockfile(
+                    &mut 0,
+                    &mut None,
+                    &job_id,
+                    "admins",
+                    None,
+                    &job_dir,
+                    "cache_init",
+                    windmill_worker::get_common_bun_proc_envs("").await,
+                    false,
+                )
+                .await?;
+            } else {
+                tracing::warn!("No lockfile found for bun script {path}, skipping...");
+            }
+            tokio::fs::remove_dir_all(job_dir).await?;
+        }
     }
     Ok(())
 }
@@ -146,8 +193,10 @@ async fn windmill_main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", "info")
     }
 
+    let hostname = hostname();
+
     #[cfg(not(feature = "flamegraph"))]
-    windmill_common::tracing_init::initialize_tracing();
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname);
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     tracing::info!("jemalloc enabled");
@@ -322,6 +371,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
     }
+
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let server_killpill_rx = killpill_tx.subscribe();
@@ -377,6 +427,8 @@ Windmill Community Edition {GIT_VERSION}
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode, true).await;
 
         monitor_pool(&db).await;
+
+        send_logs_to_object_store(&db, &hostname, &mode);
 
         #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
         if !worker_mode {
@@ -463,6 +515,7 @@ Windmill Community Edition {GIT_VERSION}
                         base_internal_url.clone(),
                         rsmq.clone(),
                         mode.clone() == Mode::Agent,
+                        hostname.clone(),
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -487,6 +540,11 @@ Windmill Community Edition {GIT_VERSION}
 
                 loop {
                     tokio::select! {
+                        biased;
+                        _ = monitor_killpill_rx.recv() => {
+                            tracing::info!("received killpill for monitor job");
+                            break;
+                        },
                         _ = tokio::time::sleep(Duration::from_secs(30))    => {
                             monitor_db(
                                 &db,
@@ -641,22 +699,28 @@ Windmill Community Edition {GIT_VERSION}
                                 },
                                 Err(e) => {
                                     tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
-                                    listener = retry_listen_pg(&db).await;
-                                    continue;
+                                    tokio::select! {
+                                        biased;
+                                        _ = monitor_killpill_rx.recv() => {
+                                            tracing::info!("received killpill for monitor job");
+                                            break;
+                                        },
+                                        new_listener = retry_listen_pg(&db) => {
+                                            listener = new_listener;
+                                            continue;
+                                        }
+                                    }
                                 }
                             };
-                        },
-                        _ = monitor_killpill_rx.recv() => {
-                                println!("received killpill for monitor job");
-                                break;
                         }
                     }
                 }
             });
 
             if let Err(e) = h.await {
-                tracing::error!("Error waiting for monitor handle:{e:#}")
+                tracing::error!("Error waiting for monitor handle: {e:#}")
             }
+            tracing::info!("Monitor exited");
             Ok(()) as anyhow::Result<()>
         };
 
@@ -693,6 +757,8 @@ Windmill Community Edition {GIT_VERSION}
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
+    send_current_log_file_to_object_store(&db, &hostname, &mode).await;
+
     tracing::info!("Exiting connection pool");
     tokio::select! {
         _ = db.close() => {
@@ -764,6 +830,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
     agent_mode: bool,
+    hostname: String,
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
     for _ in 0..num_workers {
@@ -774,10 +841,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         tracing::info!("Received killpill, exiting");
         return Ok(());
     }
-    let hostname = gethostname()
-        .to_str()
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| rd_string(5));
     let instance_name = hostname
         .clone()
         .replace(" ", "")
@@ -812,6 +875,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
+        RUST_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
     ] {

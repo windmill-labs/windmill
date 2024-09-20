@@ -56,7 +56,7 @@
 			  '/' +
 			  (state?.iteration_total ?? '?')
 			: ''}
-		bgColor={getStateColor(type, darkMode, '#fff')}
+		bgColor={getStateColor(type, darkMode, true)}
 		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={state?.duration_ms}
@@ -67,6 +67,9 @@
 		}}
 		on:insert={(e) => {
 			data.eventHandlers.insert(e.detail)
+		}}
+		on:changeId={(e) => {
+			data.eventHandlers.changeId(e.detail)
 		}}
 		on:move={(e) => {
 			data.eventHandlers.move(data.module, data.modules)
@@ -86,7 +89,8 @@
 	<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
 		{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
 			<button
-				class="rounded-full border hover:bg-surface-hover bg-surface p-1"
+				title="Add branch"
+				class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
 				on:click={() => {
 					data?.eventHandlers?.newBranch(data.module)
 				}}

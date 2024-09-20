@@ -55,7 +55,7 @@
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0', menuOpen ? 'z-50' : '')}
-			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY}px)"
+			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY + 2}px)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}
@@ -65,13 +65,21 @@
 				on:new={(e) => {
 					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
 				}}
+				on:insert={(e) => {
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						script: e.detail,
+						detail: 'script'
+					})
+				}}
 				bind:open={menuOpen}
 			/>
 		</div>
 		{#if data.enableTrigger}
 			<div
 				class="edgeButtonContainer nodrag nopan"
-				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY}px)"
+				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY + 2}px)"
 			>
 				<InsertTriggerButton
 					disableAi={data.disableAi}
@@ -80,6 +88,14 @@
 							modules: data.modules,
 							index: data.index,
 							detail: e.detail
+						})
+					}}
+					on:insert={(e) => {
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							script: e.detail,
+							detail: 'script'
 						})
 					}}
 					index={data?.index ?? 0}

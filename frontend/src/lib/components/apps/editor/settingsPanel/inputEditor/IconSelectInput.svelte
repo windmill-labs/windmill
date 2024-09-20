@@ -87,6 +87,7 @@
 									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
 									{label === value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
 						>
+							<!-- svelte-ignore a11y-missing-attribute -->
 							<img
 								class="dark:invert"
 								loading="lazy"

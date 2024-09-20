@@ -53,7 +53,7 @@
 
 {#if value == undefined || value == null}
 	<span class="text-tertiary">null</span>
-{:else if value == '<function call>'}
+{:else if value === '<function call>'}
 	{'<function call>'}<Tooltip
 		>The arg was none and the default argument of the script is a function call, hence the actual
 		value used for this arg was the output of the script's function call for this arg</Tooltip

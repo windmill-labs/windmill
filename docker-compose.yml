@@ -88,7 +88,7 @@ services:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
-  ## This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  # This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
   #   pull_policy: always
@@ -111,6 +111,7 @@ services:
   #     # mount the docker socket to allow to run docker containers from within the workers
   #     - /var/run/docker.sock:/var/run/docker.sock
   #     - worker_dependency_cache:/tmp/windmill/cache
+  #     - worker_logs:/tmp/windmill/logs
 
   # The indexer powers full-text job and log search, an EE feature.
   windmill_indexer:
@@ -136,6 +137,7 @@ services:
         condition: service_healthy
     volumes:
       - windmill_index:/tmp/windmill/search
+      - worker_logs:/tmp/windmill/logs
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest

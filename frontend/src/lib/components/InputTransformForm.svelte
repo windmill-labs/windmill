@@ -24,7 +24,7 @@
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
@@ -45,11 +45,11 @@
 	const dispatch = createEventDispatcher()
 
 	$: inputCat = computeInputCat(
-		schema.properties[argName].type,
-		schema.properties[argName].format,
-		schema.properties[argName].items?.type,
-		schema.properties[argName].enum,
-		schema.properties[argName].contentEncoding
+		schema?.properties?.[argName].type,
+		schema?.properties?.[argName].format,
+		schema?.properties?.[argName].items?.type,
+		schema?.properties?.[argName].enum,
+		schema?.properties?.[argName].contentEncoding
 	)
 
 	let propertyType = getPropertyType(arg)
@@ -170,11 +170,11 @@
 
 	function setDefaultCode() {
 		if (!arg?.value) {
-			monacoTemplate?.setCode(schema.properties[argName].default)
+			monacoTemplate?.setCode(schema.properties?.[argName].default)
 		}
 	}
 
-	$: schema.properties[argName].default && setDefaultCode()
+	$: schema?.properties?.[argName].default && setDefaultCode()
 
 	let resourceTypes: string[] | undefined = undefined
 
@@ -194,10 +194,10 @@
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
-					format={schema.properties[argName].format}
-					contentEncoding={schema.properties[argName].contentEncoding}
-					required={schema.required.includes(argName)}
-					type={schema.properties[argName].type}
+					format={schema?.properties?.[argName].format}
+					contentEncoding={schema?.properties?.[argName].contentEncoding}
+					required={schema.required?.includes(argName)}
+					type={schema.properties?.[argName].type}
 				/>
 
 				{#if isStaticTemplate(inputCat)}
@@ -220,7 +220,7 @@
 							bind:this={stepInputGen}
 							{focused}
 							{arg}
-							schemaProperty={schema.properties[argName]}
+							schemaProperty={schema?.properties?.[argName]}
 							showPopup={(isStaticTemplate(inputCat) && propertyType == 'static') ||
 								propertyType === undefined ||
 								propertyType === 'static' ||
@@ -382,7 +382,7 @@
 						/>
 					{/if}
 				</div>
-			{:else if propertyType === undefined || propertyType == 'static'}
+			{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
 				<ArgInput
 					{resourceTypes}
 					noMargin
@@ -402,7 +402,7 @@
 					bind:value={arg.value}
 					type={schema.properties[argName].type}
 					oneOf={schema.properties[argName].oneOf}
-					required={schema.required.includes(argName)}
+					required={schema.required?.includes(argName)}
 					bind:pattern={schema.properties[argName].pattern}
 					bind:valid={inputCheck}
 					defaultValue={schema.properties[argName].default}

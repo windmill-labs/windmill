@@ -75,7 +75,9 @@ async fn initialize_tracing() {
     use std::sync::Once;
 
     static ONCE: Once = Once::new();
-    ONCE.call_once(windmill_common::tracing_init::initialize_tracing);
+    ONCE.call_once(|| {
+        let _ = windmill_common::tracing_init::initialize_tracing("test");
+    });
 }
 
 /// it's important this is unique between tests as there is one prometheus registry and
@@ -1742,6 +1744,41 @@ func main(derp string) (string, error) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_rust_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+fn main(world: String) -> Result<String, String> {
+    println!("Which world to greet today?");
+    Ok(format!("Hello {}!", world))
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rust,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("world", json!("Hyrule"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("Hello Hyrule!"));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
@@ -2675,7 +2712,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     in_test_worker(&db, listen_first_job, port).await;
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all")
+        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
         .await
         .unwrap()
         .into_inner()
@@ -2697,7 +2734,8 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
-                }) if lock.len() > 0)
+                }) if lock.len() > 0),
+            "{:?}", m.value
             );
         });
 }
@@ -2944,6 +2982,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
         on_recovery_times: None,
         on_recovery_extra_args: None,
+        on_success: None,
+        on_success_extra_args: None,
         path: "f/system/failing_script_schedule".to_string(),
         script_path: "f/system/failing_script".to_string(),
         timezone: "UTC".to_string(),
@@ -3011,6 +3051,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
                 on_recovery_times: None,
                 on_recovery_extra_args: None,
+                on_success: None,
+                on_success_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
                 ws_error_handler_muted: None,
@@ -3089,6 +3131,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
         on_recovery_times: None,
         on_recovery_extra_args: None,
+        on_success: None,
+        on_success_extra_args: None,
         path: "f/system/failing_flow_schedule".to_string(),
         script_path: "f/system/failing_flow".to_string(),
         timezone: "UTC".to_string(),
@@ -3157,6 +3201,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
                 on_recovery_times: None,
                 on_recovery_extra_args: None,
+                on_success: None,
+                on_success_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
                 ws_error_handler_muted: None,

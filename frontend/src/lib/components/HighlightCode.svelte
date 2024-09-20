@@ -9,6 +9,8 @@
 	import sql from 'svelte-highlight/languages/sql'
 	import powershell from 'svelte-highlight/languages/powershell'
 	import php from 'svelte-highlight/languages/php'
+	import rust from 'svelte-highlight/languages/rust'
+	import yaml from 'svelte-highlight/languages/yaml'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
@@ -51,7 +53,10 @@
 				return powershell
 			case 'php':
 				return php
-
+			case 'rust':
+				return rust
+			case 'ansible':
+				return yaml;
 			default:
 				return typescript
 		}

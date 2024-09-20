@@ -168,9 +168,9 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-    pub large_file_storage: Option<serde_json::Value>,  // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,            // effectively: WorkspaceGitSyncSettings
-    pub deploy_ui: Option<serde_json::Value>,           // effectively: WorkspaceDeploymentUISettings
+    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
+    pub deploy_ui: Option<serde_json::Value>,          // effectively: WorkspaceDeploymentUISettings
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
@@ -236,7 +236,7 @@ struct EditCopilotConfig {
 struct LargeFileStorageWithSecondary {
     #[serde(flatten)]
     large_file_storage: LargeFileStorage,
-
+    #[serde(default)]
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
 
@@ -1071,7 +1071,6 @@ async fn edit_deploy_ui_config(
     ));
 }
 
-
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_ui_config(
     authed: ApiAuthed,
@@ -1097,8 +1096,9 @@ async fn edit_deploy_ui_config(
     .await?;
 
     if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
-        let serialized_config = serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+        let serialized_config =
+            serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
+                .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
@@ -1119,8 +1119,6 @@ async fn edit_deploy_ui_config(
 
     Ok(format!("Edit deployment UI config for workspace {}", &w_id))
 }
-
-
 
 #[derive(Deserialize)]
 pub struct EditDefaultApp {
@@ -2576,6 +2574,8 @@ async fn tarball_workspace(
                     }
                 }
                 ScriptLang::Php => "php",
+                ScriptLang::Rust => "rs",
+                ScriptLang::Ansible => "yaml",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))

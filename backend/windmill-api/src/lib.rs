@@ -76,6 +76,7 @@ mod saml_ee;
 mod schedule;
 mod scim_ee;
 mod scripts;
+mod service_logs;
 mod settings;
 pub mod smtp_server_ee;
 mod static_assets;
@@ -291,6 +292,7 @@ pub async fn run_server(
                 )
                 .nest("/settings", settings::global_service())
                 .nest("/workers", workers::global_service())
+                .nest("/service_logs", service_logs::global_service())
                 .nest("/configs", configs::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/integrations", integration::global_service())
@@ -389,7 +391,7 @@ pub async fn run_server(
 
     let server = server.with_graceful_shutdown(async move {
         rx.recv().await.ok();
-        println!("Graceful shutdown of server");
+        tracing::info!("Graceful shutdown of server");
     });
 
     server.await?;

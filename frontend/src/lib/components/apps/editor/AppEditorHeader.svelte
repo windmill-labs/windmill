@@ -33,7 +33,7 @@
 		Smartphone,
 		FileClock
 	} from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
@@ -84,6 +84,7 @@
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
 	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
+	import HideButton from './settingsPanel/HideButton.svelte'
 
 	async function hash(message) {
 		try {
@@ -116,6 +117,9 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let leftPanelHidden: boolean = false
+	export let rightPanelHidden: boolean = false
+	export let bottomPanelHidden: boolean = false
 
 	const {
 		app,
@@ -126,7 +130,8 @@
 		jobsById,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen, refreshComponents } =
@@ -743,6 +748,8 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1322,6 +1329,43 @@
 		</div>
 	</div>
 
+	{#if $mode !== 'preview'}
+		<div class="flex gap-1">
+			<HideButton
+				direction="left"
+				hidden={leftPanelHidden}
+				on:click={() => {
+					if (leftPanelHidden) {
+						dispatch('showLeftPanel')
+					} else {
+						dispatch('hideLeftPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={bottomPanelHidden}
+				direction="bottom"
+				on:click={() => {
+					if (bottomPanelHidden) {
+						dispatch('showBottomPanel')
+					} else {
+						dispatch('hideBottomPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={rightPanelHidden}
+				direction="right"
+				on:click={() => {
+					if (rightPanelHidden) {
+						dispatch('showRightPanel')
+					} else {
+						dispatch('hideRightPanel')
+					}
+				}}
+			/>
+		</div>
+	{/if}
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

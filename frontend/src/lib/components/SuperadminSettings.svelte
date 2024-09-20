@@ -22,6 +22,7 @@
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	let drawer: Drawer
 	let filter = ''
 
@@ -71,6 +72,21 @@
 		getAutomateUsernameCreationSetting()
 		sendUserToast('Automatic username creation enabled')
 		listUsers()
+	}
+
+	async function updateName(name: string | undefined, email: string) {
+		try {
+			await UserService.globalUserUpdate({
+				email,
+				requestBody: {
+					name
+				}
+			})
+			sendUserToast('User updated')
+			listUsers()
+		} catch (e) {
+			sendUserToast('Error updating user', true)
+		}
 	}
 </script>
 
@@ -222,15 +238,18 @@
 														</td>
 														<td>
 															<div class="flex flex-row gap-x-1 justify-end">
-																{#if automateUsernameCreation && username}
-																	<ChangeInstanceUsername
-																		{username}
-																		{email}
-																		on:renamed={() => {
-																			listUsers()
-																		}}
-																	/>
-																{/if}
+																<InstanceNameEditor
+																	value={name}
+																	{username}
+																	{email}
+																	on:save={(e) => {
+																		updateName(e.detail, email)
+																	}}
+																	on:renamed={() => {
+																		listUsers()
+																	}}
+																	{automateUsernameCreation}
+																/>
 																<Button
 																	color="light"
 																	variant="contained"
@@ -239,7 +258,6 @@
 																	btnClasses="text-red-500"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
-																			console.log(email)
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
 																			listUsers()

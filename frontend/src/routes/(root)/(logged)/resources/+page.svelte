@@ -31,7 +31,14 @@
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
+	import {
+		canWrite,
+		classNames,
+		emptySchema,
+		removeMarkdown,
+		truncate,
+		validateFileExtension
+	} from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { convert } from '@redocly/json-to-json-schema'
@@ -67,7 +74,8 @@
 	let resourceTypeViewerObj = {
 		rt: '',
 		description: '',
-		schema: emptySchema()
+		schema: emptySchema(),
+		formatExtension: undefined as string | undefined
 	}
 
 	let resourceTypeDrawer: Drawer
@@ -75,12 +83,16 @@
 	let newResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: ''
+		description: '',
+		formatExtension: undefined
 	}
+	let isNewResourceTypeNameValid: boolean
+
 	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
-		description: ''
+		description: '',
+		formatExtension: undefined as string | undefined
 	}
 	let resourceEditor: ResourceEditorDrawer | undefined
 	let shareModal: ShareModal
@@ -196,12 +208,19 @@
 	}
 
 	async function addResourceType(): Promise<void> {
+		if (newResourceType.formatExtension === '') {
+			throw new Error('Invalid empty file extension (make sure it is selected)')
+		}
+		if (!validateFileExtension(newResourceType.formatExtension ?? 'txt')) {
+			throw new Error('Invalid file extension')
+		}
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
 			requestBody: {
 				name: (disableCustomPrefix ? '' : 'c_') + newResourceType.name,
 				schema: newResourceType.schema,
-				description: newResourceType.description
+				description: newResourceType.description,
+				format_extension: newResourceType.formatExtension
 			}
 		})
 		resourceTypeDrawer.closeDrawer?.()
@@ -244,8 +263,11 @@
 		newResourceType = {
 			name: 'my_resource_type',
 			schema: emptySchema(),
-			description: ''
+			description: '',
+			formatExtension: undefined
 		}
+		validateResourceTypeName()
+
 		resourceTypeDrawer.openDrawer?.()
 	}
 
@@ -254,7 +276,8 @@
 		editResourceType = {
 			name: rt.name,
 			schema: rt.schema as any,
-			description: rt.description ?? ''
+			description: rt.description ?? '',
+			formatExtension: rt.format_extension,
 		}
 		editResourceTypeDrawer.openDrawer?.()
 	}
@@ -338,6 +361,33 @@
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
+
+	function validateResourceTypeName() {
+		const snakeCaseRegex = /^[a-z0-9]+(_[a-z0-9]+)*$/
+		isNewResourceTypeNameValid = snakeCaseRegex.test(newResourceType.name)
+	}
+
+	function toSnakeCase() {
+		newResourceType.name = newResourceType.name
+			.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+			.replace(/[\W]+/g, '_')
+			.replace(/_+/g, '_')
+			.replace(/^_+|_+$/g, '')
+			.toLowerCase()
+		validateResourceTypeName()
+	}
+
+	let resourceNameToFileExtMap: any = undefined
+
+	async function resourceNameToFileExt(resourceName: string) {
+		if (resourceNameToFileExtMap == undefined) {
+			resourceNameToFileExtMap = await ResourceService.fileResourceTypeToFileExtMap({
+				workspace: $workspaceStore!
+			})
+		}
+
+		return resourceNameToFileExtMap[resourceName]
+	}
 </script>
 
 <ConfirmationModal
@@ -385,11 +435,17 @@
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		<div>
-			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} /></h1>
+			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} formatExtension={resourceTypeViewerObj.formatExtension} /></h1>
 			<div class="py-2 box prose mb-8 text-secondary">
 				{resourceTypeViewerObj.description ?? ''}
 			</div>
-			<SchemaViewer schema={resourceTypeViewerObj.schema} />
+			{#if resourceTypeViewerObj.formatExtension}
+		<Alert type="info" title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})">
+						This resource type represents a plain text file with a <b>.{resourceTypeViewerObj.formatExtension}</b> extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>)
+		</Alert>
+			{:else}
+				<SchemaViewer schema={resourceTypeViewerObj.schema} />
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -427,8 +483,14 @@
 				/></label
 			>
 			<div>
-				<div class="mb-1 font-semibold text-secondary">Schema</div>
-				<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+				{#if editResourceType.formatExtension}
+					<Alert type="info" title="Plain text file resource (.{editResourceType.formatExtension})">
+									This resource type represents a plain text file with a <b>.{editResourceType.formatExtension}</b> extension. (e.g. <b>my_file.{editResourceType.formatExtension}</b>). The schema only contains a `content` field and thus cannot be edited.
+					</Alert>
+				{:else}
+					<div class="mb-1 font-semibold text-secondary">Schema</div>
+					<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+				{/if}
 			</div>
 		</div>
 	</DrawerContent>
@@ -437,7 +499,11 @@
 <Drawer bind:this={resourceTypeDrawer} size="1200px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: Save }} on:click={addResourceType}>Save</Button>
+			<Button
+				startIcon={{ icon: Save }}
+				on:click={addResourceType}
+				disabled={!isNewResourceTypeNameValid}>Save</Button
+			>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
@@ -463,6 +529,7 @@
 								type="text"
 								bind:value={newResourceType.name}
 								class={classNames('!h-8  !border ', !disableCustomPrefix ? '!rounded-l-none' : '')}
+								on:input={validateResourceTypeName}
 							/>
 						</div>
 					</div>
@@ -473,6 +540,14 @@
 						/>
 					{/if}
 				</div>
+				{#if newResourceType.name}
+					{#if !isNewResourceTypeNameValid}
+						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
+							>Name must be snake_case!
+							<button on:click={toSnakeCase} class="text-blue-600">Fix...</button></p
+						>
+					{/if}
+				{/if}
 			</label>
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
@@ -494,7 +569,11 @@
 					</div>
 				</div>
 			</div>
-			<EditableSchemaWrapper bind:schema={newResourceType.schema} fullHeight />
+			<EditableSchemaWrapper
+				bind:schema={newResourceType.schema}
+				bind:formatExtension={newResourceType.formatExtension}
+				fullHeight
+			/>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -659,7 +738,8 @@
 														rt: linkedRt.name,
 														//@ts-ignore
 														schema: linkedRt.schema,
-														description: linkedRt.description ?? ''
+														description: linkedRt.description ?? '',
+														formatExtension: linkedRt.format_extension
 													}
 													resourceTypeViewer.openDrawer?.()
 												} else {
@@ -670,7 +750,7 @@
 												}
 											}}
 										>
-											<IconedResourceType name={resource_type} after={true} />
+											<IconedResourceType name={resource_type} after={true} formatExtension={resourceNameToFileExt(resource_type)}/>
 										</a>
 									</Cell>
 									<Cell>
@@ -837,7 +917,7 @@
 					</Head>
 					<tbody class="divide-y bg-surface">
 						{#if resourceTypes}
-							{#each resourceTypes as { name, description, schema, canWrite }}
+							{#each resourceTypes as { name, description, schema, canWrite, format_extension }}
 								<Row>
 									<Cell first>
 										<a
@@ -847,13 +927,14 @@
 													rt: name,
 													//@ts-ignore
 													schema: schema,
-													description: description ?? ''
+													description: description ?? '',
+													formatExtension: format_extension
 												}
 
 												resourceTypeViewer.openDrawer?.()
 											}}
 										>
-											<IconedResourceType after={true} {name} />
+											<IconedResourceType after={true} {name} formatExtension={format_extension} />
 										</a>
 									</Cell>
 									<Cell>

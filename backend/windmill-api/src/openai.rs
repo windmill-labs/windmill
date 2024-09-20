@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    db::{ApiAuthed, DB},
-    HTTP_CLIENT,
-};
+use crate::db::{ApiAuthed, DB};
 
 use axum::{
     body::Bytes,
@@ -13,6 +10,7 @@ use axum::{
     Router,
 };
 use quick_cache::sync::Cache;
+use reqwest::Client;
 use serde_json::value::RawValue;
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
@@ -23,6 +21,13 @@ use windmill_common::{
 
 use crate::variables::decrypt;
 use serde::Deserialize;
+
+lazy_static::lazy_static! {
+    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .timeout(std::time::Duration::from_secs(60 * 5))
+        .user_agent("windmill/beta")
+        .build().unwrap();
+}
 
 pub fn workspaced_service() -> Router {
     let router = Router::new().route("/proxy/*openai_path", post(proxy));

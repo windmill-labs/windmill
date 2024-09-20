@@ -122,6 +122,8 @@
 						Run one branch
 					{:else if stepDetail.value.type == 'flow'}
 						Inner flow
+					{:else if stepDetail.value.type == 'whileloopflow'}
+						While loop
 					{:else}
 						Anonymous step
 					{/if}
@@ -191,7 +193,7 @@
 						</Button>
 					</div>
 					<iframe
-						class="w-full grow text-sm"
+						class="w-full grow text-sm h-full"
 						title="embedded script from hub"
 						frameborder="0"
 						src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
@@ -208,6 +210,26 @@
 				{:else}
 					<span class="text-xs">
 						<Highlight language={typescript} code={cleanExpr(stepDetail.value.iterator.expr)} />
+					</span>
+				{/if}
+			</div>
+		{:else if stepDetail.value.type == 'whileloopflow'}
+			<div>
+				{#if stepDetail.stop_after_if}
+					<p class="font-medium text-secondary pb-2 pt-4">Stop after if expr:: </p>
+					<span class="text-xs">
+						<Highlight language={typescript} code={cleanExpr(stepDetail.stop_after_if?.expr)} />
+					</span>
+				{/if}
+			</div>
+			<div>
+				{#if stepDetail.stop_after_all_iters_if}
+					<p class="font-medium text-secondary pb-2 pt-4">Stop after all iters if expr:: </p>
+					<span class="text-xs">
+						<Highlight
+							language={typescript}
+							code={cleanExpr(stepDetail.stop_after_all_iters_if?.expr)}
+						/>
 					</span>
 				{/if}
 			</div>

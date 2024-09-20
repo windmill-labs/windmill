@@ -17,6 +17,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { tailwindClasses } from './tailwindUtils'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -200,6 +201,7 @@
 						<SimpleEditor
 							class="h-24 border !rounded-none"
 							lang="tailwindcss"
+							{tailwindClasses}
 							bind:code={value.class}
 							fixedOverflowWidgets={true}
 							small

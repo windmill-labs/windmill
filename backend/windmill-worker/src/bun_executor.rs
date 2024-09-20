@@ -14,8 +14,7 @@ use crate::common::build_envs_map;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file_content, read_result, start_child_process, write_file,
-        write_file_binary,
+        parse_npm_config, read_file_content, read_result, start_child_process, write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
@@ -37,7 +36,7 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::QueuedJob,
     scripts::ScriptLang,
-    worker::{exists_in_cache, get_annotation, save_cache},
+    worker::{exists_in_cache, get_annotation, save_cache, write_file},
     DB,
 };
 
@@ -55,12 +54,12 @@ const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.conf
 pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
 pub const EMPTY_FILE: &str = "<empty>";
 
-pub async fn gen_lockfile(
+pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: Option<&sqlx::Pool<sqlx::Postgres>>,
     token: &str,
     script_path: &str,
     job_dir: &str,
@@ -77,7 +76,7 @@ pub async fn gen_lockfile(
 
     if let Some(raw_deps) = raw_deps {
         gen_bunfig(job_dir).await?;
-        write_file(job_dir, "package.json", raw_deps.as_str()).await?;
+        write_file(job_dir, "package.json", raw_deps.as_str())?;
     } else {
         let _ = write_file(
             &job_dir,
@@ -98,8 +97,7 @@ pub async fn gen_lockfile(
                     )
                     .replace("RAW_GET_ENDPOINT", "raw")
             ),
-        )
-        .await?;
+        )?;
 
         gen_bunfig(job_dir).await?;
 
@@ -111,22 +109,27 @@ pub async fn gen_lockfile(
             .args(vec!["run", "build.js"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
-        handle_child(
-            job_id,
-            db,
-            mem_peak,
-            canceled_by,
-            child_process,
-            false,
-            worker_name,
-            w_id,
-            "bun build",
-            None,
-            false,
-        )
-        .await?;
+        let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+
+        if let Some(db) = db {
+            handle_child(
+                job_id,
+                db,
+                mem_peak,
+                canceled_by,
+                child_process,
+                false,
+                worker_name,
+                w_id,
+                "bun build",
+                None,
+                false,
+            )
+            .await?;
+        } else {
+            child_process.wait().await?;
+        }
 
         let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
         empty_deps = new_package_json
@@ -136,7 +139,7 @@ pub async fn gen_lockfile(
     }
 
     if !empty_deps {
-        install_lockfile(
+        install_bun_lockfile(
             mem_peak,
             canceled_by,
             job_id,
@@ -149,7 +152,9 @@ pub async fn gen_lockfile(
         )
         .await?;
     } else {
-        append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+        if let Some(db) = db {
+            append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+        }
     }
 
     if export_pkg {
@@ -210,17 +215,17 @@ registry = {}
                 .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
+        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
     }
     Ok(())
 }
 
-pub async fn install_lockfile(
+pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: Option<&sqlx::Pool<sqlx::Postgres>>,
     job_dir: &str,
     worker_name: &str,
     common_bun_proc_envs: HashMap<String, String>,
@@ -260,7 +265,7 @@ pub async fn install_lockfile(
             ));
 
             child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
-            write_file(job_dir, ".npmrc", content).await?;
+            write_file(job_dir, ".npmrc", content)?;
             true
         } else {
             false
@@ -270,26 +275,32 @@ pub async fn install_lockfile(
     };
 
     if npm_mode {
-        append_logs(&job_id.clone(), w_id, npm_logs, db).await;
+        if let Some(db) = db {
+            append_logs(&job_id.clone(), w_id, npm_logs, db).await;
+        }
     }
 
-    let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+    let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
     gen_bunfig(job_dir).await?;
-    handle_child(
-        job_id,
-        db,
-        mem_peak,
-        canceled_by,
-        child_process,
-        false,
-        worker_name,
-        w_id,
-        "bun install",
-        None,
-        false,
-    )
-    .await?;
+    if let Some(db) = db {
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            w_id,
+            "bun install",
+            None,
+            false,
+        )
+        .await?
+    } else {
+        child_process.wait().await?;
+    }
 
     if has_file {
         tokio::fs::remove_file(format!("{job_dir}/.npmrc")).await?;
@@ -356,8 +367,7 @@ if (!bo.success) {{
 "#,
                 loader
             ),
-        )
-        .await?;
+        )?;
     } else if mode == LoaderMode::Bun {
         write_file(
             &job_dir,
@@ -372,8 +382,7 @@ plugin(p)
 "#,
                 loader
             ),
-        )
-        .await?;
+        )?;
     } else if mode == LoaderMode::BunBundle
         || mode == LoaderMode::NodeBundle
         || mode == LoaderMode::BrowserBundle
@@ -412,8 +421,7 @@ if (!bo.success) {{
                     "browser"
                 }
             ),
-        )
-        .await?;
+        )?;
     }
     Ok(())
 }
@@ -466,7 +474,7 @@ pub async fn generate_bun_bundle(
     w_id: &str,
     job_id: &Uuid,
     worker_name: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: Option<sqlx::Pool<sqlx::Postgres>>,
     timeout: Option<i32>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -481,21 +489,25 @@ pub async fn generate_bun_bundle(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child_process = start_child_process(child, &*BUN_PATH).await?;
-    handle_child(
-        job_id,
-        db,
-        mem_peak,
-        canceled_by,
-        child_process,
-        false,
-        worker_name,
-        w_id,
-        "bun build",
-        timeout,
-        false,
-    )
-    .await?;
+    let mut child_process = start_child_process(child, &*BUN_PATH).await?;
+    if let Some(db) = db {
+        handle_child(
+            job_id,
+            &db,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            w_id,
+            "bun build",
+            timeout,
+            false,
+        )
+        .await?;
+    } else {
+        child_process.wait().await?;
+    }
     Ok(())
 }
 
@@ -586,20 +598,26 @@ pub fn copy_recursively(
     Ok(())
 }
 
-pub async fn prebundle_script(
+pub async fn prebundle_bun_script(
     inner_content: &str,
     lockfile: Option<String>,
     script_path: &str,
     job_id: &Uuid,
     w_id: &str,
-    db: &DB,
+    db: Option<DB>,
     job_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
     token: &str,
 ) -> Result<()> {
-    let (local_path, remote_path) =
-        compute_bundle_local_and_remote_path(inner_content, &lockfile, script_path, db, w_id).await;
+    let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+        inner_content,
+        &lockfile,
+        script_path,
+        db.clone(),
+        w_id,
+    )
+    .await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -608,7 +626,8 @@ pub async fn prebundle_script(
         return Ok(());
     }
     let origin = format!("{job_dir}/main.js");
-    write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+
+    write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
     build_loader(
         job_dir,
         base_internal_url,
@@ -633,14 +652,16 @@ pub async fn prebundle_script(
         w_id,
         job_id,
         worker_name,
-        db,
+        db.clone(),
         None,
         &mut 0,
         &mut None,
         &common_bun_proc_envs,
     )
     .await?;
+
     save_cache(&local_path, &remote_path, &origin).await?;
+
     Ok(())
 }
 
@@ -662,7 +683,7 @@ async fn compute_bundle_local_and_remote_path(
     inner_content: &str,
     requirements_o: &Option<String>,
     script_path: &str,
-    db: &DB,
+    db: Option<DB>,
     w_id: &str,
 ) -> (String, String) {
     let mut input_src = format!(
@@ -674,23 +695,45 @@ async fn compute_bundle_local_and_remote_path(
             .unwrap_or_default()
     );
 
-    let relative_imports = crate::worker_lockfiles::extract_relative_imports(
-        &inner_content,
-        script_path,
-        &Some(ScriptLang::Bun),
-    );
-
-    for path in relative_imports.unwrap_or_default() {
-        if let Ok(updated_at) = get_script_import_updated_at(db, w_id, &path).await {
-            input_src.push_str(&path);
-            input_src.push_str(&updated_at.to_string());
+    if let Some(db) = db {
+        let relative_imports = crate::worker_lockfiles::extract_relative_imports(
+            &inner_content,
+            script_path,
+            &Some(ScriptLang::Bun),
+        );
+        for path in relative_imports.unwrap_or_default() {
+            if let Ok(updated_at) = get_script_import_updated_at(&db, w_id, &path).await {
+                input_src.push_str(&path);
+                input_src.push_str(&updated_at.to_string());
+            }
         }
-    }
+    };
 
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
     let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
     (local_path, remote_path)
+}
+
+pub async fn prepare_job_dir(reqs: &str, job_dir: &str) -> Result<()> {
+    let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
+    let _ = write_file(job_dir, "package.json", &splitted[0])?;
+
+    if splitted[1] != EMPTY_FILE {
+        let _ = write_lockb(splitted[1], job_dir).await?;
+    }
+    Ok(())
+}
+async fn write_lockb(splitted_lockb_2: &str, job_dir: &str) -> Result<()> {
+    write_file_binary(
+        job_dir,
+        "bun.lockb",
+        &base64::engine::general_purpose::STANDARD
+            .decode(splitted_lockb_2)
+            .map_err(|_| error::Error::InternalErr("Could not decode bun.lockb".to_string()))?,
+    )
+    .await?;
+    Ok(())
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -717,7 +760,7 @@ pub async fn handle_bun_job(
                 inner_content,
                 &requirements_o,
                 job.script_path(),
-                db,
+                Some(db.clone()),
                 &job.workspace_id,
             )
             .await;
@@ -730,9 +773,9 @@ pub async fn handle_bun_job(
         };
 
     if !codebase.is_some() && !has_bundle_cache {
-        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
     } else if !annotation.native_mode && codebase.is_none() {
-        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
     };
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -768,7 +811,7 @@ pub async fn handle_bun_job(
             ));
         }
 
-        let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
+        let _ = write_file(job_dir, "package.json", &splitted[0])?;
         let lockb = if annotation.npm_mode { "" } else { splitted[1] };
         if lockb != EMPTY_FILE {
             let mut skip_install = false;
@@ -776,16 +819,7 @@ pub async fn handle_bun_job(
             let mut buntar_path = "".to_string();
 
             if !annotation.npm_mode {
-                let _ = write_file_binary(
-                    job_dir,
-                    "bun.lockb",
-                    &base64::engine::general_purpose::STANDARD
-                        .decode(&splitted[1])
-                        .map_err(|_| {
-                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                        })?,
-                )
-                .await?;
+                let _ = write_lockb(&splitted[1], job_dir).await?;
 
                 let mut sha_path = sha2::Sha256::new();
                 sha_path.update(lockb.as_bytes());
@@ -808,12 +842,12 @@ pub async fn handle_bun_job(
             }
 
             if !skip_install {
-                install_lockfile(
+                install_bun_lockfile(
                     mem_peak,
                     canceled_by,
                     &job.id,
                     &job.workspace_id,
-                    db,
+                    Some(db),
                     job_dir,
                     worker_name,
                     common_bun_proc_envs.clone(),
@@ -846,12 +880,12 @@ pub async fn handle_bun_job(
         let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
-        let _ = gen_lockfile(
+        let _ = gen_bun_lockfile(
             mem_peak,
             canceled_by,
             &job.id,
             &job.workspace_id,
-            db,
+            Some(db),
             &client.get_token().await,
             &job.script_path(),
             job_dir,
@@ -879,10 +913,10 @@ pub async fn handle_bun_job(
     } else if annotation.native_mode {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
-        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
-        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 
@@ -963,7 +997,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
         Ok(()) as error::Result<()>
     };
 
@@ -1038,7 +1072,7 @@ try {{
                 &job.workspace_id,
                 &job.id,
                 worker_name,
-                db,
+                Some(db.clone()),
                 job.timeout,
                 mem_peak,
                 canceled_by,
@@ -1068,9 +1102,8 @@ try {{
                         "import * as Main from \"./main.ts\"",
                         "import * as Main from \"./main.js\"",
                     ),
-                )
-                .await?;
-                write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+                )?;
+                write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
             }
             fs::remove_file(format!("{job_dir}/main.ts"))?;
             has_bundle_cache = true;
@@ -1099,11 +1132,19 @@ try {{
                 .join("\n"));
         let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
         let started_at = Instant::now();
+        let args = crate::common::build_args_map(job, client, db)
+            .await?
+            .map(sqlx::types::Json);
+        let job_args = if args.is_some() {
+            args.as_ref()
+        } else {
+            job.args.as_ref()
+        };
         let result = crate::js_eval::eval_fetch_timeout(
             env_code,
             inner_content.clone(),
             js_code,
-            job.args.as_ref(),
+            job_args,
             job.id,
             job.timeout,
             db,
@@ -1157,8 +1198,7 @@ try {{
                         },
                     ),
                 ),
-        )
-        .await?;
+        )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = if annotation.nodejs_mode {
@@ -1329,7 +1369,7 @@ pub async fn start_worker(
     let mut canceled_by: Option<CanceledBy> = None;
     tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
     if !codebase.is_some() {
-        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -1369,7 +1409,7 @@ pub async fn start_worker(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
-        let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
+        let _ = write_file(job_dir, "package.json", &splitted[0])?;
         let lockb = splitted[1];
         if lockb != EMPTY_FILE {
             let _ = write_file_binary(
@@ -1383,12 +1423,12 @@ pub async fn start_worker(
             )
             .await?;
 
-            install_lockfile(
+            install_bun_lockfile(
                 &mut mem_peak,
                 &mut canceled_by,
                 &Uuid::nil(),
                 &w_id,
-                db,
+                Some(db),
                 job_dir,
                 worker_name,
                 common_bun_proc_envs.clone(),
@@ -1399,12 +1439,12 @@ pub async fn start_worker(
         }
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
-        let _ = gen_lockfile(
+        let _ = gen_bun_lockfile(
             &mut mem_peak,
             &mut canceled_by,
             &Uuid::nil(),
             &w_id,
-            db,
+            Some(db),
             token,
             &script_path,
             job_dir,
@@ -1418,7 +1458,7 @@ pub async fn start_worker(
     }
 
     let main_code = remove_pinned_imports(inner_content)?;
-    let _ = write_file(job_dir, "main.ts", &main_code).await?;
+    let _ = write_file(job_dir, "main.ts", &main_code)?;
 
     {
         // let mut start = Instant::now();
@@ -1479,7 +1519,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 }}
 "#,
         );
-        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
     if !codebase.is_some() {

@@ -1,15 +1,13 @@
-import { SettingService } from "./deps.ts";
 import { yamlStringify } from "./deps.ts";
-import { GlobalSetting } from "./deps.ts";
-import { Config } from "./deps.ts";
 import { Confirm } from "./deps.ts";
 import { colors } from "./deps.ts";
-import { ConfigService } from "./deps.ts";
 import { yamlParse } from "./deps.ts";
-import { WorkspaceService, log } from "./deps.ts";
+import { log } from "./deps.ts";
 import { compareInstanceObjects } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
+import * as wmill from "./gen/services.gen.ts";
+import { Config, GlobalSetting } from "./gen/types.gen.ts";
 
 export interface SimplifiedSettings {
   // slack_team_id?: string;
@@ -40,11 +38,11 @@ export async function pushWorkspaceSettings(
   localSettings: SimplifiedSettings
 ) {
   try {
-    const remoteSettings = await WorkspaceService.getSettings({
+    const remoteSettings = await wmill.getSettings({
       workspace,
     });
 
-    const workspaceName = await WorkspaceService.getWorkspaceName({
+    const workspaceName = await wmill.getWorkspaceName({
       workspace,
     });
 
@@ -83,7 +81,7 @@ export async function pushWorkspaceSettings(
   log.debug(`Workspace settings are not up-to-date, updating...`);
   if (localSettings.webhook !== settings.webhook) {
     log.debug(`Updateing webhook...`);
-    await WorkspaceService.editWebhook({
+    await wmill.editWebhook({
       workspace,
       requestBody: {
         webhook: localSettings.webhook,
@@ -109,7 +107,7 @@ export async function pushWorkspaceSettings(
       );
     }
     try {
-      await WorkspaceService.editAutoInvite({
+      await wmill.editAutoInvite({
         workspace,
         requestBody: localSettings.auto_invite_enabled
           ? {
@@ -124,7 +122,7 @@ export async function pushWorkspaceSettings(
       log.debug(
         `Auto invite is not possible on cloud, only auto-inviting same domain...`
       );
-      await WorkspaceService.editAutoInvite({
+      await wmill.editAutoInvite({
         workspace,
         requestBody: localSettings.auto_invite_enabled
           ? {
@@ -141,7 +139,7 @@ export async function pushWorkspaceSettings(
     localSettings.code_completion_enabled !== settings.code_completion_enabled
   ) {
     log.debug(`Updating openai settings...`);
-    await WorkspaceService.editCopilotConfig({
+    await wmill.editCopilotConfig({
       workspace,
       requestBody: {
         openai_resource_path: localSettings.openai_resource_path,
@@ -159,7 +157,7 @@ export async function pushWorkspaceSettings(
       settings.error_handler_muted_on_cancel
   ) {
     log.debug(`Updating error handler...`);
-    await WorkspaceService.editErrorHandler({
+    await wmill.editErrorHandler({
       workspace,
       requestBody: {
         error_handler: localSettings.error_handler,
@@ -171,7 +169,7 @@ export async function pushWorkspaceSettings(
   }
   if (localSettings.deploy_to !== settings.deploy_to) {
     log.debug(`Updating deploy to...`);
-    await WorkspaceService.editDeployTo({
+    await wmill.editDeployTo({
       workspace,
       requestBody: {
         deploy_to: localSettings.deploy_to,
@@ -182,7 +180,7 @@ export async function pushWorkspaceSettings(
     !deepEqual(localSettings.large_file_storage, settings.large_file_storage)
   ) {
     log.debug(`Updating large file storage...`);
-    await WorkspaceService.editLargeFileStorageConfig({
+    await wmill.editLargeFileStorageConfig({
       workspace,
       requestBody: {
         large_file_storage: localSettings.large_file_storage,
@@ -191,7 +189,7 @@ export async function pushWorkspaceSettings(
   }
   if (!deepEqual(localSettings.git_sync, settings.git_sync)) {
     log.debug(`Updating git sync...`);
-    await WorkspaceService.editWorkspaceGitSyncConfig({
+    await wmill.editWorkspaceGitSyncConfig({
       workspace,
       requestBody: {
         git_sync_settings: localSettings.git_sync,
@@ -200,14 +198,14 @@ export async function pushWorkspaceSettings(
   }
   if (!deepEqual(localSettings.default_scripts, settings.default_scripts)) {
     log.debug(`Updating default scripts...`);
-    await WorkspaceService.editDefaultScripts({
+    await wmill.editDefaultScripts({
       workspace,
       requestBody: localSettings.default_scripts,
     });
   }
   if (localSettings.default_app !== settings.default_app) {
     log.debug(`Updating default app...`);
-    await WorkspaceService.editWorkspaceDefaultApp({
+    await wmill.editWorkspaceDefaultApp({
       workspace,
       requestBody: {
         default_app_path: localSettings.default_app,
@@ -217,7 +215,7 @@ export async function pushWorkspaceSettings(
 
   if (localSettings.name !== settings.name) {
     log.debug(`Updating workspace name...`);
-    await WorkspaceService.changeWorkspaceName({
+    await wmill.changeWorkspaceName({
       workspace,
       requestBody: {
         new_name: localSettings.name,
@@ -233,9 +231,11 @@ export async function pushWorkspaceKey(
   localKey: string
 ) {
   try {
-    key = await WorkspaceService.getWorkspaceEncryptionKey({
-      workspace,
-    }).then((r) => r.key);
+    key = await wmill
+      .getWorkspaceEncryptionKey({
+        workspace,
+      })
+      .then((r) => r.key);
   } catch (err) {
     throw new Error(`Failed to get workspace encryption key: ${err}`);
   }
@@ -246,7 +246,7 @@ export async function pushWorkspaceKey(
       default: true,
     });
     log.debug(`Updating workspace encryption key...`);
-    await WorkspaceService.setWorkspaceEncryptionKey({
+    await wmill.setWorkspaceEncryptionKey({
       workspace,
       requestBody: {
         new_key: localKey,
@@ -259,7 +259,7 @@ export async function pushWorkspaceKey(
 }
 
 export async function pullInstanceSettings(preview = false) {
-  const remoteSettings = await SettingService.listGlobalSettings();
+  const remoteSettings = await wmill.listGlobalSettings();
 
   if (preview) {
     let localSettings: GlobalSetting[] = [];
@@ -292,7 +292,7 @@ export async function pushInstanceSettings(
   preview: boolean = false,
   baseUrl?: string
 ) {
-  const remoteSettings = await SettingService.listGlobalSettings();
+  const remoteSettings = await wmill.listGlobalSettings();
   let localSettings = (await Deno.readTextFile("instance_settings.yaml")
     .then((raw) => yamlParse(raw))
     .catch(() => [])) as GlobalSetting[];
@@ -301,6 +301,7 @@ export async function pushInstanceSettings(
     localSettings = localSettings.filter((s) => s.name !== "base_url");
     localSettings.push({
       name: "base_url",
+      //@ts-ignore
       value: baseUrl,
     });
   }
@@ -319,7 +320,7 @@ export async function pushInstanceSettings(
         continue;
       }
       try {
-        await SettingService.setGlobal({
+        await wmill.setGlobal({
           key: setting.name,
           requestBody: {
             value: setting.value,
@@ -336,7 +337,7 @@ export async function pushInstanceSettings(
       );
       if (!localMatch) {
         try {
-          await SettingService.setGlobal({
+          await wmill.setGlobal({
             key: remoteSetting.name,
             requestBody: {
               value: null,
@@ -353,7 +354,7 @@ export async function pushInstanceSettings(
 }
 
 export async function pullInstanceConfigs(preview = false) {
-  const remoteConfigs = await ConfigService.listConfigs();
+  const remoteConfigs = await wmill.listConfigs();
 
   if (preview) {
     let localConfigs: Config[] = [];
@@ -382,7 +383,7 @@ export async function pullInstanceConfigs(preview = false) {
 }
 
 export async function pushInstanceConfigs(preview: boolean = false) {
-  const remoteConfigs = await ConfigService.listConfigs();
+  const remoteConfigs = await wmill.listConfigs();
   const localConfigs = (await Deno.readTextFile("instance_configs.yaml")
     .then((raw) => yamlParse(raw))
     .catch(() => [])) as Config[];
@@ -402,7 +403,7 @@ export async function pushInstanceConfigs(preview: boolean = false) {
         continue;
       }
       try {
-        await ConfigService.updateConfig({
+        await wmill.updateConfig({
           name: config.name,
           requestBody: config.config,
         });
@@ -416,7 +417,7 @@ export async function pushInstanceConfigs(preview: boolean = false) {
 
       if (!localMatch) {
         try {
-          await ConfigService.deleteConfig({
+          await wmill.deleteConfig({
             name: removeConfig.name,
           });
         } catch (err) {

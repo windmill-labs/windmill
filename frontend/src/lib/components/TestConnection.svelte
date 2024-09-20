@@ -47,18 +47,36 @@
 		},
 		s3: {
 			code: `
-import { S3Client } from "https://deno.land/x/s3_lite_client@0.6.1/mod.ts";		
+import * as wmill from "windmill-client"
 
 type S3 = object
 
 export async function main(s3: S3) {
-	const s3client = new S3Client(s3);
-	for await (const obj of s3client.listObjects({ prefix: "/" })) {
-		console.log(obj);
-	}
+	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: 'Bearer ' + process.env["WM_TOKEN"],
+		},
+		body: JSON.stringify({
+			type: "S3",
+			bucket: s3.bucket,
+			endpoint: s3.endPoint,
+			port: s3.port,
+			allow_http: !s3.useSSL,
+			access_key: s3.accessKey,
+			secret_key: s3.secretKey,
+			path_style: s3.pathStyle,
+		}),
+	}).then(async (res) => {
+		if (!res.ok) {
+			throw new Error(await res.text())
+		}
+		return res.text()
+	})
 }
 `,
-			lang: 'deno',
+			lang: 'bun',
 			argName: 's3'
 		},
 		graphql: {

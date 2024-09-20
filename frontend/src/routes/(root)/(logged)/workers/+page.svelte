@@ -18,8 +18,8 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { AlertTriangle, CopyIcon, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
@@ -186,7 +186,7 @@
 		await loadWorkerGroups()
 	}
 
-	let queueMetricsDrawer: Drawer
+	let queueMetricsDrawer: QueueMetricsDrawer
 	let selectedTab: string = 'default'
 
 	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
@@ -237,10 +237,13 @@
 
 		return [worker_group[0], filteredWorkerGroup]
 	}
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 </script>
 
 {#if $superadmin}
-	<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
+	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
 {/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">
@@ -292,6 +295,20 @@
 						Queue metrics
 					</Button>
 				</div>
+				<div>
+					<Button
+						size="xs"
+						color="dark"
+						startIcon={{
+							icon: List
+						}}
+						on:click={() => {
+							openSearchWithPrefilledText('!')
+						}}
+					>
+						Service logs
+					</Button>
+				</div>
 			</div>
 		{/if}
 	</PageHeader>
@@ -321,9 +338,8 @@
 							<div class="flex items-center gap-2">
 								<Button
 									size="sm"
-									variant="border"
-									startIcon={{ icon: FileJson }}
-									color="dark"
+									color="light"
+									startIcon={{ icon: CopyIcon }}
 									on:click={() => {
 										if (!workerGroups) {
 											return sendUserToast('No worker groups found', true)
@@ -446,6 +462,7 @@
 				<WorkspaceGroup
 					{customTags}
 					name={worker_group[0]}
+					workers={worker_group[1]}
 					{config}
 					on:reload={() => {
 						loadWorkerGroups()
@@ -485,7 +502,7 @@
 								<Cell head>Worker start</Cell>
 								<Cell head>Jobs ran</Cell>
 								{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
-									<Cell head>Current job</Cell>
+									<Cell head>Last job</Cell>
 									<Cell head>Occupancy rate</Cell>
 								{/if}
 								<Cell head>Memory usage<br />(Windmill)</Cell>
@@ -521,7 +538,7 @@
 								</tr>
 
 								{#if workers}
-									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 										<tr>
 											<Cell first>{worker}</Cell>
 											<Cell>
@@ -538,14 +555,12 @@
 											<Cell>{jobs_executed}</Cell>
 											{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 												<Cell>
-													{#if current_job_id}
-														<a
-															href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}
-														>
-															View job
+													{#if last_job_id}
+														<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
+															View last job
 														</a>
 														<br />
-														(workspace {current_job_workspace_id})
+														(workspace {last_job_workspace_id})
 													{/if}
 												</Cell>
 												<Cell>
@@ -605,6 +620,7 @@
 				{#if worker_group}
 					<WorkspaceGroup
 						{customTags}
+						workers={worker_group[1]}
 						on:reload={() => {
 							loadWorkerGroups()
 						}}

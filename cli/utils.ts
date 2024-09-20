@@ -129,3 +129,9 @@ export function readInlinePathSync(path: string): string {
 export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export function isFileResource(path: string): boolean {
+  const splitPath = path.split(".");
+  return splitPath.length >= 4 && splitPath[1] == "resource" && splitPath[2] == "file";
+}
+

@@ -13,7 +13,7 @@
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let args: Record<string, any> = {}
 	export let mod: FlowModule
 	export let pickableProperties: PickableProperties | undefined
@@ -76,7 +76,7 @@
 		{#each keys as argName, i (argName)}
 			{#if Object.keys(schema.properties ?? {}).includes(argName)}
 				<div class="flex gap-2">
-					{#if typeof args == 'object' && schema?.properties[argName]}
+					{#if typeof args == 'object' && schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}
 							minW={false}
@@ -86,7 +86,7 @@
 							bind:value={args[argName]}
 							type={schema.properties[argName].type}
 							oneOf={schema.properties[argName].oneOf}
-							required={schema.required.includes(argName)}
+							required={schema?.required?.includes(argName)}
 							pattern={schema.properties[argName].pattern}
 							bind:editor={editor[argName]}
 							bind:valid={inputCheck[argName]}

@@ -53,17 +53,23 @@
 	let args: any = {}
 	let renderDescription = true
 
-	$: linkedSecretCandidates = apiTokenApps[resourceType]?.linkedSecret
-		? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
-		: args != undefined
-		? Object.keys(args).filter((x) =>
-				['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
-		  )
-		: undefined
+	function computeCandidates(resourceType: string, argsKeys: string[]) {
+		return apiTokenApps[resourceType]?.linkedSecret
+			? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
+			: argsKeys.filter((x) =>
+					['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
+			  )
+	}
 
-	$: linkedSecret =
-		forceSecretValue(resourceType) ??
-		linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
+	let linkedSecret: string | undefined = undefined
+	let linkedSecretCandidates: string[] | undefined = undefined
+	function computeLinkedSecret(resourceType: string, argsKeys: string[]) {
+		linkedSecretCandidates = computeCandidates(resourceType, argsKeys)
+		return (
+			forceSecretValue(resourceType) ??
+			linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
+		)
+	}
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
@@ -199,9 +205,14 @@
 			workspace: $workspaceStore!,
 			path: resourceType
 		})
+		const newArgsKeys = Object.keys(resourceTypeInfo?.schema?.['properties'] ?? {}) ?? []
+		if (!linkedSecret) {
+			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys)
+		}
 	}
 	export async function next() {
 		if (step == 1) {
+			linkedSecret = undefined
 			if (manual) {
 				getResourceTypeInfo()
 				args = {}
@@ -336,7 +347,6 @@
 	bind:filteredItems={filteredConnectsManual}
 	f={(x) => x[0]}
 />
-
 {#if step == 1}
 	<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
 		<input
@@ -502,7 +512,7 @@
 	<div class="mt-12">
 		{#key resourceTypeInfo}
 			<ApiConnectForm
-				{linkedSecret}
+				bind:linkedSecret
 				{linkedSecretCandidates}
 				{resourceType}
 				{resourceTypeInfo}

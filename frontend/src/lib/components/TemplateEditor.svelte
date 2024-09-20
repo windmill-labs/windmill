@@ -13,12 +13,12 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
-	import { buildWorkerDefinition } from './build_workers'
-	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 
 	export const conf = {
 		wordPattern:
@@ -384,7 +384,7 @@
 
 	const uri = `file:///${hash}.ts`
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	buildWorkerDefinition()
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
@@ -414,7 +414,9 @@
 	let jsLoader: NodeJS.Timeout | undefined = undefined
 
 	async function loadMonaco() {
-		await initializeVscode()
+		console.log('init template')
+		await initializeVscode('templateEditor')
+		console.log('initialized')
 		initialized = true
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
@@ -626,7 +628,7 @@
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} border template rounded min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
 	bind:clientWidth={width}
 />
 

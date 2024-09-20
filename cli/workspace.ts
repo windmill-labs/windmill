@@ -2,18 +2,9 @@
 import { GlobalOptions } from "./types.ts";
 import { getRootStore } from "./store.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
-import {
-  colors,
-  Command,
-  DelimiterStream,
-  Input,
-  log,
-  setClient,
-  Table,
-  UserService,
-  WorkspaceService,
-  SettingService,
-} from "./deps.ts";
+import { colors, Command, Input, log, setClient, Table } from "./deps.ts";
+
+import * as wmill from "./gen/services.gen.ts";
 import { requireLogin } from "./context.ts";
 
 export interface Workspace {
@@ -23,47 +14,20 @@ export interface Workspace {
   token: string;
 }
 
-function makeWorkspaceStream(
-  readable: ReadableStream<Uint8Array>
-): ReadableStream<Workspace> {
-  return readable
-    .pipeThrough(new DelimiterStream(new TextEncoder().encode("\n")))
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(
-      new TransformStream({
-        transform(line, controller) {
-          try {
-            if (line.length <= 2) {
-              return;
-            }
-            const workspace = JSON.parse(line) as Workspace;
-            workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
-            controller.enqueue(workspace);
-          } catch {
-            /* ignore */
-          }
-        },
-      })
-    );
-}
-
-export async function getWorkspaceStream() {
-  const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
-    write: false,
-    read: true,
-  });
-  return makeWorkspaceStream(file.readable);
-}
-
 export async function allWorkspaces(): Promise<Workspace[]> {
   try {
-    const workspaceStream = await getWorkspaceStream();
-    const workspaces: Workspace[] = [];
-    for await (const workspace of workspaceStream) {
-      workspaces.push(workspace);
-    }
-
-    return workspaces;
+    const file = (await getRootStore()) + "remotes.ndjson";
+    const txt = await Deno.readTextFile(file);
+    return txt
+      .split("\n")
+      .map((line) => {
+        if (line.length <= 2) {
+          return;
+        }
+        const instance = JSON.parse(line) as Workspace;
+        return instance;
+      })
+      .filter(Boolean) as Workspace[];
   } catch (_) {
     return [];
   }
@@ -95,7 +59,7 @@ export async function getActiveWorkspace(
 export async function getWorkspaceByName(
   workspaceName: string
 ): Promise<Workspace | undefined> {
-  const workspaceStream = await getWorkspaceStream();
+  const workspaceStream = await allWorkspaces();
   for await (const workspace of workspaceStream) {
     if (workspace.name === workspaceName) {
       return workspace;
@@ -194,8 +158,7 @@ export async function add(
     // first check whether workspaceId is actually a URL
     try {
       const url = new URL(workspaceId);
-      workspaceId = url.username;
-      url.username = "";
+      workspaceId = workspaceName;
       remote = url.toString();
     } catch {
       // not a url
@@ -225,7 +188,7 @@ export async function add(
   );
   let alreadyExists = false;
   try {
-    alreadyExists = await WorkspaceService.existsWorkspace({
+    alreadyExists = await wmill.existsWorkspace({
       requestBody: { id: workspaceId },
     });
   } catch (e) {
@@ -242,10 +205,10 @@ export async function add(
         )
       );
       const automateUsernameCreation: boolean =
-        ((await SettingService.getGlobal({
+        ((await wmill.getGlobal({
           key: "automate_username_creation",
         })) as any) ?? false;
-      await WorkspaceService.createWorkspace({
+      await wmill.createWorkspace({
         requestBody: {
           id: workspaceId,
           name: opts.createWorkspaceName ?? workspaceName,
@@ -262,7 +225,7 @@ export async function add(
     log.info(
       "On that instance and with those credentials, the workspaces that you can access are:"
     );
-    const workspaces = await WorkspaceService.listWorkspaces();
+    const workspaces = await wmill.listWorkspaces();
     for (const workspace of workspaces) {
       log.info(`- ${workspace.id} (name: ${workspace.name})`);
     }
@@ -342,7 +305,7 @@ async function remove(_opts: GlobalOptions, name: string) {
 
 async function whoami(_opts: GlobalOptions) {
   await requireLogin(_opts);
-  log.info(await UserService.globalWhoami());
+  log.info(await wmill.globalWhoami());
   const activeName = await getActiveWorkspaceName(_opts);
   log.info("Active: " + colors.green.bold(activeName || "none"));
 }

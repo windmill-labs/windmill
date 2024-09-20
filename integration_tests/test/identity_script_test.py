@@ -43,6 +43,7 @@ class TestIdentityScript(unittest.TestCase):
 
         if not os.environ.get("WMILL_RUNNING_DEV", False):
             for lang, script in SCRIPTS.items():
+                print(f"Creating script for {lang} {script}")
                 cls._client.create_script(
                     path=PATH_TEMPLATE.format(lang=lang),
                     content=script,

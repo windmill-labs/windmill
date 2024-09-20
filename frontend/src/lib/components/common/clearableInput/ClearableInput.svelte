@@ -26,6 +26,7 @@
 	$: if (value === undefined) value = ''
 </script>
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class="relative grow {wrapperClass}"
 	on:mouseenter={() => (isHovered = true)}

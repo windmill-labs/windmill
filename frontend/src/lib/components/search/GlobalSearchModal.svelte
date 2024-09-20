@@ -33,12 +33,13 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
+	import ServiceLogsInner from '../ServiceLogsInner.svelte'
 
 	let open: boolean = false
 
@@ -273,23 +274,25 @@
 					open = false
 				}
 			}
-			if (event.key === 'ArrowDown') {
-				event.preventDefault()
-				let idx = itemMap[tab].indexOf(selectedItem)
-				if (idx != -1) {
-					idx = (idx + 1) % itemMap[tab].length
-					selectedItem = selectItem(idx)
-					let el = document.getElementById(selectedItem.search_id)
-					if (el) scroll_into_view_if_needed_polyfill(el, false)
-				}
-			} else if (event.key === 'ArrowUp') {
-				event.preventDefault()
-				let idx = itemMap[tab].indexOf(selectedItem)
-				if (idx != -1) {
-					idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
-					selectedItem = selectItem(idx)
-					let el = document.getElementById(selectedItem.search_id)
-					if (el) scroll_into_view_if_needed_polyfill(el, false)
+			if (tab != 'logs') {
+				if (event.key === 'ArrowDown') {
+					event.preventDefault()
+					let idx = itemMap[tab].indexOf(selectedItem)
+					if (idx != -1) {
+						idx = (idx + 1) % itemMap[tab].length
+						selectedItem = selectItem(idx)
+						let el = document.getElementById(selectedItem.search_id)
+						if (el) scroll_into_view_if_needed_polyfill(el, false)
+					}
+				} else if (event.key === 'ArrowUp') {
+					event.preventDefault()
+					let idx = itemMap[tab].indexOf(selectedItem)
+					if (idx != -1) {
+						idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
+						selectedItem = selectItem(idx)
+						let el = document.getElementById(selectedItem.search_id)
+						if (el) scroll_into_view_if_needed_polyfill(el, false)
+					}
 				}
 			}
 		}
@@ -477,7 +480,7 @@
 	}
 
 	function maxModalWidth(tab: SearchMode) {
-		if (tab === 'runs') {
+		if (tab === 'runs' || tab === 'logs') {
 			return 'max-w-7xl'
 		} else {
 			return 'max-w-4xl'
@@ -485,7 +488,7 @@
 	}
 
 	function maxModalHeight(tab: SearchMode) {
-		if (tab === 'runs') {
+		if (tab === 'runs' || tab === 'logs') {
 			return ''
 		} else if (tab === 'content') {
 			return 'max-h-[70vh]'
@@ -603,9 +606,17 @@
 						/>
 					{:else if tab === 'logs'}
 						<div class="p-2">
-							<Alert title="Service log search is coming soon" type="info">
-								Full text search on windmill's service logs is coming soon
-							</Alert>
+							{#if !$superadmin}
+								<Alert title="Service logs are only available to superadmins" type="warning">
+									Service logs are only available to superadmins
+								</Alert>
+							{:else if searchTerm.length == 1}
+								<ServiceLogsInner />
+							{:else}
+								<Alert title="Not yet supported" type="info">
+									Full-text search across Windmill logs is not yet supported
+								</Alert>
+							{/if}
 						</div>
 					{:else if tab === 'runs'}
 						<div class="flex h-full p-2 divide-x">

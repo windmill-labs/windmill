@@ -252,6 +252,43 @@ function main(
 }
 `
 
+export const RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
+//!
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! rand = "0.7.2"
+//! \`\`\`
+//!
+//! Note that serde is used by default with the \`derive\` feature.
+//! You can still reimport it if you need additional features.
+
+use anyhow::anyhow;
+use rand::seq::SliceRandom;
+use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct Ret {
+    msg: String,
+    number: i8,
+}
+
+fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
+    println!(
+        "Person to greet: {} -  numbers to choose: {:?}",
+        who_to_greet, numbers
+    );
+    Ok(Ret {
+        msg: format!("Greetings {}!", who_to_greet),
+        number: *numbers
+            .choose(&mut rand::thread_rng())
+            .ok_or(anyhow!("There should be some numbers to choose from"))?,
+    })
+}
+`
+
+
+
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -445,6 +482,51 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
+export const ANSIBLE_PLAYBOOK_INIT_CODE = `---
+inventory:
+  - resource_type: ansible_inventory
+    # You can pin an inventory to this script by hardcoding the resource path:
+    # resource: u/user/your_resource
+
+# File resources will be written in the relative \`target\` location before
+# running the playbook
+# file_resources:
+  # - resource: u/user/fabulous_jinja_template
+  #   target:  ./config_template.j2
+
+# Define the arguments of the windmill script
+extra_vars:
+  world_qualifier:
+    type: string
+
+dependencies:
+  galaxy:
+    collections:
+      - name: community.general
+      - name: community.vmware
+  python:
+    - jmespath
+---
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
+  vars:
+    my_result:
+      a: 2
+      b: true
+      c: "Hello"
+
+  tasks:
+  - name: Print debug message
+    debug:
+      msg: "Hello, {{world_qualifier}} world!"
+  - name: Write variable my_result to result.json
+    delegate_to: localhost
+    copy:
+      content: "{{ my_result | to_json }}"
+      dest: result.json
+`
+
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
 	PYTHON_INIT_CODE_TRIGGER,
@@ -465,7 +547,9 @@ const ALL_INITIAL_CODE = [
 	BUN_INIT_CODE_APPROVAL,
 	BASH_INIT_CODE,
 	POWERSHELL_INIT_CODE,
-	PHP_INIT_CODE
+	PHP_INIT_CODE,
+	RUST_INIT_CODE,
+	ANSIBLE_PLAYBOOK_INIT_CODE,
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -552,6 +636,10 @@ export function initialCode(
 		return GRAPHQL_INIT_CODE
 	} else if (language == 'php') {
 		return PHP_INIT_CODE
+	} else if (language == 'rust') {
+		return RUST_INIT_CODE
+	} else if (language == 'ansible') {
+		return ANSIBLE_PLAYBOOK_INIT_CODE
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (language == 'bunnative' || subkind === 'bunnative') {
 			return BUNNATIVE_INIT_CODE

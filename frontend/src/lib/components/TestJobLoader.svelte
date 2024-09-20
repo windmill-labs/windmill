@@ -13,6 +13,18 @@
 	export let jobUpdateLastFetch: Date | undefined = undefined
 	export let toastError = false
 	export let lazyLogs = false
+	// Will be set to number if job is not a flow
+	// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
+	export let scriptProgress: number | undefined = undefined;
+
+	/// Last time asked for job progress
+	let lastTimeCheckedProgress: number | undefined = undefined; 
+
+	/// Will try to poll progress every 5s and if once progress returned was not undefined, will be ignored 
+	/// and getProgressRate will be used instead
+	const getProgressRetryRate: number = 5000;
+	/// How often loader poll progress
+	const getProgressRate: number = 1000;
 
 	const dispatch = createEventDispatcher()
 
@@ -91,11 +103,13 @@
 
 	export async function getLogs() {
 		if (job) {
+			console.log('getLogs')
+
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspace!,
 				id: job.id,
 				running: `running` in job && job.running,
-				logOffset: job.logs?.length ?? 0
+				logOffset: job.logs?.length ?? 0,
 			})
 
 			if ((job.logs ?? '').length == 0) {
@@ -113,6 +127,11 @@
 		tag: string | undefined,
 		lock?: string
 	): Promise<string> {
+
+		// Reset in case we rerun job without reloading
+		scriptProgress = undefined;
+		lastTimeCheckedProgress = undefined;
+	
 		return abstractRun(() =>
 			JobService.runScriptPreview({
 				workspace: $workspaceStore!,
@@ -171,13 +190,46 @@
 		if (currentId === id) {
 			try {
 				if (job && `running` in job) {
+
+					let getProgress: boolean | undefined = undefined;
+					// We only pull individual job progress this way
+					// Flow's progress we are getting from FlowStatusModule of flow job
+					if (job.job_kind == "script" || job.job_kind == "preview"){
+						// First time, before running job, lastTimeCheckedProgress is always undefined
+						if (lastTimeCheckedProgress){
+							const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress;
+							// Ask for progress if the last time we asked is >5s OR the progress was once not undefined
+							if (lastTimeCheckedMs > getProgressRetryRate || (scriptProgress != undefined && lastTimeCheckedMs > getProgressRate)){
+								lastTimeCheckedProgress = Date.now();	
+								getProgress = true;																								
+							}
+						} else {
+							// Make it think we asked for progress, but in reality we didnt. First 5s we want to wait without putting extra work on db
+							// 99.99% of the jobs won't have progress be set so we have to do a balance between having low-latency for jobs that use it and job that don't
+							// we would usually not care to have progress the first 5s and jobs that are less than 5s
+							lastTimeCheckedProgress = Date.now();
+						}					
+					}
+
 					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
+					console.log('getLogs')
+
 					let previewJobUpdates = await JobService.getJobUpdates({
 						workspace: workspace!,
 						id,
 						running: job.running,
-						logOffset: offset
+						logOffset: offset,
+						getProgress: getProgress
 					})
+
+					// Clamp number between two values with the following line:
+					const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
+
+					if (previewJobUpdates.progress){
+						// Progress cannot go back and cannot be set to 100
+						scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99);						
+					}
+
 
 					if (previewJobUpdates.new_logs) {
 						if (offset == 0) {

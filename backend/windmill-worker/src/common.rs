@@ -28,7 +28,8 @@ use windmill_common::s3_helpers::{
 };
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
 use windmill_common::worker::{
-    get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG,
+    get_windmill_memory_usage, get_worker_memory_usage, to_raw_value, write_file, CLOUD_HOSTED,
+    ROOT_CACHE_DIR, TMP_DIR, WORKER_CONFIG,
 };
 use windmill_common::{
     error::{self, Error},
@@ -36,7 +37,7 @@ use windmill_common::{
     variables::ContextualVariable,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use windmill_queue::{append_logs, CanceledBy};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -73,7 +74,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM,
 };
 
 pub async fn build_args_map<'a>(
@@ -112,34 +113,22 @@ pub async fn create_args_and_out_file(
                 job_dir,
                 "args.json",
                 &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .await?;
+            )?;
         } else {
             write_file(
                 job_dir,
                 "args.json",
                 &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .await?;
+            )?;
         }
     } else {
-        write_file(job_dir, "args.json", "{}").await?;
+        write_file(job_dir, "args.json", "{}")?;
     };
 
-    write_file(job_dir, "result.json", "").await?;
+    write_file(job_dir, "result.json", "")?;
     Ok(())
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path).await?;
-    file.write_all(content.as_bytes()).await?;
-    file.flush().await?;
-    Ok(file)
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
 pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
@@ -359,19 +348,55 @@ pub fn unsafe_raw(json: String) -> Box<RawValue> {
     unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
 }
 
-pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
-    let content = read_file_content(path).await?;
-
-    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
+fn check_result_too_big(size: usize) -> error::Result<()> {
+    if *CLOUD_HOSTED && size > MAX_RESULT_SIZE {
         return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
     };
+    Ok(())
+}
+
+/// This function assumes that the file contains valid json and will result in UB if it isn't. If
+/// the file is user generated or otherwise not guaranteed to be valid used the
+/// `read_and_check_file` instead
+pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
+    let content = read_file_content(path).await?;
+
+    check_result_too_big(content.len())?;
 
     let r = unsafe_raw(content);
     return Ok(r);
 }
+
+/// Read the `result.json` file. This function assumes that the file contains valid json and will
+/// result in undefined behaviour if it isn't. If the result.json is user generated or otherwise
+/// not guaranteed to be valid, use `read_and_check_result`
 pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
     return read_file(&format!("{job_dir}/result.json")).await;
+}
+
+pub async fn read_and_check_file(path: &str) -> error::Result<Box<RawValue>> {
+    let content = read_file_content(path).await?;
+
+    check_result_too_big(content.len())?;
+
+    let raw_value: Box<RawValue> = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("{} is not valid json: {}", path, e))?;
+    Ok(raw_value)
+}
+
+/// Use this to read `result.json` that were user-generated
+pub async fn read_and_check_result(job_dir: &str) -> error::Result<Box<RawValue>> {
+    let result_path = format!("{job_dir}/result.json");
+
+    if let Ok(metadata) = tokio::fs::metadata(&result_path).await {
+        if metadata.len() > 0 {
+            return read_and_check_file(&result_path)
+                .await
+                .map_err(|e| anyhow!("Failed to read result: {}", e).into());
+        }
+    }
+    Ok(to_raw_value(&json!("null")))
 }
 
 pub fn capitalize(s: &str) -> String {
@@ -581,10 +606,10 @@ where
             _ = interval.tick() => {
                 // update the last_ping column every 5 seconds
                 i+=1;
-                if i % 10 == 0 {
+                if i == 1 || i % 10 == 0 {
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
-                    tracing::info!("{worker_name}/{job_id} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
+                    tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     if job_id != Uuid::nil() {
                         sqlx::query!(
                             "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
@@ -603,7 +628,7 @@ where
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }
-                tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                tracing::info!("job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
 
 
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;

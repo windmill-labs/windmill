@@ -42,6 +42,7 @@
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
+	export let initialJob: Job | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let flowJobIds:
 		| {
@@ -284,11 +285,16 @@
 		dispatch('start')
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
-				const newJob = await JobService.getJob({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: jobId ?? '',
-					noLogs: true
-				})
+				const newJob =
+					jobId == initialJob?.id &&
+					initialJob?.id != undefined &&
+					initialJob?.type === 'CompletedJob'
+						? initialJob
+						: await JobService.getJob({
+								workspace: workspaceId ?? $workspaceStore ?? '',
+								id: jobId ?? '',
+								noLogs: true
+						  })
 				if (!deepEqual(job, newJob)) {
 					job = newJob
 					job?.flow_status && updateStatus(job?.flow_status)
@@ -485,7 +491,7 @@
 
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
-					...($flowStateStore[modId] ?? {}),
+					...(($flowStateStore[modId] as object) ?? {}),
 					previewResult: jobLoaded.args
 				}
 			}
@@ -946,8 +952,11 @@
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										selectedNode = e.detail
-										stepDetail = e.detail
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
+											(m) => m?.id === e?.detail
+										)
+										stepDetail = mod
+										selectedNode = e?.detail
 									}
 								} else {
 									stepDetail = e.detail

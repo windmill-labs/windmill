@@ -26,7 +26,9 @@ windmill-common = { workspace = true, default-features = false }
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
+windmill-parser-rust.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser-yaml.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
@@ -86,6 +88,7 @@ openidconnect = { workspace = true, optional = true}
 tar.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true
+yaml-rust.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

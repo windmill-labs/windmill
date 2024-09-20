@@ -29,7 +29,11 @@ const p = {
     const filter = new RegExp(
       `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
+    let cdirNodeModules = `${cdir}/node_modules/`;
     build.onResolve({ filter }, (args) => {
+      if (args.importer?.startsWith(cdirNodeModules)) {
+        return undefined;
+      }
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path

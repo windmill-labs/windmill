@@ -12,6 +12,7 @@
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
@@ -46,6 +47,8 @@
 	export let watchChanges = false
 	export let customUi: ScriptEditorWhitelabelCustomUi = {}
 
+	let jobProgressReset: () => void
+
 	let websocketAlive = {
 		pyright: false,
 		deno: false,
@@ -68,6 +71,7 @@
 	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
+	let scriptProgress = undefined;
 
 	// Test
 	let testIsLoading = false
@@ -98,6 +102,8 @@
 	}
 
 	function runTest() {
+		// Not defined if JobProgressBar not loaded
+		if (jobProgressReset) jobProgressReset();
 		//@ts-ignore
 		testJobLoader.runPreview(path, code, lang, args, tag)
 	}
@@ -214,6 +220,7 @@
 
 <TestJobLoader
 	on:done={loadPastTests}
+	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -297,6 +304,7 @@
 						on:change={(e) => {
 							inferSchema(e.detail)
 						}}
+						on:saveDraft
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -318,10 +326,11 @@
 						{args}
 					/>
 					<DiffEditor
+						class="h-full"
 						bind:this={diffEditor}
 						automaticLayout
+						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						class="hidden h-full"
 					/>
 				{/key}
 			</div>
@@ -391,7 +400,12 @@
 							{editor}
 							{diffEditor}
 							{args}
-						/>
+						>
+						{#if scriptProgress}
+							<!-- Put to the slot in logpanel -->
+							<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
+						{/if}
+						</LogPanel>
 					</Pane>
 				</Splitpanes>
 			</div>

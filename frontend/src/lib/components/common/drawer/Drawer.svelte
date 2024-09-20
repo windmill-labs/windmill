@@ -91,7 +91,7 @@
 	</Disposable>
 </ConditionalPortal>
 
-<style>
+<style lang="postcss">
 	.drawer {
 		position: fixed;
 		top: 0;

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "845120388af12c2b2f57fedf95c8cce4a406b74c9a8c8590a3bae323d59d046a"
+}

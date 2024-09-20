@@ -4,11 +4,10 @@
 	import { classNames, displayDate, emptyString } from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import AppPreview from './AppPreview.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { Pencil, ArrowRight, X } from 'lucide-svelte'
+	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
 
 	export let appPath: string | undefined
 	let loading: boolean = false
@@ -77,6 +76,7 @@
 						<div class="flex gap-2 flex-col">
 							{#each versions ?? [] as version}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
 								<div
 									class={classNames(
 										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
@@ -179,7 +179,12 @@
 							</Button>
 						</div>
 					</div>
-					<AppPreview noBackend app={selected.value} context={{}} />
+
+					{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default noBackend app={selected.value} context={{}} />
+					{/await}
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}

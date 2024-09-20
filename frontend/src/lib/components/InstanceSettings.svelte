@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { settings, settingsKeys, type SettingStorage } from './instanceSettings'
-	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
-	import { ConfigService, SettingService } from '$lib/gen'
+	import { Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { ConfigService, SettingService, SettingsService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -16,7 +16,16 @@
 	import { capitalize, classNames } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
-	import { AlertCircle, AlertTriangle, BadgeCheck, Info, Plus, X, BadgeX } from 'lucide-svelte'
+	import {
+		AlertCircle,
+		AlertTriangle,
+		BadgeCheck,
+		Info,
+		Plus,
+		X,
+		BadgeX,
+		Slack
+	} from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
@@ -26,6 +35,10 @@
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
+
+	import { base } from '$lib/base'
+	import { createEventDispatcher } from 'svelte'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -43,8 +56,21 @@
 
 	let serverConfig = {}
 	let initialValues: Record<string, any> = {}
+	let loading = true
+
+	let version: string = ''
+
 	loadSettings()
+	loadVersion()
+
+	const dispatch = createEventDispatcher()
+
+	async function loadVersion() {
+		version = await SettingsService.backendVersion()
+	}
+
 	async function loadSettings() {
+		loading = true
 		try {
 			serverConfig = (await ConfigService.getConfig({ name: 'server' })) ?? {}
 		} catch (e) {
@@ -84,6 +110,8 @@
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
 		}
+		loading = false
+
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
@@ -102,6 +130,7 @@
 				})
 				serverConfig = JSON.parse(JSON.stringify(newServerConfig))
 			}
+			let licenseKeySet = false
 			await Promise.all(
 				allSettings
 					.filter((x) => {
@@ -114,7 +143,13 @@
 						)
 					})
 					.map(async ([_, x]) => {
-						await SettingService.setGlobal({ key: x.key, requestBody: { value: values?.[x.key] } })
+						if (x.key == 'license_key') {
+							licenseKeySet = true
+						}
+						return await SettingService.setGlobal({
+							key: x.key,
+							requestBody: { value: values?.[x.key] }
+						})
 					})
 			)
 			initialValues = JSON.parse(JSON.stringify(values))
@@ -134,10 +169,14 @@
 					requestBody: { value: requirePreexistingUserForOauth }
 				})
 			}
+			if (licenseKeySet) {
+				setLicense()
+			}
 		} else {
 			console.error('Values not loaded')
 		}
 		sendUserToast('Settings updated')
+		dispatch('saved')
 	}
 
 	let oauths: Record<string, any> = {}
@@ -227,6 +266,15 @@
 			opening = false
 		}
 	}
+
+	function showSetting(setting: string, values: Record<string, any>) {
+		if (setting == 'dev_instance') {
+			if (values['license_key'] == undefined) {
+				return false
+			}
+		}
+		return true
+	}
 </script>
 
 <div class="pb-8">
@@ -238,6 +286,7 @@
 
 		<svelte:fragment slot="content">
 			<div class="pt-4" />
+
 			{#each Object.keys(settings) as category}
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
@@ -245,6 +294,11 @@
 							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
 							instance.</div
 						>
+					{:else if category == 'Slack'}
+						<div class="text-secondary pb-4 text-xs">
+							Connecting your instance to a Slack workspace enables critical alerts to be sent to a
+							Slack channel.
+						</div>
 					{:else if category == 'Telemetry'}
 						<div class="text-secondary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
@@ -256,6 +310,7 @@
 								<li>login type usage</li>
 								<li>workers usage</li>
 								<li>vcpus usage</li>
+								<li>memory usage</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
@@ -268,8 +323,7 @@
 								size="xs">Send usage</Button
 							>
 						{/if}
-					{/if}
-					{#if category == 'SSO/OAuth'}
+					{:else if category == 'SSO/OAuth'}
 						<div>
 							<Tabs bind:selected={ssoOrOauth} class="mt-2 mb-4">
 								<Tab value="sso">SSO</Tab>
@@ -365,7 +419,7 @@
 									<Toggle
 										options={{
 											right:
-												'Require users to have been added manually to windmill to sign in through OAuth'
+												'Require users to have been added manually to Windmill to sign in through OAuth'
 										}}
 										bind:checked={requirePreexistingUserForOauth}
 									/>
@@ -460,7 +514,7 @@
 					<div>
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
-								{#if !setting.cloudonly || isCloudHosted()}
+								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values)}
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 											<AlertTriangle size={16} />
@@ -477,7 +531,9 @@
 										{/if}
 										{#if values}
 											{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
-											{#if setting.fieldType == 'text'}
+											{#if loading}
+												<Skeleton layout={[[2.5]]} />
+											{:else if setting.fieldType == 'text'}
 												<input
 													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
@@ -542,14 +598,16 @@
 														{:else if expiration}
 															<div class="flex flex-row gap-1 items-center">
 																<AlertCircle size={12} class="text-red-600" />
-																<span class="text-red-600 text-xs"
+																<span class="text-red-600 dark:text-red-400 text-xs"
 																	>License key expired on {expiration}</span
 																>
 															</div>
 														{:else}
 															<div class="flex flex-row gap-1 items-center">
 																<AlertCircle size={12} class="text-red-600" />
-																<span class="text-red-600 text-xs">Invalid license key format</span>
+																<span class="text-red-600 dark:text-red-400 text-xs"
+																	>Invalid license key format</span
+																>
 															</div>
 														{/if}
 													{/if}
@@ -600,13 +658,12 @@
 														</div>
 													{/if}
 													{#if licenseKeyChanged && !$enterpriseLicense}
-														<div class="flex flex-row items-center gap-1">
-															<AlertCircle size={12} class="text-yellow-600" />
-															<span class="text-xs text-yellow-600">
-																Refresh page after setting and saving license key to unlock all
-																features
-															</span>
-														</div>
+														{#if version.startsWith('CE')}
+															<div class="text-red-400"
+																>License key is set but image used is the Community Edition {version}.
+																Switch image to EE.</div
+															>
+														{/if}
 													{/if}
 
 													{#if valid || expiration}
@@ -654,21 +711,46 @@
 													{#if $enterpriseLicense && Array.isArray(values[setting.key])}
 														{#each values[setting.key] ?? [] as v, i}
 															<div class="flex max-w-md mt-1 gap-2 w-full items-center">
-																<select>
-																	<option value="email">Email</option>
-																</select>
-																<input
-																	type="email"
-																	placeholder="Email address"
-																	on:input={(e) => {
+																<select
+																	on:change={(e) => {
 																		if (e.target?.['value']) {
 																			values[setting.key][i] = {
-																				email: e.target['value']
+																				[e.target['value']]: ''
 																			}
 																		}
 																	}}
-																	value={v?.email ?? ''}
-																/>
+																	value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
+																>
+																	<option value="email">Email</option>
+																	<option value="slack_channel">Slack</option>
+																</select>
+																{#if v && 'slack_channel' in v}
+																	<input
+																		type="text"
+																		placeholder="Slack channel"
+																		on:input={(e) => {
+																			if (e.target?.['value']) {
+																				values[setting.key][i] = {
+																					slack_channel: e.target['value']
+																				}
+																			}
+																		}}
+																		value={v?.slack_channel ?? ''}
+																	/>
+																{:else}
+																	<input
+																		type="email"
+																		placeholder="Email address"
+																		on:input={(e) => {
+																			if (e.target?.['value']) {
+																				values[setting.key][i] = {
+																					email: e.target['value']
+																				}
+																			}
+																		}}
+																		value={v?.email ?? ''}
+																	/>
+																{/if}
 																<button
 																	transition:fade|local={{ duration: 100 }}
 																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
@@ -707,6 +789,35 @@
 														Add item
 													</Button>
 												</div>
+											{:else if setting.fieldType == 'slack_connect'}
+												<div class="flex flex-col items-start self-start">
+													{#if values[setting.key] && 'team_name' in values[setting.key]}
+														<div class="text-sm">
+															Connected to <code>{values[setting.key]['team_name']}</code>
+														</div>
+														<Button
+															size="sm"
+															endIcon={{ icon: Slack }}
+															btnClasses="mt-2"
+															variant="border"
+															on:click={async () => {
+																values[setting.key] = undefined
+															}}
+														>
+															Disconnect Slack
+														</Button>
+													{:else}
+														<Button
+															size="xs"
+															color="dark"
+															href="{base}/api/oauth/connect_slack?instance=true"
+															startIcon={{ icon: Slack }}
+															disabled={!$enterpriseLicense}
+														>
+															Connect to Slack
+														</Button>
+													{/if}
+												</div>
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
 												<div class="mb-6" />
@@ -739,7 +850,7 @@
 											{/if}
 
 											{#if hasError}
-												<span class="text-red-500 text-xs">
+												<span class="text-red-500 dark:text-red-400 text-sm">
 													{setting.error ?? ''}
 												</span>
 											{/if}

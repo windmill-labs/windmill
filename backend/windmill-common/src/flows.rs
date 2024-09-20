@@ -46,6 +46,15 @@ pub struct Flow {
     pub visible_to_runner_only: Option<bool>,
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FlowWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub flow: Flow,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
+}
+
 fn is_none_or_false(b: &Option<bool>) -> bool {
     b.is_none() || !b.unwrap()
 }

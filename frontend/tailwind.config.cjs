@@ -63,7 +63,14 @@ function hexToRgb(hex) {
 
 /** @type {import('tailwindcss').Config} */
 const config = {
-	content: ['./src/**/*.{html,js,svelte,ts}'],
+	//to generatd tailwind full, only include ./src/lib/components/apps/editor/componentsPanel/tailwindUtils.ts and run:
+	//npx tailwindcss -i src/lib/assets/app.css -o static/tailwind_full.css
+	//then copy content in that file
+	content: [
+		'./src/**/*.{html,js,svelte,ts}',
+		'!./src/lib/components/apps/utils.ts',
+		'!./src/lib/components/apps/editor/componentsPanel/tailwindUtils.ts'
+	],
 	safelist: [
 		'hljs',
 		'splitpanes__pane',
@@ -73,19 +80,7 @@ const config = {
 		'autocomplete-list-item',
 		'autocomplete-list-item-create',
 		'selected',
-		'wm-tab-selected',
-		...(process.env.NODE_ENV === 'production'
-			? [
-					{ pattern: /^m(\w?)-.*$/ },
-					{ pattern: /^p(\w?)-.*$/ },
-					{ pattern: /^rounded-.*$/ },
-					{ pattern: /^shadow-.*$/, variants: ['hover'] },
-					{ pattern: /^text-[^/]*$/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^bg-[^/]*$/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^border-[^/]*$/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^ring-[^/]*$/, variants: ['hover', 'active', 'focus'] }
-			  ]
-			: [])
+		'wm-tab-selected'
 	],
 	theme: {
 		colors: {
@@ -482,7 +477,7 @@ const config = {
 					fontSize: theme('fontSize.base'),
 					fontWeight: theme('fontWeight.normal'),
 
-					backgroundColor: 'rgb(var(--color-surface) / <alpha-value>)',
+					backgroundColor: 'rgb(var(--color-surface))',
 					color: lightTheme.textPrimary,
 					'--color-surface': lightThemeRgb.surface,
 					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
@@ -630,10 +625,10 @@ const config = {
 					color: theme('colors.gray.400')
 				},
 				"[type='checkbox']:checked": {
-					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='black' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");`
+					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='black' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e")`
 				},
 				".dark [type='checkbox']:checked": {
-					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");`
+					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e")`
 				},
 				'input:not(.windmillapp),input[type="text"]:not(.windmillapp),input[type="email"]:not(.windmillapp),input[type="url"]:not(.windmillapp),input[type="password"]:not(.windmillapp),input[type="number"]:not(.windmillapp),input[type="date"]:not(.windmillapp),input[type="datetime-local"]:not(.windmillapp),input[type="month"]:not(.windmillapp),input[type="search"]:not(.windmillapp),input[type="tel"]:not(.windmillapp),input[type="time"]:not(.windmillapp),input[type="week"]:not(.windmillapp),textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),select:not(.windmillapp)':
 					{
@@ -722,10 +717,10 @@ const config = {
 					}
 				},
 				input: {
-					backgroundColor: theme('colors.surface-secondary') + ' !important'
+					backgroundColor: 'rgb(var(--color-surface-secondary) / 30%) !important'
 				},
 				textarea: {
-					backgroundColor: theme('colors.surface-secondary') + ' !important'
+					backgroundColor: 'rgb(var(--color-surface-secondary) / 30%) !important'
 				}
 			})
 			addComponents({

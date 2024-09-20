@@ -12,9 +12,10 @@
 
 	/* Chrome, Edge, and Safari */
 	*::-webkit-scrollbar {
-		width: 3px;
-		height: 3px;
+		width: 5px;
+		height: 5px;
 	}
+
 	/* 
 	*::-webkit-scrollbar-track {
 		@apply bg-tertiary; 
@@ -23,12 +24,12 @@
 
 	*::-webkit-scrollbar-thumb {
 		@apply bg-tertiary-inverse dark:bg-tertiary;
-		border-radius: 10px;
+		border-radius: 3px;
 	}
 
 	@font-face {
 		font-family: 'Inter';
-		src: url('/Inter-Variable.ttf');
+		src: url('/Inter-Variable.woff2') format('woff2');
 		font-weight: 100 900;
 		font-display: swap;
 	}
@@ -119,4 +120,28 @@ svelte-virtual-list-contents > * + * {
 	@apply placeholder:text-gray-400 dark:placeholder:text-gray-200;
 	@apply bg-surface;
 	@apply disabled:placeholder:text-gray-200 disabled:placeholder:dark:text-gray-500 disabled:text-gray-200 disabled:dark:text-gray-500 disabled:border-gray-200 disabled:dark:border-gray-600;
+}
+
+.nonmain-editor .cursor.monaco-mouse-cursor-text {
+	width: 1px !important;
+}
+
+.bg-locked {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(128, 128, 128, 0.2),
+		rgba(128, 128, 128, 0.2) 10px,
+		rgba(192, 192, 192, 0.2) 10px,
+		rgba(192, 192, 192, 0.2) 20px
+	);
+}
+
+.bg-locked-hover {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(255, 99, 71, 0.2),
+		rgba(255, 99, 71, 0.2) 10px,
+		rgba(255, 69, 58, 0.2),
+		rgba(255, 69, 58, 0.2) 20px
+	);
 }

@@ -1,7 +1,12 @@
 #![allow(non_snake_case)] // TODO: switch to parse_* function naming
 
 use anyhow::anyhow;
+
+#[cfg(not(target_arch = "wasm32"))]
 use regex::Regex;
+#[cfg(target_arch = "wasm32")]
+use regex_lite::Regex;
+
 use serde_json::json;
 
 use std::collections::HashMap;

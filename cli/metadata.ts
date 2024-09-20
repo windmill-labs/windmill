@@ -1,14 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import {
-  FlowValue,
-  SEP,
-  colors,
-  log,
-  path,
-  yamlParse,
-  yamlStringify,
-} from "./deps.ts";
+import { SEP, colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -42,6 +34,8 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { getIsWin } from "./main.ts";
+import { FlowValue } from "./gen/types.gen.ts";
 
 export async function generateAllMetadata() {}
 
@@ -169,6 +163,12 @@ export async function generateFlowLockInternal(
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
 
+// on windows, when using powershell, blue is not readable
+async function blueColor(): Promise<(x: string) => void> {
+  const isWin = await getIsWin();
+  return isWin ? colors.black : colors.blue;
+}
+
 export async function generateScriptMetadataInternal(
   scriptPath: string,
   workspace: Workspace,
@@ -196,7 +196,7 @@ export async function generateScriptMetadataInternal(
   );
   if (rawReqs) {
     log.info(
-      colors.blue(
+      (await blueColor())(
         `Found raw requirements (package.json/requirements.txt/composer.json) for ${scriptPath}, using it`
       )
     );
@@ -406,8 +406,10 @@ export async function updateFlow(
 
   let responseText = "reading response failed";
   try {
-    const res = await rawResponse.json();
-    return res?.["updated_flow_value"];
+    const res = (await rawResponse.json()) as
+      | { updated_flow_value: any }
+      | undefined;
+    return res?.updated_flow_value;
   } catch (e) {
     try {
       responseText = await rawResponse.text();
@@ -528,17 +530,19 @@ function sortObject(obj: any): any {
     );
 }
 
+//copied straight fron frontend /src/utils/inferArgs.ts
 export function argSigToJsonSchemaType(
   t:
     | string
     | { resource: string | null }
     | {
         list:
-          | string
+          | (string | { object: { key: string; typ: any }[] })
           | { str: any }
           | { object: { key: string; typ: any }[] }
           | null;
       }
+    | { dynselect: string }
     | { str: string[] | null }
     | { object: { key: string; typ: any }[] }
     | {
@@ -551,7 +555,7 @@ export function argSigToJsonSchemaType(
       },
   oldS: SchemaProperty
 ): void {
-  let newS: SchemaProperty = { type: "" };
+  const newS: SchemaProperty = { type: "" };
   if (t === "int") {
     newS.type = "integer";
   } else if (t === "float") {
@@ -616,6 +620,9 @@ export function argSigToJsonSchemaType(
     if (t.str) {
       newS.originalType = "enum";
       newS.enum = t.str;
+    } else if (oldS.originalType == "string" && oldS.enum) {
+      newS.originalType = "string";
+      newS.enum = oldS.enum;
     } else {
       newS.originalType = "string";
       newS.enum = undefined;
@@ -623,6 +630,9 @@ export function argSigToJsonSchemaType(
   } else if (typeof t !== "string" && `resource` in t) {
     newS.type = "object";
     newS.format = `resource-${t.resource}`;
+  } else if (typeof t !== "string" && `dynselect` in t) {
+    newS.type = "object";
+    newS.format = `dynselect-${t.dynselect}`;
   } else if (typeof t !== "string" && `list` in t) {
     newS.type = "array";
     if (t.list === "int" || t.list === "float") {
@@ -633,6 +643,31 @@ export function argSigToJsonSchemaType(
       newS.items = { type: "string" };
     } else if (t.list && typeof t.list == "object" && "str" in t.list) {
       newS.items = { type: "string", enum: t.list.str };
+    } else if (
+      t.list &&
+      typeof t.list == "object" &&
+      "resource" in t.list &&
+      t.list.resource
+    ) {
+      newS.items = {
+        type: "resource",
+        resourceType: t.list.resource as string,
+      };
+    } else if (
+      t.list &&
+      typeof t.list == "object" &&
+      "object" in t.list &&
+      t.list.object &&
+      t.list.object.length > 0
+    ) {
+      const properties: Record<string, any> = {};
+      for (const prop of t.list.object) {
+        properties[prop.key] = { description: "", type: "" };
+
+        argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+      }
+
+      newS.items = { type: "object", properties: properties };
     } else {
       newS.items = { type: "object" };
     }
@@ -751,7 +786,9 @@ export async function parseMetadataFile(
     } catch {
       // no metadata file at all. Create it
       log.info(
-        colors.blue(`Creating script metadata file for ${metadataFilePath}`)
+        (await blueColor())(
+          `Creating script metadata file for ${metadataFilePath}`
+        )
       );
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
@@ -765,7 +802,9 @@ export async function parseMetadataFile(
 
       if (generateMetadataIfMissing) {
         log.info(
-          colors.blue(`Generating lockfile and schema for ${metadataFilePath}`)
+          (await blueColor())(
+            `Generating lockfile and schema for ${metadataFilePath}`
+          )
         );
         try {
           await generateScriptMetadataInternal(
