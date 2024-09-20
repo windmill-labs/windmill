@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.397.2](https://github.com/windmill-labs/windmill/compare/v1.397.1...v1.397.2) (2024-09-20)
+
+
+### Bug Fixes
+
+* **bun:** never pre-bundle BASE_URL env variable ([69b8754](https://github.com/windmill-labs/windmill/commit/69b8754aef32682bf812be783f79b81cd8526c7a))
+
+## [1.397.1](https://github.com/windmill-labs/windmill/compare/v1.397.0...v1.397.1) (2024-09-20)
+
+
+### Bug Fixes
+
+* **go:** put shared directory in job dir and not go parent ([623ece8](https://github.com/windmill-labs/windmill/commit/623ece8c6791b2c18648a68c562fcd5c8291be9b))
+* improve ability to paste from macos in vscode extension ([07372e7](https://github.com/windmill-labs/windmill/commit/07372e7e65d77df338718929f133e477a1daf993))
+* update git sync script ([30fe28c](https://github.com/windmill-labs/windmill/commit/30fe28ceecb9043eee6811dce8c3e2cd9224927b))
+
 ## [1.397.0](https://github.com/windmill-labs/windmill/compare/v1.396.1...v1.397.0) (2024-09-18)
 
 
