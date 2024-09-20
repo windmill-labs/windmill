@@ -2866,10 +2866,21 @@ where
             (content_type, extra, raw, wrap_body)
         };
 
-        if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
+        let no_content_type = content_type.is_none();
+        if no_content_type || content_type.unwrap().starts_with("application/json") {
             let bytes = Bytes::from_request(req, _state)
                 .await
                 .map_err(IntoResponse::into_response)?;
+            if no_content_type && bytes.is_empty() {
+                if use_raw {
+                    extra.insert("raw_string".to_string(), to_raw_value(&"".to_string()));
+                }
+                let mut args = HashMap::new();
+                if wrap_body {
+                    args.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
+                }
+                return Ok(PushArgsOwned { extra: Some(extra), args: args });
+            }
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
