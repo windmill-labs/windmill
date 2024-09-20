@@ -1,7 +1,7 @@
 <script lang="ts">
 	// @ts-nocheck
 	import { onMount } from 'svelte'
-	export let password: string
+	export let password: string | undefined
 	export let placeholder = '******'
 	export let disabled = false
 	export let required = false

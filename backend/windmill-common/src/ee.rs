@@ -36,7 +36,13 @@ pub enum CriticalAlertKind {
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn send_critical_alert(_error_message: String, _db: &DB, _kind: CriticalAlertKind) {}
+pub async fn send_critical_alert(
+    _error_message: String,
+    _db: &DB,
+    _kind: CriticalAlertKind,
+    channels: Option<Vec<CriticalErrorChannel>>,
+) {
+}
 
 #[cfg(feature = "enterprise")]
 pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {

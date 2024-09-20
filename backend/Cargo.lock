@@ -286,7 +286,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "chrono",
- "chrono-tz 0.9.0",
+ "chrono-tz",
  "half",
  "hashbrown 0.14.5",
  "num",
@@ -1083,7 +1083,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper 1.0.1",
  "tokio",
- "tower 0.4.13",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -1667,18 +1667,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
 dependencies = [
  "chrono",
- "chrono-tz-build 0.3.0",
- "phf",
-]
-
-[[package]]
-name = "chrono-tz"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd6dd8046d00723a59a2f8c5f295c515b9bb9a331ee4f8f3d4dd49e428acd3b6"
-dependencies = [
- "chrono",
- "chrono-tz-build 0.4.0",
+ "chrono-tz-build",
  "phf",
 ]
 
@@ -1690,16 +1679,6 @@ checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
- "phf_codegen",
-]
-
-[[package]]
-name = "chrono-tz-build"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
-dependencies = [
- "parse-zoneinfo",
  "phf_codegen",
 ]
 
@@ -2682,7 +2661,7 @@ dependencies = [
  "tokio-rustls 0.26.0",
  "tokio-socks",
  "tokio-util",
- "tower 0.4.13",
+ "tower",
  "tower-http",
  "tower-service",
 ]
@@ -2795,7 +2774,7 @@ dependencies = [
  "rustls-webpki 0.102.8",
  "serde",
  "tokio",
- "webpki-roots 0.26.6",
+ "webpki-roots 0.26.5",
 ]
 
 [[package]]
@@ -4306,7 +4285,7 @@ dependencies = [
  "pin-project-lite",
  "socket2 0.5.7",
  "tokio",
- "tower 0.4.13",
+ "tower",
  "tower-service",
  "tracing",
 ]
@@ -4892,7 +4871,7 @@ dependencies = [
  "smtp-proto",
  "tokio",
  "tokio-rustls 0.26.0",
- "webpki-roots 0.26.6",
+ "webpki-roots 0.26.5",
 ]
 
 [[package]]
@@ -8051,7 +8030,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid 1.10.0",
- "webpki-roots 0.26.6",
+ "webpki-roots 0.26.5",
 ]
 
 [[package]]
@@ -9501,16 +9480,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tower"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2873938d487c3cfb9aed7546dc9f2711d867c9f90c46b889989a2cb84eba6b4f"
-dependencies = [
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
 name = "tower-cookies"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9924,9 +9893,9 @@ checksum = "08f95100a766bf4f8f28f90d77e0a5461bbdb219042e7679bebe79004fed8d75"
 
 [[package]]
 name = "unicode-id"
-version = "0.3.5"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10103c57044730945224467c09f71a4db0071c123a0648cc3e818913bde6b561"
+checksum = "b1b6def86329695390197b82c1e244a54a131ceb66c996f2088a3876e2ae083f"
 
 [[package]]
 name = "unicode-id-start"
@@ -9972,15 +9941,15 @@ checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
 
 [[package]]
 name = "unicode-width"
-version = "0.1.14"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+checksum = "0336d538f7abc86d282a4189614dfaa90810dfc2c6f6427eaf88e16311dd225d"
 
 [[package]]
 name = "unicode-xid"
-version = "0.2.6"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+checksum = "229730647fbc343e3a80e463c1db7f78f3855d3f3739bee0dda773c9a037c90a"
 
 [[package]]
 name = "unicode_categories"
@@ -10044,7 +10013,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "webpki-roots 0.26.6",
+ "webpki-roots 0.26.5",
 ]
 
 [[package]]
@@ -10340,9 +10309,9 @@ checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.6"
+version = "0.26.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841c67bff177718f1d4dfefde8d8f0e78f9b6589319ba88312f567fc5841a958"
+checksum = "0bd24728e5af82c6c4ec1b66ac4844bdf8156257fccda846ec58b42cd0cdbe6a"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -10480,7 +10449,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz",
  "cookie 0.17.0",
  "crc",
  "cron",
@@ -10492,7 +10461,7 @@ dependencies = [
  "hmac",
  "http 1.1.0",
  "hyper 1.4.1",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
@@ -10527,7 +10496,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-tar",
  "tokio-util",
- "tower 0.5.1",
+ "tower",
  "tower-cookies",
  "tower-http",
  "tracing",
@@ -10597,7 +10566,7 @@ dependencies = [
  "hmac",
  "hyper 1.4.1",
  "indexmap 2.5.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -10684,7 +10653,7 @@ version = "1.397.4"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -10707,7 +10676,7 @@ name = "windmill-parser-php"
 version = "1.397.4"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "php-parser-rs",
  "serde_json",
  "windmill-parser",
@@ -10718,7 +10687,7 @@ name = "windmill-parser-py"
 version = "1.397.4"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -10730,7 +10699,7 @@ version = "1.397.4"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "phf",
  "regex",
@@ -10748,7 +10717,7 @@ version = "1.397.4"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "pulldown-cmark",
  "quote",
@@ -10829,12 +10798,12 @@ dependencies = [
  "axum",
  "bigdecimal",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "prometheus",
  "regex",
@@ -10890,7 +10859,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "mappable-rc",
