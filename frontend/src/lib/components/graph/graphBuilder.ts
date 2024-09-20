@@ -3,6 +3,7 @@ import { type Node, type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
+import type { GraphModuleState } from './model'
 
 export type GraphEventHandlers = {
 	insert: (detail) => void
@@ -19,6 +20,7 @@ export default function graphBuilder(
 	modules: FlowModule[] | undefined,
 	extra: Record<string, any>,
 	failureModule: FlowModule | undefined,
+	preprocessorModule: FlowModule | undefined,
 	eventHandlers: GraphEventHandlers,
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
@@ -103,7 +105,7 @@ export default function graphBuilder(
 		data: {
 			eventHandlers: eventHandlers,
 			modules: modules,
-
+			hasPreprocessor: !!preprocessorModule,
 			...extra
 		}
 	}
@@ -128,7 +130,8 @@ export default function graphBuilder(
 		beforeNode: Node,
 		nextNode: Node,
 		currentOffset = 0,
-		disableMoveIds: string[] = []
+		disableMoveIds: string[] = [],
+		parentIndex?: string
 	) {
 		let previousId: string | undefined = undefined
 
@@ -218,7 +221,14 @@ export default function graphBuilder(
 								type: 'empty'
 							})
 
-							processModules(branch.modules, startNode, endNode, currentOffset, localDisableMoveIds)
+							processModules(
+								branch.modules,
+								startNode,
+								endNode,
+								currentOffset,
+								localDisableMoveIds,
+								parentIndex ? `${parentIndex}-${index}-${branchIndex}` : `${index}-${branchIndex}`
+							)
 						})
 					}
 
@@ -261,12 +271,17 @@ export default function graphBuilder(
 					nodes.push(startNode)
 					nodes.push(endNode)
 
+					const selectedIterIndex = extra.flowModuleStates?.[module.id]?.selectedForloopIndex
+
 					processModules(
 						module.value.modules,
 						startNode,
 						endNode,
 						currentOffset + 25,
-						localDisableMoveIds
+						localDisableMoveIds,
+						parentIndex
+							? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
+							: `${index}-${selectedIterIndex ?? '?'}`
 					)
 
 					previousId = endNode.id
@@ -299,12 +314,17 @@ export default function graphBuilder(
 					nodes.push(startNode)
 					nodes.push(endNode)
 
+					const selectedIterIndex = extra.flowModuleStates?.[module.id]?.selectedForloopIndex
+
 					processModules(
 						module.value.modules,
 						startNode,
 						endNode,
 						currentOffset + 25,
-						localDisableMoveIds
+						localDisableMoveIds,
+						parentIndex
+							? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
+							: `${index}-${selectedIterIndex ?? '?'}`
 					)
 
 					previousId = endNode.id
@@ -345,7 +365,8 @@ export default function graphBuilder(
 						defaultBranch,
 						endNode,
 						currentOffset,
-						localDisableMoveIds
+						localDisableMoveIds,
+						parentIndex ? `${parentIndex}-${index}` : index.toString()
 					)
 
 					module.value.branches.forEach((branch, branchIndex) => {
@@ -371,7 +392,14 @@ export default function graphBuilder(
 
 						addEdge(module.id, startNode.id, { type: 'empty' })
 
-						processModules(branch.modules, startNode, endNode, currentOffset, localDisableMoveIds)
+						processModules(
+							branch.modules,
+							startNode,
+							endNode,
+							currentOffset,
+							localDisableMoveIds,
+							parentIndex ? `${parentIndex}-${index}` : index.toString()
+						)
 					})
 
 					previousId = endNode.id
@@ -395,13 +423,32 @@ export default function graphBuilder(
 					})
 				}
 			})
+
+			if (failureModule) {
+				const id = parentIndex ? `failure-${parentIndex}` : 'failure'
+				const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
+
+				if (failureState && failureState.parent_module) {
+					addNode(
+						{
+							...failureModule,
+							id: id
+						},
+						0,
+						'module'
+					)
+					addEdge(failureState.parent_module, id, { type: 'empty' })
+				}
+			}
 		}
 	}
 
 	processModules(modules, inputNode, resultNode)
 
-	if (failureModule) {
-		addNode(failureModule, 0, 'module')
+	if (preprocessorModule) {
+		addNode(preprocessorModule, 0, 'module')
+		const id = JSON.parse(JSON.stringify(preprocessorModule.id))
+		addEdge(id, 'Input', { type: 'empty' })
 	}
 
 	Object.keys(parents).forEach((key) => {

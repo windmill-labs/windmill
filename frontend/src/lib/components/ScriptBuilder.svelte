@@ -231,8 +231,9 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const noMainFunc = await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = noMainFunc || undefined
+				const result = await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = result?.no_main_func || undefined
+				script.has_preprocessor = result?.has_preprocessor || undefined
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -263,6 +264,7 @@
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
 					no_main_func: script.no_main_func,
+					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined
 				}
 			})
@@ -352,8 +354,9 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const noMainFunc = await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = noMainFunc || undefined
+				const result = await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = result?.no_main_func || undefined
+				script.has_preprocessor = result?.has_preprocessor || undefined
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -392,7 +395,8 @@
 							? undefined
 							: script.concurrency_key,
 						visible_to_runner_only: script.visible_to_runner_only,
-						no_main_func: script.no_main_func
+						no_main_func: script.no_main_func,
+						has_preprocessor: script.has_preprocessor
 					}
 				})
 			}

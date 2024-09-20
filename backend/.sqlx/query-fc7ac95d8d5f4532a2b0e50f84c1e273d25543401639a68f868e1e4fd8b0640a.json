@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,11 @@
         "ordinal": 10,
         "name": "timeout",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "has_preprocessor",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -101,8 +106,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "e1c715020f1efb00123171edfb6173bfeaaa95d4f870240e42b76e5df304ce99"
+  "hash": "fc7ac95d8d5f4532a2b0e50f84c1e273d25543401639a68f868e1e4fd8b0640a"
 }

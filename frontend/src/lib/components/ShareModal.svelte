@@ -24,6 +24,7 @@
 		| 'flow'
 		| 'app'
 		| 'raw_app'
+		| 'http_trigger'
 	let kind: Kind
 
 	let path: string = ''
