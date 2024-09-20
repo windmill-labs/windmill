@@ -139,7 +139,6 @@
 
 	let drawer: Drawer
 
-	let pathC: Path
 	let dirtyPath = false
 
 	$: fullRoute = `${$page.url.origin}${base}/api/r/${
@@ -201,7 +200,6 @@
 					<Label label="Path">
 						<Path
 							bind:dirty={dirtyPath}
-							bind:this={pathC}
 							bind:error={pathError}
 							bind:path
 							{initialPath}
