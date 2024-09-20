@@ -556,9 +556,10 @@ pub async fn get_path_tag_limits_cache_for_hash<'c, R: rsmq_async::RsmqConnectio
     Option<i16>,
     Option<bool>,
     Option<i32>,
+    Option<bool>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -583,6 +584,7 @@ pub async fn get_path_tag_limits_cache_for_hash<'c, R: rsmq_async::RsmqConnectio
         script.priority,
         script.delete_after_use,
         script.timeout,
+        script.has_preprocessor,
     ))
 }
 
@@ -1058,6 +1060,7 @@ pub struct RunJobQuery {
     pub tag: Option<String>,
     pub timeout: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub skip_preprocessor: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -2784,14 +2787,18 @@ pub async fn run_flow_by_path_inner(
 
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
-    let (tag, dedicated_worker) = sqlx::query!(
-        "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
+    let (tag, dedicated_worker, has_preprocessor) = sqlx::query!(
+        "SELECT tag, dedicated_worker, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor 
+        FROM flow 
+        LEFT JOIN flow_version
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 and flow.workspace_id = $2",
         flow_path,
         w_id
     )
     .fetch_optional(&mut tx)
     .await?
-    .map(|x| (x.tag, x.dedicated_worker))
+    .map(|x| (x.tag, x.dedicated_worker, x.has_preprocessor))
     .ok_or_else(|| {
         Error::NotFound(format!(
             "flow not found at path {flow_path} in workspace {w_id}"
@@ -2807,7 +2814,12 @@ pub async fn run_flow_by_path_inner(
         &db,
         tx,
         &w_id,
-        JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
+        JobPayload::Flow {
+            path: flow_path.to_string(),
+            dedicated_worker,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
+        },
         PushArgs { args: &args.args, extra: args.extra },
         &label_prefix
             .map(|x| x + authed.display_username())
@@ -2973,7 +2985,7 @@ pub async fn run_script_by_path_inner(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, _delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -3049,7 +3061,15 @@ pub async fn run_workflow_as_code(
             None,
             run_query.timeout,
         ),
-        JobKind::Script => script_path_to_payload(job.script_path(), &mut tx, &w_id).await?,
+        JobKind::Script => {
+            script_path_to_payload(
+                job.script_path(),
+                &mut tx,
+                &w_id,
+                run_query.skip_preprocessor,
+            )
+            .await?
+        }
         _ => return Err(anyhow::anyhow!("Not supported").into()),
     };
 
@@ -3462,7 +3482,7 @@ pub async fn run_wait_result_job_by_path_get(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
@@ -3538,7 +3558,7 @@ pub async fn run_wait_result_flow_by_path_get(
     let args = PushArgsOwned { extra: Some(payload_args), args: HashMap::new() };
 
     run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
+        db, run_query, flow_path, authed, rsmq, user_db, args, w_id, None,
     )
     .await
 }
@@ -3564,11 +3584,12 @@ pub async fn run_wait_result_script_by_path(
         user_db,
         w_id,
         args,
+        None,
     )
     .await
 }
 
-async fn run_wait_result_script_by_path_internal(
+pub async fn run_wait_result_script_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
     script_path: StripPath,
@@ -3577,6 +3598,7 @@ async fn run_wait_result_script_by_path_internal(
     user_db: UserDB,
     w_id: String,
     args: PushArgsOwned,
+    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -3585,7 +3607,7 @@ async fn run_wait_result_script_by_path_internal(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
@@ -3598,7 +3620,9 @@ async fn run_wait_result_script_by_path_internal(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         None,
@@ -3655,6 +3679,7 @@ pub async fn run_wait_result_script_by_hash(
         priority,
         delete_after_use,
         timeout,
+        has_preprocessor,
     ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -3680,6 +3705,8 @@ pub async fn run_wait_result_script_by_hash(
             language,
             dedicated_worker,
             priority,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
@@ -3723,12 +3750,12 @@ pub async fn run_wait_result_flow_by_path(
     check_license_key_valid().await?;
 
     run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
+        db, run_query, flow_path, authed, rsmq, user_db, args, w_id, None,
     )
     .await
 }
 
-async fn run_wait_result_flow_by_path_internal(
+pub async fn run_wait_result_flow_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
     flow_path: StripPath,
@@ -3737,6 +3764,7 @@ async fn run_wait_result_flow_by_path_internal(
     user_db: UserDB,
     args: PushArgsOwned,
     w_id: String,
+    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
@@ -3747,8 +3775,8 @@ async fn run_wait_result_flow_by_path_internal(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (tag, dedicated_worker, early_return) = sqlx::query!(
-        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return 
+    let (tag, dedicated_worker, early_return, has_preprocessor) = sqlx::query!(
+        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor
         FROM flow 
         LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
@@ -3758,7 +3786,7 @@ async fn run_wait_result_flow_by_path_internal(
     )
     .fetch_optional(&mut tx)
     .await?
-    .map(|x| (x.tag, x.dedicated_worker, x.early_return))
+    .map(|x| (x.tag, x.dedicated_worker, x.early_return, x.has_preprocessor))
     .ok_or_else(|| {
         Error::NotFound(format!(
             "flow not found at path {flow_path} in workspace {w_id}"
@@ -3774,9 +3802,16 @@ async fn run_wait_result_flow_by_path_internal(
         &db,
         tx,
         &w_id,
-        JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
+        JobPayload::Flow {
+            path: flow_path.to_string(),
+            dedicated_worker,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
+        },
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -4213,6 +4248,7 @@ async fn add_batch_jobs(
                     _priority,
                     _delete_after_use,
                     timeout,
+                    _,
                 ) = get_latest_deployed_hash_for_path(&db, &w_id, &path).await?;
                 (
                     Some(script_hash),
@@ -4239,7 +4275,11 @@ async fn add_batch_jobs(
                 JobPayload::RawFlow { value: fv.clone(), path: None, restarted_from: None }
             } else {
                 if let Some(path) = batch_info.path.as_ref() {
-                    JobPayload::Flow { path: path.to_string(), dedicated_worker: None }
+                    JobPayload::Flow {
+                        path: path.to_string(),
+                        dedicated_worker: None,
+                        apply_preprocessor: false,
+                    }
                 } else {
                     Err(anyhow::anyhow!(
                         "Path is required if no value is not provided"
@@ -4461,6 +4501,7 @@ pub async fn run_job_by_hash_inner(
         priority,
         _delete_after_use, // not taken into account in async endpoints
         timeout,
+        has_preprocessor,
     ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
@@ -4486,6 +4527,8 @@ pub async fn run_job_by_hash_inner(
             language,
             dedicated_worker,
             priority,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
         &label_prefix

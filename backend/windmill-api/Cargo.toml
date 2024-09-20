@@ -94,6 +94,7 @@ object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
+matchit.workspace = true
 
 pin-project.workspace = true
 crc.workspace = true

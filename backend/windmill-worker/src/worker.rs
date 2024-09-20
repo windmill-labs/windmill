@@ -85,9 +85,9 @@ use rand::Rng;
 use crate::{
     ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
-         NO_LOGS_AT_ALL, SLOW_LOGS,
-    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_job_error, handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
-        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
+        NO_LOGS_AT_ALL, SLOW_LOGS,
+    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
     }, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     }
@@ -2050,7 +2050,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     }
 
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
-    if job.created_by.starts_with("email-trigger-") {
+    if job.created_by.starts_with("email-") {
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
         ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
@@ -2087,7 +2087,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         )
         .await?;
 
-        r
+        Some(r)
     } else {
         if let Some(parent_job) = job.parent_job {
             if let Err(e) = sqlx::query_scalar!(
@@ -2139,7 +2139,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .await
             .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e:#}")))?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
-            let step = step.unwrap_or(-1);
+            let step = match step.unwrap() {
+                Step::Step(i) => i.to_string(),
+                Step::PreprocessorStep => "preprocessor".to_string(),
+                Step::FailureStep => "failure".to_string(),
+            };
             Some(format!(
                 "{flow_path}/cache/{version_hash}/{step}/{args_hash}"
             ))
@@ -2239,6 +2243,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         append_logs(&job.id, &job.workspace_id, logs, db).await;
 
         let mut column_order: Option<Vec<String>> = None;
+        let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let result = match job.job_kind {
             JobKind::Dependencies => {
                 handle_dependency_job(
@@ -2306,6 +2311,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     base_internal_url,
                     worker_name,
                     &mut column_order,
+                    &mut new_args,
                 )
                 .await;
                 *worker_code_execution_metric += metric_timer.elapsed().as_secs_f32();
@@ -2337,6 +2343,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             cached_res_path,
             client.get_token().await,
             column_order,
+            new_args,
             db,
         )
         .await?;
@@ -2432,7 +2439,7 @@ pub async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
-            Option<bool>,
+            Option<bool>
         ),
     >(
         "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -2473,6 +2480,7 @@ async fn handle_code_execution_job(
     base_internal_url: &str,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     let ContentReqLangEnvs {
         content: inner_content,
@@ -2705,6 +2713,7 @@ mount {{
                 &shared_mount,
                 base_internal_url,
                 envs,
+                new_args,
             )
             .await
         }
@@ -2721,6 +2730,7 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
+                new_args,
             )
             .await
         }
@@ -2739,6 +2749,7 @@ mount {{
                 worker_name,
                 envs,
                 &shared_mount,
+                new_args,
             )
             .await
         }

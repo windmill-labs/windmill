@@ -25,6 +25,9 @@
 	import { Clipboard, CornerDownLeft, Github, Play } from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
+	import Tabs from './common/tabs/Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import { slide } from 'svelte/transition'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -105,7 +108,13 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset();
 		//@ts-ignore
-		testJobLoader.runPreview(path, code, lang, args, tag)
+		testJobLoader.runPreview(
+			path,
+			code,
+			lang,
+			selectedTab === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
+			tag
+		)
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -117,11 +126,20 @@
 		})
 	}
 
+	let hasPreprocessor = false
+
 	export async function inferSchema(code: string, nlang?: SupportedLanguage) {
 		let nschema = schema ?? emptySchema()
 
 		try {
-			await inferArgs(nlang ?? lang, code, nschema)
+			const result = await inferArgs(
+				nlang ?? lang,
+				code,
+				nschema,
+				selectedTab === 'preprocessor' ? 'preprocessor' : undefined
+			)
+			hasPreprocessor =
+				(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ?? false
 
 			validCode = true
 			schema = nschema
@@ -216,6 +234,11 @@
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
+	let selectedTab: 'main' | 'preprocessor' = 'main'
+	$: showTabs = hasPreprocessor
+	$: !hasPreprocessor && (selectedTab = 'main')
+
+	$: selectedTab && inferSchema(code)
 </script>
 
 <TestJobLoader
@@ -337,6 +360,14 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
+				{#if showTabs}
+					<div transition:slide={{ duration: 200 }}>
+						<Tabs bind:selected={selectedTab}>
+							<Tab value="main">Main</Tab>
+							<Tab value="preprocessor">Preprocessor</Tab>
+						</Tabs>
+					</div>
+				{/if}
 				<div class="flex justify-center pt-1">
 					{#if testIsLoading}
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, edited_by = $5, email = $6, is_async = $7, requires_auth = $8, edited_at = now() \n                WHERE workspace_id = $9 AND path = $10",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55d44f569f8ebfccddf975e1a330ef0dc286f4138efe923832371cdbac7157b0"
+}

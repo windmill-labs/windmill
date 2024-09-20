@@ -271,9 +271,10 @@ pub async fn get_latest_deployed_hash_for_path<'e, E: sqlx::Executor<'e, Databas
     Option<i16>,
     Option<bool>,
     Option<i32>,
+    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -296,6 +297,7 @@ pub async fn get_latest_deployed_hash_for_path<'e, E: sqlx::Executor<'e, Databas
         script.priority,
         script.delete_after_use,
         script.timeout,
+        script.has_preprocessor,
     ))
 }
 

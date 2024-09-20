@@ -392,8 +392,8 @@ pub async fn create_customer_portal_session(
 
 pub async fn test_critical_channels(
     Extension(db): Extension<DB>,
-    Json(test_critical_channels): Json<Vec<CriticalErrorChannel>>,
     authed: ApiAuthed,
+    Json(test_critical_channels): Json<Vec<CriticalErrorChannel>>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
 

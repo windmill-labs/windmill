@@ -768,7 +768,7 @@
 																	}
 																}}
 															>
-																Test Critical Channels (requires saving first)
+																Test Critical Channels
 															</Button>
 														</div>
 													</div>
