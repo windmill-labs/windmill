@@ -299,13 +299,15 @@ export async function updateScriptSchema(
 ): Promise<void> {
   // infer schema from script content and update it inplace
   await instantiateWasm();
-  const newSchema = inferSchema(
+  const result = inferSchema(
     language,
     scriptContent,
     metadataContent.schema,
     path
   );
-  metadataContent.schema = newSchema;
+  metadataContent.schema = result.schema;
+  metadataContent.has_preprocessor = result.has_preprocessor;
+  metadataContent.no_main_func = result.no_main_func;
 }
 
 async function updateScriptLock(
@@ -489,7 +491,11 @@ export function inferSchema(
         `Script ${path} invalid, it cannot be parsed to infer schema.`
       )
     );
-    return defaultScriptMetadata().schema;
+    return {
+      schema: defaultScriptMetadata().schema,
+      has_preprocessor: false,
+      no_main_func: false,
+    };
   }
 
   currentSchema.required = [];
@@ -515,7 +521,11 @@ export function inferSchema(
     }
   }
 
-  return currentSchema;
+  return {
+    schema: currentSchema,
+    has_preprocessor: inferedSchema.has_preprocessor,
+    no_main_func: inferedSchema.no_main_func,
+  };
 }
 
 function sortObject(obj: any): any {
