@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, process::Stdio, path::Path};
 
 use anyhow::anyhow;
 use serde_json::value::RawValue;
@@ -14,8 +14,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        get_reserved_variables, handle_child, read_and_check_result,
-        start_child_process, transform_json,
+        get_reserved_variables, handle_child, read_and_check_result, start_child_process,
+        transform_json,
     },
     python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, HOME_ENV, PATH_ENV, TZ_ENV,
@@ -98,6 +98,7 @@ async fn handle_ansible_python_deps(
     }
     Ok(additional_python_paths)
 }
+
 async fn install_galaxy_collections(
     collections_yml: &str,
     job_dir: &str,
@@ -155,6 +156,24 @@ async fn install_galaxy_collections(
     Ok(())
 }
 
+#[cfg(not(feature = "enterprise"))]
+fn check_ansible_exists() -> Result<(), error::Error> {
+    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+fn check_ansible_exists() -> Result<(), error::Error> {
+    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
 pub async fn handle_ansible_job(
     requirements_o: Option<String>,
     job_dir: &str,
@@ -169,6 +188,8 @@ pub async fn handle_ansible_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
+    check_ansible_exists()?;
+
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, db).await;
     write_file(job_dir, "main.yml", &playbook)?;
@@ -336,6 +357,10 @@ async fn create_file_resources(
 
             content = serde_json::from_str(o.get())
                 .map_err(|e| anyhow!("Failed to parse inventory arg: {}", e))?;
+
+            if content == serde_json::value::Value::Null {
+                Err(anyhow!("The inventory argument was left empty. If you do not wish to specify an inventory for this script, remove the `inventory:` section from the yaml."))?;
+            }
         }
 
         write_file_at_user_defined_location(
