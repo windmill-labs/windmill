@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.397.3](https://github.com/windmill-labs/windmill/compare/v1.397.2...v1.397.3) (2024-09-20)
+
+
+### Bug Fixes
+
+* **cli:** make CLI compatible with Node 18 ([8212532](https://github.com/windmill-labs/windmill/commit/8212532b29fbcf971cb320b8cfc84f3a8d8ad795))
+
 ## [1.397.2](https://github.com/windmill-labs/windmill/compare/v1.397.1...v1.397.2) (2024-09-20)
 
 
