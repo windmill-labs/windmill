@@ -191,7 +191,7 @@ export const settings: Record<string, Setting[]> = {
 	SMTP: [
 			{
 				label: 'SMTP',
-				key: 'smtp',
+				key: 'smtp_settings',
 				fieldType: 'smtp_connect',
 				storage: 'setting',
 				ee_only: '',

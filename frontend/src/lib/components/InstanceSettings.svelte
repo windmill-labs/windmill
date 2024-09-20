@@ -71,7 +71,6 @@
 	async function loadSettings() {
 		loading = true
 
-
 		async function getValue(key: string, storage: SettingStorage) {
 			if (storage == 'setting') {
 				return SettingService.getGlobal({ key })
@@ -677,79 +676,99 @@
 													bind:value={values[setting.key]}
 												/>
 											{:else if setting.fieldType == 'critical_error_channels'}
-												<div class="w-full">
-													<div class="flex max-w-md mt-1 gap-2 w-full items-center">
-														<select disabled>
-															<option>Tracing</option>
-														</select>
-														<input disabled />
-														<button
-															transition:fade|local={{ duration: 100 }}
-															class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-															aria-label="Clear"
-															disabled
-														>
-															<X size={14} />
-														</button>
+												<div class="w-full flex gap-16 flex-wrap">
+													<div>
+														<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
+															<input
+																type="text"
+																placeholder="Logs (critical errors are always logged)"
+																disabled
+															/>
+														</div>
+
+														{#if $enterpriseLicense && Array.isArray(values[setting.key])}
+															{#each values[setting.key] ?? [] as v, i}
+																<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
+																	<select
+																		on:change={(e) => {
+																			if (e.target?.['value']) {
+																				values[setting.key][i] = {
+																					[e.target['value']]: ''
+																				}
+																			}
+																		}}
+																		value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
+																	>
+																		<option value="email">Email</option>
+																		<option value="slack_channel">Slack</option>
+																	</select>
+																	{#if v && 'slack_channel' in v}
+																		<input
+																			type="text"
+																			placeholder="Slack channel"
+																			on:input={(e) => {
+																				if (e.target?.['value']) {
+																					values[setting.key][i] = {
+																						slack_channel: e.target['value']
+																					}
+																				}
+																			}}
+																			value={v?.slack_channel ?? ''}
+																		/>
+																	{:else}
+																		<input
+																			type="email"
+																			placeholder="Email address"
+																			on:input={(e) => {
+																				if (e.target?.['value']) {
+																					values[setting.key][i] = {
+																						email: e.target['value']
+																					}
+																				}
+																			}}
+																			value={v?.email ?? ''}
+																		/>
+																	{/if}
+																	<button
+																		transition:fade|local={{ duration: 100 }}
+																		class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+																		aria-label="Clear"
+																		on:click={() => {
+																			values[setting.key] = values[setting.key].filter(
+																				(_, index) => index !== i
+																			)
+																		}}
+																	>
+																		<X size={14} />
+																	</button>
+																</div>
+															{/each}
+														{/if}
 													</div>
-													{#if $enterpriseLicense && Array.isArray(values[setting.key])}
-														{#each values[setting.key] ?? [] as v, i}
-															<div class="flex max-w-md mt-1 gap-2 w-full items-center">
-																<select
-																	on:change={(e) => {
-																		if (e.target?.['value']) {
-																			values[setting.key][i] = {
-																				[e.target['value']]: ''
-																			}
-																		}
-																	}}
-																	value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
-																>
-																	<option value="email">Email</option>
-																	<option value="slack_channel">Slack</option>
-																</select>
-																{#if v && 'slack_channel' in v}
-																	<input
-																		type="text"
-																		placeholder="Slack channel"
-																		on:input={(e) => {
-																			if (e.target?.['value']) {
-																				values[setting.key][i] = {
-																					slack_channel: e.target['value']
-																				}
-																			}
-																		}}
-																		value={v?.slack_channel ?? ''}
-																	/>
-																{:else}
-																	<input
-																		type="email"
-																		placeholder="Email address"
-																		on:input={(e) => {
-																			if (e.target?.['value']) {
-																				values[setting.key][i] = {
-																					email: e.target['value']
-																				}
-																			}
-																		}}
-																		value={v?.email ?? ''}
-																	/>
-																{/if}
-																<button
-																	transition:fade|local={{ duration: 100 }}
-																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-																	aria-label="Clear"
-																	on:click={() => {
-																		values[setting.key] = values[setting.key].filter(
-																			(_, index) => index !== i
+													<div
+														><div class="flex mt-1">
+															<Button
+																size="xs"
+																variant="contained"
+																on:click={async () => {
+																	try {
+																		await SettingService.testCriticalChannels()
+																		sendUserToast(
+																			'Test message sent successfully to critical channels',
+																			false
 																		)
-																	}}
-																>
-																	<X size={14} />
-																</button>
-															</div>
-														{/each}
-													{/if}
+																	} catch (error) {
+																		sendUserToast(
+																			'Failed to send test message: ' + error.message,
+																			true
+																		)
+																	}
+																}}
+															>
+																Test Critical Channels
+															</Button>
+														</div>
+													</div>
 												</div>
 												<div class="flex mt-2 gap-20 items-baseline">
 													<Button
@@ -803,103 +822,64 @@
 													{/if}
 												</div>
 											{:else if setting.fieldType == 'smtp_connect'}
-												<div class="flex flex-col gap-4">
-													<div>
-														<label for="smtp_host" class="block text-sm font-medium text-gray-700">Host</label>
-														<input
-															type="text"
-															id="smtp_host"
-															placeholder="smtp.gmail.com"
-															bind:value={values[setting.key].smtp_host}
-															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-														/>
-													</div>
-													<div>
-														<label for="smtp_port" class="block text-sm font-medium text-gray-700">Port</label>
-														<input
-															type="number"
-															id="smtp_port"
-															placeholder="587"
-															bind:value={values[setting.key].smtp_port}
-															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-														/>
-													</div>
-													<div>
-														<label for="smtp_username" class="block text-sm font-medium text-gray-700">Username</label>
-														<input
-															type="text"
-															id="smtp_username"
-															placeholder="ruben@windmill.dev"
-															bind:value={values[setting.key].smtp_username}
-															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-														/>
-													</div>
-													<div>
-														<label for="smtp_password" class="block text-sm font-medium text-gray-700">Password</label>
-														<Password bind:password={values[setting.key].smtp_password} />
-													</div>
-													<div>
-														<label for="smtp_from" class="block text-sm font-medium text-gray-700">From Address</label>
-														<input
-															type="email"
-															id="smtp_from"
-															placeholder="noreply@windmill.dev"
-															bind:value={values[setting.key].smtp_from}
-															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-														/>
-													</div>
-													<div>
-														<label for="smtp_tls_implicit" class="flex items-center">
+												<div class="flex flex-col gap-4 mt-4">
+													{#if values[setting.key]}
+														<div>
+															<label for="smtp_host" class="block text-sm font-medium">Host</label>
 															<input
-																type="checkbox"
+																type="text"
+																id="smtp_host"
+																placeholder="smtp.gmail.com"
+																bind:value={values[setting.key].smtp_host}
+															/>
+														</div>
+														<div>
+															<label for="smtp_port" class="block text-sm font-medium">Port</label>
+															<input
+																type="number"
+																id="smtp_port"
+																placeholder="587"
+																bind:value={values[setting.key].smtp_port}
+															/>
+														</div>
+														<div>
+															<label for="smtp_username" class="block text-sm font-medium"
+																>Username</label
+															>
+															<input
+																type="text"
+																id="smtp_username"
+																placeholder="ruben@windmill.dev"
+																bind:value={values[setting.key].smtp_username}
+															/>
+														</div>
+														<div>
+															<label for="smtp_password" class="block text-sm font-medium"
+																>Password</label
+															>
+															<Password bind:password={values[setting.key].smtp_password} />
+														</div>
+														<div>
+															<label for="smtp_from" class="block text-sm font-medium"
+																>From Address</label
+															>
+															<input
+																type="email"
+																id="smtp_from"
+																placeholder="noreply@windmill.dev"
+																bind:value={values[setting.key].smtp_from}
+															/>
+														</div>
+														<div>
+															<Toggle
 																id="smtp_tls_implicit"
 																bind:checked={values[setting.key].smtp_tls_implicit}
-																class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+																options={{ right: 'Implicit TLS' }}
+																label="Implicit TLS"
 															/>
-															<span class="ml-2 text-sm text-gray-700">Implicit TLS</span>
-														</label>
-													</div>
+														</div>
+													{/if}
 												</div>
-											<!-- {
-												label: 'Host',
-												key: 'smtp_host',
-												fieldType: 'text',
-												placeholder: 'smtp.gmail.com',
-												storage: 'config'
-											},
-											{
-												label: 'Port',
-												key: 'smtp_port',
-												fieldType: 'number',
-												placeholder: '587',
-												storage: 'config'
-											},
-											{
-												label: 'Username',
-												key: 'smtp_username',
-												fieldType: 'text',
-												placeholder: 'ruben@windmill.dev',
-												storage: 'config'
-											},
-											{
-												label: 'Password',
-												key: 'smtp_password',
-												fieldType: 'password',
-												storage: 'config'
-											},
-											{
-												label: 'From Address',
-												key: 'smtp_from',
-												placeholder: 'noreply@windmill.dev',
-												fieldType: 'email',
-												storage: 'config'
-											},
-											{
-												label: 'Implicit TLS',
-												key: 'smtp_tls_implicit',
-												fieldType: 'boolean',
-												storage: 'config'
-											} -->
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
 												<div class="mb-6" />
@@ -945,21 +925,22 @@
 						</div>
 					</div>
 					{#if category == 'SMTP'}
+						{@const smtp = values['smtp_settings']}
 						<div class="flex gap-4"
 							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
 							<Button
-								disabled={to == ''}
+								disabled={to == '' || !smtp}
 								on:click={async () => {
 									await SettingService.testSmtp({
 										requestBody: {
 											to,
 											smtp: {
-												host: values['smtp_host'],
-												username: values['smtp_username'],
-												password: values['smtp_password'],
-												port: values['smtp_port'],
-												from: values['smtp_from'],
-												tls_implicit: values['smtp_tls_implicit']
+												host: smtp['smtp_host'],
+												username: smtp['smtp_username'],
+												password: smtp['smtp_password'],
+												port: smtp['smtp_port'],
+												from: smtp['smtp_from'],
+												tls_implicit: smtp['smtp_tls_implicit']
 											}
 										}
 									})
