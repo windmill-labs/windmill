@@ -69,8 +69,7 @@ pub async fn gen_bun_lockfile(
     raw_deps: Option<String>,
     npm_mode: bool,
 ) -> Result<Option<String>> {
-    let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+    let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
     let mut empty_deps = false;
 
@@ -644,8 +643,7 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
-    let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+    let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
     generate_bun_bundle(
         job_dir,
@@ -779,7 +777,7 @@ pub async fn handle_bun_job(
     };
 
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+        get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     if codebase.is_some() {
         annotation.nodejs_mode = true
@@ -1314,19 +1312,13 @@ try {{
     read_result(job_dir).await
 }
 
-pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
+pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMap<String, String> {
     let mut bun_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
         (String::from("FORCE_COLOR"), "1".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
-        (
-            String::from("BASE_URL"),
-            base_internal_url
-                .to_string()
-                .replace("localhost", "127.0.0.1"),
-        ),
         (
             String::from("BUN_INSTALL_CACHE_DIR"),
             BUN_CACHE_DIR.to_string(),
@@ -1337,6 +1329,12 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
         ),
     ]);
 
+    if let Some(base_url) = base_internal_url {
+        bun_envs.insert(
+            String::from("BASE_URL"),
+            base_url.to_string().replace("localhost", "127.0.0.1"),
+        );
+    }
     if let Some(ref node_path) = NODE_PATH.as_ref() {
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
     }
@@ -1373,7 +1371,7 @@ pub async fn start_worker(
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+        get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
