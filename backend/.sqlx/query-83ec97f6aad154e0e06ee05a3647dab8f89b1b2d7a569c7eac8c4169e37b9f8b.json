@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT config FROM config WHERE name = 'server'",
+  "query": "SELECT value FROM global_settings WHERE name = 'smtp_settings'",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "config",
+        "name": "value",
         "type_info": "Jsonb"
       }
     ],
@@ -13,8 +13,8 @@
       "Left": []
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "8ca76fcadc659d7069b97930cdde2d5200f3cef9dedb83b76c8a6a433d2a4de3"
+  "hash": "83ec97f6aad154e0e06ee05a3647dab8f89b1b2d7a569c7eac8c4169e37b9f8b"
 }

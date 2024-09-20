@@ -33,7 +33,7 @@ use windmill_common::{
         HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    utils::{report_critical_error, send_email},
+    utils::send_email,
 };
 
 #[cfg(feature = "parquet")]
@@ -57,7 +57,7 @@ pub fn global_service() -> Router {
         )
         .route("/renew_license_key", post(renew_license_key))
         .route("/customer_portal", post(create_customer_portal_session))
-        .route("/test_critical_channel", post(test_critical_channel));
+        .route("/test_critical_channels", post(test_critical_channels));
 
     #[cfg(feature = "parquet")]
     {
@@ -390,7 +390,7 @@ pub async fn create_customer_portal_session(
     return Ok(url);
 }
 
-pub async fn test_critical_channel(
+pub async fn test_critical_channels(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> Result<String> {

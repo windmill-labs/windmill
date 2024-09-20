@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.397.2
+  version: 1.397.3
   title: Windmill API
 
   contact:
@@ -741,6 +741,28 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /settings/test_critical_channels:
+    post:
+      summary: test critical channels
+      operationId: testCriticalChannels
+      tags:
+        - setting
+      requestBody:
+        description: test critical channel payload
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /settings/test_license_key:
     post:

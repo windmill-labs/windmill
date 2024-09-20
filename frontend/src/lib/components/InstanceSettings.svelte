@@ -676,7 +676,7 @@
 													bind:value={values[setting.key]}
 												/>
 											{:else if setting.fieldType == 'critical_error_channels'}
-												<div class="w-full flex gap-16 flex-wrap">
+												<div class="w-full flex gap-x-16 flex-wrap">
 													<div class="w-full max-w-lg">
 														<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
 															<input
@@ -753,7 +753,7 @@
 																variant="contained"
 																on:click={async () => {
 																	try {
-																		await SettingService.testCriticalChannels()
+																		await SettingService.testCriticalChannels({ requestBody: {} })
 																		sendUserToast(
 																			'Test message sent successfully to critical channels',
 																			false
@@ -766,7 +766,7 @@
 																	}
 																}}
 															>
-																Test Critical Channels
+																Test Critical Channels (requires saving first)
 															</Button>
 														</div>
 													</div>

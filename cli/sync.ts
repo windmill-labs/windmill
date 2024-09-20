@@ -905,7 +905,9 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
     })) as Record<string, string>;
-  } catch {}
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
