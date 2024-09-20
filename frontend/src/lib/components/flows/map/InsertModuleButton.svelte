@@ -2,11 +2,15 @@
 	import { Menu } from '$lib/components/common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
-	import StepGen from '$lib/components/copilot/StepGen.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
+	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
+	import type { FlowModule, Script } from '$lib/gen'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { FlowCopilotModule } from '../../copilot/flow'
+	import type { FlowEditorContext } from '../types'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -14,11 +18,19 @@
 	export let open: boolean | undefined = undefined
 	export let index: number
 	export let funcDesc = ''
+	let filteredItems: (Script & { marked?: string })[] = []
 	export let modules: FlowModule[]
 	export let disableAi = false
+	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
+
+	// export let failureModule: boolean
+
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: !open && (funcDesc = '')
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
+	let selectedKind: 'action' | 'trigger' | 'approval' | 'flow' = 'action'
+	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 </script>
 
 <Menu
@@ -44,16 +56,21 @@
 			<Cross size={12} />
 		</button>
 	</svelte:fragment>
-	<div id="flow-editor-insert-module">
-		<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} {disableAi} />
+	<div id="flow-editor-insert-module" class="flex flex-col h-[400px] w-[650px]">
+		<div class="flex flex-row items-center gap-2 px-2"
+			><StepGenQuick on:insert bind:funcDesc bind:hubCompletions />
+			<ToggleHubWorkspaceQuick bind:selected={preFilter} /></div
+		>
 
-		{#if funcDesc.length === 0}
-			<div class="font-mono divide-y text-xs w-full text-secondary">
+		<div class="flex flex-row flex-grow min-h-0 w-full divide-x">
+			<div class="flex-none font-mono text-xs w-40 flex flex-col text-secondary">
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'script')
+					class={twMerge(
+						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+						selectedKind === 'action' ? 'bg-surface-hover' : ''
+					)}
+					on:click={() => {
+						selectedKind = 'action'
 					}}
 					role="menuitem"
 					tabindex="-1"
@@ -63,10 +80,12 @@
 				</button>
 				{#if customUi?.triggers != false && trigger}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-						on:pointerdown={() => {
-							close()
-							dispatch('new', 'trigger')
+						class={twMerge(
+							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+							selectedKind === 'trigger' ? 'bg-surface-hover' : ''
+						)}
+						on:click={() => {
+							selectedKind = 'trigger'
 						}}
 						role="menuitem"
 						tabindex="-1"
@@ -76,10 +95,12 @@
 					</button>
 				{/if}
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'approval')
+					class={twMerge(
+						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+						selectedKind === 'approval' ? 'bg-surface-hover' : ''
+					)}
+					on:click={() => {
+						selectedKind = 'approval'
 					}}
 					role="menuitem"
 					tabindex="-1"
@@ -87,62 +108,15 @@
 					<CheckCircle2 size={14} />
 					Approval/Prompt
 				</button>
-				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'forloop')
-					}}
-					role="menuitem"
-				>
-					<Repeat size={14} />
-
-					For Loop
-				</button>
-				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'whileloop')
-					}}
-					role="menuitem"
-				>
-					<Repeat size={14} />
-
-					While Loop
-				</button>
-
-				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'branchone')
-					}}
-					role="menuitem"
-				>
-					<GitBranch size={14} />
-					Branch to one
-				</button>
-
-				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', 'branchall')
-					}}
-					role="menuitem"
-				>
-					<GitBranch size={14} />
-
-					Branch to all
-				</button>
 
 				{#if customUi?.flowNode != false}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap flex flex-row gap-2 items-center"
-						on:pointerdown={() => {
-							close()
-							dispatch('new', 'flow')
+						class={twMerge(
+							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+							selectedKind === 'flow' ? 'bg-surface-hover' : ''
+						)}
+						on:click={() => {
+							selectedKind = 'flow'
 						}}
 						role="menuitem"
 					>
@@ -152,10 +126,10 @@
 				{/if}
 				{#if stop}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover inline-flex gap-2.5"
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
 						on:pointerdown={() => {
 							close()
-							dispatch('new', 'end')
+							dispatch('new', { kind: 'end' })
 						}}
 						role="menuitem"
 					>
@@ -163,7 +137,72 @@
 						End Flow
 					</button>
 				{/if}
+				<button
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					on:pointerdown={() => {
+						close()
+						dispatch('new', { kind: 'forloop' })
+					}}
+					role="menuitem"
+				>
+					<Repeat size={14} />
+
+					For Loop
+				</button>
+				<button
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					on:pointerdown={() => {
+						close()
+						dispatch('new', { kind: 'whileloop' })
+					}}
+					role="menuitem"
+				>
+					<Repeat size={14} />
+
+					While Loop
+				</button>
+
+				<button
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					on:pointerdown={() => {
+						close()
+						dispatch('new', { kind: 'branchone' })
+					}}
+					role="menuitem"
+				>
+					<GitBranch size={14} />
+					Branch to one
+				</button>
+
+				<button
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					on:pointerdown={() => {
+						close()
+						dispatch('new', { kind: 'branchall' })
+					}}
+					role="menuitem"
+				>
+					<GitBranch size={14} />
+
+					Branch to all
+				</button>
 			</div>
-		{/if}
+
+			<FlowInputsQuick
+				filter={funcDesc}
+				{modules}
+				{index}
+				{hubCompletions}
+				{disableAi}
+				{filteredItems}
+				{funcDesc}
+				{selectedKind}
+				failureModule={$selectedId === 'failure'}
+				on:new
+				on:pickScript
+				on:pickFlow
+				{preFilter}
+			/>
+		</div>
 	</div>
 </Menu>

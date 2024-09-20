@@ -63,14 +63,25 @@
 				trigger={data.enableTrigger}
 				modules={data?.modules ?? []}
 				on:new={(e) => {
-					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
-				}}
-				on:insert={(e) => {
 					data?.eventHandlers.insert({
 						modules: data.modules,
 						index: data.index,
-						script: e.detail,
-						detail: 'script'
+						kind: e.detail.kind,
+						inlineScript: e.detail.inlineScript
+					})
+				}}
+				on:pickScript={(e) => {
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						script: e.detail
+					})
+				}}
+				on:pickFlow={(e) => {
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						flow: e.detail
 					})
 				}}
 				bind:open={menuOpen}
