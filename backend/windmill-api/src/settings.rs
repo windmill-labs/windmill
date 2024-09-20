@@ -26,13 +26,14 @@ use axum::extract::Query;
 
 use serde::Deserialize;
 use windmill_common::{
+    ee::{send_critical_alert, CriticalAlertKind},
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    utils::send_email,
+    utils::{report_critical_error, send_email},
 };
 
 #[cfg(feature = "parquet")]
@@ -55,7 +56,8 @@ pub fn global_service() -> Router {
             get(get_latest_key_renewal_attempt),
         )
         .route("/renew_license_key", post(renew_license_key))
-        .route("/customer_portal", post(create_customer_portal_session));
+        .route("/customer_portal", post(create_customer_portal_session))
+        .route("/test_critical_channel", post(test_critical_channel));
 
     #[cfg(feature = "parquet")]
     {
@@ -386,4 +388,19 @@ pub async fn create_customer_portal_session(
         windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
 
     return Ok(url);
+}
+
+pub async fn test_critical_channel(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    send_critical_alert(
+        "Test critical error".to_string(),
+        &db,
+        CriticalAlertKind::CriticalError,
+    )
+    .await;
+    Ok("Sent test critical error".to_string())
 }

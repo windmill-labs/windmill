@@ -677,7 +677,7 @@
 												/>
 											{:else if setting.fieldType == 'critical_error_channels'}
 												<div class="w-full flex gap-16 flex-wrap">
-													<div>
+													<div class="w-full max-w-lg">
 														<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
 															<input
 																type="text"
@@ -690,6 +690,7 @@
 															{#each values[setting.key] ?? [] as v, i}
 																<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
 																	<select
+																		class="w-20"
 																		on:change={(e) => {
 																			if (e.target?.['value']) {
 																				values[setting.key][i] = {
