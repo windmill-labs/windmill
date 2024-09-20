@@ -14,7 +14,12 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		let schema: Schema
 		if (mod.type === 'rawscript') {
 			schema = emptySchema()
-			await inferArgs(mod.language!, mod.content ?? '', schema)
+			await inferArgs(
+				mod.language!,
+				mod.content ?? '',
+				schema,
+				module.id === 'preprocessor' ? 'preprocessor' : undefined
+			)
 		} else if (mod.type == 'script' && mod.path && mod.path != '') {
 			schema = await loadSchemaFromPath(mod.path!, mod.hash)
 		} else if (mod.type == 'flow' && mod.path && mod.path != '') {

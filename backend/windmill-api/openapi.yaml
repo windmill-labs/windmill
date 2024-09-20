@@ -4182,6 +4182,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: skip_preprocessor
+          description: skip the preprocessor
+          in: query
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -5328,6 +5333,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: skip_preprocessor
+          description: skip the preprocessor
+          in: query
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
@@ -5436,6 +5446,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: skip_preprocessor
+          description: skip the preprocessor
+          in: query
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -6822,6 +6837,190 @@ paths:
         "201":
           description: default error handler set
 
+
+  /w/{workspace}/http_triggers/create:
+    post:
+      summary: create http trigger
+      operationId: createHttpTrigger
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new http trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewHttpTrigger"
+      responses:
+        "201":
+          description: http trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/http_triggers/update/{path}:
+    post:
+      summary: update http trigger
+      operationId: updateHttpTrigger
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditHttpTrigger"
+      responses:
+        "200":
+          description: http trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/http_triggers/delete/{path}:
+    delete:
+      summary: delete http trigger
+      operationId: deleteHttpTrigger
+      tags:
+        -  http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: http trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/http_triggers/get/{path}:
+    get:
+      summary: get http trigger
+      operationId: getHttpTrigger
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: http trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HttpTrigger"
+
+  
+  /w/{workspace}/http_triggers/list:
+    get:
+      summary: list http triggers
+      operationId: listHttpTriggers
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: http trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HttpTrigger"
+
+  
+  /w/{workspace}/http_triggers/exists/{path}:
+    get:
+      summary: does http trigger exists
+      operationId: existsHttpTrigger
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: http trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/http_triggers/route_exists:
+    post:
+      summary: does route exists
+      operationId: existsRoute
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: route exists request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                route_path:
+                  type: string
+                http_method:
+                  type: string
+                  enum: ["get", "post", "put", "delete", "patch"]
+              required:
+                - kind
+                - route_path
+                - http_method
+      responses:
+        "200":
+          description: route exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/http_triggers/used:
+    get:
+      summary: whether http triggers are used
+      operationId: used
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: whether http triggers are used
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /groups/list:
     get:
       summary: list instance groups
@@ -7648,6 +7847,7 @@ paths:
                 folder,
                 app,
                 raw_app,
+                http_trigger,
               ]
       responses:
         "200":
@@ -7684,6 +7884,7 @@ paths:
                 folder,
                 app,
                 raw_app,
+                http_trigger,
               ]
       requestBody:
         description: acl to add
@@ -7731,6 +7932,7 @@ paths:
                 folder,
                 app,
                 raw_app,
+                http_trigger,
               ]
       requestBody:
         description: acl to add
@@ -9421,6 +9623,8 @@ components:
           type: boolean
         codebase:
           type: string
+        has_preprocessor:
+          type: boolean
 
       required:
         - hash
@@ -9438,6 +9642,7 @@ components:
         - kind
         - starred
         - no_main_func
+        - has_preprocessor
 
 
     NewScript:
@@ -9519,6 +9724,8 @@ components:
           type: boolean
         codebase:
           type: string
+        has_preprocessor:
+          type: boolean
       required:
         - path
         - summary
@@ -10319,6 +10526,9 @@ components:
         no_main_func:
           type: boolean
           nullable: true
+        has_preprocessor:
+          type: boolean
+          nullable: true
       required:
         - star_args
         - start_kwargs
@@ -10326,6 +10536,7 @@ components:
         - type
         - error
         - no_main_func
+        - has_preprocessor
 
     Preview:
       type: object
@@ -10714,6 +10925,122 @@ components:
         - script_path
         - is_flow
         - args
+
+    HttpTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        route_path:
+          type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        http_method:
+          type: string
+          enum:
+            - get
+            - post
+            - put
+            - delete
+            - patch
+        is_async:
+          type: boolean
+        requires_auth:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - route_path
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - is_async
+        - requires_auth
+        - http_method
+
+    NewHttpTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        route_path:
+          type: string
+        is_flow:
+          type: boolean
+        http_method:
+          type: string
+          enum:
+            - get
+            - post
+            - put
+            - delete
+            - patch
+        is_async:
+          type: boolean
+        requires_auth:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - route_path
+        - is_flow
+        - is_async
+        - requires_auth
+        - http_method
+
+    EditHttpTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        route_path:
+          type: string
+        is_flow:
+          type: boolean
+        http_method:
+          type: string
+          enum:
+            - get
+            - post
+            - put
+            - delete
+            - patch
+        is_async:
+          type: boolean
+        requires_auth:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - kind
+        - is_async
+        - requires_auth
+        - http_method
 
     Group:
       type: object

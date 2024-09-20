@@ -159,6 +159,14 @@ pub fn parse_deno_signature(
         })?
         .body;
 
+    let has_preprocessor = ast.iter().any(|x| match x {
+        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+            decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, .. }),
+            ..
+        })) => &sym.to_string() == "preprocessor",
+        _ => false,
+    });
+
     let main_name = main_override.unwrap_or("main".to_string());
     let params = ast.into_iter().find_map(|x| match x {
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
@@ -178,6 +186,7 @@ pub fn parse_deno_signature(
                 .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
                 .collect::<anyhow::Result<Vec<Arg>>>()?,
             no_main_func: Some(false),
+            has_preprocessor: Some(has_preprocessor),
         };
         Ok(r)
     } else {
@@ -186,6 +195,7 @@ pub fn parse_deno_signature(
             star_kwargs: false,
             args: vec![],
             no_main_func: Some(true),
+            has_preprocessor: Some(has_preprocessor),
         })
     }
 }

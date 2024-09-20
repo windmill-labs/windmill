@@ -1,4 +1,4 @@
-import { ScriptService, JobService, type Script } from '$lib/gen'
+import { ScriptService, type Script } from '$lib/gen'
 
 export async function deleteScript(hash: string, workspace: string) {
 	return await ScriptService.deleteScriptByHash({ workspace: workspace, hash })
@@ -39,23 +39,6 @@ export async function loadScript(hash: string, workspace: string): Promise<any> 
 	return { script, hash }
 }
 
-export async function runScript(
-	scheduledForStr: string | undefined,
-	args: Record<string, any>,
-	hash: string,
-	workspace: string,
-	invisibleToOwner?: boolean
-) {
-	const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-	let run = await JobService.runScriptByHash({
-		workspace: workspace,
-		hash: hash,
-		requestBody: args,
-		scheduledFor,
-		invisibleToOwner
-	})
-	return run
-}
 export function curlCommand(async: boolean, args: any, $page: any, workspace: string, script: any) {
 	return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
 		args

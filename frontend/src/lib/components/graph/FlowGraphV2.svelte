@@ -36,6 +36,7 @@
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
+	export let preprocessorModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let maxHeight: number | undefined = undefined
 	export let notSelectable = false
@@ -129,6 +130,7 @@
 			selectedId: $selectedId
 		},
 		failureModule,
+		preprocessorModule,
 		{
 			deleteBranch: (detail, label) => {
 				$selectedId = label
@@ -212,11 +214,12 @@
 		!$selectedId.startsWith('constants') &&
 		!$selectedId.startsWith('settings') &&
 		$selectedId !== 'failure' &&
+		$selectedId !== 'preprocessor' &&
 		$selectedId !== 'Result'
 
 	const viewport = writable<Viewport>({
 		x: 0,
-		y: 5,
+		y: 35,
 		zoom: 1
 	})
 
@@ -258,7 +261,10 @@
 				<ControlButton
 					on:click={() => {
 						try {
-							localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+							localStorage.setItem(
+								'svelvet',
+								encodeState({ modules, failureModule, preprocessorModule })
+							)
 						} catch (e) {
 							console.error('error interacting with local storage', e)
 						}

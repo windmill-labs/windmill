@@ -10497,6 +10497,7 @@ dependencies = [
  "lazy_static",
  "magic-crypt",
  "mail-parser",
+ "matchit",
  "mime_guess",
  "native-tls",
  "object_store",

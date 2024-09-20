@@ -8,13 +8,15 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_result, start_child_process,
+        parse_npm_config, read_file, read_result, start_child_process,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::{error::Result, worker::write_file, BASE_URL};
+use windmill_common::{
+    error::Result, jobs::PREPROCESSOR_FAKE_ENTRYPOINT, worker::write_file, BASE_URL,
+};
 use windmill_common::{
     error::{self},
     jobs::QueuedJob,
@@ -170,12 +172,22 @@ pub async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
-    let main_override = get_main_override(job.args.as_ref());
+    let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
+        Some(main_override) => {
+            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
+                (None, true)
+            } else {
+                (Some(main_override), false)
+            }
+        }
+        None => (None, false),
+    };
 
     write_file(job_dir, "main.ts", inner_content)?;
 
@@ -184,7 +196,23 @@ pub async fn handle_deno_job(
         let args =
             windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
                 .args;
-        let dates = args
+
+        let pre_args = if apply_preprocessor {
+            Some(
+                windmill_parser_ts::parse_deno_signature(
+                    inner_content,
+                    true,
+                    Some("preprocessor".to_string()),
+                )?
+                .args,
+            )
+        } else {
+            None
+        };
+
+        let dates = pre_args
+            .as_ref()
+            .unwrap_or(&args)
             .iter()
             .enumerate()
             .filter_map(|(i, x)| {
@@ -200,13 +228,37 @@ pub async fn handle_deno_job(
         let spread = args.into_iter().map(|x| x.name).join(",");
         let main_name = main_override.unwrap_or("main".to_string());
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        let (preprocessor_import, preprocessor) = if let Some(pre_args) = pre_args {
+            let pre_spread = pre_args.into_iter().map(|x| x.name).join(",");
+            (
+                r#"import { preprocessor } from "./main.ts";"#.to_string(),
+                format!(
+                    r#"if (preprocessor === undefined || typeof preprocessor !== 'function') {{
+        throw new Error("preprocessor function is missing");
+    }}
+    function preArgsObjToArr({{ {pre_spread} }}) {{
+        return [ {pre_spread} ];
+    }}
+    args = await preprocessor(...preArgsObjToArr(args));
+    const args_json = JSON.stringify(args ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    await Deno.writeTextFile("args.json", args_json);"#
+                ),
+            )
+        } else {
+            ("".to_string(), "".to_string())
+        };
+
         let wrapper_content: String = format!(
             r#"
 import {{ {main_name} }} from "./main.ts";
+{preprocessor_import}
 
-const args = await Deno.readTextFile("args.json")
-    .then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
+let args = await Deno.readTextFile("args.json")
+    .then(JSON.parse);
+
+function argsObjToArr({{ {spread} }}) {{
+    return [ {spread} ];
+}}
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -214,7 +266,12 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res: any = await {main_name}(...args);
+    {preprocessor}
+    const argsArr = argsObjToArr(args);
+    if ({main_name} === undefined || typeof {main_name} !== 'function') {{
+        throw new Error("{main_name} function is missing");
+    }}
+    let res: any = await {main_name}(...argsArr);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
@@ -345,6 +402,22 @@ try {{
     if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
     {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
+    }
+    if apply_preprocessor {
+        let args = read_file(&format!("{job_dir}/args.json"))
+            .await
+            .map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while reading args from preprocessing: {e:#}"
+                ))
+            })?;
+        let args: HashMap<String, Box<RawValue>> =
+            serde_json::from_str(args.get()).map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while deserializing args from preprocessing: {e:#}"
+                ))
+            })?;
+        *new_args = Some(args.clone());
     }
     read_result(job_dir).await
 }
