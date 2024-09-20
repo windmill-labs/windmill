@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.397.4](https://github.com/windmill-labs/windmill/compare/v1.397.3...v1.397.4) (2024-09-20)
+
+
+### Bug Fixes
+
+* **cli:** make CLI not require latest version of windmill ([794f87a](https://github.com/windmill-labs/windmill/commit/794f87aa0d33a0b782fcb2726754fdc51bc1d73d))
+
 ## [1.397.3](https://github.com/windmill-labs/windmill/compare/v1.397.2...v1.397.3) (2024-09-20)
 
 
