@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
-	import { ConfigService, SettingService, SettingsService } from '$lib/gen'
+	import { SettingService, SettingsService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -54,7 +54,6 @@
 		attempted_at: string
 	} | null = null
 
-	let serverConfig = {}
 	let initialValues: Record<string, any> = {}
 	let loading = true
 
@@ -71,17 +70,11 @@
 
 	async function loadSettings() {
 		loading = true
-		try {
-			serverConfig = (await ConfigService.getConfig({ name: 'server' })) ?? {}
-		} catch (e) {
-			console.log("Sever config not found, assuming it's first setup")
-		}
+
 
 		async function getValue(key: string, storage: SettingStorage) {
 			if (storage == 'setting') {
 				return SettingService.getGlobal({ key })
-			} else if (storage == 'config') {
-				return serverConfig[key]
 			}
 		}
 		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
@@ -110,6 +103,9 @@
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
 		}
+		if (values['smtp_connect'] == undefined) {
+			values['smtp_connect'] = {}
+		}
 		loading = false
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
@@ -118,18 +114,6 @@
 	export async function saveSettings() {
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
-			const newServerConfig = Object.fromEntries(
-				allSettings
-					.filter((x) => x[1].storage == 'config' && values?.[x[1].key] && values?.[x[1].key] != '')
-					.map((x) => [x[1].key, values?.[x[1].key]])
-			)
-			if (!deepEqual(newServerConfig, serverConfig)) {
-				await ConfigService.updateConfig({
-					name: 'server',
-					requestBody: newServerConfig
-				})
-				serverConfig = JSON.parse(JSON.stringify(newServerConfig))
-			}
 			let licenseKeySet = false
 			await Promise.all(
 				allSettings
@@ -818,6 +802,104 @@
 														</Button>
 													{/if}
 												</div>
+											{:else if setting.fieldType == 'smtp_connect'}
+												<div class="flex flex-col gap-4">
+													<div>
+														<label for="smtp_host" class="block text-sm font-medium text-gray-700">Host</label>
+														<input
+															type="text"
+															id="smtp_host"
+															placeholder="smtp.gmail.com"
+															bind:value={values[setting.key].smtp_host}
+															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+														/>
+													</div>
+													<div>
+														<label for="smtp_port" class="block text-sm font-medium text-gray-700">Port</label>
+														<input
+															type="number"
+															id="smtp_port"
+															placeholder="587"
+															bind:value={values[setting.key].smtp_port}
+															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+														/>
+													</div>
+													<div>
+														<label for="smtp_username" class="block text-sm font-medium text-gray-700">Username</label>
+														<input
+															type="text"
+															id="smtp_username"
+															placeholder="ruben@windmill.dev"
+															bind:value={values[setting.key].smtp_username}
+															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+														/>
+													</div>
+													<div>
+														<label for="smtp_password" class="block text-sm font-medium text-gray-700">Password</label>
+														<Password bind:password={values[setting.key].smtp_password} />
+													</div>
+													<div>
+														<label for="smtp_from" class="block text-sm font-medium text-gray-700">From Address</label>
+														<input
+															type="email"
+															id="smtp_from"
+															placeholder="noreply@windmill.dev"
+															bind:value={values[setting.key].smtp_from}
+															class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+														/>
+													</div>
+													<div>
+														<label for="smtp_tls_implicit" class="flex items-center">
+															<input
+																type="checkbox"
+																id="smtp_tls_implicit"
+																bind:checked={values[setting.key].smtp_tls_implicit}
+																class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+															/>
+															<span class="ml-2 text-sm text-gray-700">Implicit TLS</span>
+														</label>
+													</div>
+												</div>
+											<!-- {
+												label: 'Host',
+												key: 'smtp_host',
+												fieldType: 'text',
+												placeholder: 'smtp.gmail.com',
+												storage: 'config'
+											},
+											{
+												label: 'Port',
+												key: 'smtp_port',
+												fieldType: 'number',
+												placeholder: '587',
+												storage: 'config'
+											},
+											{
+												label: 'Username',
+												key: 'smtp_username',
+												fieldType: 'text',
+												placeholder: 'ruben@windmill.dev',
+												storage: 'config'
+											},
+											{
+												label: 'Password',
+												key: 'smtp_password',
+												fieldType: 'password',
+												storage: 'config'
+											},
+											{
+												label: 'From Address',
+												key: 'smtp_from',
+												placeholder: 'noreply@windmill.dev',
+												fieldType: 'email',
+												storage: 'config'
+											},
+											{
+												label: 'Implicit TLS',
+												key: 'smtp_tls_implicit',
+												fieldType: 'boolean',
+												storage: 'config'
+											} -->
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
 												<div class="mb-6" />

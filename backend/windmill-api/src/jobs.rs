@@ -58,7 +58,7 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
+use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -3145,6 +3145,17 @@ impl Drop for Guard {
     }
 }
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_WAIT_RESULT: Arc<RwLock<Option<u64>>> = Arc::new(RwLock::new(
+        std::env::var("TIMEOUT_WAIT_RESULT")
+            .ok()
+            .and_then(|x| x.parse::<u64>().ok())
+    ));
+}
+
 #[derive(Deserialize)]
 pub struct WindmillCompositeResult {
     windmill_status_code: Option<u16>,
@@ -3159,7 +3170,7 @@ async fn run_wait_result(
     username: &str,
 ) -> error::Result<Response> {
     let mut result = None;
-    let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
+    let timeout = TIMEOUT_WAIT_RESULT.read().await.clone().unwrap_or(600);
     let timeout_ms = if timeout <= 0 {
         2000
     } else {

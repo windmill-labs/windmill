@@ -19,13 +19,14 @@ export interface Setting {
 		| 'object_store_config'
 		| 'critical_error_channels'
 		| 'slack_connect'
+		| 'smtp_connect'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
 	error?: string
 	defaultValue?: () => any
 }
 
-export type SettingStorage = 'setting' | 'config'
+export type SettingStorage = 'setting' 
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -76,7 +77,7 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: true,
 			fieldType: 'seconds',
 			placeholder: '60',
-			storage: 'config'
+			storage: 'setting'
 		},
 		{
 			label: 'License key',
@@ -188,45 +189,12 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	SMTP: [
-		{
-			label: 'Host',
-			key: 'smtp_host',
-			fieldType: 'text',
-			placeholder: 'smtp.gmail.com',
-			storage: 'config'
-		},
-		{
-			label: 'Port',
-			key: 'smtp_port',
-			fieldType: 'number',
-			placeholder: '587',
-			storage: 'config'
-		},
-		{
-			label: 'Username',
-			key: 'smtp_username',
-			fieldType: 'text',
-			placeholder: 'ruben@windmill.dev',
-			storage: 'config'
-		},
-		{
-			label: 'Password',
-			key: 'smtp_password',
-			fieldType: 'password',
-			storage: 'config'
-		},
-		{
-			label: 'From Address',
-			key: 'smtp_from',
-			placeholder: 'noreply@windmill.dev',
-			fieldType: 'email',
-			storage: 'config'
-		},
-		{
-			label: 'Implicit TLS',
-			key: 'smtp_tls_implicit',
-			fieldType: 'boolean',
-			storage: 'config'
+			{
+				label: 'SMTP',
+				key: 'smtp',
+				fieldType: 'smtp_connect',
+				storage: 'setting',
+				ee_only: '',
 		}
 	],
 	Slack: [
