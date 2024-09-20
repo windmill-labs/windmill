@@ -26,7 +26,7 @@ use axum::extract::Query;
 
 use serde::Deserialize;
 use windmill_common::{
-    ee::{send_critical_alert, CriticalAlertKind},
+    ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel},
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
@@ -392,6 +392,7 @@ pub async fn create_customer_portal_session(
 
 pub async fn test_critical_channels(
     Extension(db): Extension<DB>,
+    Json(test_critical_channels): Json<Vec<CriticalErrorChannel>>,
     authed: ApiAuthed,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
@@ -400,6 +401,7 @@ pub async fn test_critical_channels(
         "Test critical error".to_string(),
         &db,
         CriticalAlertKind::CriticalError,
+        Some(test_critical_channels),
     )
     .await;
     Ok("Sent test critical error".to_string())

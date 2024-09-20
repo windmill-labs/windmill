@@ -754,7 +754,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              type: array
+              items:
+                type: object
+                properties:
+                  email:
+                    type: string
+                  slack_channel:
+                    type: string
       responses:
         "200":
           description: status

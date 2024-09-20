@@ -288,7 +288,7 @@ pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     }
 
     #[cfg(feature = "enterprise")]
-    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError).await;
+    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
 }
 
 pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
@@ -304,5 +304,11 @@ pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
         tracing::error!("Failed to save critical error to database: {}", err);
     }
     #[cfg(feature = "enterprise")]
-    send_critical_alert(message, &_db, CriticalAlertKind::RecoveredCriticalError).await;
+    send_critical_alert(
+        message,
+        &_db,
+        CriticalAlertKind::RecoveredCriticalError,
+        None,
+    )
+    .await;
 }

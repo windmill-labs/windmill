@@ -753,7 +753,9 @@
 																variant="contained"
 																on:click={async () => {
 																	try {
-																		await SettingService.testCriticalChannels({ requestBody: {} })
+																		await SettingService.testCriticalChannels({
+																			requestBody: values[setting.key]
+																		})
 																		sendUserToast(
 																			'Test message sent successfully to critical channels',
 																			false
