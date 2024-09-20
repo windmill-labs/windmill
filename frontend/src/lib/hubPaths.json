@@ -1,5 +1,5 @@
 {
-	"gitSync": "hub/9074/sync-script-to-git-repo-windmill",
+	"gitSync": "hub/9087/sync-script-to-git-repo-windmill",
 	"gitSyncTest": "hub/9073/git-repo-test-read-write-windmill",
 	"slackErrorHandler": "hub/9079/workspace-or-schedule-error-handler-slack",
 	"slackRecoveryHandler": "hub/9080/slack/schedule-recovery-handler-slack",
