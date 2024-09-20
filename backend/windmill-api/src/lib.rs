@@ -350,9 +350,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/r",
-                    http_triggers::routes_global_service()
-                        .layer(from_extractor::<OptAuthed>())
-                        .layer(cors),
+                    http_triggers::routes_global_service().layer(from_extractor::<OptAuthed>()),
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))

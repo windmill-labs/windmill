@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query},
     response::IntoResponse,
-    routing::{any, delete, get, post},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use http::{HeaderMap, StatusCode};
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
 use std::collections::HashMap;
+use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     auth::fetch_authed_from_permissioned_as,
@@ -34,7 +35,27 @@ lazy_static::lazy_static! {
 }
 
 pub fn routes_global_service() -> Router {
-    Router::new().route("/*path", any(route_job))
+    let cors = CorsLayer::new()
+        .allow_methods([
+            http::Method::GET,
+            http::Method::POST,
+            http::Method::DELETE,
+            http::Method::PUT,
+            http::Method::PATCH,
+        ])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(tower_http::cors::Any);
+    Router::new()
+        .route(
+            "/*path",
+            get(route_job)
+                .post(route_job)
+                .delete(route_job)
+                .put(route_job)
+                .patch(route_job)
+                .head(|| async { "" }),
+        )
+        .layer(cors)
 }
 
 pub fn workspaced_service() -> Router {
