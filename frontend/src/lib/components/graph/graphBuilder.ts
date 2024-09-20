@@ -105,7 +105,7 @@ export default function graphBuilder(
 		data: {
 			eventHandlers: eventHandlers,
 			modules: modules,
-
+			hasPreprocessor: !!preprocessorModule,
 			...extra
 		}
 	}
@@ -447,10 +447,8 @@ export default function graphBuilder(
 
 	if (preprocessorModule) {
 		addNode(preprocessorModule, 0, 'module')
-		if (extra.flowModuleStates?.[preprocessorModule.id]) {
-			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
-			addEdge(id, 'Input', { type: 'empty' })
-		}
+		const id = JSON.parse(JSON.stringify(preprocessorModule.id))
+		addEdge(id, 'Input', { type: 'empty' })
 	}
 
 	Object.keys(parents).forEach((key) => {

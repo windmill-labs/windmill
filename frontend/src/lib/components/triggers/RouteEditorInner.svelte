@@ -53,7 +53,6 @@
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			summary = ''
 			is_async = false
 			requires_auth = false
 			initialRoutePath = ''
@@ -72,7 +71,6 @@
 	let path: string = ''
 	let pathError = ''
 	let routeError = ''
-	let summary = ''
 	let is_async = false
 	let requires_auth = false
 	let initialRoutePath = ''
@@ -87,7 +85,6 @@
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		summary = s.summary
 		script_path = s.script_path
 		initialScriptPath = s.script_path
 
@@ -111,7 +108,6 @@
 					path,
 					script_path,
 					is_flow,
-					summary,
 					is_async,
 					requires_auth,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
@@ -126,7 +122,6 @@
 					path,
 					script_path,
 					is_flow,
-					summary,
 					is_async,
 					requires_auth,
 					route_path,
@@ -203,31 +198,6 @@
 		{:else}
 			<div class="flex flex-col gap-12">
 				<div class="flex flex-col gap-4">
-					<div>
-						<h2 class="text-base font-semibold mb-2">Metadata</h2>
-						<Label label="Summary">
-							<!-- svelte-ignore a11y-autofocus -->
-							<input
-								autofocus
-								type="text"
-								placeholder="Short summary to be displayed when listed"
-								class="text-sm w-full"
-								bind:value={summary}
-								on:keyup={() => {
-									if (!edit && summary?.length > 0 && !dirtyPath) {
-										pathC?.setName(
-											summary
-												.toLowerCase()
-												.replace(/[^a-z0-9_]/g, '_')
-												.replace(/-+/g, '_')
-												.replace(/^-|-$/g, '')
-										)
-									}
-								}}
-								disabled={!can_write}
-							/>
-						</Label>
-					</div>
 					<Label label="Path">
 						<Path
 							bind:dirty={dirtyPath}
@@ -244,7 +214,7 @@
 					</Label>
 				</div>
 
-				<Section label="Endpoint">
+				<Section label="HTTP">
 					{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Alert type="info" title="Admin only" collapsible>
 							Route endpoints can only be edited by workspace admins
@@ -309,7 +279,8 @@
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered by the http route<Required required={true} />
+						Pick a script or flow to be triggered<Required required={true} /><br />
+						To handle headers, query or path parameters, add a preprocessor to your runnable.
 					</p>
 					<ScriptPicker
 						disabled={!can_write}
@@ -341,7 +312,11 @@
 							<div class="text-sm font-semibold flex flex-row items-center">Authentication</div>
 							<ToggleButtonGroup class="w-auto" bind:selected={requires_auth} disabled={!can_write}>
 								<ToggleButton label="None" value={false} />
-								<ToggleButton label="Required" value={true} />
+								<ToggleButton
+									label="Required"
+									value={true}
+									tooltip="Requires authentication with read access on the route"
+								/>
 							</ToggleButtonGroup>
 						</div>
 					</div>

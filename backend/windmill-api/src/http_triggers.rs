@@ -1,10 +1,10 @@
 use axum::{
-    extract::{FromRequestParts, Path, Query},
+    extract::{Path, Query},
     response::IntoResponse,
     routing::{any, delete, get, post},
     Extension, Json, Router,
 };
-use http::{request::Parts, StatusCode};
+use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
@@ -78,7 +78,6 @@ struct NewTrigger {
     route_path: String,
     script_path: String,
     is_flow: bool,
-    summary: String,
     is_async: bool,
     requires_auth: bool,
     http_method: HttpMethod,
@@ -96,7 +95,6 @@ struct Trigger {
     email: String,
     edited_at: chrono::DateTime<chrono::Utc>,
     extra_perms: serde_json::Value,
-    summary: String,
     is_async: bool,
     requires_auth: bool,
     http_method: HttpMethod,
@@ -108,7 +106,6 @@ struct EditTrigger {
     route_path: Option<String>,
     script_path: String,
     is_flow: bool,
-    summary: String,
     is_async: bool,
     requires_auth: bool,
     http_method: HttpMethod,
@@ -167,7 +164,7 @@ async fn get_trigger(
     let path = path.to_path();
     let trigger = sqlx::query_as!(
         Trigger,
-        r#"SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, http_method as "http_method: _", edited_by, email, edited_at, extra_perms, summary, is_async, requires_auth
+        r#"SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, http_method as "http_method: _", edited_by, email, edited_at, extra_perms, is_async, requires_auth
             FROM http_trigger
             WHERE workspace_id = $1 AND path = $2"#,
         w_id,
@@ -194,9 +191,8 @@ async fn create_trigger(
 
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO http_trigger (workspace_id, summary, path, route_path, route_path_key, script_path, is_flow, is_async, requires_auth, http_method, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())",
+        "INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, is_async, requires_auth, http_method, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())",
         w_id,
-        ct.summary,
         ct.path,
         ct.route_path,
         &route_path_key,
@@ -247,8 +243,8 @@ async fn update_trigger(
 
         sqlx::query!(
             "UPDATE http_trigger 
-                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, http_method = $6, edited_by = $7, email = $8, summary = $9, is_async = $10, requires_auth = $11, edited_at = now() 
-                WHERE workspace_id = $12 AND path = $13",
+                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, http_method = $6, edited_by = $7, email = $8, is_async = $9, requires_auth = $10, edited_at = now() 
+                WHERE workspace_id = $11 AND path = $12",
             ct.route_path,
             &route_path_key,
             ct.script_path,
@@ -257,7 +253,6 @@ async fn update_trigger(
             ct.http_method as HttpMethod,
             &authed.username,
             &authed.email,
-            ct.summary,
             ct.is_async,
             ct.requires_auth,
             w_id,
@@ -266,15 +261,14 @@ async fn update_trigger(
         .execute(&mut *tx).await?;
     } else {
         sqlx::query!(
-            "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, edited_by = $5, email = $6, summary = $7, is_async = $8, requires_auth = $9, edited_at = now() 
-                WHERE workspace_id = $10 AND path = $11",
+            "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, edited_by = $5, email = $6, is_async = $7, requires_auth = $8, edited_at = now() 
+                WHERE workspace_id = $9 AND path = $10",
             ct.script_path,
             ct.path,
             ct.is_flow,
             ct.http_method as HttpMethod,
             &authed.username,
             &authed.email,
-            ct.summary,
             ct.is_async,
             ct.requires_auth,
             w_id,
@@ -433,7 +427,7 @@ async fn get_http_route_trigger(
     opt_authed: Option<ApiAuthed>,
     db: &DB,
     user_db: UserDB,
-) -> error::Result<(TriggerRoute, HashMap<String, String>, ApiAuthed)> {
+) -> error::Result<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
     let (mut triggers, route_path) = if *CLOUD_HOSTED {
         let mut splitted = route_path.split("/");
         let w_id = splitted.next().ok_or_else(|| {
@@ -519,21 +513,7 @@ async fn get_http_route_trigger(
     )
     .await?;
 
-    Ok((trigger, params, authed))
-}
-
-struct Method(http::Method);
-
-#[axum::async_trait]
-impl<S> FromRequestParts<S> for Method
-where
-    S: Send + Sync,
-{
-    type Rejection = (StatusCode, String);
-    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let method = parts.method.clone();
-        Ok(Method(method))
-    }
+    Ok((trigger, route_path.0, params, authed))
 }
 
 async fn route_job(
@@ -542,23 +522,34 @@ async fn route_job(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(route_path): Path<StripPath>,
     OptAuthed(opt_authed): OptAuthed,
-    Method(method): Method,
+    Query(query): Query<HashMap<String, String>>,
+    method: http::Method,
+    headers: HeaderMap,
     mut args: PushArgsOwned,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path();
-    let (trigger, params, authed) =
+    let (trigger, called_path, params, authed) =
         match get_http_route_trigger(route_path, opt_authed, &db, user_db.clone()).await {
             Ok(trigger) => trigger,
             Err(e) => return e.into_response(),
         };
-
+    let headers = headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect::<HashMap<String, String>>();
     let extra = args.extra.get_or_insert_with(HashMap::new);
     extra.insert(
         "wm_trigger".to_string(),
         to_raw_value(&serde_json::json!({
-            "kind": "http_route",
-            "http_path": route_path,
-            "http_path_params": params,
+            "kind": "http",
+            "http": {
+                "route": trigger.route_path,
+                "path": called_path,
+                "method": method.to_string().to_lowercase(),
+                "params": params,
+                "query": query,
+                "headers": headers
+            },
         })),
     );
     let http_method = http::Method::from(trigger.http_method);
@@ -568,7 +559,7 @@ async fn route_job(
     }
 
     let label_prefix = Some(format!(
-        "http-api-{}-{}-",
+        "http-{}-{}-",
         http_method.as_str().to_lowercase(),
         trigger.route_path
     ));

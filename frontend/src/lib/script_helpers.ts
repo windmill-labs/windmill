@@ -432,9 +432,15 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http_route' | 'email' | 'default_webhook',
-		http_path?: string
-		http_path_params?: Record<string, string>
+		kind: 'http' | 'email' | 'webhook',
+		http?: {
+			route: string // The route path, e.g. "/users/:id"
+			path: string // The actual path called, e.g. "/users/123"
+			method: string
+			params: Record<string, string>
+			query: Record<string, string>
+			headers: Record<string, string>
+		}
 	},
 	/* your other args */ 
 ) {
@@ -447,9 +453,15 @@ export async function preprocessor(
 export const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http_route' | 'email' | 'default_webhook',
-		http_path?: string
-		http_path_params?: Record<string, string>
+		kind: 'http' | 'email' | 'wehbook',
+		http?: {
+			route: string // The route path, e.g. "/users/:id"
+			path: string // The actual path called, e.g. "/users/123"
+			method: string
+			params: Record<string, string>
+			query: Record<string, string>
+			headers: Record<string, string>
+		}
 	},
 	/* your other args */ 
 ) {
@@ -488,12 +500,19 @@ def main():
 
 export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 
-class WmTrigger(TypedDict):
-    kind: Literal["http_route", "email", "default_webhook"]
-    http_path: str | None
-    http_path_params: dict[str, str] | None
+class Http(TypedDict):
+	route: str # The route path, e.g. "/users/:id"
+	path: str # The actual path called, e.g. "/users/123"
+	method: str
+	params: dict[str, str]
+	query: dict[str, str]
+	headers: dict[str, str]
 
-def preprocesor(
+class WmTrigger(TypedDict):
+    kind: Literal["http", "email", "webhook"]
+    http: Http | None
+
+def preprocessor(
 	wm_trigger: WmTrigger,
 	# your other args
 ):

@@ -219,7 +219,7 @@
 
 	const viewport = writable<Viewport>({
 		x: 0,
-		y: 5,
+		y: 35,
 		zoom: 1
 	})
 
@@ -261,7 +261,10 @@
 				<ControlButton
 					on:click={() => {
 						try {
-							localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+							localStorage.setItem(
+								'svelvet',
+								encodeState({ modules, failureModule, preprocessorModule })
+							)
 						} catch (e) {
 							console.error('error interacting with local storage', e)
 						}

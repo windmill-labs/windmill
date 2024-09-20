@@ -3223,7 +3223,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 );
                 extra.entry("wm_trigger".to_string()).or_insert_with(|| {
                     to_raw_value(&serde_json::json!({
-                        "kind": "default_webhook",
+                        "kind": "webhook",
                     }))
                 });
             } else {
@@ -3550,7 +3550,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             } else {
                 extra.entry("wm_trigger".to_string()).or_insert_with(|| {
                     to_raw_value(&serde_json::json!({
-                        "kind": "default_webhook",
+                        "kind": "webhook",
                     }))
                 });
             }

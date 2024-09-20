@@ -1,6 +1,5 @@
 -- Add down migration script here
-DROP TABLE trigger;
-DROP TYPE trigger_kind;
+DROP TABLE http_trigger;
 DROP TYPE http_method;
 
 ALTER TABLE script DROP COLUMN has_preprocessor;

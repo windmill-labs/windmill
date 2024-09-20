@@ -62,7 +62,9 @@
 			{#each triggers as trigger (trigger.path)}
 				<div class="grid grid-cols-5 text-2xs items-center py-2">
 					<div class="col-span-2 truncate">{trigger.path}</div>
-					<div class="col-span-2 truncate">endpoint: /{trigger.route_path}</div>
+					<div class="col-span-2 truncate">
+						{trigger.http_method.toUpperCase()} /{trigger.route_path}
+					</div>
 					<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)}>
 						{#if trigger.canWrite}
 							Edit

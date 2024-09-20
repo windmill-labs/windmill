@@ -2,7 +2,6 @@
 CREATE TYPE http_method AS ENUM ('get', 'post', 'put', 'delete', 'patch');
 
 CREATE TABLE http_trigger (
-  summary VARCHAR(1000) NOT NULL DEFAULT '',
   path VARCHAR(255) NOT NULL,
   route_path VARCHAR(255) NOT NULL,
   route_path_key VARCHAR(255) NOT NULL,

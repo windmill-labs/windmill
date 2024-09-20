@@ -96,9 +96,10 @@
 			<div class="p-4">
 				<Alert
 					type="info"
-					title="Preprocessors modify arguments when the flow is triggered by API or email"
+					title="Preprocessor is called when the flow is triggered by API or email"
 				>
-					If defined, the preprocessor tales the arguments and the kind of trigger as inputs.
+					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
+					`wm_trigger` argument with trigger details.
 				</Alert>
 			</div>
 		{/if}

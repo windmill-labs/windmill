@@ -362,6 +362,18 @@ pub async fn update_flow_status_after_job_completion_internal<
             ).execute(&mut tx).await.map_err(|e| {
                 Error::InternalErr(format!("error while updating args in preprocessing step: {e:#}"))
             })?;
+
+            sqlx::query!(
+                r#"UPDATE completed_job SET args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb WHERE id = $1"#,
+                job_id_for_status
+            )
+            .execute(&mut tx)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "error while deleting args of preprocessing step: {e:#}"
+                ))
+            })?;
         }
 
         let (inc_step_counter, new_status) = match module_status {

@@ -1,10 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, edited_by = $5, email = $6, summary = $7, is_async = $8, requires_auth = $9, edited_at = now() \n                WHERE workspace_id = $10 AND path = $11",
+  "query": "UPDATE http_trigger \n                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, http_method = $6, edited_by = $7, email = $8, is_async = $9, requires_auth = $10, edited_at = now() \n                WHERE workspace_id = $11 AND path = $12",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
+        "Varchar",
+        "Varchar",
         "Varchar",
         "Varchar",
         "Bool",
@@ -24,7 +26,6 @@
         },
         "Varchar",
         "Varchar",
-        "Varchar",
         "Bool",
         "Bool",
         "Text",
@@ -33,5 +34,5 @@
     },
     "nullable": []
   },
-  "hash": "d51ea2519a4e373a8f14cc8532acb522ca3fa5a8827b73977b0bab4a31c0bda4"
+  "hash": "4d8640e84fccf1a0b799d8396a51e69345137e68d5096c70ba0a4332075d97ea"
 }

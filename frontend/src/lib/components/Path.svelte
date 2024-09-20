@@ -110,9 +110,17 @@
 					}
 				}
 			} else {
-				meta = {
-					...$lastMetaUsed,
-					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+				if ($lastMetaUsed.ownerKind == 'user' && hideUser) {
+					meta = {
+						ownerKind: 'folder',
+						owner: '',
+						name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+					}
+				} else {
+					meta = {
+						...$lastMetaUsed,
+						name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+					}
 				}
 			}
 			let newMeta = { ...meta }

@@ -30,7 +30,8 @@ import wasmUrlRust from 'windmill-parser-wasm-rust/windmill_parser_wasm_bg.wasm?
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
-const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
+const loadSchemaLastRun =
+	writable<[string | undefined, MainArgSignature | undefined, string | undefined]>(undefined)
 
 let initializeTsPromise: Promise<any> | undefined = undefined
 export async function initWasmTs() {
@@ -58,14 +59,15 @@ async function initWasmGo() {
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
-	schema: Schema
+	schema: Schema,
+	mainOverride?: string
 ): Promise<{
 	no_main_func: boolean | null
 	has_preprocessor: boolean | null
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (lastRun && code == lastRun[0] && lastRun[1]) {
+	if (lastRun && code == lastRun[0] && lastRun[1] && lastRun[2] == mainOverride) {
 		inferedSchema = lastRun[1]
 	} else {
 		if (code == '') {
@@ -79,16 +81,16 @@ export async function inferArgs(
 		}
 		if (language == 'python3') {
 			await initWasmPython()
-			inferedSchema = JSON.parse(parse_python(code))
+			inferedSchema = JSON.parse(parse_python(code, mainOverride))
 		} else if (language == 'deno') {
 			await initWasmTs()
-			inferedSchema = JSON.parse(parse_deno(code))
+			inferedSchema = JSON.parse(parse_deno(code, mainOverride))
 		} else if (language == 'nativets') {
 			await initWasmTs()
-			inferedSchema = JSON.parse(parse_deno(code))
+			inferedSchema = JSON.parse(parse_deno(code, mainOverride))
 		} else if (language == 'bun' || language == 'bunnative') {
 			await initWasmTs()
-			inferedSchema = JSON.parse(parse_deno(code))
+			inferedSchema = JSON.parse(parse_deno(code, mainOverride))
 		} else if (language == 'postgresql') {
 			inferedSchema = JSON.parse(parse_sql(code))
 			if (inlineDBResource === undefined) {
@@ -157,7 +159,7 @@ export async function inferArgs(
 		if (inferedSchema.type == 'Invalid') {
 			throw new Error(inferedSchema.error)
 		}
-		loadSchemaLastRun.set([code, inferedSchema])
+		loadSchemaLastRun.set([code, inferedSchema, mainOverride])
 	}
 
 	schema.required = []

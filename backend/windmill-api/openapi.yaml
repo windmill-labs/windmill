@@ -10884,8 +10884,6 @@ components:
             - put
             - delete
             - patch
-        summary:
-          type: string
         is_async:
           type: boolean
         requires_auth:
@@ -10901,7 +10899,6 @@ components:
         - is_flow
         - email
         - workspace_id
-        - summary
         - is_async
         - requires_auth
         - http_method
@@ -10925,8 +10922,6 @@ components:
             - put
             - delete
             - patch
-        summary:
-          type: string
         is_async:
           type: boolean
         requires_auth:
@@ -10937,7 +10932,6 @@ components:
         - script_path
         - route_path
         - is_flow
-        - summary
         - is_async
         - requires_auth
         - http_method
@@ -10961,19 +10955,15 @@ components:
             - put
             - delete
             - patch
-        summary:
-          type: string
         is_async:
           type: boolean
         requires_auth:
           type: boolean
-        
       required:
         - path
         - script_path
         - is_flow
         - kind
-        - summary
         - is_async
         - requires_auth
         - http_method

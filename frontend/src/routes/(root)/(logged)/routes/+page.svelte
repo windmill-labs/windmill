@@ -200,7 +200,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, summary, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 					<div
@@ -221,14 +221,14 @@
 											{@html marked}
 										</span>
 									{:else}
-										{summary || script_path}
+										{http_method.toUpperCase()} /{route_path}
 									{/if}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									route: {path}
+									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									endpoint: {http_method ? http_method.toUpperCase() + ' ' : ''}/{route_path}
+									runnable: {script_path}
 								</div>
 							</a>
 

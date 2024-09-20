@@ -253,6 +253,7 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 			<X class="mx-[3px]" size={12} strokeWidth={2} />
 		</button>
 
+		{#if id !== 'preprocessor'}
 		<button
 			class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
@@ -262,6 +263,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 		>
 			<Move class="mx-[3px]" size={12} strokeWidth={2} />
 		</button>
+		{/if}
 
 		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 			<div class="absolute -top-[10px] -left-[10px]">
