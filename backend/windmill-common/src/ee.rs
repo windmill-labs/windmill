@@ -40,7 +40,7 @@ pub async fn send_critical_alert(
     _error_message: String,
     _db: &DB,
     _kind: CriticalAlertKind,
-    channels: Option<Vec<CriticalErrorChannel>>,
+    _channels: Option<Vec<CriticalErrorChannel>>,
 ) {
 }
 
