@@ -195,7 +195,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     }
     ret
 }
-pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &str, content: &str) -> error::Result<File> {
+pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &str, content: &str) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
 
@@ -213,6 +213,7 @@ pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &st
         ).into());
     }
 
+    let full_path = normalized_full_path.as_path();
     if let Some(parent_dir) = full_path.parent() {
         std::fs::create_dir_all(parent_dir)?;
     }
@@ -220,7 +221,7 @@ pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &st
     let mut file = File::create(full_path)?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
-    Ok(file)
+    Ok(normalized_full_path)
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
