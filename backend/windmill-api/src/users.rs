@@ -244,6 +244,7 @@ impl AuthCache {
                                 folders: payload.claims.folders,
                                 scopes: None,
                                 username_override,
+                                tags: None,
                             };
 
                             self.cache.insert(
@@ -326,6 +327,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            tags: None,
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -347,6 +349,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            tags: None,
                                         })
                                     }
                                 } else {
@@ -361,6 +364,7 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
+                                        tags: None,
                                     })
                                 }
                             }
@@ -407,6 +411,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                tags: None,
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -418,6 +423,7 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
+                                            tags: None,
                                         }),
                                         None => None,
                                     }
@@ -431,6 +437,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        tags: None,
                                     })
                                 }
                             }
@@ -463,6 +470,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        tags: None,
                     })
                 } else {
                     None
@@ -613,6 +621,7 @@ where
                 folders: Vec::new(),
                 scopes: None,
                 username_override: None,
+                tags: None,
             });
         };
         let already_authed = parts.extensions.get::<ApiAuthed>();

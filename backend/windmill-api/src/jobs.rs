@@ -1248,12 +1248,17 @@ pub fn list_queue_jobs_query(
     lq: &ListQueueQuery,
     fields: &[&str],
     join_outstanding_wait_times: bool,
+    tags: Option<&Vec<String>>,
 ) -> SqlBuilder {
-    let sqlb = SqlBuilder::select_from("queue")
+    let mut sqlb = SqlBuilder::select_from("queue")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(1000)
         .clone();
+
+    if let Some(tags) = tags {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
 
     filter_list_queue_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
@@ -1310,6 +1315,7 @@ async fn list_queue_jobs(
             "workspace_id",
         ],
         false,
+        authed.tags.as_ref(),
     )
     .sql()?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1498,6 +1504,10 @@ async fn list_filtered_uuids(
 
     sqlb.and_where_is_null("schedule_path");
 
+    if let Some(tags) = authed.tags.as_ref() {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
+
     sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
 
     let sql = sqlb.query()?;
@@ -1575,6 +1585,7 @@ async fn list_jobs(
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
             true,
+            authed.tags.as_ref(),
         ))
     } else {
         None
@@ -1590,6 +1601,7 @@ async fn list_jobs(
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
             true,
+            authed.tags.as_ref(),
         );
 
         if let Some(sqlc) = sqlc {
@@ -4843,13 +4855,18 @@ pub fn list_completed_jobs_query(
     lq: &ListCompletedQuery,
     fields: &[&str],
     join_outstanding_wait_times: bool,
+    tags: Option<&Vec<String>>,
 ) -> SqlBuilder {
-    let sqlb = SqlBuilder::select_from("completed_job")
+    let mut sqlb = SqlBuilder::select_from("completed_job")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .offset(offset)
         .limit(per_page)
         .clone();
+
+    if let Some(tags) = tags {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
 
     filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
@@ -4937,6 +4954,7 @@ async fn list_completed_jobs(
             "'CompletedJob' as type",
         ],
         false,
+        authed.tags.as_ref(),
     )
     .sql()?;
     let mut tx = user_db.begin(&authed).await?;

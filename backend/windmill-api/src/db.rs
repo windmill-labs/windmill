@@ -519,6 +519,7 @@ pub struct ApiAuthed {
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     pub username_override: Option<String>,
 }
 
