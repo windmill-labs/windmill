@@ -137,4 +137,4 @@ iface_no_lo: true
 envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
 envar: "HOME=/tmp"
-envar: "ANSIBLE_CONFIG={JOB_DIR}/ansible.cfg"
+envar: "ANSIBLE_CONFIG=/tmp/ansible.cfg"

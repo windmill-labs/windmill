@@ -288,6 +288,7 @@ collections_path = ./
 roles_path = ./roles
 home={job_dir}/.ansible
 local_tmp={job_dir}/.ansible/tmp
+remote_tmp={job_dir}/.ansible/tmp
 "#);
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
