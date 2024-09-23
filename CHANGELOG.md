@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.398.0](https://github.com/windmill-labs/windmill/compare/v1.397.4...v1.398.0) (2024-09-23)
+
+
+### Features
+
+* **frontend:** add http routing templates ([#4421](https://github.com/windmill-labs/windmill/issues/4421)) ([e99e7b2](https://github.com/windmill-labs/windmill/commit/e99e7b2b0bb1bc63d1253d147b80bac06eaff103))
+* http routing ([#4339](https://github.com/windmill-labs/windmill/issues/4339)) ([304dac3](https://github.com/windmill-labs/windmill/commit/304dac34475b8871621c54a768275fae1e9f845e))
+
+
+### Bug Fixes
+
+* allow no body in job requests ([#4413](https://github.com/windmill-labs/windmill/issues/4413)) ([70fa78c](https://github.com/windmill-labs/windmill/commit/70fa78c10d8afb3e06be84e3449fdfdeb2673765))
+* **frontend:** Fix delete branch one index ([#4418](https://github.com/windmill-labs/windmill/issues/4418)) ([30017cc](https://github.com/windmill-labs/windmill/commit/30017cc2b1401ea439e3fbec5d7764b206100a38))
+* migrate smtp instance settings to global settings ([#4416](https://github.com/windmill-labs/windmill/issues/4416)) ([50a6f78](https://github.com/windmill-labs/windmill/commit/50a6f789fa8a03d70407b0429da049cc0740b6fa))
+* no failed renewal alert if trial ([#4414](https://github.com/windmill-labs/windmill/issues/4414)) ([5be7be0](https://github.com/windmill-labs/windmill/commit/5be7be03a6df34a9fae96ed7f844d693f7cfce3e))
+* update pip to 24.2 and python 3.11.8-&gt;3.11.10 ([a17195d](https://github.com/windmill-labs/windmill/commit/a17195d88ff52b72f0c2cdd95c6218df8ef6d7cf))
+* various improvements for ansible ([#4419](https://github.com/windmill-labs/windmill/issues/4419)) ([a500994](https://github.com/windmill-labs/windmill/commit/a500994cc2cd9cc6cbad722059cebd0bf74a8850))
+
 ## [1.397.4](https://github.com/windmill-labs/windmill/compare/v1.397.3...v1.397.4) (2024-09-20)
 
 
