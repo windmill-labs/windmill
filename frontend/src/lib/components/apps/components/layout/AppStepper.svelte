@@ -24,7 +24,6 @@
 	export let componentInput: AppInput | undefined
 	export let onNext: string[] | undefined = undefined
 	export let onPrevious: string[] | undefined = undefined
-	export let depth: number = 0
 
 	const {
 		app,
@@ -177,7 +176,6 @@
 			{#if $app.subgrids}
 				{#each tabs ?? [] as _res, i}
 					<SubGridEditor
-						depth={depth + 1}
 						{id}
 						visible={render && i === selectedIndex}
 						subGridId={`${id}-${i}`}

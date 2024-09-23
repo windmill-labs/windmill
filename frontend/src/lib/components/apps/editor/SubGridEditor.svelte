@@ -31,7 +31,6 @@
 	export let visible: boolean = true
 	export let id: string
 	export let shouldHighlight: boolean = true
-	export let depth: number = 0
 
 	const dispatch = createEventDispatcher()
 
@@ -184,7 +183,6 @@
 					>
 						<GridEditorMenu id={dataItem.id}>
 							<Component
-								{depth}
 								{hidden}
 								{overlapped}
 								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}

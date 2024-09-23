@@ -21,7 +21,6 @@
 	export let customCss: ComponentCustomCSS<'listcomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined
-	export let depth: number = 0
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, allIdsInPath, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -198,7 +197,6 @@
 								{index}
 							>
 								<SubGridEditor
-									depth={depth + 1}
 									visible={render && inRange}
 									{id}
 									subGridId={`${id}-0`}
@@ -215,7 +213,7 @@
 					{/each}
 				{:else}
 					<ListWrapper disabled value={undefined} index={0}>
-						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} depth={depth + 1} />
+						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 					</ListWrapper>
 					{#if !Array.isArray(result)}
 						<div class="text-center text-tertiary">Input data is not an array</div>

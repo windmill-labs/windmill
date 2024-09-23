@@ -24,7 +24,6 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let render: boolean
-	export let depth: number = 0
 	export let onOpenRecomputeIds: string[] | undefined = undefined
 	export let onCloseRecomputeIds: string[] | undefined = undefined
 
@@ -213,7 +212,6 @@
 				>
 					{#if $app.subgrids?.[`${id}-0`]}
 						<SubGridEditor
-							depth={depth + 1}
 							visible={open && render}
 							{id}
 							{containerHeight}

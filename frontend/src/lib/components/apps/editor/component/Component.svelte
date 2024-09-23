@@ -81,7 +81,6 @@
 	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
 	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
 	import { Anchor } from 'lucide-svelte'
-	import { getModifierKey } from '$lib/utils'
 	import { findGridItemParentGrid, isContainer } from '../appUtils'
 
 	export let component: AppComponent
@@ -93,7 +92,6 @@
 	export let overlapped: string | undefined = undefined
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
-	export let depth: number = 0
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -170,14 +168,6 @@
 				overlapped === component.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
 			)}
 		/>
-	{:else if componentDraggedId && moveMode === 'move' && componentDraggedId !== component.id && isContainer(component.type) && componentDraggedIsNotChild(componentDraggedId, component.id) && depth === 0}
-		<div class={twMerge('absolute inset-0 center-center flex-col z-50 bg-surface bg-opacity-50 ')}>
-			<div
-				class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2 border text-xs w-48 text-center"
-			>
-				Press {getModifierKey()} to drop the component inside the container
-			</div>
-		</div>
 	{/if}
 	{#if $mode !== 'preview'}
 		<ComponentHeader
@@ -690,12 +680,10 @@
 				componentInput={component.componentInput}
 				onNext={component.onNext}
 				onPrevious={component.onPrevious}
-				{depth}
 				{render}
 			/>
 		{:else if component.type === 'conditionalwrapper' && component.conditions}
 			<AppConditionalWrapper
-				{depth}
 				id={component.id}
 				conditions={component.conditions}
 				customCss={component.customCss}
@@ -705,7 +693,6 @@
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
-				{depth}
 				groupFields={component.groupFields}
 				id={component.id}
 				customCss={component.customCss}
@@ -719,7 +706,6 @@
 				configuration={component.configuration}
 				componentInput={component.componentInput}
 				{render}
-				{depth}
 				bind:initializing
 			/>
 		{:else if component.type === 'verticalsplitpanescomponent'}
@@ -728,7 +714,6 @@
 				customCss={component.customCss}
 				panes={component.panes}
 				{componentContainerHeight}
-				{depth}
 				{render}
 			/>
 		{:else if component.type === 'horizontalsplitpanescomponent'}
@@ -774,7 +759,6 @@
 			/>
 		{:else if component.type === 'drawercomponent'}
 			<AppDrawer
-				{depth}
 				verticalAlignment={component.verticalAlignment}
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
@@ -807,7 +791,6 @@
 				customCss={component.customCss}
 				onOpenRecomputeIds={component.onOpenRecomputeIds}
 				onCloseRecomputeIds={component.onCloseRecomputeIds}
-				{depth}
 				{render}
 			/>
 		{:else if component.type === 'schemaformcomponent'}
@@ -886,7 +869,6 @@
 			/>
 		{:else if component.type === 'decisiontreecomponent' && component.nodes}
 			<AppDecisionTree
-				{depth}
 				id={component.id}
 				nodes={component.nodes}
 				customCss={component.customCss}

@@ -19,7 +19,6 @@
 	export let customCss: ComponentCustomCSS<'decisiontreecomponent'> | undefined = undefined
 	export let render: boolean
 	export let nodes: DecisionTreeNode[]
-	export let depth: number = 0
 
 	const {
 		app,
@@ -188,7 +187,6 @@
 		{#if $app.subgrids}
 			{#each Object.values(nodes) ?? [] as node, i}
 				<SubGridEditor
-					depth={depth + 1}
 					visible={render && node.id === currentNodeId}
 					{id}
 					class={twMerge(css?.container?.class, 'wm-decision-tree')}
