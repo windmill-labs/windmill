@@ -42,6 +42,7 @@
 			'inputs',
 			'schedules',
 			'failure',
+			'preprocessor',
 			'constants',
 			'Result',
 			'Input'

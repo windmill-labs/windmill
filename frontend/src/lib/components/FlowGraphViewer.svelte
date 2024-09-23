@@ -36,6 +36,7 @@
 				minHeight={400}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
+				preprocessorModule={flow?.value?.preprocessor_module}
 				on:select={(e) => {
 					const mod = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === e?.detail)
 					stepDetail = mod ?? e.detail

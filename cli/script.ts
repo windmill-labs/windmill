@@ -97,7 +97,6 @@ async function push(opts: PushOptions, filePath: string) {
 }
 
 export async function findResourceFile(path: string) {
-
   const splitPath = path.split(".");
 
   const contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
@@ -124,9 +123,7 @@ export async function findResourceFile(path: string) {
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error(
-      `No resource matching file resource: ${path}.`
-    );
+    throw new Error(`No resource matching file resource: ${path}.`);
   }
   return validCandidates[0];
 }
@@ -306,6 +303,7 @@ export async function handleFile(
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
       no_main_func: typed?.no_main_func,
+      has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
       //@ts-ignore
@@ -339,6 +337,8 @@ export async function handleFile(
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
+            Boolean(typed.has_preprocessor) ==
+              Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore

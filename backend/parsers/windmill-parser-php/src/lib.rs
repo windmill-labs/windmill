@@ -82,6 +82,7 @@ pub fn parse_php_signature(
             star_kwargs: false,
             args,
             no_main_func: Some(false),
+            has_preprocessor: None,
         })
     } else {
         Ok(MainArgSignature {
@@ -89,6 +90,7 @@ pub fn parse_php_signature(
             star_kwargs: false,
             args: vec![],
             no_main_func: Some(true),
+            has_preprocessor: None,
         })
     }
 }
@@ -159,7 +161,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false)
+                no_main_func: Some(false),
+                has_preprocessor: None
             }
         );
 

@@ -16,7 +16,13 @@ pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_bash_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing bash script".to_string()))
     }
@@ -26,7 +32,13 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_powershell_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing powershell script".to_string()))
     }
@@ -173,7 +185,8 @@ non_required="${5:-}"
                         oidx: None
                     }
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 

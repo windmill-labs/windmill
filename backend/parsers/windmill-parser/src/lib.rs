@@ -16,6 +16,7 @@ pub struct MainArgSignature {
     pub star_kwargs: bool,
     pub args: Vec<Arg>,
     pub no_main_func: Option<bool>,
+    pub has_preprocessor: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -153,7 +154,10 @@ mod test {
 
     #[test]
     fn test_mixed_delimiters() {
-        assert_eq!(to_snake_case("test-Case_with Spaces"), "test_case_with_spaces");
+        assert_eq!(
+            to_snake_case("test-Case_with Spaces"),
+            "test_case_with_spaces"
+        );
     }
 
     #[test]

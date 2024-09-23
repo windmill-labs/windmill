@@ -289,6 +289,7 @@
 				<FlowGraphV2
 					modules={job.raw_flow?.modules}
 					failureModule={job.raw_flow?.failure_module}
+					preprocessorModule={job.raw_flow?.preprocessor_module}
 					notSelectable
 				/>
 			</div>

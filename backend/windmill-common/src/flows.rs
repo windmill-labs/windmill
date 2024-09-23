@@ -102,6 +102,8 @@ pub struct FlowValue {
     #[serde(default)]
     pub failure_module: Option<Box<FlowModule>>,
     #[serde(default)]
+    pub preprocessor_module: Option<Box<FlowModule>>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub same_worker: bool,
 

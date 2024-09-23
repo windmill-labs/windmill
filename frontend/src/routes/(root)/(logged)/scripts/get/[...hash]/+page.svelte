@@ -80,6 +80,7 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
+	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -217,7 +218,8 @@
 				requestBody: args,
 				scheduledFor,
 				invisibleToOwner,
-				tag: overrideTag
+				tag: overrideTag,
+				skipPreprocessor: true
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
@@ -700,6 +702,9 @@
 					path={script.path}
 					{args}
 				/>
+			</svelte:fragment>
+			<svelte:fragment slot="routes">
+				<RoutesPanel path={script.path ?? ''} isFlow={false} />
 			</svelte:fragment>
 			<svelte:fragment slot="email">
 				<EmailTriggerPanel
