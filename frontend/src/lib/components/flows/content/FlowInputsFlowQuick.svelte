@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Skeleton } from '$lib/components/common'
-	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -38,7 +37,7 @@
 <div class="flex flex-col min-h-0">
 	{#if filteredItems}
 		{#if filter.length > 0 && filteredItems.length == 0}
-			<NoItemFound />
+			<div class="text-2xs text-tercary text-center py-2 px-3 items-center"> No items found. </div>
 		{/if}
 		<ul class="overflow-auto">
 			{#each filteredItems as { path, summary, marked }}
@@ -65,10 +64,8 @@
 			{/each}
 		</ul>
 	{:else}
-		<div class="mt-6" />
-
-		{#each new Array(6) as _}
-			<Skeleton layout={[[4], 0.7]} />
+		{#each Array(10).fill(0) as _}
+			<Skeleton layout={[0.5, [1.5]]} />
 		{/each}
 	{/if}
 </div>
