@@ -1,6 +1,9 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{
+    collections::HashMap, os::unix::fs::PermissionsExt, path::{Path, PathBuf}, process::Stdio
+};
 
 use anyhow::anyhow;
+use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::process::Command;
 use uuid::Uuid;
@@ -13,12 +16,10 @@ use windmill_parser_yaml::AnsibleRequirements;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
-    common::{
-        get_reserved_variables, handle_child, read_and_check_result,
-        start_child_process, transform_json,
-    },
-    python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, HOME_ENV, PATH_ENV, TZ_ENV,
+    bash_executor::BIN_BASH, common::{
+        get_reserved_variables, handle_child, read_and_check_result, start_child_process,
+        transform_json,
+    }, python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile}, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV
 };
 
 lazy_static::lazy_static! {
@@ -28,6 +29,8 @@ lazy_static::lazy_static! {
     static ref ANSIBLE_GALAXY_PATH: String =
     std::env::var("ANSIBLE_GALAXY_PATH").unwrap_or("/usr/local/bin/ansible-galaxy".to_string());
 }
+
+const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansible.config.proto");
 
 async fn handle_ansible_python_deps(
     job_dir: &str,
@@ -98,6 +101,7 @@ async fn handle_ansible_python_deps(
     }
     Ok(additional_python_paths)
 }
+
 async fn install_galaxy_collections(
     collections_yml: &str,
     job_dir: &str,
@@ -155,6 +159,24 @@ async fn install_galaxy_collections(
     Ok(())
 }
 
+#[cfg(not(feature = "enterprise"))]
+fn check_ansible_exists() -> Result<(), error::Error> {
+    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+fn check_ansible_exists() -> Result<(), error::Error> {
+    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
 pub async fn handle_ansible_job(
     requirements_o: Option<String>,
     job_dir: &str,
@@ -166,19 +188,16 @@ pub async fn handle_ansible_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &String,
+    shared_mount: &str,
     base_internal_url: &str,
     envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
+    check_ansible_exists()?;
+
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, db).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
-    let ansible_cfg_content = r#"
-[defaults]
-collections_path = ./
-roles_path = ./roles
-"#;
-    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let additional_python_paths = handle_ansible_python_deps(
         job_dir,
@@ -215,6 +234,7 @@ roles_path = ./roles
         interpolated_args = None;
         write_file(job_dir, "args.json", "{}")?;
     };
+    write_file(job_dir, "result.json", "")?;
 
     let inventories: Vec<String> = reqs
         .as_ref()
@@ -228,8 +248,9 @@ roles_path = ./roles
         .unwrap_or_else(|| vec![]);
 
     let authed_client = client.get_authed().await;
+    let mut nsjail_extra_mounts = vec![];
     if let Some(r) = reqs {
-        create_file_resources(
+        nsjail_extra_mounts = create_file_resources(
             &job.id,
             &job.workspace_id,
             job_dir,
@@ -261,18 +282,97 @@ roles_path = ./roles
         db,
     )
     .await;
-
-    if !*DISABLE_NSJAIL {
-        return Err(anyhow!("Ansible is not supported with nsjail, disable nsjail on your worker to run ansible playbooks").into());
-    }
+    let ansible_cfg_content = format!(r#"
+[defaults]
+collections_path = ./
+roles_path = ./roles
+home={job_dir}/.ansible
+local_tmp={job_dir}/.ansible/tmp
+remote_tmp={job_dir}/.ansible/tmp
+"#);
+    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let mut reserved_variables = get_reserved_variables(job, &authed_client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
-    reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
+
+    if !*DISABLE_NSJAIL {
+        let shared_deps = additional_python_paths
+            .into_iter()
+            .map(|pp| {
+                format!(
+                    r#"
+mount {{
+    src: "{pp}"
+    dst: "{pp}"
+    is_bind: true
+    rw: false
+}}
+        "#
+                )
+            })
+            .join("\n");
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{FILE_RESOURCES}", nsjail_extra_mounts.join("\n").as_str())
+                .replace(
+                    "{ADDITIONAL_PYTHON_PATHS}",
+                    additional_python_paths_folders.as_str(),
+                ),
+        )?;
+    } else {
+        reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
+    }
 
     let mut cmd_args = vec!["main.yml", "--extra-vars", "@args.json"];
     cmd_args.extend(inventories.iter().map(|s| s.as_str()));
-    let child = {
+
+    let child = if !*DISABLE_NSJAIL {
+
+        let wrapper = format!(r#"set -eou pipefail
+{0} "$@"
+if [ -f "result" ]; then
+    cat result > result_nsjail_mount.json
+fi
+if [ -f "result.json" ]; then
+    cat result.json > result_nsjail_mount.json
+fi
+"#, ANSIBLE_PLAYBOOK_PATH.as_str());
+
+        let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
+
+        file.metadata()?.permissions().set_mode(0o777);
+        // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
+            .envs(reserved_variables)
+            .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("BASE_URL", base_internal_url)
+            .args(
+                vec![
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    BIN_BASH.as_str(),
+                    "/tmp/wrapper.sh",
+                ]
+                .into_iter()
+                .chain(cmd_args),
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+    } else {
         let mut ansible_cmd = Command::new(ANSIBLE_PLAYBOOK_PATH.as_str());
         ansible_cmd
             .current_dir(job_dir)
@@ -306,6 +406,24 @@ roles_path = ./roles
     read_and_check_result(job_dir).await
 }
 
+fn define_nsjail_mount(job_dir: &str, path: &PathBuf) -> anyhow::Result<String> {
+    Ok(format!(
+        r#"
+mount {{
+    src: "{0}/{1}"
+    dst: "/tmp/{1}"
+    is_bind: true
+    rw: false
+    mandatory: false
+}}
+        "#,
+        job_dir,
+        path.strip_prefix(job_dir)?
+            .to_str()
+            .ok_or(anyhow!("Invalid path."))?
+    ))
+}
+
 async fn create_file_resources(
     job_id: &Uuid,
     w_id: &str,
@@ -314,8 +432,9 @@ async fn create_file_resources(
     r: &AnsibleRequirements,
     client: &crate::AuthedClient,
     db: &sqlx::Pool<sqlx::Postgres>,
-) -> error::Result<()> {
+) -> error::Result<Vec<String>> {
     let mut logs = String::new();
+    let mut nsjail_mounts: Vec<String> = vec![];
 
     for inventory in &r.inventories {
         let content;
@@ -336,9 +455,13 @@ async fn create_file_resources(
 
             content = serde_json::from_str(o.get())
                 .map_err(|e| anyhow!("Failed to parse inventory arg: {}", e))?;
+
+            if content == serde_json::value::Value::Null {
+                Err(anyhow!("The inventory argument was left empty. If you do not wish to specify an inventory for this script, remove the `inventory:` section from the yaml."))?;
+            }
         }
 
-        write_file_at_user_defined_location(
+        let validated_path = write_file_at_user_defined_location(
             job_dir,
             &inventory.name,
             content
@@ -349,6 +472,12 @@ async fn create_file_resources(
                 ))?,
         )
         .map_err(|e| anyhow!("Couldn't write inventory: {}", e))?;
+
+        nsjail_mounts.push(
+            define_nsjail_mount(job_dir, &validated_path)
+                .map_err(|e| anyhow!("Inventory path (a.k.a. `name`) is invalid: {}", e))?,
+        );
+
         logs.push_str(&format!("\nCreated inventory `{}`", inventory.name));
     }
 
@@ -360,7 +489,7 @@ async fn create_file_resources(
             )
             .await?;
         let path = file_res.target_path.clone();
-        write_file_at_user_defined_location(
+        let validated_path = write_file_at_user_defined_location(
             job_dir,
             path.as_str(),
             r.get("content").and_then(|v| v.as_str()).ok_or(anyhow!(
@@ -369,6 +498,12 @@ async fn create_file_resources(
             ))?,
         )
         .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
+
+        nsjail_mounts.push(
+            define_nsjail_mount(job_dir, &validated_path)
+                .map_err(|e| anyhow!("File resource path is invalid: {}", e))?,
+        );
+
         logs.push_str(&format!(
             "\nCreated {} from {}",
             file_res.target_path, file_res.resource_path
@@ -376,5 +511,5 @@ async fn create_file_resources(
     }
     append_logs(job_id, w_id, logs, db).await;
 
-    Ok(())
+    Ok(nsjail_mounts)
 }
