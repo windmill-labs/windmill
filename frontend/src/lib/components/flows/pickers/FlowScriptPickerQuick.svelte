@@ -11,15 +11,15 @@
 
 {#if !enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}
 	<button
-		class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
+		class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all"
 		on:click
 		role="menuitem"
 	>
-		<div class="flex justify-center flex-row items-center gap-2">
-			{#if lang}
-				<LanguageIcon {lang} width={14} height={14} />
-			{/if}
-			<span class="text-xs">{label}</span>
-		</div>
+		{#if lang}
+			<LanguageIcon {lang} width={14} height={14} />
+		{/if}
+		<span class="grow truncate text-left text-xs text-primary font-semibold">
+			{label}
+		</span>
 	</button>
 {/if}

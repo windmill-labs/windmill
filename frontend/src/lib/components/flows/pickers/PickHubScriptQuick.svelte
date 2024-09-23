@@ -111,40 +111,31 @@
 	{:else}
 		<ul>
 			{#each items as item (item.path)}
-				<li class="flex flex-row w-full">
+				<li class="w-full">
 					<button
-						class="p-1 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all items-center"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center"
 						on:click={() => dispatch('pickScript', item)}
 					>
-						<div class="flex items-center gap-4">
-							<div
-								class={classNames(
-									'rounded-md p-1 flex justify-center items-center border',
-									'bg-surface border'
-								)}
-							>
-								{#if item['app'] in APP_TO_ICON_COMPONENT}
-									<svelte:component
-										this={APP_TO_ICON_COMPONENT[item['app']]}
-										height={14}
-										width={14}
-									/>
-								{/if}
-							</div>
-
-							<div
-								class="w-full max-w-60 text-left text-xs text-primary font-semibold mb-1 truncate"
-							>
-								{item.summary ?? ''}
-							</div>
+						<div class={classNames('flex justify-center items-center')}>
+							{#if item['app'] in APP_TO_ICON_COMPONENT}
+								<svelte:component
+									this={APP_TO_ICON_COMPONENT[item['app']]}
+									height={14}
+									width={14}
+								/>
+							{/if}
 						</div>
+
+						<span class="grow truncate text-left text-xs text-primary font-semibold">
+							{item.summary ?? ''}
+						</span>
 					</button>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 	{#if items.length == 40}
-		<div class="text-tertiary text-xs py-4 px-2">
+		<div class="text-2xs text-secondary text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
 	{/if}

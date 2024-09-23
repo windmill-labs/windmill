@@ -5,7 +5,7 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
 	import { emptyString, truncateHash } from '$lib/utils'
-	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import { Code2 } from 'lucide-svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let isTemplate: boolean | undefined = undefined
@@ -60,30 +60,27 @@
 <div class="flex flex-col min-h-0">
 	{#if filteredItems}
 		{#if filter.length > 0 && filteredItems.length == 0}
-			<NoItemFound />
+			<span class="text-2xs text-secondary text-center py-2 px-3 items-center">
+				No items found.
+			</span>
 		{/if}
-		<ul class="border rounded-md">
+		<ul class="rounded-md">
 			{#each filteredItems as { path, hash, summary, marked }}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-1 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all items-center"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center"
 						on:click={() => {
 							dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
 						}}
 					>
-						<div class="flex items-center gap-4">
-							<span
-								class="w-full max-w-60 text-left text-xs text-primary font-semibold mb-1 truncate"
-							>
-								{#if marked}
-									{@html marked}
-								{:else}
-									{!summary || summary.length == 0 ? path : summary}
-								{/if}</span
-							>
-						</div>
-
-						{#if lockHash}<Badge large baseClass="ml-4">{truncateHash(hash ?? '')}</Badge>{/if}
+						<Code2 size={14} />
+						<span class="grow truncate text-left text-xs text-primary font-semibold">
+							{#if marked}
+								{@html marked}
+							{:else}
+								{!summary || summary.length == 0 ? path : summary}
+							{/if}</span
+						>
 					</button>
 				</li>
 			{/each}

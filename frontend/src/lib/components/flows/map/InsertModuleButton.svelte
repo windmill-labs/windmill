@@ -57,14 +57,14 @@
 			<Cross size={12} />
 		</button>
 	</svelte:fragment>
-	<div id="flow-editor-insert-module" class="flex flex-col h-[400px] w-[650px]">
+	<div id="flow-editor-insert-module" class="flex flex-col h-[400px] w-[600px]">
 		<div class="flex flex-row items-center gap-2 px-2"
 			><StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} /></div
 		>
 
-		<div class="flex flex-row flex-grow min-h-0 w-full divide-x">
-			<div class="flex-none font-mono text-xs w-40 flex flex-col text-secondary">
+		<div class="flex flex-row grow min-h-0 divide-x">
+			<div class="flex-none font-mono flex flex-col text-xs w-40 text-secondary">
 				<button
 					class={twMerge(
 						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',

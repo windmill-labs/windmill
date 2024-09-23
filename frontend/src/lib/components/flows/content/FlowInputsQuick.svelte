@@ -118,7 +118,7 @@
 	}
 </script>
 
-<div class="flex flex-row divide-x w-full">
+<div class="flex flex-row divide-x grow min-w-0">
 	<div class="w-44 flex-none h-full flex flex-col overflow-y-auto">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
 			<!-- {#if funcDesc.length === 0 && preFilter == 'all'}
@@ -164,9 +164,9 @@
 						</div>
 					{/each}
 				{:else}
-					<div class="w-full text-2xs text-left py-2 px-3 gap-2 items-center"
-						>No folders containing {kind} found</div
-					>
+					<span class="text-2xs text-secondary text-center py-2 px-3 items-center">
+						No folders containing {kind} found
+					</span>
 				{/if}
 			{/if}
 
@@ -197,51 +197,40 @@
 			{/if}
 		{/if}
 	</div>
-	<div class="flex-grow h-full overflow-y-auto">
+	<div class="grow min-w-0 h-full overflow-y-auto">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
 			{#if !disableAi && funcDesc.length > 0}
-				<ul class="transition-all divide-y">
+				<ul class="transition-all">
 					<li>
 						<button
-							class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full"
+							class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all"
 							on:click={() => {
 								lang = 'bun'
 								onGenerate()
 								close()
 							}}
 						>
-							<div class="flex items-center gap-2.5 px-2">
-								<div
-									class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
-								>
-									<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
-								</div>
-								<div class="text-left text-xs text-secondary">
-									Generate "{funcDesc}" in TypeScript
-								</div>
-							</div>
+							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
+
+							<span class="grow truncate text-left text-xs text-primary font-semibold">
+								Generate "{funcDesc}" in TypeScript
+							</span>
 						</button>
 					</li>
 					<li>
 						<button
-							class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full"
+							class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all"
 							on:click={() => {
 								lang = 'python3'
 								onGenerate()
 								close()
 							}}
 						>
-							<div class="flex items-center gap-2.5 px-2">
-								<div
-									class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
-								>
-									<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
-								</div>
+							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 
-								<div class="text-left text-xs text-secondary">
-									Generate "{funcDesc}" in Python
-								</div>
-							</div>
+							<span class="grow truncate text-left text-xs text-primary font-semibold">
+								Generate "{funcDesc}" in Python
+							</span>
 						</button>
 					</li>
 				</ul>
@@ -301,8 +290,8 @@
 			{/if}
 
 			{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
-				{#if !selected && preFilter !== 'workspace'}
-					<div class="pb-0 text-2xs text-secondary ml-2">Workspace</div>
+				{#if !selected && (preFilter !== 'workspace' || funcDesc.length > 0)}
+					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace</div>
 				{/if}
 				<WorkspaceScriptPickerQuick
 					bind:owners
