@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.398.1](https://github.com/windmill-labs/windmill/compare/v1.398.0...v1.398.1) (2024-09-23)
+
+
+### Bug Fixes
+
+* time handling in bun and deno ([#4423](https://github.com/windmill-labs/windmill/issues/4423)) ([61f27ac](https://github.com/windmill-labs/windmill/commit/61f27acbd5b477f0e2453d4b02d406a7aef76009))
+
 ## [1.398.0](https://github.com/windmill-labs/windmill/compare/v1.397.4...v1.398.0) (2024-09-23)
 
 
