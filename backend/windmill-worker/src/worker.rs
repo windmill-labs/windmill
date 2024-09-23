@@ -877,6 +877,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         None
     };
 
+    
     let worker_flow_initial_transition_duration = {
         #[cfg(feature = "prometheus")]
         if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed) && METRICS_ENABLED.load(Ordering::Relaxed)
@@ -1029,6 +1030,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         };
 
     let mut worker_code_execution_metric: f32 = 0.0;
+    let mut running_job_started_at: Option<Instant> = None;
 
     let mut jobs_executed = 0;
 
