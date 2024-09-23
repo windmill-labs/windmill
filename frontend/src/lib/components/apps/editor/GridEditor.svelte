@@ -73,8 +73,6 @@
 		parentComponentId: string,
 		subGridIndex: number
 	) {
-		console.log($app)
-
 		// Find the component in the source subgrid
 		const component = findGridItem($app, componentId)
 
@@ -100,8 +98,6 @@
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id
 		)
-
-		console.log($app)
 
 		// Update the app state
 		$app = { ...$app }

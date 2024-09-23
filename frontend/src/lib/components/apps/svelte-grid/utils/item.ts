@@ -135,8 +135,7 @@ export function moveItem(active, items, cols) {
 	// If found fixed, reset the active to its original position
 	if (fixed) {
 		return {
-			items: items,
-			overlap: closeBlocks[0]
+			items: items
 		}
 	}
 

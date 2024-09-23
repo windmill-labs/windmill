@@ -233,7 +233,18 @@
 		const { clientX, clientY } = event
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
-		dispatch('move', { cordDiff, clientY })
+		const elementsAtPoint = document.elementsFromPoint(event.clientX, event.clientY)
+		const intersectingElement = elementsAtPoint.find(
+			(el) => el.classList.contains('svlt-grid-item') && el.id !== divId
+		)
+
+		dispatch('move', {
+			cordDiff,
+			clientY,
+			intersectingElement: intersectingElement?.id
+				? intersectingElement.id.split('-')[1]
+				: undefined
+		})
 	}
 
 	export function updateMove(newCoordDiff, clientY) {
@@ -357,6 +368,7 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	draggable="false"
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}

@@ -18,6 +18,7 @@
 	export let horizontal: boolean = false
 	export let panes: number[]
 	export let render: boolean
+	export let depth: number = 0
 
 	const { app, focusedGrid, selectedComponent, componentControl, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -99,6 +100,7 @@
 					>
 						{#if $app.subgrids?.[`${id}-${index}`]}
 							<SubGridEditor
+								depth={depth + 1}
 								visible={render}
 								{id}
 								shouldHighlight={$focusedGrid?.subGridIndex === index}

@@ -1,3 +1,10 @@
+<script lang="ts" context="module">
+	import { writable } from 'svelte/store'
+
+	const componentDraggedIdStore = writable<string | undefined>(undefined)
+	const overlappedStore = writable<string | undefined>(undefined)
+</script>
+
 <script lang="ts">
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
@@ -151,7 +158,7 @@
 						return item
 					})
 
-					let { overlap } = moveItem(activeItem, fixedContainer, getComputedCols)
+					moveItem(activeItem, fixedContainer, getComputedCols)
 
 					// After the move, restore the initial fixed state using the map
 					fixedContainer.forEach((item) => {
@@ -163,13 +170,10 @@
 					})
 
 					sortedItems = sortedItems
-
-					overlapped = overlap
 				} else {
-					let { items, overlap } = moveItem(activeItem, sortedItems, getComputedCols)
+					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
 
 					sortedItems = items
-					overlapped = overlap
 				}
 			}
 		}
@@ -212,19 +216,20 @@
 	let moveResizes: Record<string, MoveResize> = {}
 	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
 
-	let componentDraggedId: string | undefined = undefined
-
 	export function handleMove({ detail }) {
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
 				moveResize?.updateMove(JSON.parse(JSON.stringify(detail.cordDiff)), detail.eventY)
 			}
 		})
+
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
+
+		$overlappedStore = detail.intersectingElement
 	}
 
 	export function handleInitMove(id: string) {
-		componentDraggedId = id
+		$componentDraggedIdStore = id
 
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
@@ -232,7 +237,6 @@
 			}
 		})
 	}
-	let overlapped: string | undefined = undefined
 </script>
 
 <svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
@@ -241,6 +245,7 @@
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			<MoveResize
+				on:elementIntersecting={(e) => console.log(e)}
 				on:initmove={() => handleInitMove(item.id)}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}
@@ -251,13 +256,13 @@
 				{xPerPx}
 				{yPerPx}
 				on:dropped={(e) => {
-					componentDraggedId = undefined
+					$componentDraggedIdStore = undefined
 
 					if (!isCtrlOrMetaPressed) {
 						return
 					}
 					dispatch('dropped', e.detail)
-					overlapped = undefined
+					$overlappedStore = undefined
 				}}
 				width={xPerPx == 0
 					? 0
@@ -273,16 +278,16 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
-				{overlapped}
+				overlapped={$overlappedStore}
 				moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
 			>
 				{#if item[getComputedCols]}
 					<slot
 						dataItem={item}
 						hidden={false}
-						{overlapped}
+						overlapped={$overlappedStore}
 						moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
-						{componentDraggedId}
+						componentDraggedId={$componentDraggedIdStore}
 					/>
 				{/if}
 			</MoveResize>

@@ -15,6 +15,7 @@
 	export let render: boolean
 	export let conditions: RichConfiguration[]
 	export let onTabChange: string[] | undefined = undefined
+	export let depth: number = 0
 
 	const {
 		app,
@@ -103,6 +104,7 @@
 			<SubGridEditor
 				visible={render && i == selectedConditionIndex}
 				{id}
+				depth={depth + 1}
 				class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
 				style={css?.container?.style}
 				subGridId={`${id}-${i}`}

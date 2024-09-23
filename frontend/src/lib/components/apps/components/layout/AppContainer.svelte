@@ -17,6 +17,7 @@
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
 	export let groupFields: RichConfigurations | undefined = undefined
+	export let depth: number = 0
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -72,6 +73,7 @@
 			<SubGridEditor
 				visible={render}
 				{id}
+				depth={depth + 1}
 				class={twMerge(css?.container?.class, 'wm-container')}
 				style={css?.container?.style}
 				subGridId={`${id}-0`}

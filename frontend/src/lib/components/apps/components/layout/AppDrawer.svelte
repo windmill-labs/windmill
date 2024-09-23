@@ -23,6 +23,7 @@
 	export let render: boolean
 	export let onOpenRecomputeIds: string[] | undefined = undefined
 	export let onCloseRecomputeIds: string[] | undefined = undefined
+	export let depth: number = 0
 
 	const {
 		app,
@@ -154,6 +155,7 @@
 			>
 				{#if $app.subgrids?.[`${id}-0`]}
 					<SubGridEditor
+						depth={depth + 1}
 						visible={open && render}
 						{id}
 						subGridId={`${id}-0`}
