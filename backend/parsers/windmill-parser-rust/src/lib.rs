@@ -29,6 +29,7 @@ pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             star_kwargs: false,
             args,
             no_main_func: Some(false),
+            has_preprocessor: None,
         })
     } else {
         Ok(MainArgSignature {
@@ -36,6 +37,7 @@ pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             star_kwargs: false,
             args: vec![],
             no_main_func: Some(true),
+            has_preprocessor: None,
         })
     }
 }
@@ -455,10 +457,7 @@ fn main(
         assert_eq!(ret.args[2].typ, Typ::Str(None));
 
         assert_eq!(ret.args[3].name, "my_string_vec");
-        assert_eq!(
-            ret.args[3].otyp,
-            Some("Vec < String >".to_string())
-        );
+        assert_eq!(ret.args[3].otyp, Some("Vec < String >".to_string()));
         assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Str(None))));
     }
 

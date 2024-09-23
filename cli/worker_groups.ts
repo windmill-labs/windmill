@@ -1,8 +1,9 @@
-import { Command, setClient, Table } from "./deps.ts";
+import { Command, Confirm, setClient, Table } from "./deps.ts";
 
 import { log } from "./deps.ts";
-import { allInstances, getActiveInstance, Instance } from "./instance.ts";
+import { allInstances, getActiveInstance, Instance, InstanceSyncOptions, pickInstance } from "./instance.ts";
 import * as wmill from "./gen/services.gen.ts";
+import { pullInstanceConfigs, pushInstanceConfigs } from "./settings.ts";
 
 type GlobalOptions = {
   instance?: string;
@@ -22,6 +23,13 @@ export async function getInstance(opts: GlobalOptions) {
   return instance;
 }
 
+export function removeWorkerPrefix(name: string) {
+  if (name.startsWith("worker__")) {
+    return name.substring(8);
+  }
+  return name;
+}
+
 export async function displayWorkerGroups(opts: void) {
   log.info("2 actions available, pull and push.");
   const activeInstance = await getActiveInstance({});
@@ -35,7 +43,7 @@ export async function displayWorkerGroups(opts: void) {
         .header(["name", "config"])
         .padding(2)
         .border(true)
-        .body(wGroups.map((x) => [x.name, JSON.stringify(x.config, null, 2)]))
+        .body(wGroups.map((x) => [removeWorkerPrefix(x.name), JSON.stringify(x.config, null, 2)]))
         .render();
     } else {
       log.error(`Instance ${activeInstance} not found`);
@@ -45,6 +53,54 @@ export async function displayWorkerGroups(opts: void) {
     log.info("Use 'wmill instance add' to add a new instance");
   }
 }
+async function pullWorkerGroups(opts: InstanceSyncOptions) {
+  await pickInstance(opts, true);
+
+  const totalChanges =  await pullInstanceConfigs(true) ?? 0;
+
+  if (totalChanges === 0) {
+    log.info("No changes to apply");
+    return;
+  }
+
+  let confirm = true;
+  if (opts.yes !== true) {
+    confirm = await Confirm.prompt({
+      message: `Do you want to pul these ${totalChanges} instance-level changes?`,
+      default: true,
+    });
+  }
+
+  if (confirm) {
+    await pullInstanceConfigs(false);
+  }
+}
+
+async function pushWorkerGroups(opts: InstanceSyncOptions) {
+  await pickInstance(opts, true);
+
+  const totalChanges = await pushInstanceConfigs(true) ?? 0;
+
+  if (totalChanges === 0) {
+    log.info("No changes to apply");
+    return;
+  }
+
+  let confirm = true;
+  if (opts.yes !== true) {
+    confirm = await Confirm.prompt({
+      message: `Do you want to apply these ${totalChanges} instance-level changes?`,
+      default: true,
+    });
+  }
+
+  if (confirm) {
+    await pushInstanceConfigs(false);
+  }
+}
+
+
+
 const command = new Command()
   .description("display worker groups, pull and push worker groups configs")
   .action(displayWorkerGroups)
@@ -52,9 +108,16 @@ const command = new Command()
   .description(
     "Pull worker groups (similar to `wmill instance pull --skip-users --skip-settings --skip-groups`)"
   )
-  .action(async () => {
-    console.log("pulling");
-  })
+  .option(
+    "--instance",
+    "Name of the instance to push to, override the active instance"
+  )
+  .option(
+    "--base-url",
+    "Base url to be passed to the instance settings instead of the local one"
+  )
+  .option("--yes", "Pull without needing confirmation")
+  .action(pullWorkerGroups as any)
   .command("push")
   .description(
     "Push instance settings, users, configs, group and overwrite remote"
@@ -67,8 +130,9 @@ const command = new Command()
     "--base-url",
     "Base url to be passed to the instance settings instead of the local one"
   )
-  .action(async () => {
-    console.log("pushing");
-  });
+  .option("--yes", "Push without needing confirmation")
+  .action(pushWorkerGroups as any);
+
+
 
 export default command;

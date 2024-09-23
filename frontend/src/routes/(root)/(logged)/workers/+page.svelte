@@ -74,7 +74,7 @@
 	async function loadWorkerGroups(): Promise<void> {
 		try {
 			workerGroups = Object.fromEntries(
-				(await ConfigService.listWorkerGroups()).map((x) => [x.name.substring(8), x.config])
+				(await ConfigService.listWorkerGroups()).map((x) => [x.name, x.config])
 			)
 		} catch (err) {
 			sendUserToast(`Could not load worker groups: ${err}`, true)

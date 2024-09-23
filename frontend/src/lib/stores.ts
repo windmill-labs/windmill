@@ -89,6 +89,7 @@ export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) 
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
+export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

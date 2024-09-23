@@ -42,8 +42,8 @@ import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
 } from "./metadata.ts";
-import { pushResource } from "./resource.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
+import { pushResource } from "./resource.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -900,10 +900,14 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     )
   );
 
-  const resourceTypeToFormatExtension =
-    (await wmill.fileResourceTypeToFileExtMap({
+  let resourceTypeToFormatExtension: Record<string, string> = {};
+  try {
+    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
     })) as Record<string, string>;
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -1195,10 +1199,14 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
     )
   );
-  const resourceTypeToFormatExtension =
-    (await wmill.fileResourceTypeToFileExtMap({
+  let resourceTypeToFormatExtension: Record<string, string> = {};
+  try {
+    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
     })) as Record<string, string>;
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,

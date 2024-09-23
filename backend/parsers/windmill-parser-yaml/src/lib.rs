@@ -13,6 +13,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
             star_kwargs: false,
             args: vec![],
             no_main_func: None,
+            has_preprocessor: None,
         });
     }
 
@@ -55,7 +56,13 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
             }
         }
     }
-    Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+    Ok(MainArgSignature {
+        star_args: false,
+        star_kwargs: false,
+        args,
+        no_main_func: None,
+        has_preprocessor: None,
+    })
 }
 
 fn parse_ansible_typ(arg: &Yaml) -> Typ {
@@ -173,7 +180,12 @@ fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInvento
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                ret.push(AnsibleInventory { default: windmill_path, name, resource_type, pinned_resource: pin });
+                ret.push(AnsibleInventory {
+                    default: windmill_path,
+                    name,
+                    resource_type,
+                    pinned_resource: pin,
+                });
             }
         }
         return Ok(ret);
@@ -250,8 +262,7 @@ pub fn parse_ansible_reqs(
 
 fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
     if let Yaml::Hash(f) = yaml {
-        if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("resource".to_string()))
-        {
+        if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("resource".to_string())) {
             let target_path = f
                 .get(&Yaml::String("target".to_string()))
                 .and_then(|x| x.as_str())
@@ -262,7 +273,9 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
                 ))?;
             return Ok(FileResource { resource_path: resource_path.clone(), target_path });
         }
-        return Err(anyhow!("File resource should have a `resource` field, linking to a text file resource"));
+        return Err(anyhow!(
+            "File resource should have a `resource` field, linking to a text file resource"
+        ));
     }
     return Err(anyhow!("Invalid file resource: Should be a dictionary."));
 }

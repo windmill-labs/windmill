@@ -63,7 +63,7 @@
 				val.path ?? ($pathStore ?? '') + '/' + mod.id,
 				val.content,
 				val.language,
-				args,
+				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 				$flowStore?.tag ?? val.tag
 			)
 		} else if (val.type == 'script') {
@@ -79,7 +79,12 @@
 			)
 		} else if (val.type == 'flow') {
 			await testJobLoader?.abstractRun(() =>
-				JobService.runFlowByPath({ workspace: $workspaceStore!, path: val.path, requestBody: args })
+				JobService.runFlowByPath({
+					workspace: $workspaceStore!,
+					path: val.path,
+					requestBody: args,
+					skipPreprocessor: true
+				})
 			)
 		} else {
 			throw Error('Not supported module type')

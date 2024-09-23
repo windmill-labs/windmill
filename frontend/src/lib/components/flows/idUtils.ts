@@ -11,7 +11,9 @@ export const forbiddenIds: string[] = [
 	'delete',
 	'while',
 	'new',
-	'in'
+	'in',
+	'failure',
+	'preprocessor'
 ]
 
 export function numberToChars(n: number) {

@@ -171,7 +171,7 @@ export function compareInstanceObjects<T extends string>(
   return changes;
 }
 
-type InstanceSyncOptions = {
+export type InstanceSyncOptions = {
   skipUsers?: boolean;
   skipSettings?: boolean;
   skipConfigs?: boolean;
@@ -179,9 +179,10 @@ type InstanceSyncOptions = {
   includeWorkspaces?: boolean;
   instance?: string;
   baseUrl?: string;
+  yes?: boolean;
 };
 
-async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
+export async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
   const instances = await allInstances();
 
   if (!allowNew && instances.length < 1) {
@@ -248,10 +249,13 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
   if (totalChanges > 0) {
-    const confirm = await Confirm.prompt({
-      message: `Do you want to apply these ${totalChanges} instance-level changes?`,
-      default: true,
-    });
+    let confirm = true;
+    if (opts.yes !== true) {
+      confirm = await Confirm.prompt({
+        message: `Do you want to pull these ${totalChanges} instance-level changes?`,
+        default: true,
+      });
+    }
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
@@ -370,10 +374,13 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
   if (totalChanges > 0) {
-    const confirm = await Confirm.prompt({
-      message: `Do you want to apply these ${totalChanges} instance-level changes?`,
-      default: true,
-    });
+    let confirm = true;
+    if (opts.yes !== true) {
+      confirm = await Confirm.prompt({
+        message: `Do you want to apply these ${totalChanges} instance-level changes?`,
+        default: true,
+      });
+    }
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
@@ -521,6 +528,17 @@ export async function getActiveInstance(opts: {
   }
 }
 
+async function whoami(opts: {}) {
+  await pickInstance({}, false);
+  try {
+    const whoamiInfo = await wmill.globalWhoami();
+    log.info(colors.green.underline(`global whoami infos:`));
+    log.info(JSON.stringify(whoamiInfo, null, 2));
+  } catch (error) {
+    log.error(colors.red(`Failed to retrieve whoami information: ${error.message}`));
+  }
+}
+
 const command = new Command()
   .description(
     "sync local with a remote instance or the opposite (push or pull)"
@@ -581,16 +599,19 @@ const command = new Command()
   .description(
     "Pull instance settings, users, configs, instance groups and overwrite local"
   )
+  .option("--yes", "Pull without needing confirmation")
   .option("--skip-users", "Skip pulling users")
   .option("--skip-settings", "Skip pulling settings")
   .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pulling instance groups")
   .option("--include-workspaces", "Also pull workspaces")
+
   .action(instancePull as any)
   .command("push")
   .description(
     "Push instance settings, users, configs, group and overwrite remote"
   )
+  .option("--yes", "Push without needing confirmation")
   .option("--skip-users", "Skip pushing users")
   .option("--skip-settings", "Skip pushing settings")
   .option("--skip-configs", "Skip pushing configs (worker groups and SMTP)")
@@ -604,6 +625,9 @@ const command = new Command()
     "--base-url",
     "Base url to be passed to the instance settings instead of the local one"
   )
-  .action(instancePush as any);
+  .action(instancePush as any)
+  .command("whoami")
+  .description("Display information about the currently logged-in user")
+  .action(whoami as any);
 
 export default command;

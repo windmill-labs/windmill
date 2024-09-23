@@ -30,6 +30,8 @@ import { NpmProvider } from "./upgrade.ts";
 import { pull as hubPull } from "./hub.ts";
 import { pull, push } from "./sync.ts";
 import { add as workspaceAdd } from "./workspace.ts";
+import workers from "./workers.ts";
+import queues from "./queues.ts";
 
 export {
   flow,
@@ -58,14 +60,14 @@ export {
 //   }
 // });
 
-export const VERSION = "1.397.0";
+export const VERSION = "1.397.4";
 
 const command = new Command()
   .name("wmill")
   .action(() =>
     log.info(`Welcome to Windmill CLI ${VERSION}. Use -h for help.`)
   )
-  .description("A simple CLI tool for windmill.")
+  .description("Windmill CLI")
 
   .globalOption(
     "--workspace <workspace:string>",
@@ -120,7 +122,8 @@ const command = new Command()
   .command("sync", sync)
   .command("instance", instance)
   .command("worker-groups", workerGroups)
-
+  .command("workers", workers)
+  .command("queues", queues)
   .command("version", "Show version information")
   .action(async (opts) => {
     console.log("CLI build against " + VERSION);
