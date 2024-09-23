@@ -224,7 +224,7 @@ pub async fn handle_deno_job(
             .map(|x| {
                 return format!(r#"args["{x}"] = args["{x}"] ? new Date(args["{x}"]) : undefined"#);
             })
-            .join("\n");
+            .join("\n    ");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
         let main_name = main_override.unwrap_or("main".to_string());
@@ -265,8 +265,8 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-{dates}
 async function run() {{
+    {dates}
     {preprocessor}
     const argsArr = argsObjToArr(args);
     if ({main_name} === undefined || typeof {main_name} !== 'function') {{
