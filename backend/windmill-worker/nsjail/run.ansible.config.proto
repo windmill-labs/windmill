@@ -64,11 +64,6 @@ mount {
 	rw: true
 
 }
-// mount {
-// 	src: "/home"
-// 	dst: "/home"
-// 	is_bind: true
-// }
 
 mount {
 	dst: "/tmp"
