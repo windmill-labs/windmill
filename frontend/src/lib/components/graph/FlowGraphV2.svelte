@@ -46,7 +46,6 @@
 
 	export let insertable = false
 	export let moving: string | undefined = undefined
-	export let scroll = false
 
 	// Download: display a top level button to open the graph in a new tab
 	export let download = false
@@ -57,12 +56,14 @@
 	)
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
+	let preventScroll: Writable<boolean | undefined> = writable<boolean | undefined>(true)
 
 	setContext<{
 		selectedId: Writable<string | undefined>
 		flowInputsStore: Writable<FlowInput | undefined>
 		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
+		preventScroll: Writable<boolean | undefined>
+	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow, preventScroll })
 
 	const dispatch = createEventDispatcher()
 
@@ -249,7 +250,7 @@
 		minZoom={0.5}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
-		preventScrolling={scroll}
+		preventScrolling={$preventScroll}
 		zoomOnDoubleClick={false}
 		elementsSelectable={false}
 		{proOptions}

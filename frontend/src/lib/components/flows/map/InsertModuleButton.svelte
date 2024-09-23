@@ -11,6 +11,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowCopilotModule } from '../../copilot/flow'
 	import type { FlowEditorContext } from '../types'
+	import type { Writable } from 'svelte/store'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -32,6 +33,30 @@
 	let selectedKind: 'action' | 'trigger' | 'approval' | 'flow' = 'action'
 	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 	let loading = false
+
+	const { preventScroll } = getContext<{
+		preventScroll: Writable<boolean | undefined>
+	}>('FlowGraphContext')
+
+	let scrollInitialState: boolean | undefined = undefined
+	let wasOpened = open
+
+	function handleMouseenter() {
+		$preventScroll = false
+	}
+
+	function handleMouseleave() {
+		$preventScroll = scrollInitialState
+	}
+
+	function handleOpen() {
+		if (open !== wasOpened) {
+			wasOpened = open
+			open ? (scrollInitialState = $preventScroll) : ($preventScroll = scrollInitialState)
+		}
+	}
+
+	$: open, handleOpen()
 </script>
 
 <Menu
@@ -57,7 +82,13 @@
 			<Cross size={12} />
 		</button>
 	</svelte:fragment>
-	<div id="flow-editor-insert-module" class="flex flex-col h-[400px] w-[600px] p-1.5 gap-1.5">
+	<div
+		id="flow-editor-insert-module"
+		class="flex flex-col h-[400px] w-[600px] p-1.5 gap-1.5"
+		on:mouseenter={handleMouseenter}
+		on:mouseleave={handleMouseleave}
+		role="none"
+	>
 		<div class="flex flex-row items-center gap-2">
 			<StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
