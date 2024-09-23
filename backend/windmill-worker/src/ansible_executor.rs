@@ -198,14 +198,6 @@ pub async fn handle_ansible_job(
     append_logs(&job.id, &job.workspace_id, logs, db).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
-    let ansible_cfg_content = format!(r#"
-[defaults]
-collections_path = ./
-roles_path = ./roles
-home={job_dir}/.ansible
-local_tmp={job_dir}/.ansible/tmp
-"#);
-    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let additional_python_paths = handle_ansible_python_deps(
         job_dir,
@@ -290,6 +282,14 @@ local_tmp={job_dir}/.ansible/tmp
         db,
     )
     .await;
+    let ansible_cfg_content = format!(r#"
+[defaults]
+collections_path = ./
+roles_path = ./roles
+home={job_dir}/.ansible
+local_tmp={job_dir}/.ansible/tmp
+"#);
+    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let mut reserved_variables = get_reserved_variables(job, &authed_client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
