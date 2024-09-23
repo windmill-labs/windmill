@@ -24,6 +24,8 @@ use axum::{
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use serde::Deserialize;
 use windmill_common::{
     error::{self, JsonResult, Result},
@@ -55,7 +57,8 @@ pub fn global_service() -> Router {
             get(get_latest_key_renewal_attempt),
         )
         .route("/renew_license_key", post(renew_license_key))
-        .route("/customer_portal", post(create_customer_portal_session));
+        .route("/customer_portal", post(create_customer_portal_session))
+        .route("/test_critical_channels", post(test_critical_channels));
 
     #[cfg(feature = "parquet")]
     {
@@ -386,4 +389,28 @@ pub async fn create_customer_portal_session(
         windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
 
     return Ok(url);
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn test_critical_channels(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(test_critical_channels): Json<Vec<CriticalErrorChannel>>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    #[cfg(feature = "enterprise")]
+    send_critical_alert(
+        "Test critical error".to_string(),
+        &db,
+        CriticalAlertKind::CriticalError,
+        Some(test_critical_channels),
+    )
+    .await;
+    Ok("Sent test critical error".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn test_critical_channels() -> Result<String> {
+    Ok("Critical channels require EE".to_string())
 }

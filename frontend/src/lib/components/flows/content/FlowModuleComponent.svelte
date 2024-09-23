@@ -61,6 +61,7 @@
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
+	export let preprocessorModule: boolean = false
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
 	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
@@ -78,7 +79,7 @@
 		ruff: false,
 		shellcheck: false
 	}
-	let selected = 'inputs'
+	let selected = preprocessorModule ? 'test' : 'inputs'
 	let advancedSelected = 'retries'
 	let advancedRuntimeSelected = 'concurrency'
 	let s3Kind = 's3_client'
@@ -360,9 +361,13 @@
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs">Step Input</Tab>
+							{#if !preprocessorModule}
+								<Tab value="inputs">Step Input</Tab>
+							{/if}
 							<Tab value="test">Test this step</Tab>
-							<Tab value="advanced">Advanced</Tab>
+							{#if !preprocessorModule}
+								<Tab value="advanced">Advanced</Tab>
+							{/if}
 						</Tabs>
 						<div
 							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}

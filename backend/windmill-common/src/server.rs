@@ -13,22 +13,20 @@ pub struct Smtp {
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
-pub struct ServerConfigOpt {
+pub struct SmtpConfigOpt {
     pub smtp_host: Option<String>,
     pub smtp_username: Option<String>,
     pub smtp_password: Option<String>,
     pub smtp_port: Option<u16>,
     pub smtp_from: Option<String>,
     pub smtp_tls_implicit: Option<bool>,
-    pub timeout_wait_result: Option<u64>,
 }
 
-pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
-    let config: ServerConfigOpt =
-        sqlx::query_scalar!("SELECT config FROM config WHERE name = 'server'",)
+pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
+    let config: SmtpConfigOpt =
+        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'smtp_settings'",)
             .fetch_optional(db)
             .await?
-            .flatten()
             .map(|x| serde_json::from_value(x).ok())
             .flatten()
             .unwrap_or_default();
@@ -77,20 +75,10 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
         tracing::warn!("SMTP not configured");
     }
 
-    Ok(ServerConfig {
-        smtp,
-        timeout_wait_result: config
-            .timeout_wait_result
-            .ok_or(
-                std::env::var("TIMEOUT_WAIT_RESULT")
-                    .ok()
-                    .and_then(|x| x.parse::<u64>().ok()),
-            )
-            .unwrap_or(600),
-    })
+    Ok(smtp)
 }
 
-impl Default for ServerConfigOpt {
+impl Default for SmtpConfigOpt {
     fn default() -> Self {
         Self {
             smtp_from: None,
@@ -99,13 +87,6 @@ impl Default for ServerConfigOpt {
             smtp_port: None,
             smtp_tls_implicit: None,
             smtp_username: None,
-            timeout_wait_result: Default::default(),
         }
     }
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub struct ServerConfig {
-    pub smtp: Option<Smtp>,
-    pub timeout_wait_result: u64,
 }

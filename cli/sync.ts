@@ -42,11 +42,8 @@ import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
 } from "./metadata.ts";
-<<<<<<< HEAD
-import { pushResource } from "./resource.ts";
-=======
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
->>>>>>> origin/main
+import { pushResource } from "./resource.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -342,13 +339,15 @@ function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
-  resourceTypeToFormatExtension: Map<string, string>,
+  resourceTypeToFormatExtension: Record<string, string>
 ): DynFSElement {
   async function _internal_file(
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith("flow.json")
+    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith(
+      "flow.json"
+    )
       ? "flow"
       : p.endsWith("app.json")
       ? "app"
@@ -457,16 +456,18 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          if (kind == 'resource') {
+          if (kind == "resource") {
             const content = await f.async("text");
             const parsed = JSON.parse(content);
-            const formatExtension = resourceTypeToFormatExtension[parsed["resource_type"]]
+            const formatExtension =
+              resourceTypeToFormatExtension[parsed["resource_type"]];
 
             if (formatExtension) {
-              parsed["value"]["content"] = "!inline "
-                + removeSuffix(p.replaceAll(SEP, "/"), ".resource.json")
-                + ".resource.file." + formatExtension
-
+              parsed["value"]["content"] =
+                "!inline " +
+                removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
+                ".resource.file." +
+                formatExtension;
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -498,13 +499,17 @@ function ZipFSElement(
     if (kind == "resource") {
       const content = await f.async("text");
       const parsed = JSON.parse(content);
-      const formatExtension = resourceTypeToFormatExtension[parsed["resource_type"]]
+      const formatExtension =
+        resourceTypeToFormatExtension[parsed["resource_type"]];
 
       if (formatExtension) {
         const fileContent: string = parsed["value"]["content"];
         r.push({
           isDirectory: false,
-          path: removeSuffix(finalPath, ".resource.json") + ".resource.file." + formatExtension,
+          path:
+            removeSuffix(finalPath, ".resource.json") +
+            ".resource.file." +
+            formatExtension,
           async *getChildren() {},
           // deno-lint-ignore require-await
           async getContentText() {
@@ -895,8 +900,14 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     )
   );
 
-  const resourceTypeToFormatExtension =
-      await wmill.fileResourceTypeToFileExtMap({ workspace: workspace.workspaceId })
+  let resourceTypeToFormatExtension: Record<string, string> = {};
+  try {
+    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+      workspace: workspace.workspaceId,
+    })) as Record<string, string>;
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -913,7 +924,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension,
+    resourceTypeToFormatExtension
   );
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases)
@@ -1188,8 +1199,14 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
     )
   );
-    const resourceTypeToFormatExtension =
-        await wmill.fileResourceTypeToFileExtMap({ workspace: workspace.workspaceId })
+  let resourceTypeToFormatExtension: Record<string, string> = {};
+  try {
+    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+      workspace: workspace.workspaceId,
+    })) as Record<string, string>;
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -1206,7 +1223,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension,
+    resourceTypeToFormatExtension
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
@@ -1291,24 +1308,26 @@ export async function push(opts: GlobalOptions & SyncOptions) {
         }
 
         if (isFileResource(change.path)) {
-          const resourceFilePath = await findResourceFile(change.path)
+          const resourceFilePath = await findResourceFile(change.path);
           if (!alreadySynced.includes(resourceFilePath)) {
             alreadySynced.push(resourceFilePath);
 
-            const newObj = parseFromPath(resourceFilePath, await Deno.readTextFile(resourceFilePath));
+            const newObj = parseFromPath(
+              resourceFilePath,
+              await Deno.readTextFile(resourceFilePath)
+            );
 
             await pushResource(
               workspace.workspaceId,
               resourceFilePath,
               undefined,
-              newObj,
+              newObj
             );
             if (opts.stateful && stateExists) {
               await Deno.writeTextFile(stateTarget, change.after);
             }
             continue;
           }
-
         }
         const oldObj = parseFromPath(change.path, change.before);
         const newObj = parseFromPath(change.path, change.after);
@@ -1320,7 +1339,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           newObj,
           opts.plainSecrets ?? false,
           alreadySynced,
-          opts.message,
+          opts.message
         );
 
         if (opts.stateful && stateExists) {
@@ -1359,7 +1378,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           obj,
           opts.plainSecrets ?? false,
           [],
-          opts.message,
+          opts.message
         );
 
         if (opts.stateful && stateExists) {

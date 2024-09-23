@@ -92,6 +92,16 @@
 					If defined, the error handler will take the error as input.
 				</Alert>
 			</div>
+		{:else if $selectedId == 'preprocessor'}
+			<div class="p-4">
+				<Alert
+					type="info"
+					title="Preprocessor is called when the flow is triggered by API or email"
+				>
+					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
+					`wm_trigger` argument with trigger details.
+				</Alert>
+			</div>
 		{/if}
 
 		{#if flowModule.value.flow}
@@ -110,7 +120,8 @@
 				summary={flowModule.summary}
 				shouldDisableTriggerScripts={parentModule !== undefined ||
 					previousModule !== undefined ||
-					$selectedId == 'failure'}
+					$selectedId == 'failure' ||
+					$selectedId == 'preprocessor'}
 				on:pick={async ({ detail }) => {
 					const { path, summary, kind, hash } = detail
 					createModuleFromScript(path, summary, kind, hash)
@@ -158,6 +169,7 @@
 					}
 				}}
 				failureModule={$selectedId === 'failure'}
+				preprocessorModule={$selectedId === 'preprocessor'}
 			/>
 		{/if}
 	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
@@ -167,6 +179,7 @@
 			{parentModule}
 			{previousModule}
 			failureModule={$selectedId === 'failure'}
+			preprocessorModule={$selectedId === 'preprocessor'}
 			{scriptKind}
 			{scriptTemplate}
 			{enableAi}

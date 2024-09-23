@@ -52,7 +52,9 @@ ${Object.entries(args)
 	}
 </script>
 
-{#if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
+{#if args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'PREPROCESSOR_ARGS_ARE_DISCARDED'}
+	Preprocessor args are discarded
+{:else if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
 	The args are too big in size to be able to fetch alongside job. Please <a
 		href="/api/w/{workspace}/jobs_u/get_args/{id}"
 		target="_blank">download the JSON file to view them</a

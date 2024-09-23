@@ -51,7 +51,7 @@ use windmill_audit::ActionKind;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::users::truncate_token;
 use windmill_common::utils::{paginate, send_email};
-use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
+use windmill_common::worker::{CLOUD_HOSTED, SMTP_CONFIG};
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, JWT_SECRET},
     db::UserDB,
@@ -1966,7 +1966,7 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 }
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: String) -> Result<()> {
-    if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
+    if let Some(smtp) = SMTP_CONFIG.read().await.clone() {
         send_email(subject, content, vec![to], smtp, None).await?;
     }
     return Ok(());

@@ -8,6 +8,7 @@
 		RawAppService,
 		ScriptService,
 		SettingService,
+		HttpTriggerService,
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -25,7 +26,8 @@
 		workspaceStore,
 		type UserExt,
 		defaultScripts,
-		hubBaseUrlStore
+		hubBaseUrlStore,
+		usedTriggerKinds
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -124,6 +126,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadUsedTriggerKinds()
 	}
 
 	async function loadUsage() {
@@ -181,6 +184,11 @@
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]
+	}
+
+	async function loadUsedTriggerKinds() {
+		const httpUsed = await HttpTriggerService.used({ workspace: $workspaceStore ?? '' })
+		$usedTriggerKinds = httpUsed ? ['http'] : []
 	}
 
 	function pathInAppMode(pathname: string | undefined): boolean {

@@ -1,6 +1,6 @@
 use serde::Serialize;
 use sqlx::{types::Json, Pool, Postgres};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use uuid::Uuid;
 
@@ -53,26 +53,49 @@ pub async fn process_result(
     cached_res_path: Option<String>,
     token: String,
     column_order: Option<Vec<String>>,
+    new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
 ) -> error::Result<()> {
     match result {
         Ok(r) => {
-            let job = if let Some(column_order) = column_order {
-                let mut job_with_column_order = (*job).clone();
-                match job_with_column_order.flow_status {
-                    Some(_) => {
-                        tracing::warn!("flow_status was expected to be none");
-                    }
-                    None => {
-                        job_with_column_order.flow_status =
-                            Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                "_metadata": {
-                                    "column_order": column_order
-                                }
-                            }))));
+            let job = if column_order.is_some() || new_args.is_some() {
+                let mut updated_job = (*job).clone();
+                if let Some(column_order) = column_order {
+                    match updated_job.flow_status {
+                        Some(_) => {
+                            tracing::warn!("flow_status was expected to be none");
+                        }
+                        None => {
+                            updated_job.flow_status =
+                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
+                                    "_metadata": {
+                                        "column_order": column_order
+                                    }
+                                }))));
+                        }
                     }
                 }
-                Arc::new(job_with_column_order)
+                if let Some(new_args) = new_args {
+                    match updated_job.flow_status {
+                        Some(_) => {
+                            tracing::warn!("flow_status was expected to be none");
+                        }
+                        None => {
+                            // TODO save original args somewhere
+                            // if let Some(args) = updated_job.args.as_mut() {
+                            //     args.0.remove(ENTRYPOINT_OVERRIDE);
+                            // }
+                            updated_job.flow_status =
+                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
+                                    "_metadata": {
+                                        "preprocessed_args": true
+                                    }
+                                }))));
+                        }
+                    }
+                    updated_job.args = Some(Json(new_args));
+                }
+                Arc::new(updated_job)
             } else {
                 job
             };

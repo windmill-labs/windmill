@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len  FROM queue WHERE id = $1",
+  "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len FROM queue WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       null
     ]
   },
-  "hash": "f80e94176224ef23416da99b26ad5c330d65016fb93345b054cbb63a4bf37fc8"
+  "hash": "f9e0e35b4789a4da89f7bb21fa6b250fd64ee0e0b299471979db5ff8ee906929"
 }

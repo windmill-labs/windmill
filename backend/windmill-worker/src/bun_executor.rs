@@ -14,7 +14,8 @@ use crate::common::build_envs_map;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file_content, read_result, start_child_process, write_file_binary,
+        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
+        write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
@@ -34,7 +35,7 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::QueuedJob,
+    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     scripts::ScriptLang,
     worker::{exists_in_cache, get_annotation, save_cache, write_file},
     DB,
@@ -69,8 +70,7 @@ pub async fn gen_bun_lockfile(
     raw_deps: Option<String>,
     npm_mode: bool,
 ) -> Result<Option<String>> {
-    let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+    let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
     let mut empty_deps = false;
 
@@ -644,8 +644,7 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
-    let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+    let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
     generate_bun_bundle(
         job_dir,
@@ -751,6 +750,7 @@ pub async fn handle_bun_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     shared_mount: &str,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
@@ -779,12 +779,21 @@ pub async fn handle_bun_job(
     };
 
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+        get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     if codebase.is_some() {
         annotation.nodejs_mode = true
     }
-    let main_override = get_main_override(job.args.as_ref());
+    let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
+        Some(main_override) => {
+            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
+                (None, true)
+            } else {
+                (Some(main_override), false)
+            }
+        }
+        None => (None, false),
+    };
 
     #[cfg(not(feature = "enterprise"))]
     if annotation.nodejs_mode || annotation.npm_mode {
@@ -939,7 +948,23 @@ pub async fn handle_bun_job(
         let args =
             windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
                 .args;
-        let dates = args
+
+        let pre_args = if apply_preprocessor {
+            Some(
+                windmill_parser_ts::parse_deno_signature(
+                    inner_content,
+                    true,
+                    Some("preprocessor".to_string()),
+                )?
+                .args,
+            )
+        } else {
+            None
+        };
+
+        let dates = pre_args
+            .as_ref()
+            .unwrap_or(&args)
             .iter()
             .enumerate()
             .filter_map(|(i, x)| {
@@ -963,14 +988,34 @@ pub async fn handle_bun_job(
             "./main.ts"
         };
 
-        let wrapper_content: String = format!(
+        let preprocessor = if let Some(pre_args) = pre_args {
+            let pre_spread = pre_args.into_iter().map(|x| x.name).join(",");
+            format!(
+                r#"if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
+        throw new Error("preprocessor function is missing");
+    }}
+    function preArgsObjToArr({{ {pre_spread} }}) {{
+        return [ {pre_spread} ];
+    }}
+    args = await Main.preprocessor(...preArgsObjToArr(args));
+    const args_json = JSON.stringify(args ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    await fs.writeFile('args.json', args_json, {{ encoding: 'utf8' }})"#
+            )
+        } else {
+            "".to_string()
+        };
+
+        let wrapper_content = format!(
             r#"
 import * as Main from "{main_import}";
 
 import * as fs from "fs/promises";
 
-const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
+let args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse);
+
+function argsObjToArr({{ {spread} }}) {{
+    return [ {spread} ];
+}}
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -978,7 +1023,12 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res = await Main.{main_name}(...args);
+    {preprocessor}
+    const argsArr = argsObjToArr(args);
+    if (Main.{main_name} === undefined || typeof Main.{main_name} !== 'function') {{
+        throw new Error("{main_name} function is missing");
+    }}
+    let res = await Main.{main_name}(...argsArr);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
@@ -1311,22 +1361,33 @@ try {{
         false,
     )
     .await?;
+
+    if apply_preprocessor {
+        let args = read_file(&format!("{job_dir}/args.json"))
+            .await
+            .map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while reading args from preprocessing: {e:#}"
+                ))
+            })?;
+        let args: HashMap<String, Box<RawValue>> =
+            serde_json::from_str(args.get()).map_err(|e| {
+                error::Error::InternalErr(format!(
+                    "error while deserializing args from preprocessing: {e:#}"
+                ))
+            })?;
+        *new_args = Some(args.clone());
+    }
     read_result(job_dir).await
 }
 
-pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
+pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMap<String, String> {
     let mut bun_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
         (String::from("FORCE_COLOR"), "1".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
-        (
-            String::from("BASE_URL"),
-            base_internal_url
-                .to_string()
-                .replace("localhost", "127.0.0.1"),
-        ),
         (
             String::from("BUN_INSTALL_CACHE_DIR"),
             BUN_CACHE_DIR.to_string(),
@@ -1337,6 +1398,12 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
         ),
     ]);
 
+    if let Some(base_url) = base_internal_url {
+        bun_envs.insert(
+            String::from("BASE_URL"),
+            base_url.to_string().replace("localhost", "127.0.0.1"),
+        );
+    }
     if let Some(ref node_path) = NODE_PATH.as_ref() {
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
     }
@@ -1373,7 +1440,7 @@ pub async fn start_worker(
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
+        get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
