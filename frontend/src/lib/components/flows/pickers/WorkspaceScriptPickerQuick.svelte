@@ -60,9 +60,7 @@
 
 {#if filteredItems}
 	{#if filter.length > 0 && filteredItems.length == 0}
-		<span class="w-full text-2xs text-secondary text-center py-2 px-3 items-center">
-			No items found.
-		</span>
+		<div class="text-2xs text-tercary text-center py-2 px-3 items-center"> No items found. </div>
 	{/if}
 	<ul>
 		{#each filteredItems as { path, hash, summary, marked }}

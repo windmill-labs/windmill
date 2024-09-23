@@ -165,9 +165,9 @@
 						</div>
 					{/each}
 				{:else}
-					<span class="text-2xs text-secondary text-center py-2 px-3 items-center">
-						No folders containing {kind} found
-					</span>
+					<div class="text-2xs text-tercary text-center py-2 px-3 items-center">
+						No folders containing {kind} found.
+					</div>
 				{/if}
 			{/if}
 

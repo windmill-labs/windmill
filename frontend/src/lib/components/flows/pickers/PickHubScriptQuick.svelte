@@ -2,7 +2,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
-	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 
@@ -103,11 +102,10 @@
 </script>
 
 {#if hubNotAvailable}
-	<div class="mt-2" />
-	<Alert type="error" title="Hub not available" />
+	<Alert type="error" title="Hub not available" size="xs" />
 {:else if items.length > 0 && apps.length > 0}
 	{#if items.length == 0}
-		<NoItemFound />
+		<div class="text-2xs text-tercary text-center py-2 px-3 items-center"> No items found. </div>
 	{:else}
 		<ul>
 			{#each items as item (item.path)}
@@ -135,7 +133,7 @@
 		</ul>
 	{/if}
 	{#if items.length == 40}
-		<div class="text-2xs text-secondary text-center py-2 px-3 items-center">
+		<div class="text-2xs text-tercary text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
 	{/if}
