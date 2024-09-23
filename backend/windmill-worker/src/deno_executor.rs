@@ -214,15 +214,16 @@ pub async fn handle_deno_job(
             .as_ref()
             .unwrap_or(&args)
             .iter()
-            .enumerate()
-            .filter_map(|(i, x)| {
+            .filter_map(|x| {
                 if matches!(x.typ, Typ::Datetime) {
-                    Some(i)
+                    Some(x.name.as_str())
                 } else {
                     None
                 }
             })
-            .map(|x| return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined"))
+            .map(|x| {
+                return format!(r#"args["{x}"] = args["{x}"] ? new Date(args["{x}"]) : undefined"#);
+            })
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
