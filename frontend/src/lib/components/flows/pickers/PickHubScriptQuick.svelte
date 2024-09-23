@@ -113,7 +113,7 @@
 			{#each items as item (item.path)}
 				<li class="w-full">
 					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
 						on:click={() => dispatch('pickScript', item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>

@@ -68,7 +68,7 @@
 		<div>
 			<button
 				class={twMerge(
-					'w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
+					'w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 					filter === selectedAppFilter ? 'bg-surface-hover' : ''
 				)}
 				on:click={() => {

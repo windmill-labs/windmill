@@ -57,17 +57,17 @@
 			<Cross size={12} />
 		</button>
 	</svelte:fragment>
-	<div id="flow-editor-insert-module" class="flex flex-col h-[400px] w-[600px]">
-		<div class="flex flex-row items-center gap-2 px-2"
-			><StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
-			<ToggleHubWorkspaceQuick bind:selected={preFilter} /></div
-		>
+	<div id="flow-editor-insert-module" class="flex flex-col h-[400px] w-[600px] p-1.5 gap-1.5">
+		<div class="flex flex-row items-center gap-2">
+			<StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
+			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
+		</div>
 
 		<div class="flex flex-row grow min-h-0 divide-x">
-			<div class="flex-none font-mono flex flex-col text-xs w-40 text-secondary">
+			<div class="flex-none flex flex-col text-xs w-40 text-primary">
 				<button
 					class={twMerge(
-						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 						selectedKind === 'action' ? 'bg-surface-hover' : ''
 					)}
 					on:click={() => {
@@ -82,7 +82,7 @@
 				{#if customUi?.triggers != false && trigger}
 					<button
 						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 							selectedKind === 'trigger' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
@@ -97,7 +97,7 @@
 				{/if}
 				<button
 					class={twMerge(
-						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 						selectedKind === 'approval' ? 'bg-surface-hover' : ''
 					)}
 					on:click={() => {
@@ -113,7 +113,7 @@
 				{#if customUi?.flowNode != false}
 					<button
 						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 							selectedKind === 'flow' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
@@ -127,7 +127,7 @@
 				{/if}
 				{#if stop}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
 							close()
 							dispatch('new', { kind: 'end' })
@@ -139,7 +139,7 @@
 					</button>
 				{/if}
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'forloop' })
@@ -151,7 +151,7 @@
 					For Loop
 				</button>
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'whileloop' })
@@ -164,7 +164,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'branchone' })
@@ -176,7 +176,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'branchall' })

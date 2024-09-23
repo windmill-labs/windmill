@@ -62,30 +62,27 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
-<div class="text-primary transition-all flex-grow">
-	<div>
-		<div class="flex py-2 relative items-center">
-			<input
-				type="text"
-				bind:value={funcDesc}
-				on:input={() => {
-					if (funcDesc.length > 2) {
-						getHubCompletions(funcDesc)
-					} else {
-						hubCompletions = []
-					}
-				}}
-				placeholder="Search {trigger ? 'triggers' : 'scripts'} or AI gen"
-			/>
-			{#if loading}
-				<Loader2 class="animate-spin text-gray-400 absolute right-3" />
-			{/if}
-			{#if funcDesc.length === 0 && !loading}
-				<Wand2
-					size={14}
-					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70 text-violet-800 dark:text-violet-400"
-				/>
-			{/if}
-		</div>
+<div class="relative text-primary items-center transition-all flex-grow">
+	<div class="grow items-cente">
+		<input
+			type="text"
+			bind:value={funcDesc}
+			on:input={() => {
+				if (funcDesc.length > 2) {
+					getHubCompletions(funcDesc)
+				} else {
+					hubCompletions = []
+				}
+			}}
+			placeholder="Search {trigger ? 'triggers' : 'scripts'} or AI gen"
+		/>
+	</div>
+	<div class="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+		{#if loading}
+			<Loader2 size={16} class="animate-spin text-gray-400" />
+		{/if}
+		{#if funcDesc.length === 0 && !loading}
+			<Wand2 size={14} class="fill-current opacity-70 text-violet-800 dark:text-violet-400" />
+		{/if}
 	</div>
 </div>

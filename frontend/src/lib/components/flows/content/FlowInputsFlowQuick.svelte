@@ -5,7 +5,7 @@
 	import { FlowService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
-
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	// export let failureModule: boolean
@@ -44,7 +44,7 @@
 			{#each filteredItems as { path, summary, marked }}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-1 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all items-center"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
 						on:click={async () => {
 							dispatch('pickFlow', {
 								path,
@@ -52,13 +52,14 @@
 							})
 						}}
 					>
-						<div class="w-full max-w-60 text-left text-xs text-primary font-semibold mb-1 truncate">
+						<BarsStaggered size={14} />
+						<span class="grow truncate text-left text-xs text-primary font-semibold">
 							{#if marked}
 								{@html marked}
 							{:else}
 								{!summary || summary.length == 0 ? path : summary}
 							{/if}
-						</div>
+						</span>
 					</button>
 				</li>
 			{/each}

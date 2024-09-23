@@ -118,10 +118,11 @@
 	}
 </script>
 
-<div class="flex flex-row divide-x grow min-w-0">
-	<div class="w-44 flex-none h-full flex flex-col overflow-y-auto">
-		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
-			<!-- {#if funcDesc.length === 0 && preFilter == 'all'}
+<div class="flex flex-row grow min-w-0 divide-x">
+	<div class="relative w-40 h-full">
+		<div class="h-full flex flex-col overflow-y-auto">
+			{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
+				<!-- {#if funcDesc.length === 0 && preFilter == 'all'}
 				<div class="font-mono text-xs text-secondary">
 					<button
 						class={twMerge(
@@ -142,16 +143,52 @@
 					</button>
 				</div>
 			{/if} -->
-			{#if preFilter === 'all' || preFilter === 'workspace'}
-				{#if preFilter !== 'workspace'}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace Folders</div>
+				{#if preFilter === 'all' || preFilter === 'workspace'}
+					{#if preFilter !== 'workspace'}
+						<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace Folders</div>
+					{/if}
+					{#if owners.length > 0}
+						{#each owners as owner (owner)}
+							<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
+								<button
+									class={twMerge(
+										'w-full text-2xs text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+										owner === selected?.name ? 'bg-surface-hover' : ''
+									)}
+									on:click={() => {
+										selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
+									}}
+								>
+									<Folder class="mr-0.5" size={14} />
+									{owner}
+								</button>
+							</div>
+						{/each}
+					{:else}
+						<span class="text-2xs text-secondary text-center py-2 px-3 items-center">
+							No folders containing {kind} found
+						</span>
+					{/if}
 				{/if}
+
+				{#if preFilter === 'hub' || preFilter === 'all'}
+					{#if preFilter == 'all'}
+						<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Integrations</div>
+					{/if}
+					<ListFiltersQuick
+						{syncQuery}
+						filters={apps}
+						bind:selectedFilter={selected}
+						resourceType
+					/>
+				{/if}
+			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
 					{#each owners as owner (owner)}
 						<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 							<button
 								class={twMerge(
-									'w-full text-2xs text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
+									'w-full text-2xs text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 									owner === selected?.name ? 'bg-surface-hover' : ''
 								)}
 								on:click={() => {
@@ -163,177 +200,158 @@
 							</button>
 						</div>
 					{/each}
-				{:else}
-					<span class="text-2xs text-secondary text-center py-2 px-3 items-center">
-						No folders containing {kind} found
-					</span>
 				{/if}
 			{/if}
+		</div>
 
-			{#if preFilter === 'hub' || preFilter === 'all'}
-				{#if preFilter == 'all'}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Integrations</div>
-				{/if}
-				<ListFiltersQuick {syncQuery} filters={apps} bind:selectedFilter={selected} resourceType />
-			{/if}
-		{:else if selectedKind === 'flow'}
-			{#if owners.length > 0}
-				{#each owners as owner (owner)}
-					<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
-						<button
-							class={twMerge(
-								'w-full text-2xs text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
-								owner === selected?.name ? 'bg-surface-hover' : ''
-							)}
-							on:click={() => {
-								selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
-							}}
-						>
-							<Folder class="mr-0.5" size={14} />
-							{owner}
-						</button>
-					</div>
-				{/each}
-			{/if}
-		{/if}
+		<div
+			class="pointer-events-none absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-surface to-transparent"
+		/>
 	</div>
-	<div class="grow min-w-0 h-full overflow-y-auto">
-		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
-			{#if !disableAi && funcDesc.length > 0}
-				<ul class="transition-all">
-					<li>
-						<button
-							class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all"
-							on:click={() => {
-								lang = 'bun'
-								onGenerate()
-								close()
-							}}
-						>
-							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 
-							<span class="grow truncate text-left text-xs text-primary font-semibold">
-								Generate "{funcDesc}" in TypeScript
-							</span>
-						</button>
-					</li>
-					<li>
-						<button
-							class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all"
-							on:click={() => {
-								lang = 'python3'
-								onGenerate()
-								close()
-							}}
-						>
-							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
-
-							<span class="grow truncate text-left text-xs text-primary font-semibold">
-								Generate "{funcDesc}" in Python
-							</span>
-						</button>
-					</li>
-				</ul>
-			{/if}
-			{#if funcDesc.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
-				<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Create Inline Script</div>
-				{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
-					{#if displayLang(lang, kind)}
-						<FlowScriptPickerQuick
-							{label}
-							lang={lang == 'docker' ? 'bash' : lang}
-							on:click={() => {
-								if (lang == 'docker') {
-									if (isCloudHosted()) {
-										sendUserToast(
-											'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-											true,
-											[
-												{
-													label: 'Learn more',
-													callback: () => {
-														window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-													}
-												}
-											]
-										)
-										return
-									}
-								}
-
-								dispatch('new', {
-									kind: 'script',
-									inlineScript: {
-										language: lang == 'docker' ? 'bash' : lang,
-										kind,
-										subkind: lang == 'docker' ? 'docker' : 'flow',
-										summary
-									}
-								})
-							}}
-						/>
-					{/if}
-				{/each}
-			{/if}
-			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
-				{#if !selected && preFilter !== 'hub'}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Hub</div>
-				{/if}
-				<PickHubScriptQuick
-					bind:filter
-					bind:apps
-					appFilter={selected?.name}
-					{kind}
-					on:pickScript
-					bind:loading
-				/>
-			{/if}
-
-			{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
-				{#if !selected && (preFilter !== 'workspace' || funcDesc.length > 0)}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace</div>
-				{/if}
-				<WorkspaceScriptPickerQuick
-					bind:owners
-					bind:ownerFilter={selected}
-					{filter}
-					{kind}
-					on:pickScript
-				/>
-			{/if}
-
-			{#if funcDesc.length > 0 && filteredItems.length > 0}
-				<div class="text-left mt-2">
-					<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
+	<div class="grow min-w-0 relative w-40 h-full">
+		<div class="w-full h-full overflow-y-auto">
+			{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
+				{#if !disableAi && funcDesc.length > 0}
 					<ul class="transition-all">
-						{#each filteredItems.slice(0, 3) as item (item.path)}
-							<li>
-								<button
-									class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full"
-									on:click={() => {
-										dispatch('insert', { path: item.path, summary: item.summary })
-										close()
-									}}
-								>
-									<div class="flex items-center gap-2.5 px-2">
-										<div
-											class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
-										>
-											<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} />
-										</div>
+						<li>
+							<button
+								class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md"
+								on:click={() => {
+									lang = 'bun'
+									onGenerate()
+									close()
+								}}
+							>
+								<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 
-										<div class="text-left text-xs text-secondary">
-											{defaultIfEmptyString(item.summary, item.path)}
-										</div>
-									</div>
-								</button>
-							</li>
-						{/each}
+								<span class="grow truncate text-left text-xs text-primary font-semibold">
+									Generate "{funcDesc}" in TypeScript
+								</span>
+							</button>
+						</li>
+						<li>
+							<button
+								class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md"
+								on:click={() => {
+									lang = 'python3'
+									onGenerate()
+									close()
+								}}
+							>
+								<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
+
+								<span class="grow truncate text-left text-xs text-primary font-semibold">
+									Generate "{funcDesc}" in Python
+								</span>
+							</button>
+						</li>
 					</ul>
-				</div>
+				{/if}
+				{#if funcDesc.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
+					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Create Inline Script</div>
+					{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
+						{#if displayLang(lang, kind)}
+							<FlowScriptPickerQuick
+								{label}
+								lang={lang == 'docker' ? 'bash' : lang}
+								on:click={() => {
+									if (lang == 'docker') {
+										if (isCloudHosted()) {
+											sendUserToast(
+												'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+												true,
+												[
+													{
+														label: 'Learn more',
+														callback: () => {
+															window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+														}
+													}
+												]
+											)
+											return
+										}
+									}
+
+									dispatch('new', {
+										kind: 'script',
+										inlineScript: {
+											language: lang == 'docker' ? 'bash' : lang,
+											kind,
+											subkind: lang == 'docker' ? 'docker' : 'flow',
+											summary
+										}
+									})
+								}}
+							/>
+						{/if}
+					{/each}
+				{/if}
+				{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
+					{#if !selected && preFilter !== 'hub'}
+						<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Hub</div>
+					{/if}
+					<PickHubScriptQuick
+						bind:filter
+						bind:apps
+						appFilter={selected?.name}
+						{kind}
+						on:pickScript
+						bind:loading
+					/>
+				{/if}
+
+				{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
+					{#if !selected && (preFilter !== 'workspace' || funcDesc.length > 0)}
+						<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace</div>
+					{/if}
+					<WorkspaceScriptPickerQuick
+						bind:owners
+						bind:ownerFilter={selected}
+						{filter}
+						{kind}
+						on:pickScript
+					/>
+				{/if}
+
+				{#if funcDesc.length > 0 && filteredItems.length > 0}
+					<div class="text-left mt-2">
+						<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
+						<ul class="transition-all">
+							{#each filteredItems.slice(0, 3) as item (item.path)}
+								<li>
+									<button
+										class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full rounded-md"
+										on:click={() => {
+											dispatch('insert', { path: item.path, summary: item.summary })
+											close()
+										}}
+									>
+										<div class="flex items-center gap-2.5 px-2">
+											<div
+												class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
+											>
+												<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} />
+											</div>
+
+											<div class="text-left text-xs text-secondary">
+												{defaultIfEmptyString(item.summary, item.path)}
+											</div>
+										</div>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+			{:else if selectedKind === 'flow'}
+				<FlowInputsFlowQuick bind:owners {filter} on:pickFlow />
 			{/if}
-		{:else if selectedKind === 'flow'}
-			<FlowInputsFlowQuick bind:owners {filter} on:pickFlow />
-		{/if}
+		</div>
+
+		<div
+			class="pointer-events-none absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-surface to-transparent"
+		/>
 	</div>
 </div>

@@ -3,8 +3,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { Badge, Skeleton } from '$lib/components/common'
-	import { emptyString, truncateHash } from '$lib/utils'
+	import { Skeleton } from '$lib/components/common'
+	import { emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
@@ -68,7 +68,7 @@
 			{#each filteredItems as { path, hash, summary, marked }}
 				<li class="flex flex-row w-full">
 					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
 						on:click={() => {
 							dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
 						}}

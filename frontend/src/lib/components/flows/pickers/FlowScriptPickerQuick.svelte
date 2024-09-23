@@ -11,7 +11,7 @@
 
 {#if !enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}
 	<button
-		class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all"
+		class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md"
 		on:click
 		role="menuitem"
 	>
