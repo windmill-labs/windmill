@@ -57,39 +57,38 @@
 	bind:filteredItems
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
-<div class="flex flex-col min-h-0">
-	{#if filteredItems}
-		{#if filter.length > 0 && filteredItems.length == 0}
-			<span class="text-2xs text-secondary text-center py-2 px-3 items-center">
-				No items found.
-			</span>
-		{/if}
-		<ul class="rounded-md">
-			{#each filteredItems as { path, hash, summary, marked }}
-				<li class="flex flex-row w-full">
-					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-						on:click={() => {
-							dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
-						}}
-					>
-						<Code2 size={14} />
-						<span class="grow truncate text-left text-xs text-primary font-semibold">
-							{#if marked}
-								{@html marked}
-							{:else}
-								{!summary || summary.length == 0 ? path : summary}
-							{/if}</span
-						>
-					</button>
-				</li>
-			{/each}
-		</ul>
-	{:else}
-		<div class="mt-6" />
 
-		{#each new Array(6) as _}
-			<Skeleton layout={[[4], 0.7]} />
-		{/each}
+{#if filteredItems}
+	{#if filter.length > 0 && filteredItems.length == 0}
+		<span class="w-full text-2xs text-secondary text-center py-2 px-3 items-center">
+			No items found.
+		</span>
 	{/if}
-</div>
+	<ul>
+		{#each filteredItems as { path, hash, summary, marked }}
+			<li class="w-full">
+				<button
+					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
+					on:click={() => {
+						dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
+					}}
+				>
+					<Code2 size={14} />
+					<span class="grow min-w-0 truncate text-left text-xs text-primary font-semibold">
+						{#if marked}
+							{@html marked}
+						{:else}
+							{!summary || summary.length == 0 ? path : summary}
+						{/if}</span
+					>
+				</button>
+			</li>
+		{/each}
+	</ul>
+{:else}
+	<div class="mt-6" />
+
+	{#each new Array(6) as _}
+		<Skeleton layout={[[4], 0.7]} />
+	{/each}
+{/if}
