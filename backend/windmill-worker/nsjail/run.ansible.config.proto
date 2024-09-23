@@ -20,55 +20,47 @@ keep_env: true
 mount {
     src: "/bin"
     dst: "/bin"
-	is_bind: true
+    is_bind: true
 }
 
 mount {
     src: "/lib"
     dst: "/lib"
-	is_bind: true
+    is_bind: true
 }
 
 
 mount {
     src: "/lib64"
     dst: "/lib64"
-	is_bind: true
+    is_bind: true
     mandatory: false
 }
 
 mount {
     src: "/usr"
     dst: "/usr"
-	is_bind: true
+    is_bind: true
 }
 
 mount {
-	src: "/dev/null"
-	dst: "/dev/null"
-	is_bind: true
-	rw: true
+    src: "/dev/null"
+    dst: "/dev/null"
+    is_bind: true
+    rw: true
 }
 
 mount {
-	src: "/dev/shm"
-	dst: "/dev/shm"
-	is_bind: true
-	rw: true
+    dst: "/dev/shm"
+    fstype: "tmpfs"
+    rw: true
+    is_bind: false
 }
 
 mount {
-	src: "/root/.ansible"
-	dst: "/root/.ansible"
-	is_bind: true
-	rw: true
-
-}
-
-mount {
-	dst: "/tmp"
-	fstype: "tmpfs"
-	rw: true
+    dst: "/tmp"
+    fstype: "tmpfs"
+    rw: true
     options: "size=800000000"
 }
 

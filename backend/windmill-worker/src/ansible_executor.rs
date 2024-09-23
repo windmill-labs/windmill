@@ -198,11 +198,13 @@ pub async fn handle_ansible_job(
     append_logs(&job.id, &job.workspace_id, logs, db).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
-    let ansible_cfg_content = r#"
+    let ansible_cfg_content = format!(r#"
 [defaults]
 collections_path = ./
 roles_path = ./roles
-"#;
+home={job_dir}/.ansible
+local_tmp={job_dir}/.ansible/tmp
+"#);
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let additional_python_paths = handle_ansible_python_deps(
