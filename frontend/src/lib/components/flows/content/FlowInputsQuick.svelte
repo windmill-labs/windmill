@@ -122,7 +122,7 @@
 </script>
 
 <div class="flex flex-row grow min-w-0 divide-x">
-	<Scrollable scrollableClass="w-36 grow-0 shrink-0 ">
+	<Scrollable scrollableClass="w-32 grow-0 shrink-0 ">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
 			<!-- {#if funcDesc.length === 0 && preFilter == 'all'}
 				<div class="font-mono text-xs text-secondary">
