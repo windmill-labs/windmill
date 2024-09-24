@@ -55,6 +55,7 @@ mail-send.workspace = true
 futures-core.workspace = true
 async-stream.workspace = true
 const_format.workspace = true
+crc.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }
