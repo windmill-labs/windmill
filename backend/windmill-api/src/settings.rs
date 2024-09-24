@@ -24,9 +24,9 @@ use axum::{
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 
+use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
-use serde::Deserialize;
 use windmill_common::{
     error::{self, JsonResult, Result},
     global_settings::{
@@ -298,7 +298,7 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
+    windmill_common::stats_ee::send_stats(&HTTP_CLIENT, &db, true, true).await?;
 
     Ok("Sent stats".to_string())
 }
@@ -357,7 +357,6 @@ pub async fn renew_license_key(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
     let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key, true).await;
 
     if result != "success" {

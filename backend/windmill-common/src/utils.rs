@@ -183,7 +183,7 @@ pub fn calculate_hash(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub async fn get_uid(db: &DB) -> Result<String> {
+pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
     let mut uid = LICENSE_KEY_ID.read().await.clone();
 
     if uid == "" {
@@ -222,6 +222,9 @@ impl std::fmt::Display for Mode {
     }
 }
 
+pub fn string_to_i64(s: &str) -> i64 {
+    s.chars().map(|c| c as i64).sum()
+}
 pub async fn send_email(
     subject: &str,
     content: &str,
