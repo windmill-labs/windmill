@@ -4,6 +4,7 @@
 	import { classNames } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
+	import { Circle } from 'lucide-svelte'
 
 	export let kind: HubScriptKind & string = 'script'
 	export let filter = ''
@@ -121,6 +122,12 @@
 									height={14}
 									width={14}
 								/>
+							{:else}
+								<div
+									class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
+								>
+									<Circle size="12" />
+								</div>
 							{/if}
 						</div>
 

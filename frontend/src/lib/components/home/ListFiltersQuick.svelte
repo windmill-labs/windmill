@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Folder, User } from 'lucide-svelte'
+	import { Folder, User, Circle } from 'lucide-svelte'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { onDestroy, onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -61,6 +61,8 @@
 		: filters
 
 	$: console.log('filters and selected', filtersAndSelected)
+
+	let icon: any
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
@@ -83,7 +85,15 @@
 			>
 				<div class="flex justify-center flex-row items-center gap-2">
 					{#if resourceType}
-						<svelte:component this={getIconComponent(filter)} height="14px" width="14px" />
+						{#if (icon = getIconComponent(filter))}
+							<svelte:component this={icon} height="14px" width="14px" />
+						{:else}
+							<div
+								class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
+							>
+								<Circle size="12" />
+							</div>
+						{/if}
 					{:else if filter.startsWith('u/')}
 						<User class="mr-0.5" size={14} />
 					{:else if filter.startsWith('f/')}
