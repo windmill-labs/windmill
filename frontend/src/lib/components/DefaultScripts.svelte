@@ -7,6 +7,9 @@
 	import DefaultScriptsInner from './DefaultScriptsInner.svelte'
 
 	let drawer: Drawer
+
+	export let size: 'xs3' | 'xs2' = 'xs2'
+	export let noText = false
 </script>
 
 {#if $userStore?.is_admin || $userStore?.is_super_admin}
@@ -19,8 +22,10 @@
 		on:click={drawer?.openDrawer}
 		startIcon={{ icon: SettingsIcon }}
 		color="light"
-		size="xs2"
+		{size}
 		btnClasses="!text-tertiary"
-		variant="contained">defaults</Button
+		variant="contained"
 	>
+		{noText ? '' : 'defaults'}
+	</Button>
 {/if}

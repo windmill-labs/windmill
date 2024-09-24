@@ -23,6 +23,7 @@
 	import { flip } from 'svelte/animate'
 	import FlowInputsFlowQuick from '../content/FlowInputsFlowQuick.svelte'
 	import Scrollable from '$lib/components/Scrollable.svelte'
+	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -121,7 +122,7 @@
 	}
 </script>
 
-<div class="flex flex-row grow min-w-0 divide-x">
+<div class="flex flex-row grow min-w-0">
 	<Scrollable scrollableClass="w-32 grow-0 shrink-0 ">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
 			<!-- {#if funcDesc.length === 0 && preFilter == 'all'}
@@ -248,7 +249,10 @@
 				</ul>
 			{/if}
 			{#if funcDesc.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
-				<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Create Inline Script</div>
+				<div class="pt-2 pb-0 flex flex-row items-center gap-2">
+					<div class=" text-2xs font-light text-secondary ml-2">Create Inline Script</div>
+					<DefaultScripts size={'xs3'} noText={true} />
+				</div>
 				{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
 					{#if displayLang(lang, kind)}
 						<FlowScriptPickerQuick
