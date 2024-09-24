@@ -132,9 +132,9 @@
 	}
 
 	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
-
-
-		return findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+		return (
+			findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+		)
 	}
 </script>
 
@@ -154,7 +154,7 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && areOnTheSameSubgrid(componentDraggedId, component.id)}
+	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && areOnTheSameSubgrid(componentDraggedId, component.id)}
 		<div
 			class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
 		>

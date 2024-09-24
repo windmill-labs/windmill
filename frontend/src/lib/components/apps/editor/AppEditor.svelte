@@ -694,10 +694,11 @@
 				<div
 					class="absolute z-50 inset-0 h-full w-full bg-surface-secondary [background-size:16px_16px]"
 				>
-					<div class="w-min whitespace-nowrap mx-auto pt-2">
+					<div class="w-min whitespace-nowrap mx-auto pt-0.5 z-50">
 						<Alert
 							title={`Press ${getModifierKey()} to drop component inside a container.`}
 							size="xs"
+							class="h-10 py-1"
 						/>
 					</div>
 				</div>
