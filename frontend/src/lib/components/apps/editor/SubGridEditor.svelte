@@ -11,6 +11,7 @@
 		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
+		isContainer,
 		maxHeight,
 		selectId
 	} from './appUtils'
@@ -91,6 +92,7 @@
 		}
 
 		let parentGrid = findGridItemParentGrid($app, component.id)
+
 		if (parentGrid) {
 			$app.subgrids &&
 				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
@@ -164,6 +166,11 @@
 					on:dropped={(e) => {
 						const { id, overlapped, x, y } = e.detail
 
+						const overlappedComponent = findGridItem($app, overlapped)
+
+						if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
+							return
+						}
 						if (!overlapped) {
 							return
 						}

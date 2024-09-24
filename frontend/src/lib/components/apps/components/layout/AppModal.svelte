@@ -24,6 +24,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let render: boolean
+
 	export let onOpenRecomputeIds: string[] | undefined = undefined
 	export let onCloseRecomputeIds: string[] | undefined = undefined
 

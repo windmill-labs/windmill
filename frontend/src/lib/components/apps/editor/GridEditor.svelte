@@ -12,7 +12,8 @@
 		expandGriditem,
 		findGridItem,
 		findGridItemParentGrid,
-		insertNewGridItem
+		insertNewGridItem,
+		isContainer
 	} from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -185,6 +186,12 @@
 				cols={columnConfiguration}
 				on:dropped={(e) => {
 					const { id, overlapped, x, y } = e.detail
+
+					const overlappedComponent = findGridItem($app, overlapped)
+
+					if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
+						return
+					}
 
 					if (!overlapped) {
 						return

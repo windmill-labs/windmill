@@ -93,7 +93,7 @@
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
 
-	const { mode, app, hoverStore, connectingInput, allIdsInPath } =
+	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -130,6 +130,12 @@
 
 		return !parentGrid?.startsWith(`${componentId}-`)
 	}
+
+	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
+
+
+		return findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+	}
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -148,7 +154,7 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive && moveMode === 'move' && !$allIdsInPath?.includes(component.id)}
+	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && areOnTheSameSubgrid(componentDraggedId, component.id)}
 		<div
 			class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
 		>
@@ -164,8 +170,7 @@
 				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
 				overlapped === component.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
 			)}
-		>
-		</div>
+		/>
 	{/if}
 	{#if $mode !== 'preview'}
 		<ComponentHeader
