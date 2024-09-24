@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
@@ -55,6 +55,11 @@
 			open ? (scrollInitialState = $preventScroll) : ($preventScroll = scrollInitialState)
 		}
 	}
+
+	onDestroy(() => {
+		$preventScroll = scrollInitialState
+		console.log('destroyed !')
+	})
 
 	$: open, handleOpen()
 </script>
