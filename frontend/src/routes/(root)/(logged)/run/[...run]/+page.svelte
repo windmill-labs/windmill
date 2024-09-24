@@ -92,11 +92,13 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
+	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
 
 	let scriptProgress: number | undefined = undefined;
+	let currentJobIsLongRunning: boolean = false
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -112,6 +114,8 @@
 	let persistentScriptDrawer: PersistentScriptDrawer
 	let getLogs: (() => Promise<void>) | undefined = undefined
 
+	let showExplicitProgressTip: boolean =
+		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
 	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
 
 	let lastJobId: string | undefined = undefined
@@ -355,6 +359,8 @@
 	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
+
+<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 
 <Portal>
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
@@ -747,7 +753,35 @@
 			</div>
 			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
-				{#if job}<FlowMetadata {job} {scheduleEditor} />{/if}
+				{#if job}
+					<FlowMetadata {job} {scheduleEditor} />
+					{#if showExplicitProgressTip && currentJobIsLongRunning && !scriptProgress && 'running' in job}
+						<Alert
+							class="mt-4 p-1 flex flex-row relative text-center absolute"
+							size="xs"
+							type="info"
+							title="tip: Track progress of longer jobs"
+							tooltip="For better transparency and verbosity, you can try setting progress from within the script."
+							documentationLink="https://www.windmill.dev/docs/core_concepts/explicit_progress"
+						>
+							<button
+								type="button"
+								on:click={() => {
+									localStorage.setItem('hideExplicitProgressTip', 'true')
+									showExplicitProgressTip = false
+								}}
+								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+							>
+								<span class="sr-only">Close</span>
+								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+									<path
+										d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+									/>
+								</svg>
+							</button>
+						</Alert>
+					{/if}
+				{/if}
 			</div>
 		</div>
 
@@ -824,6 +858,11 @@
 		{:else if !job?.['deleted']}
 			<div class="mt-10" />
 			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4" />
+			<FlowProgressBar
+				{job}
+				bind:currentSubJobProgress={scriptProgress}
+				class="py-4 max-w-7xl mx-auto px-4"
+			/>
 			<div class="w-full mt-10">
 				<FlowStatusViewer
 					jobId={job.id}
