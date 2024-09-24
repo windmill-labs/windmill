@@ -360,8 +360,6 @@
 	bind:notfound
 />
 
-<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
-
 <Portal>
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
@@ -755,7 +753,7 @@
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}
 					<FlowMetadata {job} {scheduleEditor} />
-					{#if showExplicitProgressTip && currentJobIsLongRunning && !scriptProgress && 'running' in job}
+					{#if currentJobIsLongRunning && showExplicitProgressTip  && !scriptProgress && 'running' in job}
 						<Alert
 							class="mt-4 p-1 flex flex-row relative text-center"
 							size="xs"
@@ -791,6 +789,9 @@
 			</div>
 		{/if}
 		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
+			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && job?.job_kind == 'script'}
+				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
+			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
 					<div class="mt-10" />
