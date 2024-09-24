@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
-	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
+	import {
+		CheckCircle2,
+		Code,
+		Cross,
+		GitBranch,
+		Repeat,
+		Square,
+		Zap,
+		ChevronRight
+	} from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowModule, Script } from '$lib/gen'
@@ -100,10 +109,10 @@
 		</div>
 
 		<div class="flex flex-row grow min-h-0 gap-1">
-			<div class="flex-none flex flex-col text-xs w-36 text-primary">
+			<div class="flex-none flex flex-col text-xs text-primary">
 				<button
 					class={twMerge(
-						'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+						'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 						selectedKind === 'action' ? 'bg-surface-hover' : ''
 					)}
 					on:click={() => {
@@ -114,11 +123,12 @@
 				>
 					<Code size={14} />
 					Action
+					<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 				</button>
 				{#if customUi?.triggers != false && trigger}
 					<button
 						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 							selectedKind === 'trigger' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
@@ -129,11 +139,12 @@
 					>
 						<Zap size={14} />
 						Trigger
+						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 					</button>
 				{/if}
 				<button
 					class={twMerge(
-						'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+						'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 						selectedKind === 'approval' ? 'bg-surface-hover' : ''
 					)}
 					on:click={() => {
@@ -144,12 +155,13 @@
 				>
 					<CheckCircle2 size={14} />
 					Approval/Prompt
+					<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 				</button>
 
 				{#if customUi?.flowNode != false}
 					<button
 						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 							selectedKind === 'flow' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
@@ -159,11 +171,12 @@
 					>
 						<BarsStaggered size={14} />
 						Flow
+						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 					</button>
 				{/if}
 				{#if stop}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
 							close()
 							dispatch('new', { kind: 'end' })
@@ -175,7 +188,7 @@
 					</button>
 				{/if}
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'forloop' })
@@ -187,7 +200,7 @@
 					For Loop
 				</button>
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'whileloop' })
@@ -200,7 +213,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'branchone' })
@@ -212,7 +225,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'branchall' })

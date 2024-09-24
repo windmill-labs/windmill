@@ -45,7 +45,15 @@
 
 	$: owners = Array.from(
 		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
+	).sort((a, b) => {
+		if (a.startsWith('u/') && !b.startsWith('u/')) return -1
+		if (b.startsWith('u/') && !a.startsWith('u/')) return 1
+
+		if (a.startsWith('f/') && !b.startsWith('f/')) return -1
+		if (b.startsWith('f/') && !a.startsWith('f/')) return 1
+
+		return a.localeCompare(b)
+	})
 
 	const dispatch = createEventDispatcher()
 	let lockHash = false
