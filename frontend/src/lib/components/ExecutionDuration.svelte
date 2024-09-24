@@ -13,12 +13,12 @@
 	/** Is current job running more than specified value in `longDefinition` seconds */
 	export let longRunning: boolean = false
 	/** What do we count as "long" (in seconds)*/
-	export let longDefinition: number = 3
+	export let longDefinition: number = 30
 	/** How often component updates execution duration (in seconds)
 	 *   Higher value -> more efficient component is, less accuracy it has
 	 *   Lower value -> less efficient component is, more accuracy it has
 	 */
-	export let updateResolution: number = 2
+	export let updateResolution: number = 10
 
 	// Use this internally and write results to exported executionDuration
 	let _executionDuration: number = 0
