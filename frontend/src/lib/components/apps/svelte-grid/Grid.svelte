@@ -225,6 +225,11 @@
 
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 
+		if (!isCtrlOrMetaPressed) {
+			$overlappedStore = undefined
+			return
+		}
+
 		$overlappedStore = detail.intersectingElement
 	}
 
@@ -261,7 +266,14 @@
 					if (!isCtrlOrMetaPressed) {
 						return
 					}
-					dispatch('dropped', e.detail)
+
+					dispatch('dropped', {
+						id: e.detail.id,
+						overlapped: e.detail.overlapped,
+						x: e.detail.x,
+						y: e.detail.y
+					})
+
 					$overlappedStore = undefined
 				}}
 				width={xPerPx == 0

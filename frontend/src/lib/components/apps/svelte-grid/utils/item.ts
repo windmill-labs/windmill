@@ -31,6 +31,7 @@ function distance(a, b): number {
 
 export function findFreeSpaceForItem<T>(matrix: FilledItem<T>[][], item: ItemLayout) {
 	const cols = matrix[0].length
+
 	const w = Math.min(cols, item.w)
 	const h = item.h
 	let xNtime = cols - w + 1

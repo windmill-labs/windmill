@@ -80,7 +80,8 @@
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
 		parentComponentId: string,
-		subGridIndex: number
+		subGridIndex: number,
+		position?: { x: number; y: number }
 	) {
 		// Find the component in the source subgrid
 		const component = findGridItem($app, componentId)
@@ -100,12 +101,14 @@
 		}
 
 		const gridItem = component
+
 		insertNewGridItem(
 			$app,
 			(id) => ({ ...gridItem.data, id }),
 			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
-			component.id
+			component.id,
+			position
 		)
 
 		// Update the app state
@@ -159,7 +162,7 @@
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
 					on:dropped={(e) => {
-						const { id, overlapped } = e.detail
+						const { id, overlapped, x, y } = e.detail
 
 						if (!overlapped) {
 							return
@@ -169,7 +172,7 @@
 							return
 						}
 
-						moveComponentBetweenSubgrids(id, overlapped, 0)
+						moveComponentBetweenSubgrids(id, overlapped, 0, { x, y })
 					}}
 				>
 					<ComponentWrapper

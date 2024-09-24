@@ -272,8 +272,13 @@ export function createNewGridItem(
 				h: rec.h
 			}
 		} else {
-			newItem[column] = columns[column]
+			newItem[column] = {
+				...columns[column],
+				x: initialPosition.x,
+				y: initialPosition.y
+			}
 		}
+
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 
 		newItem[column] = { ...newItem[column], ...position }

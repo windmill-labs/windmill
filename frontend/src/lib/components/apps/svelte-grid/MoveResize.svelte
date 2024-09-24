@@ -70,8 +70,6 @@
 					window.addEventListener('pointermove', pointermove)
 					window.addEventListener('pointerup', pointerup)
 
-					dispatch('initmove')
-
 					const cordDiff = {
 						x: (moveX / $scale) * 100 - initX,
 						y: (moveY / $scale) * 100 - initY
@@ -286,6 +284,9 @@
 			update()
 		}
 	}
+
+	let element: HTMLElement | undefined = undefined
+
 	const pointerup = (e) => {
 		ctx.componentActive.set(false)
 		stopAutoscroll()
@@ -293,13 +294,33 @@
 		window.removeEventListener('pointerdown', pointerdown)
 		window.removeEventListener('pointermove', pointermove)
 		window.removeEventListener('pointerup', pointerup)
+
 		if (!dragClosure) {
 			repaint(true, true)
 		} else {
 			dragClosure = undefined
 		}
 
-		dispatch('dropped', { id, overlapped })
+		if (!overlapped) {
+			return
+		}
+
+		const xRelativeToElement = element ? e.clientX - element.getBoundingClientRect().left : 0
+		const yRelativeToElement = element ? e.clientY - element.getBoundingClientRect().top : 0
+
+		const overlappedElement = document.getElementById(`component-${overlapped}`)
+
+		const xRelativeToOverlappedElement = overlappedElement
+			? e.clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
+			: 0
+		const yRelativeToOverlappedElement = overlappedElement
+			? e.clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
+			: 0
+
+		const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
+		const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
+
+		dispatch('dropped', { id, overlapped, x: gridX, y: gridY })
 	}
 
 	let resizeInitPos = { x: 0, y: 0 }
@@ -370,6 +391,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
+	bind:this={element}
 	draggable="false"
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
 	id={divId}
@@ -401,7 +423,6 @@
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			overlapped && moveMode === 'move' ? 'svlte-grid-shadow-forbidden' : '',
 			overlapped && moveMode === 'insert' ? 'svlte-grid-shadow-drop' : ''
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -

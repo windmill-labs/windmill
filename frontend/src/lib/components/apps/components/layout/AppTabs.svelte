@@ -24,7 +24,7 @@
 	export let render: boolean
 	export let disabledTabs: RichConfiguration[]
 	export let onTabChange: string[] | undefined = undefined
-	export let depth: number = 0
+
 	let resolvedConfig = initConfig(
 		components['tabscomponent'].initialData.configuration,
 		configuration
@@ -176,7 +176,6 @@
 		{#if $app.subgrids}
 			{#each tabs ?? [] as _res, i}
 				<SubGridEditor
-					depth={depth + 1}
 					{id}
 					visible={render && i === selectedIndex}
 					subGridId={`${id}-${i}`}

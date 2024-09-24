@@ -93,7 +93,7 @@
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
 
-	const { mode, app, hoverStore, connectingInput } =
+	const { mode, app, hoverStore, connectingInput, allIdsInPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -148,16 +148,13 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive && overlapped === component.id && moveMode === 'move'}
+	{#if locked && componentActive && $componentActive && moveMode === 'move' && !$allIdsInPath?.includes(component.id)}
 		<div
-			class={twMerge(
-				'absolute inset-0 bg-locked center-center flex-col z-50',
-				overlapped ? 'bg-locked-hover' : ''
-			)}
+			class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
 		>
 			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
 				<Anchor size={24} class="text-primary " />
-				<div class="text-xs">Anchored: The component cannot be moved</div>
+				<div class="text-xs"> Anchored: The component cannot be moved. </div>
 			</div>
 		</div>
 	{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && componentDraggedIsNotChild(componentDraggedId, component.id)}
@@ -167,7 +164,8 @@
 				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
 				overlapped === component.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
 			)}
-		/>
+		>
+		</div>
 	{/if}
 	{#if $mode !== 'preview'}
 		<ComponentHeader
