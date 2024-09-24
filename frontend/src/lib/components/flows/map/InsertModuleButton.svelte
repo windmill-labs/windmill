@@ -94,7 +94,7 @@
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		</div>
 
-		<div class="flex flex-row grow min-h-0">
+		<div class="flex flex-row grow min-h-0 gap-1">
 			<div class="flex-none flex flex-col text-xs w-36 text-primary">
 				<button
 					class={twMerge(
