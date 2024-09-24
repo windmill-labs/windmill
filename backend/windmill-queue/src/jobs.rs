@@ -922,7 +922,11 @@ pub async fn add_completed_job<
             )
             .await;
         } else if !skip_downstream_error_handlers
-            && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
+            && (matches!(queued_job.job_kind, JobKind::Script)
+                || matches!(queued_job.job_kind, JobKind::Flow)
+                    && queued_job
+                        .parse_raw_flow()
+                        .is_some_and(|v| v.failure_module.is_none()))
             && queued_job.parent_job.is_none()
         {
             let result = serde_json::from_str(
