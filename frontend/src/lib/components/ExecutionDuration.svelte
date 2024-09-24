@@ -19,7 +19,13 @@
 	let busy: boolean = false
 	let interval: NodeJS.Timeout | undefined
 	// Detect when execution of job started
-	$: if (!busy && job && 'running' in job && job.job_kind == "script") start(job)
+	$: if (
+		!busy &&
+		job &&
+		'running' in job &&
+		(job.job_kind == 'script' || job?.job_kind == 'preview')
+	)
+		start(job)
 
 	function start(job: Job) {
 		busy = true

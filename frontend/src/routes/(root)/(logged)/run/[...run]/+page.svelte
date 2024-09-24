@@ -789,7 +789,7 @@
 			</div>
 		{/if}
 		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
-			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && job?.job_kind == 'script'}
+			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || job?.job_kind == 'preview')}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
