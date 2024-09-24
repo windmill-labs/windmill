@@ -12,7 +12,7 @@
 	import { type Script, type FlowModule } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { APP_TO_ICON_COMPONENT } from '../../icons'
-	import { Folder, Wand2 } from 'lucide-svelte'
+	import { Folder, Wand2, User } from 'lucide-svelte'
 	import { defaultIfEmptyString } from '$lib/utils'
 	import type { FlowCopilotContext, FlowCopilotModule } from '../../copilot/flow'
 	import type { FlowEditorContext } from '../../flows/types'
@@ -73,6 +73,8 @@
 	} else if (selectedKind === 'action') {
 		kind = 'script'
 	}
+
+	let ownerShort: string = ''
 
 	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 		.map((l) => [defaultScriptLanguages[l], l])
@@ -159,8 +161,12 @@
 									selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 								}}
 							>
-								<Folder class="mr-0.5" size={14} />
-								{owner}
+								{#if owner.startsWith('f/')}
+									<Folder class="mr-0.5" size={14} />
+								{:else}
+									<User class="mr-0.5" size={14} />
+								{/if}
+								{(ownerShort = owner).slice(2)}
 							</button>
 						</div>
 					{/each}
@@ -190,8 +196,12 @@
 								selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 							}}
 						>
-							<Folder class="mr-0.5" size={14} />
-							{owner}
+							{#if owner.startsWith('f/')}
+								<Folder class="mr-0.5" size={14} />
+							{:else}
+								<User class="mr-0.5" size={14} />
+							{/if}
+							{(ownerShort = owner).slice(2)}
 						</button>
 					</div>
 				{/each}
