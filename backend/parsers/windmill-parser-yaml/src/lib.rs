@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::anyhow;
 use serde_json::json;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
@@ -25,14 +27,19 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                     if let Yaml::Hash(v) = &value {
                         for (key, arg) in v {
                             if let Yaml::String(arg_name) = key {
-                                args.push(Arg {
-                                    name: arg_name.to_string(),
-                                    otyp: None,
-                                    typ: parse_ansible_typ(&arg),
-                                    default: None,
-                                    has_default: false,
-                                    oidx: None,
-                                })
+                                // if not then it is a static resource or var, so skip
+                                // it will be fetched by the worker
+                                if let ArgTyp::Typ(typ) = parse_ansible_arg_typ(arg) {
+                                    let default = get_default_for_typ(&arg);
+                                    args.push(Arg {
+                                        name: arg_name.to_string(),
+                                        otyp: None,
+                                        typ,
+                                        has_default: default.is_some(),
+                                        default,
+                                        oidx: None,
+                                    })
+                                }
                             }
                         }
                     }
@@ -63,6 +70,50 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
         no_main_func: None,
         has_preprocessor: None,
     })
+}
+
+fn get_default_for_typ(arg: &Yaml) -> Option<serde_json::Value> {
+    if let Yaml::Hash(arg) = arg {
+        if let Some(def) = arg.get(&Yaml::String("default".to_string())) {
+            if let Some(Yaml::String(typ)) = arg.get(&Yaml::String("type".to_string())) {
+                if let Yaml::String(path) = def {
+                    if typ.as_str() == "windmill_resource" {
+                        return Some(serde_json::Value::String(format!("$res:{}", path)));
+                    }
+                }
+            }
+            return Some(yaml_to_json(def));
+        }
+    }
+    None
+}
+
+enum ArgTyp {
+    Typ(Typ),
+    StaticVar(String),
+    StaticResource(String),
+}
+
+fn parse_ansible_arg_typ(arg: &Yaml) -> ArgTyp {
+    if let Yaml::Hash(a) = arg {
+        if let Some(Yaml::String(typ)) = a.get(&Yaml::String("type".to_string())) {
+            if typ.as_str() == "windmill_variable" {
+                if let Some(Yaml::String(variable_path)) =
+                    a.get(&Yaml::String("variable".to_string()))
+                {
+                    return ArgTyp::StaticVar(variable_path.to_string());
+                }
+            }
+            if typ.as_str() == "windmill_resource" {
+                if let Some(Yaml::String(resource_path)) =
+                    a.get(&Yaml::String("resource".to_string()))
+                {
+                    return ArgTyp::StaticResource(resource_path.to_string());
+                }
+            }
+        }
+    }
+    ArgTyp::Typ(parse_ansible_typ(arg))
 }
 
 fn parse_ansible_typ(arg: &Yaml) -> Typ {
@@ -127,7 +178,19 @@ fn parse_ansible_typ(arg: &Yaml) -> Typ {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct AnsiblePlaybookOptions {
+    // There are a lot more options
+    // TODO: Add the options as customers require them
+    // Add it here and then on the executors cmd_options
+    pub verbosity: Option<String>,
+    pub forks: Option<i64>,
+    pub timeout: Option<i64>,
+    pub flush_cache: Option<()>,
+    pub force_handlers: Option<()>,
+}
+
+#[derive(Debug, Clone)]
 pub struct FileResource {
     pub resource_path: String,
     pub target_path: String,
@@ -140,12 +203,15 @@ pub struct AnsibleInventory {
     resource_type: Option<String>,
     pub pinned_resource: Option<String>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnsibleRequirements {
     pub python_reqs: Vec<String>,
     pub collections: Option<String>,
     pub file_resources: Vec<FileResource>,
     pub inventories: Vec<AnsibleInventory>,
+    pub vars: Vec<(String, String)>,
+    pub resources: Vec<(String, String)>,
+    pub options: AnsiblePlaybookOptions,
 }
 
 fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
@@ -204,11 +270,21 @@ pub fn parse_ansible_reqs(
         return Ok((logs, None, inner_content.to_string()));
     }
 
+    let opts = AnsiblePlaybookOptions {
+        verbosity: None,
+        forks: None,
+        timeout: None,
+        flush_cache: None,
+        force_handlers: None,
+    };
     let mut ret = AnsibleRequirements {
         python_reqs: vec![],
         collections: None,
         file_resources: vec![],
         inventories: vec![],
+        vars: vec![],
+        resources: vec![],
+        options: opts,
     };
 
     if let Yaml::Hash(doc) = &docs[0] {
@@ -242,9 +318,32 @@ pub fn parse_ansible_reqs(
                         ret.file_resources.append(&mut resources?);
                     }
                 }
-                Yaml::String(key) if key == "extra_vars" => {}
+                Yaml::String(key) if key == "extra_vars" => {
+                    if let Yaml::Hash(v) = &value {
+                        for (key, arg) in v {
+                            if let Yaml::String(arg_name) = key {
+                                match parse_ansible_arg_typ(arg) {
+                                    ArgTyp::StaticVar(p) => {
+                                        ret.vars
+                                            .push((arg_name.to_string(), format!("$var:{}", p)));
+                                    }
+                                    ArgTyp::StaticResource(p) => {
+                                        ret.resources
+                                            .push((arg_name.to_string(), format!("$res:{}", p)));
+                                    }
+                                    ArgTyp::Typ(_) => (),
+                                }
+                            }
+                        }
+                    }
+                }
                 Yaml::String(key) if key == "inventory" => {
                     ret.inventories = parse_inventories(value)?;
+                }
+                Yaml::String(key) if key == "options" => {
+                    if let Yaml::Array(opts) = &value {
+                        ret.options = parse_ansible_options(opts);
+                    }
                 }
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
                 _ => (),
@@ -258,6 +357,82 @@ pub fn parse_ansible_reqs(
         emitter.dump(&docs[i])?;
     }
     Ok((logs, Some(ret), out_str))
+}
+
+fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {
+    let mut ret = AnsiblePlaybookOptions {
+        verbosity: None,
+        forks: None,
+        timeout: None,
+        flush_cache: None,
+        force_handlers: None,
+    };
+    for opt in opts {
+        if let Yaml::String(o) = opt {
+            match o.as_str() {
+                "flush_cache" => {
+                    ret.flush_cache = Some(());
+                }
+                "force_handlers" => {
+                    ret.force_handlers = Some(());
+                }
+                s if count_consecutive_vs(s) > 0 => {
+                    ret.verbosity = Some("v".repeat(count_consecutive_vs(s).min(6)));
+                }
+                _ => (),
+            }
+        }
+        if let Yaml::Hash(m) = opt {
+            if let Some((Yaml::String(name), value)) = m.iter().last() {
+                match name.as_str() {
+                    "forks" => {
+                        if let Yaml::Integer(count) = value {
+                            ret.forks = Some(*count);
+                        }
+                    }
+                    "timeout" => {
+                        if let Yaml::Integer(timeout) = value {
+                            ret.timeout = Some(*timeout);
+                        }
+                    }
+                    "verbosity" => {
+                        if let Yaml::String(verbosity) = value {
+                            let c = count_consecutive_vs(verbosity);
+                            if c > 0 && c <= 6 {
+                                ret.verbosity = Some("v".repeat(c.min(6)));
+                            }
+
+                        }
+                    }
+                    _ => ()
+
+                }
+            }
+
+
+        }
+    }
+
+    ret
+}
+
+fn count_consecutive_vs(s: &str) -> usize {
+    let mut max_count = 0;
+    let mut current_count = 0;
+
+    for c in s.chars() {
+        if c == 'v' {
+            current_count += 1;
+            if current_count == 6 {
+                return 6;  // Stop early if we reach 6
+            }
+        } else {
+            current_count = 0;  // Reset count if the character is not 'v'
+        }
+        max_count = max_count.max(current_count);
+    }
+
+    max_count
 }
 
 fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
@@ -278,4 +453,32 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
         ));
     }
     return Err(anyhow!("Invalid file resource: Should be a dictionary."));
+}
+
+fn yaml_to_json(yaml: &Yaml) -> serde_json::Value {
+    match yaml {
+        Yaml::Array(arr) => {
+            let json_array: Vec<serde_json::Value> = arr.into_iter().map(yaml_to_json).collect();
+            serde_json::Value::Array(json_array)
+        }
+        Yaml::Hash(hash) => {
+            let json_object = hash
+                .into_iter()
+                .map(|(k, v)| {
+                    let key = match k {
+                        Yaml::String(s) => s.clone(),
+                        _ => k.as_str().unwrap_or("").to_string(),
+                    };
+                    (key, yaml_to_json(v))
+                })
+                .collect();
+            serde_json::Value::Object(json_object)
+        }
+        Yaml::String(s) => serde_json::Value::String(s.to_string()),
+        Yaml::Integer(i) => serde_json::Value::Number(i.clone().into()),
+        Yaml::Real(r) => serde_json::Value::Number(r.parse().unwrap_or(0.into())),
+        Yaml::Boolean(b) => serde_json::Value::Bool(*b),
+        Yaml::Null => serde_json::Value::Null,
+        _ => serde_json::Value::Null,
+    }
 }
