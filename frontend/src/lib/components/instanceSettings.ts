@@ -32,7 +32,7 @@ export const settings: Record<string, Setting[]> = {
 	Core: [
 		{
 			label: 'Base url',
-			description: 'Public base url of the instance',
+			description: 'Public base url of the instance. <a href="https://www.windmill.dev/docs/advanced/instance_settings#global-users">Learn more</a>',
 			key: 'base_url',
 			fieldType: 'text',
 			placeholder: 'https://windmill.com',
@@ -48,7 +48,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Email domain',
-			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			description:
+				'Domain to display in webhooks for <a href="https://www.windmill.dev/docs/advanced/email_triggers">email triggers</a> (should match the MX record)',
 			key: 'email_domain',
 			fieldType: 'text',
 			storage: 'setting',
@@ -66,13 +67,14 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
-			description: 'Default timeout for individual jobs',
+			description: 'Default timeout for individual jobs. <a href="https://www.windmill.dev/docs/core_concepts/jobs#retention-policy">Learn more</a>',
 			fieldType: 'seconds',
 			storage: 'setting',
 			cloudonly: false
 		},
 		{
 			label: 'Max timeout for sync endpoints',
+			description: 'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
 			cloudonly: true,
 			fieldType: 'seconds',
@@ -81,7 +83,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'License key',
-			description: 'License key required to use the EE (switch image for windmill-ee)',
+			description: 'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
 			key: 'license_key',
 			fieldType: 'license_key',
 			placeholder: 'only needed to prepare upgrade to EE',
@@ -89,7 +91,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Non-prod instance',
-			description: 'Whether we should consider the reported usage of this instance as non-prod',
+			description: 'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
 			key: 'dev_instance',
 			fieldType: 'boolean',
 			storage: 'setting'
@@ -97,7 +99,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Retention period in secs',
 			key: 'retention_period_secs',
-			description: 'How long to keep the jobs data in the database (max 30 days on CE)',
+			description: 'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
 			fieldType: 'seconds',
 			placeholder: '30',
 			storage: 'setting',
@@ -106,15 +108,15 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Expose metrics',
-			description: 'Expose Prometheus metrics for workers and servers on port 8001 at /metrics',
+			description: 'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
 		},
 		{
-			label: 'S3/Azure for Python/Go cache & large logs',
-			description: 'Bucket to store large logs and global cache for Python and Go.',
+			label: 'Instance object storage',
+			description: ' S3/Azure bucket to store large logs and global cache for Python and Go. <a href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage">Learn more</a>',
 			key: 'object_store_cache_config',
 			fieldType: 'object_store_config',
 			storage: 'setting',
@@ -122,8 +124,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Critical alert channels',
-			description:
-				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel.',
+			description: 'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alert_channels">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
@@ -131,8 +132,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Azure OpenAI base path',
-			description:
-				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}',
+			description: 'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -140,7 +140,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Private Hub base url',
-			description: 'Base url of your private Hub instance, without trailing slash',
+			description: 'Base url of your private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
@@ -152,7 +152,7 @@ export const settings: Record<string, Setting[]> = {
 	Registries: [
 		{
 			label: 'Pip Index Url',
-			description: 'Add private PIP registry',
+			description: 'Add private Pip registry',
 			key: 'pip_index_url',
 			fieldType: 'text',
 			placeholder: 'https://username:password@pypi.company.com/simple',
@@ -161,7 +161,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Pip Extra Index Url',
-			description: 'Add private extra PIP registry',
+			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
 			placeholder: 'https://username:password@pypi.company.com/simple',
@@ -170,7 +170,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Npm Config Registry',
-			description: 'Add private NPM registry',
+			description: 'Add private npm registry',
 			key: 'npm_config_registry',
 			fieldType: 'text',
 			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
@@ -231,14 +231,14 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Keep job directories',
 			key: 'keep_job_dir',
 			fieldType: 'boolean',
-			tooltip: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
+			description: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
 			storage: 'setting'
 		},
 		{
 			label: 'Expose debug metrics',
 			key: 'expose_debug_metrics',
 			fieldType: 'boolean',
-			tooltip: 'Expose additional metrics (require metrics to be enabled)',
+			description: 'Expose additional metrics (require metrics to be enabled)',
 			storage: 'setting'
 		}
 	],

@@ -966,16 +966,17 @@ pub async fn handle_bun_job(
             .as_ref()
             .unwrap_or(&args)
             .iter()
-            .enumerate()
-            .filter_map(|(i, x)| {
+            .filter_map(|x| {
                 if matches!(x.typ, Typ::Datetime) {
-                    Some(i)
+                    Some(x.name.as_str())
                 } else {
                     None
                 }
             })
-            .map(|x| return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined"))
-            .join("\n");
+            .map(|x| {
+                return format!(r#"args["{x}"] = args["{x}"] ? new Date(args["{x}"]) : undefined"#);
+            })
+            .join("\n    ");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
@@ -1021,8 +1022,8 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-{dates}
 async function run() {{
+    {dates}
     {preprocessor}
     const argsArr = argsObjToArr(args);
     if (Main.{main_name} === undefined || typeof Main.{main_name} !== 'function') {{

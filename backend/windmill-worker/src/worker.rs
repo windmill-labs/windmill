@@ -2849,6 +2849,7 @@ mount {{
                 db,
                 client,
                 &inner_content,
+                &shared_mount,
                 base_internal_url,
                 envs,
             ).await
