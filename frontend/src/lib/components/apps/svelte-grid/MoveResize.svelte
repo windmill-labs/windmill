@@ -70,6 +70,8 @@
 					window.addEventListener('pointermove', pointermove)
 					window.addEventListener('pointerup', pointerup)
 
+					dispatch('initmove')
+
 					const cordDiff = {
 						x: (moveX / $scale) * 100 - initX,
 						y: (moveY / $scale) * 100 - initY
