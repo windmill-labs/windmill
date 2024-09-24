@@ -72,7 +72,7 @@
 					}}
 				>
 					<Code2 size={14} />
-					<span class="grow min-w-0 truncate text-left text-xs text-primary font-semibold">
+					<span class="grow min-w-0 truncate text-left text-2xs text-primary font-normal">
 						{#if marked}
 							{@html marked}
 						{:else}

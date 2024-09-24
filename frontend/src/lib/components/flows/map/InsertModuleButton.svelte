@@ -84,7 +84,7 @@
 	</svelte:fragment>
 	<div
 		id="flow-editor-insert-module"
-		class="flex flex-col h-[400px] w-[600px] p-1.5 gap-1.5"
+		class="flex flex-col h-[400px] w-[600px] pt-1 pr-1 pl-1 gap-1.5"
 		on:mouseenter={handleMouseenter}
 		on:mouseleave={handleMouseleave}
 		role="none"
@@ -94,11 +94,11 @@
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		</div>
 
-		<div class="flex flex-row grow min-h-0 divide-x">
-			<div class="flex-none flex flex-col text-xs w-40 text-primary">
+		<div class="flex flex-row grow min-h-0">
+			<div class="flex-none flex flex-col text-xs w-36 text-primary">
 				<button
 					class={twMerge(
-						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+						'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 						selectedKind === 'action' ? 'bg-surface-hover' : ''
 					)}
 					on:click={() => {
@@ -113,7 +113,7 @@
 				{#if customUi?.triggers != false && trigger}
 					<button
 						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+							'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 							selectedKind === 'trigger' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
@@ -128,7 +128,7 @@
 				{/if}
 				<button
 					class={twMerge(
-						'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+						'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 						selectedKind === 'approval' ? 'bg-surface-hover' : ''
 					)}
 					on:click={() => {
@@ -144,7 +144,7 @@
 				{#if customUi?.flowNode != false}
 					<button
 						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+							'w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 							selectedKind === 'flow' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
@@ -158,7 +158,7 @@
 				{/if}
 				{#if stop}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
 							close()
 							dispatch('new', { kind: 'end' })
@@ -170,7 +170,7 @@
 					</button>
 				{/if}
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'forloop' })
@@ -182,7 +182,7 @@
 					For Loop
 				</button>
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'whileloop' })
@@ -195,7 +195,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'branchone' })
@@ -207,7 +207,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', { kind: 'branchall' })

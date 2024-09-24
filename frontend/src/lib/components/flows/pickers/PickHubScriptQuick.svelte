@@ -106,7 +106,9 @@
 	<Alert type="error" title="Hub not available" size="xs" />
 {:else if items.length > 0 && apps.length > 0}
 	{#if items.length == 0}
-		<div class="text-2xs text-tercary text-center py-2 px-3 items-center"> No items found. </div>
+		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
+			No items found.
+		</div>
 	{:else}
 		<ul>
 			{#each items as item (item.path)}
@@ -131,7 +133,7 @@
 							{/if}
 						</div>
 
-						<span class="grow truncate text-left text-xs text-primary font-semibold">
+						<span class="grow truncate text-left text-2xs text-primary font-normal">
 							{item.summary ?? ''}
 						</span>
 					</button>
@@ -140,7 +142,7 @@
 		</ul>
 	{/if}
 	{#if items.length == 40}
-		<div class="text-2xs text-tercary text-center py-2 px-3 items-center">
+		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
 	{/if}

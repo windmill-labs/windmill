@@ -99,7 +99,7 @@
 					{:else if filter.startsWith('f/')}
 						<Folder class="mr-0.5" size={14} />
 					{/if}
-					<span class="text-xs">{filter}</span>
+					<span class="text-left text-2xs text-primary font-normal">{filter}</span>
 				</div>
 			</button>
 		</div>

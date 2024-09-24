@@ -147,14 +147,14 @@
 			{/if} -->
 			{#if preFilter === 'all' || preFilter === 'workspace'}
 				{#if preFilter !== 'workspace'}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace Folders</div>
+					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace Folders</div>
 				{/if}
 				{#if owners.length > 0}
 					{#each owners as owner (owner)}
 						<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 							<button
 								class={twMerge(
-									'w-full text-2xs text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+									'w-full  text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 									owner === selected?.name ? 'bg-surface-hover' : ''
 								)}
 								on:click={() => {
@@ -171,15 +171,15 @@
 						</div>
 					{/each}
 				{:else}
-					<div class="text-2xs text-tercary text-center py-2 px-3 items-center">
-						No folders containing {kind} found.
+					<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
+						No items found.
 					</div>
 				{/if}
 			{/if}
 
 			{#if preFilter === 'hub' || preFilter === 'all'}
 				{#if preFilter == 'all'}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Integrations</div>
+					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Integrations</div>
 				{/if}
 				<ListFiltersQuick {syncQuery} filters={apps} bind:selectedFilter={selected} resourceType />
 			{/if}
@@ -189,7 +189,7 @@
 					<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 						<button
 							class={twMerge(
-								'w-full text-2xs text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+								'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 								owner === selected?.name ? 'bg-surface-hover' : ''
 							)}
 							on:click={() => {
@@ -224,7 +224,7 @@
 						>
 							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 
-							<span class="grow truncate text-left text-xs text-primary font-semibold">
+							<span class="grow truncate text-left text-2xs text-primary font-normal">
 								Generate "{funcDesc}" in TypeScript
 							</span>
 						</button>
@@ -240,7 +240,7 @@
 						>
 							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 
-							<span class="grow truncate text-left text-xs text-primary font-semibold">
+							<span class="grow truncate text-left text-2xs text-primary font-normal">
 								Generate "{funcDesc}" in Python
 							</span>
 						</button>
@@ -248,7 +248,7 @@
 				</ul>
 			{/if}
 			{#if funcDesc.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
-				<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Create Inline Script</div>
+				<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Create Inline Script</div>
 				{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
 					{#if displayLang(lang, kind)}
 						<FlowScriptPickerQuick
@@ -289,7 +289,7 @@
 			{/if}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Hub</div>
+					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
 				{/if}
 				<PickHubScriptQuick
 					bind:filter
@@ -303,7 +303,7 @@
 
 			{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
 				{#if !selected && (preFilter !== 'workspace' || funcDesc.length > 0)}
-					<div class="pt-2 pb-0 text-2xs text-secondary ml-2">Workspace</div>
+					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
 				{/if}
 				<WorkspaceScriptPickerQuick
 					bind:owners
@@ -334,7 +334,7 @@
 											<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} />
 										</div>
 
-										<div class="text-left text-xs text-secondary">
+										<div class="text-left text-2xs text-primary font-normal">
 											{defaultIfEmptyString(item.summary, item.path)}
 										</div>
 									</div>

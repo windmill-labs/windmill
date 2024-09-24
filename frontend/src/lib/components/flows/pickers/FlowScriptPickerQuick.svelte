@@ -18,7 +18,7 @@
 		{#if lang}
 			<LanguageIcon {lang} width={14} height={14} />
 		{/if}
-		<span class="grow truncate text-left text-xs text-primary font-semibold">
+		<span class="grow truncate text-left text-2xs text-primary font-normal">
 			{label}
 		</span>
 	</button>

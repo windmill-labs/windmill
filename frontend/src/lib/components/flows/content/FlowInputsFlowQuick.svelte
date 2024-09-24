@@ -37,13 +37,15 @@
 <div class="flex flex-col min-h-0">
 	{#if filteredItems}
 		{#if filter.length > 0 && filteredItems.length == 0}
-			<div class="text-2xs text-tercary text-center py-2 px-3 items-center"> No items found. </div>
+			<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
+				No items found.
+			</div>
 		{/if}
 		<ul class="overflow-auto">
 			{#each filteredItems as { path, summary, marked }}
 				<li class="flex flex-row w-full">
 					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md text-left text-2xs text-primary font-normal"
 						on:click={async () => {
 							dispatch('pickFlow', {
 								path,
@@ -52,7 +54,7 @@
 						}}
 					>
 						<BarsStaggered size={14} />
-						<span class="grow truncate text-left text-xs text-primary font-semibold">
+						<span class="grow truncate">
 							{#if marked}
 								{@html marked}
 							{:else}

@@ -39,7 +39,7 @@
 	})
 </script>
 
-<div class={twMerge('relative', scrollableClass)}>
+<div class={twMerge('relative pb-1', scrollableClass)}>
 	<div bind:this={el} on:scroll={handleScroll} class="w-full h-full overflow-y-auto">
 		<slot />
 	</div>
