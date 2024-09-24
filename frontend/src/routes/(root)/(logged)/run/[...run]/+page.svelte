@@ -757,7 +757,7 @@
 					<FlowMetadata {job} {scheduleEditor} />
 					{#if showExplicitProgressTip && currentJobIsLongRunning && !scriptProgress && 'running' in job}
 						<Alert
-							class="mt-4 p-1 flex flex-row relative text-center absolute"
+							class="mt-4 p-1 flex flex-row relative text-center"
 							size="xs"
 							type="info"
 							title="tip: Track progress of longer jobs"
