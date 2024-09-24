@@ -440,7 +440,6 @@ async fn fetch_api_authed(
         folders: authed.folders,
         scopes: authed.scopes,
         username_override: Some(username_override),
-        tags: None,
     })
 }
 
