@@ -762,7 +762,7 @@
 							type="info"
 							title="tip: Track progress of longer jobs"
 							tooltip="For better transparency and verbosity, you can try setting progress from within the script."
-							documentationLink="https://www.windmill.dev/docs/core_concepts/explicit_progress"
+							documentationLink="https://www.windmill.dev/docs/advanced/explicit_progress"
 						>
 							<button
 								type="button"
