@@ -573,6 +573,28 @@ pub enum UpdateJobPollingExit {
     AlreadyCompleted,
 }
 
+pub async fn update_worker_ping_for_failed_init_script(
+    db: &DB,
+    worker_name: &str,
+    last_job_id: Uuid,
+) {
+    if let Err(e) = sqlx::query!(
+        "UPDATE worker_ping SET 
+        ping_at = now(), 
+        jobs_executed = 1, 
+        current_job_id = $1, 
+        current_job_workspace_id = 'admins' 
+        WHERE worker = $2",
+        last_job_id,
+        worker_name
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error updating worker ping for failed init script: {e:?}");
+    }
+}
+
 pub async fn update_job_poller<F, Fut>(
     job_id: Uuid,
     db: &DB,
