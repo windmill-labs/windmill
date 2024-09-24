@@ -55,6 +55,7 @@
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
+	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -130,7 +131,8 @@
 				invisibleToOwner,
 				requestBody: args,
 				scheduledFor,
-				tag: overrideTag
+				tag: overrideTag,
+				skipPreprocessor: true
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (e) {
@@ -495,6 +497,9 @@
 				isFlow={true}
 				{args}
 			/>
+		</svelte:fragment>
+		<svelte:fragment slot="routes">
+			<RoutesPanel path={flow.path ?? ''} isFlow />
 		</svelte:fragment>
 		<svelte:fragment slot="email">
 			<EmailTriggerPanel

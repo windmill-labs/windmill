@@ -7,6 +7,7 @@
 		openSchedules: () => void
 		triggerDetail: (e: { detail: 'webhook' | 'mail' | 'schedule' }) => void
 		isEditor: boolean
+		newFlow: boolean
 	}
 </script>
 
@@ -18,5 +19,6 @@
 			data.triggerDetail(e.detail)
 		}}
 		isEditor={data.isEditor}
+		newFlow={data.newFlow}
 	/>
 </NodeWrapper>

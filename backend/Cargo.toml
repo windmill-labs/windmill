@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.397.1"
+version = "1.398.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -27,7 +27,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.397.1"
+version = "1.398.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -252,6 +252,7 @@ indexmap = { version = "2.2.5", features = ["serde"]}
 tokio-native-tls = "^0"
 openssl = "=0.10"
 mail-parser = "^0"
+matchit = "=0.7.3"
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

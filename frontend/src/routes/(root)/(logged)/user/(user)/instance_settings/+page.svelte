@@ -7,7 +7,7 @@
 	let saved = false
 </script>
 
-<CenteredModal large title="Instance Settings">
+<CenteredModal large title="Instance settings">
 	<InstanceSettings on:saved={() => (saved = true)} />
 	<p class="text-secondary text-sm px-2 py-4">
 		You can change these settings later in the instance settings but finishing setup will leave this

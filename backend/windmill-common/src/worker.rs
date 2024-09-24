@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
+use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::Smtp, DB};
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
@@ -66,8 +66,7 @@ lazy_static::lazy_static! {
     pub static ref WORKER_SUSPENDED_PULL_QUERY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
 
 
-    pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default(), timeout_wait_result: 20 }));
-
+    pub static ref SMTP_CONFIG: Arc<RwLock<Option<Smtp>>> = Arc::new(RwLock::new(None));
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
@@ -195,7 +194,11 @@ fn normalize_path(path: &Path) -> PathBuf {
     }
     ret
 }
-pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &str, content: &str) -> error::Result<File> {
+pub fn write_file_at_user_defined_location(
+    job_dir: &str,
+    user_defined_path: &str,
+    content: &str,
+) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
 
@@ -210,9 +213,11 @@ pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &st
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             "Path is outside the allowed job directory.",
-        ).into());
+        )
+        .into());
     }
 
+    let full_path = normalized_full_path.as_path();
     if let Some(parent_dir) = full_path.parent() {
         std::fs::create_dir_all(parent_dir)?;
     }
@@ -220,7 +225,7 @@ pub fn write_file_at_user_defined_location(job_dir: &str, user_defined_path: &st
     let mut file = File::create(full_path)?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
-    Ok(file)
+    Ok(normalized_full_path)
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {

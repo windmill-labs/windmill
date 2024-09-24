@@ -485,6 +485,7 @@
 		return [
 			'settings-metadata',
 			'constants',
+			'preprocessor',
 			...dfsApply($flowStore.value.modules, (module) => module.id)
 		]
 	}
@@ -1322,6 +1323,7 @@
 					on:reload={() => {
 						renderCount += 1
 					}}
+					{newFlow}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

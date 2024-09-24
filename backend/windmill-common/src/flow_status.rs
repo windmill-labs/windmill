@@ -29,6 +29,7 @@ pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: Box<FlowStatusModuleWParent>,
+    pub preprocessor_module: Option<FlowStatusModule>,
 
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
@@ -355,7 +356,11 @@ impl FlowStatusModule {
 impl FlowStatus {
     pub fn new(f: &FlowValue) -> Self {
         Self {
-            step: 0,
+            step: if f.preprocessor_module.is_some() {
+                -1
+            } else {
+                0
+            },
             approval_conditions: None,
             modules: f
                 .modules
@@ -372,6 +377,13 @@ impl FlowStatus {
                         .unwrap_or_else(|| "failure".to_string()),
                 },
             }),
+            preprocessor_module: if f.preprocessor_module.is_some() {
+                Some(FlowStatusModule::WaitingForPriorSteps {
+                    id: f.preprocessor_module.as_ref().unwrap().id.clone(),
+                })
+            } else {
+                None
+            },
             cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,

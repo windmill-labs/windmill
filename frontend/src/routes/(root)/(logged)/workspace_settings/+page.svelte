@@ -568,6 +568,7 @@
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
 			path: hubPaths.gitSyncTest,
+			skipPreprocessor: true,
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}
@@ -685,7 +686,7 @@
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
-					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
+					<div class="flex gap-2 items-center my-1"> Object Storage (S3)</div>
 				</Tab>
 				<Tab size="xs" value="default_app">
 					<div class="flex gap-2 items-center my-1"> Default App </div>
@@ -1052,11 +1053,11 @@
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">S3 Storage</div>
+					<div class=" text-primary text-lg font-semibold">Workspace object storage (S3/Azure Blob)</div>
 					<div class="text-tertiary text-xs">
-						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage.
+						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
 						<a
-							href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
+							href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 							target="_blank"
 							class="text-blue-500">Learn more</a
 						>.
@@ -1073,7 +1074,7 @@
 				<Alert type="info" title="Logs storage is set at the instance level">
 					This setting is only for storage of large files allowing to upload files directly to
 					object storage using S3Object and use the wmill sdk to read and write large files backed
-					by an object storage. The automatics large logs storage is set by the superadmins in the
+					by an object storage. Large-scale log management and distributed dependency caching is under <a href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage" class="text-blue-500">Instance object storage</a>, set by the superadmins in the
 					instance settings UI.
 				</Alert>
 			{/if}
@@ -1226,7 +1227,7 @@
 						on:click={() => {
 							editWindmillLFSSettings()
 							console.log('Saving S3 settings', s3ResourceSettings)
-						}}>Save S3 settings</Button
+						}}>Save storage settings</Button
 					>
 				</div>
 			{/if}

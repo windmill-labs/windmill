@@ -17,6 +17,7 @@
 	export let disableAi = false
 	export let disableSettings = false
 	export let smallErrorHandler = false
+	export let newFlow: boolean = false
 
 	let size = 40
 
@@ -46,6 +47,7 @@
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
+						{newFlow}
 						bind:modules={$flowStore.value.modules}
 						on:reload
 					/>

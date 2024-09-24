@@ -31,6 +31,8 @@
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore'
+	import { emptySchema } from '$lib/utils'
+	import { NEVER_TESTED_THIS_FAR } from '../models'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -38,7 +40,7 @@
 	export let disableTutorials = false
 	export let disableAi = false
 	export let disableSettings = false
-
+	export let newFlow: boolean = false
 	export let smallErrorHandler = false
 
 	let flowTutorials: FlowTutorials | undefined = undefined
@@ -256,6 +258,7 @@
 		<FlowGraphV2
 			path={$pathStore}
 			isEditor={true}
+			{newFlow}
 			{disableAi}
 			insertable
 			scroll
@@ -263,6 +266,7 @@
 			moving={$moving?.module.id}
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
+			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
 			on:delete={({ detail }) => {
@@ -270,13 +274,15 @@
 				dependents = getDependentComponents(e.id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
-
-					selectNextId(e.id)
-
-					removeAtId($flowStore.value.modules, e.id)
-
-					if ($flowInputsStore) {
-						delete $flowInputsStore[e.id]
+					if (e.id === 'preprocessor') {
+						$selectedId = 'Input'
+						$flowStore.value.preprocessor_module = undefined
+					} else {
+						selectNextId(e.id)
+						removeAtId($flowStore.value.modules, e.id)
+						if ($flowInputsStore) {
+							delete $flowInputsStore[e.id]
+						}
 					}
 					$flowStore = $flowStore
 
@@ -307,13 +313,26 @@
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
-							await insertNewModuleAtIndex(
-								detail.modules,
-								detail.index ?? 0,
-								detail.detail,
-								detail.script
-							)
-							$selectedId = detail.modules[detail.index ?? 0].id
+							if (detail.detail === 'preprocessor') {
+								const preprocessorModule = {
+									schema: emptySchema(),
+									previewResult: NEVER_TESTED_THIS_FAR
+								}
+								$flowStore.value.preprocessor_module = {
+									id: 'preprocessor',
+									value: { type: 'identity' }
+								}
+								$flowStateStore['preprocessor'] = preprocessorModule
+								$selectedId = 'preprocessor'
+							} else {
+								await insertNewModuleAtIndex(
+									detail.modules,
+									detail.index ?? 0,
+									detail.detail,
+									detail.script
+								)
+								$selectedId = detail.modules[detail.index ?? 0].id
+							}
 						}
 
 						if (['branchone', 'branchall'].includes(detail.detail)) {
