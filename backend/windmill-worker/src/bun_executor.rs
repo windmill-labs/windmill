@@ -19,7 +19,7 @@ use crate::{
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
-    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, SYSTEM_ROOT, TZ_ENV,
 };
 
 use tokio::{fs::File, process::Command};
@@ -109,6 +109,9 @@ pub async fn gen_bun_lockfile(
             .args(vec!["run", "build.js"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
         let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
@@ -239,6 +242,9 @@ pub async fn install_bun_lockfile(
         .args(vec!["install"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
@@ -446,6 +452,10 @@ pub async fn generate_wrapper_mjs(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let child_process = start_child_process(child, &*BUN_PATH).await?;
     handle_child(
         job_id,
@@ -489,6 +499,10 @@ pub async fn generate_bun_bundle(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let mut child_process = start_child_process(child, &*BUN_PATH).await?;
     if let Some(db) = db {
         handle_child(
@@ -710,6 +724,10 @@ async fn compute_bundle_local_and_remote_path(
 
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
+
+    #[cfg(windows)]
+    let local_path = local_path.replace("/tmp", r"C:\tmp").replace("/", r"\");
+
     let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
     (local_path, remote_path)
 }
@@ -802,12 +820,23 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let mut gbuntar_name = None;
+    let mut gbuntar_name: Option<String> = None;
     if has_bundle_cache {
+        #[cfg(unix)]
         let target = format!("{job_dir}/main.js");
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&local_path, &target).map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "could not copy cached binary from {local_path} to {job_dir}/main: {e:?}"
+            ))
+        })?;
+
+        #[cfg(windows)]
+        let target = format!("{job_dir}\\main.js");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&local_path, &target).map_err(|e| {
+            error::Error::ExecutionErr(format!(
+                "could not copy cached binary from {local_path} to {job_dir}\\main: {e:?}"
             ))
         })?;
     } else if let Some(codebase) = codebase.as_ref() {
@@ -1295,7 +1324,7 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let cmd = if annotation.nodejs_mode {
+        let mut cmd = if annotation.nodejs_mode {
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*NODE_BIN_PATH);
@@ -1336,6 +1365,10 @@ try {{
                 .stderr(Stdio::piped());
             bun_cmd
         };
+
+        #[cfg(windows)]
+        cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         start_child_process(
             cmd,
             if annotation.nodejs_mode {

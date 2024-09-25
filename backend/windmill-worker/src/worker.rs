@@ -31,15 +31,18 @@ use windmill_common::METRICS_ENABLED;
 use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap}, fs::DirBuilder, hash::Hash, sync::{
-        atomic::{AtomicBool, AtomicU16, Ordering},
-        Arc,
-    }, time::Duration
-};
 #[cfg(feature = "benchmark")]
 use std::sync::atomic::AtomicUsize;
-
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    fs::DirBuilder,
+    hash::Hash,
+    sync::{
+        atomic::{AtomicBool, AtomicU16, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use uuid::Uuid;
 
@@ -55,8 +58,8 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result,  pull, push, CanceledBy,
-    PushArgs, PushIsolationLevel, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PushArgs,
+    PushIsolationLevel, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -81,16 +84,31 @@ use tokio::{
 
 use rand::Rng;
 
-
 use crate::{
-    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
+    ansible_executor::handle_ansible_job,
+    bash_executor::{handle_bash_job, handle_powershell_job},
+    bun_executor::handle_bun_job,
+    common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         NO_LOGS_AT_ALL, SLOW_LOGS,
-    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
+    },
+    deno_executor::handle_deno_job,
+    go_executor::handle_go_job,
+    graphql_executor::do_graphql,
+    handle_job_error,
+    js_eval::{eval_fetch_timeout, transpile_ts},
+    mysql_executor::do_mysql,
+    pg_executor::do_postgresql,
+    php_executor::handle_php_job,
+    python_executor::handle_python_job,
+    result_processor::{handle_receive_completed_job, process_result},
+    rust_executor::handle_rust_job,
+    worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
-    }, worker_lockfiles::{
+    },
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
 
 #[cfg(feature = "enterprise")]
@@ -328,6 +346,8 @@ lazy_static::lazy_static! {
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
+    #[cfg(windows)]
+    pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
 
     static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
         .ok()
@@ -573,10 +593,8 @@ type GGauge = ();
 #[derive(Clone)]
 pub struct JobCompletedSender(Sender<SendResult>, Option<GGauge>, Option<Histo>);
 
-
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
-
 
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
@@ -610,7 +628,6 @@ impl SameWorkerSender {
         self.0.send(payload).await
     }
 }
-
 
 // on linux, we drop caches every DROP_CACHE_PERIOD to avoid OOM killer believing we are using too much memory just because we create lots of files when executing jobs
 #[cfg(any(target_os = "linux"))]
@@ -1429,7 +1446,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     tracing::error!(
                         "failed to fetch same_worker job on a non recoverable job, exiting"
                     );
-                    job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
+                    job_completed_tx
+                        .0
+                        .send(SendResult::Kill)
+                        .await
+                        .expect("send kill to job completed tx");
                     break;
                 } else {
                     r
@@ -1438,7 +1459,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 if !killed_but_draining_same_worker_jobs {
                     tracing::info!("received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
                     killed_but_draining_same_worker_jobs = true;
-                    job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
+                    job_completed_tx
+                        .0
+                        .send(SendResult::Kill)
+                        .await
+                        .expect("send kill to job completed tx");
                 }
                 continue;
             } else if killed_but_draining_same_worker_jobs {
@@ -1515,19 +1540,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::debug!("set worker busy to 1");
         }
 
-
         match next_job {
             Ok(Some(job)) => {
-
-
                 last_executed_job = None;
                 jobs_executed += 1;
 
                 tracing::debug!("started handling of job {}", job.id);
 
-
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
-
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {
                             job.flow_step_id.as_ref().map(|x| x.to_string())
@@ -1653,7 +1673,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-                    
+
                     let folder = if job.language == Some(ScriptLang::Go) {
                         DirBuilder::new()
                             .recursive(true)
@@ -1663,7 +1683,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     } else {
                         ""
                     };
-                    
+
                     let target = &format!("{job_dir}{folder}/shared");
 
                     if same_worker && job.parent_job.is_some() {
@@ -2351,7 +2371,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     Ok(())
 }
 
-
 pub fn build_envs(
     envs: Option<Vec<String>>,
 ) -> windmill_common::error::Result<HashMap<String, String>> {
@@ -2673,7 +2692,11 @@ async fn handle_code_execution_job(
     );
 
     let shared_mount = if job.same_worker && job.language != Some(ScriptLang::Deno) {
-        let folder = if job.language == Some(ScriptLang::Go) { "/go" } else { "" };
+        let folder = if job.language == Some(ScriptLang::Go) {
+            "/go"
+        } else {
+            ""
+        };
         format!(
             r#"
 mount {{
@@ -2837,7 +2860,6 @@ mount {{
             .await
         }
         Some(ScriptLang::Ansible) => {
-
             handle_ansible_job(
                 requirements_o,
                 job_dir,
@@ -2851,7 +2873,8 @@ mount {{
                 &inner_content,
                 base_internal_url,
                 envs,
-            ).await
+            )
+            .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };

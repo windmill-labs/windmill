@@ -19,15 +19,28 @@ use crate::{
         start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    RUST_CACHE_DIR, TZ_ENV,
+    RUST_CACHE_DIR, SYSTEM_ROOT, TZ_ENV,
 };
 
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
 
+#[cfg(unix)]
 lazy_static::lazy_static! {
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| "/usr/local/cargo".to_string());
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| "/usr/local/rustup".to_string());
     static ref CARGO_PATH: String = format!("{}/bin/cargo", std::env::var("CARGO_HOME").unwrap_or("/usr/local/cargo/bin/cargo".to_string()));
+}
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
+    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| {
+        format!("{}\\.cargo", *HOME_DIR)
+    });
+    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| {
+        format!("{}\\.rustup", *HOME_DIR)
+    });
+    static ref CARGO_PATH: String = format!("{}/bin/cargo.exe", *CARGO_HOME);
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -124,6 +137,14 @@ pub async fn generate_cargo_lockfile(
         .args(vec!["generate-lockfile"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        gen_lockfile_cmd.env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        );
+    }
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -169,9 +190,20 @@ pub async fn build_rust_crate(
         .env("HOME", HOME_ENV.as_str())
         .env("CARGO_HOME", CARGO_HOME.as_str())
         .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-        .args(vec!["build", "--release"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    build_rust_cmd.args(vec!["build", "--release"]);
+
+    #[cfg(windows)]
+    {
+        build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        build_rust_cmd.env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        );
+    }
+
     let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -273,7 +305,15 @@ pub async fn handle_rust_job(
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
+            ))
+        })?;
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&bin_path, &target).map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))
@@ -352,6 +392,9 @@ pub async fn handle_rust_job(
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
 
         start_child_process(run_rust, compiled_executable_name).await?
     };

@@ -5,6 +5,7 @@ mod mssql_executor;
 #[cfg(feature = "enterprise")]
 mod snowflake_executor;
 
+mod ansible_executor;
 mod bash_executor;
 mod bun_executor;
 pub mod common;
@@ -25,7 +26,6 @@ mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
-mod ansible_executor;
 pub use worker::*;
 
 pub use result_processor::handle_job_error;

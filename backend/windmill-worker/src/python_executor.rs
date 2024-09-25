@@ -60,7 +60,7 @@ use crate::{
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, TZ_ENV,
+    PIP_INDEX_URL, SYSTEM_ROOT, TZ_ENV,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -425,6 +425,13 @@ mount {{
                 ),
         )?;
     } else {
+        #[cfg(windows)]
+        reserved_variables.insert(
+            "PYTHONPATH".to_string(),
+            additional_python_paths_folders.replace(":", ";"),
+        );
+
+        #[cfg(unix)]
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }
 
@@ -470,6 +477,10 @@ mount {{
             .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
     };
 
@@ -1006,7 +1017,12 @@ pub async fn handle_python_reqs(
             start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
         } else {
             let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
+            #[cfg(unix)]
             let req = format!("'{}'", req);
+
+            #[cfg(windows)]
+            let req = format!("{}", req);
+
             let mut command_args = vec![
                 PYTHON_PATH.as_str(),
                 "-m",
@@ -1062,19 +1078,35 @@ pub async fn handle_python_reqs(
 
             tracing::debug!("pip install command: {:?}", command_args);
 
-            let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-            flock_cmd
-                .env_clear()
-                .envs(envs)
-                .args([
-                    "-x",
-                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
-                    "--command",
-                    &command_args.join(" "),
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
+            #[cfg(unix)]
+            {
+                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+                flock_cmd
+                    .env_clear()
+                    .envs(envs)
+                    .args([
+                        "-x",
+                        &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
+                        "--command",
+                        &command_args.join(" "),
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
+            }
+
+            #[cfg(windows)]
+            {
+                let mut pip_cmd = Command::new(PYTHON_PATH.as_str());
+                pip_cmd
+                    .env_clear()
+                    .envs(envs)
+                    .env("SystemRoot", SYSTEM_ROOT.as_str())
+                    .args(&command_args[1..])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(pip_cmd, PYTHON_PATH.as_str()).await?
+            }
         };
 
         let child = handle_child(
