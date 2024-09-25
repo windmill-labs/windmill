@@ -5964,7 +5964,7 @@ paths:
               schema:
                 type: integer
 
-  /jobs/count_by_tag:
+  /jobs/completed/count_by_tag:
     get:
       summary: Count jobs by tag
       operationId: countJobsByTag
