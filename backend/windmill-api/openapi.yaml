@@ -5964,6 +5964,38 @@ paths:
               schema:
                 type: integer
 
+  /jobs/count_by_tag:
+    get:
+      summary: Count jobs by tag
+      operationId: countJobsByTag
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: horizon
+          in: query
+          description: Time horizon in seconds (default is 3600)
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job counts by tag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tag:
+                      type: string
+                    count:
+                      type: integer
+                  required:
+                    - tag
+                    - count
+
   /w/{workspace}/jobs_u/get/{id}:
     get:
       summary: get job
@@ -6497,6 +6529,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 
   /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:

@@ -1030,8 +1030,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         };
 
     let mut worker_code_execution_metric: f32 = 0.0;
+<<<<<<< Updated upstream
     let mut running_job_started_at: Option<Instant> = None;
 
+=======
+    let mut worker_occupancy_rate_history: Vec<f32> = Vec::new();
+    let mut last_occupancy_rate_update = Instant::now();
+    let mut last_worker_code_execution_metric = 0.0;
+>>>>>>> Stashed changes
     let mut jobs_executed = 0;
 
     #[cfg(feature = "prometheus")]
@@ -1359,8 +1365,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 (None, None)
             };
 
+            let last_occupancy_elapsed = last_occupancy_rate_update.elapsed().as_secs();
+            if last_occupancy_elapsed > 300 {
+                last_occupancy_rate_update = Instant::now();
+                let last_5min_occupancy_rate = (worker_code_execution_metric - last_worker_code_execution_metric) / last_occupancy_elapsed as f32;
+                worker_occupancy_rate_history.push(last_5min_occupancy_rate);
+                last_worker_code_execution_metric = worker_code_execution_metric;
+                if worker_occupancy_rate_history.len() > 6 {
+                    worker_occupancy_rate_history.remove(0);
+                }
+            }
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
+                 occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
+                 memory = COALESCE($8, memory), occupancy_rate_5m = $9, occupancy_rate_30m = $10 WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
@@ -1368,7 +1386,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 wm_memory_usage,
                 &worker_name,
                 vcpus,
-                memory
+                memory,
+                worker_occupancy_rate_history.last(),
+                if worker_occupancy_rate_history.len() > 0  { Some(worker_occupancy_rate_history.iter().sum::<f32>() / worker_occupancy_rate_history.len() as f32) } else { None }
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
