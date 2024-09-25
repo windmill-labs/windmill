@@ -215,7 +215,8 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-export const MSSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+export const MSSQL_INIT_CODE = `-- return_last_result
+-- to pin the database use '-- database f/your/path'
 -- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
 -- @p3 name3 (int)

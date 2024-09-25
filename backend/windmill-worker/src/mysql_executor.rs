@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
+    worker::{get_sql_annotations, to_raw_value},
 };
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
@@ -40,7 +41,8 @@ pub fn do_mysql_inner<'a>(
     all_statement_values: &Params,
     conn: Arc<Mutex<mysql_async::Conn>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
-) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Vec<Value>>>> {
+    skip_collect: bool,
+) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
     let param_names = parse_sql_statement_named_params(query, ':')
         .into_iter()
         .map(|x| x.into_bytes())
@@ -58,31 +60,42 @@ pub fn do_mysql_inner<'a>(
     };
 
     let result_f = async move {
-        let rows: Vec<Row> = conn
-            .lock()
-            .await
-            .exec(query, statement_values)
-            .await
-            .map_err(to_anyhow)?;
+        if skip_collect {
+            conn.lock()
+                .await
+                .exec_drop(query, statement_values)
+                .await
+                .map_err(to_anyhow)?;
 
-        if let Some(column_order) = column_order {
-            *column_order = Some(
-                rows.first()
-                    .map(|x| {
-                        x.columns()
-                            .iter()
-                            .map(|x| x.name_str().to_string())
-                            .collect::<Vec<String>>()
-                    })
-                    .unwrap_or_default(),
-            );
+            Ok(to_raw_value(&Value::Array(vec![])))
+        } else {
+            let rows: Vec<Row> = conn
+                .lock()
+                .await
+                .exec(query, statement_values)
+                .await
+                .map_err(to_anyhow)?;
+
+            if let Some(column_order) = column_order {
+                *column_order = Some(
+                    rows.first()
+                        .map(|x| {
+                            x.columns()
+                                .iter()
+                                .map(|x| x.name_str().to_string())
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default(),
+                );
+            }
+
+            Ok(to_raw_value(
+                &rows
+                    .into_iter()
+                    .map(|x| convert_row_to_value(x))
+                    .collect::<Vec<serde_json::Value>>(),
+            ))
         }
-
-        Ok(rows
-            .into_iter()
-            .map(|x| convert_row_to_value(x))
-            .collect::<Vec<serde_json::Value>>())
-            as Result<Vec<serde_json::Value>, anyhow::Error>
     };
 
     Ok(result_f.boxed())
@@ -132,6 +145,8 @@ pub async fn do_mysql(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    let annotations = get_sql_annotations(query);
 
     let opts = OptsBuilder::default()
         .db_name(Some(database.database))
@@ -235,21 +250,40 @@ pub async fn do_mysql(
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
-            .map(|x| do_mysql_inner(x, &statement_values, conn_a.clone(), None))
+            .enumerate()
+            .map(|(i, x)| {
+                do_mysql_inner(
+                    x,
+                    &statement_values,
+                    conn_a.clone(),
+                    None,
+                    annotations.return_last_result && i < queries.len() - 1,
+                )
+            })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
 
         let f = async {
-            let mut res: Vec<serde_json::Value> = vec![];
+            let mut res: Vec<Box<RawValue>> = vec![];
             for fut in futures {
                 let r = fut.await?;
-                res.push(serde_json::to_value(r).map_err(to_anyhow)?);
+                res.push(r);
             }
-            Ok(res)
+            if annotations.return_last_result && res.len() > 0 {
+                Ok(res.pop().unwrap())
+            } else {
+                Ok(to_raw_value(&res))
+            }
         };
 
         f.boxed()
     } else {
-        do_mysql_inner(query, &statement_values, conn_a.clone(), Some(column_order))?
+        do_mysql_inner(
+            query,
+            &statement_values,
+            conn_a.clone(),
+            Some(column_order),
+            false,
+        )?
     };
 
     let result = run_future_with_polling_update_job_poller(
