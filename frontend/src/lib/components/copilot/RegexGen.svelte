@@ -31,7 +31,7 @@
 					{
 						role: 'system',
 						content:
-							'Generate a regex pattern that one can use in a javascript Regex object. Output only the regex itself. The regex should match the following:'
+							'Generate a regex pattern that one can use in a javascript Regex object. Output only the regex itself without any wrapping characters including the / characters. The regex should match the following:'
 					},
 					{
 						role: 'user',
