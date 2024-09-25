@@ -246,7 +246,9 @@
 	let yamlEditorDrawer: Drawer | undefined = undefined
 </script>
 
-<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+{#if insertable}
+	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+{/if}
 
 <div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
 	{#if graph?.error}
