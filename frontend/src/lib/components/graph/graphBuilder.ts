@@ -75,7 +75,7 @@ export default function graphBuilder(
 				// If the current node has parent nodes
 				if (parents[nodeId]) {
 					// Check each parent node
-					// Nodes can have multiples parents: the node that that gathers the result for branches or loops for instance
+					// Nodes can have multiple parents: the node that gathers the result for branches or loops for instance
 					for (const parentNode of parents[nodeId]) {
 						// If the parentNode hasn't been visited and a cycle is detected in its path
 						if (!visited.has(parentNode) && detectCycle(parentNode, visited, currentPath)) {
