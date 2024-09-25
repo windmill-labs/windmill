@@ -309,8 +309,10 @@ export async function updateScriptSchema(
     path
   );
   metadataContent.schema = result.schema;
-  metadataContent.has_preprocessor = result.has_preprocessor;
-  metadataContent.no_main_func = result.no_main_func;
+  if (result.has_preprocessor != null)
+    metadataContent.has_preprocessor = result.has_preprocessor;
+  if (result.no_main_func != null)
+    metadataContent.no_main_func = result.no_main_func;
 }
 
 async function updateScriptLock(
