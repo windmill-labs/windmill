@@ -5091,7 +5091,7 @@ async fn get_completed_job_result(
 
 #[derive(Deserialize)]
 struct CountByTagQuery {
-    horizon: Option<i64>,
+    horizon_secs: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -5106,7 +5106,7 @@ async fn count_by_tag(
     Query(query): Query<CountByTagQuery>,
 ) -> JsonResult<Vec<TagCount>> {
     require_super_admin(&db, &email).await?;
-    let horizon = query.horizon.unwrap_or(3600); // Default to 1 hour if not specified
+    let horizon = query.horizon_secs.unwrap_or(3600); // Default to 1 hour if not specified
 
     let counts = sqlx::query_as!(
         TagCount,

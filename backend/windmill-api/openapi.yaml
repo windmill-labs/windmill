@@ -5971,10 +5971,9 @@ paths:
       tags:
         - job
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: horizon
+        - name: horizon_secs
           in: query
-          description: Time horizon in seconds (default is 3600)
+          description: Past Time horizon in seconds (when to start the count = now - horizon) (default is 3600)
           required: false
           schema:
             type: integer

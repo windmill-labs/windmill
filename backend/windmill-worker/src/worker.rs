@@ -1030,14 +1030,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         };
 
     let mut worker_code_execution_metric: f32 = 0.0;
-<<<<<<< Updated upstream
     let mut running_job_started_at: Option<Instant> = None;
 
-=======
     let mut worker_occupancy_rate_history: Vec<f32> = Vec::new();
     let mut last_occupancy_rate_update = Instant::now();
     let mut last_worker_code_execution_metric = 0.0;
->>>>>>> Stashed changes
     let mut jobs_executed = 0;
 
     #[cfg(feature = "prometheus")]
