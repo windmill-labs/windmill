@@ -96,10 +96,11 @@
 			<div class="p-4">
 				<Alert
 					type="info"
-					title="Preprocessor is called when the flow is triggered by API or email"
+					title="Preprocessor step is called when the flow is triggered by API or email"
 				>
 					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
-					`wm_trigger` argument with trigger details.
+					`wm_trigger` argument with trigger details. Learn more about all flow triggers
+					<a href="https://www.windmill.dev/docs/getting_started/trigger_flows" target="_blank">here</a>.
 				</Alert>
 			</div>
 		{/if}
