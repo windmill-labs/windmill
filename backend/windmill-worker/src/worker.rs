@@ -194,6 +194,7 @@ pub async fn create_token_for_owner(
         exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
             as usize,
         job_id: Some(job_id.to_string()),
+        scopes: None,
     };
 
     let token = jsonwebtoken::encode(
