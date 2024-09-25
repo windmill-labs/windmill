@@ -19,11 +19,17 @@ struct JobsUsage {
     count: i64,
 }
 
+pub enum SendStatsReason {
+    Manual,
+    Schedule,
+    OnStart,
+}
+
 pub async fn send_stats(
     _http_client: &reqwest::Client,
     _db: &DB,
     _skip_job_usage: bool,
-    _manual: bool,
+    _reason: SendStatsReason,
 ) -> Result<()> {
     // stats details are closed source
     Ok(())

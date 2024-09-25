@@ -298,7 +298,13 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&HTTP_CLIENT, &db, true, true).await?;
+    windmill_common::stats_ee::send_stats(
+        &HTTP_CLIENT,
+        &db,
+        true,
+        windmill_common::stats_ee::SendStatsReason::Manual,
+    )
+    .await?;
 
     Ok("Sent stats".to_string())
 }
