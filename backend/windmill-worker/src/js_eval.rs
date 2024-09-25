@@ -40,8 +40,7 @@ use windmill_common::{error::Error, flow_status::JobResult, DB};
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{run_future_with_polling_update_job_poller, unsafe_raw},
-    AuthedClient,
+    common::unsafe_raw, handle_child::run_future_with_polling_update_job_poller, AuthedClient,
 };
 
 #[derive(Debug, Clone)]

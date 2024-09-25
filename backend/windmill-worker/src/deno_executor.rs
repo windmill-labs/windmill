@@ -7,9 +7,10 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file, read_result, start_child_process,
+        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
+        read_file, read_result, start_child_process,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };

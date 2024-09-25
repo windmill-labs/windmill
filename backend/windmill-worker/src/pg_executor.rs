@@ -38,7 +38,8 @@ use windmill_parser_sql::{
 };
 use windmill_queue::CanceledBy;
 
-use crate::common::{build_args_values, run_future_with_polling_update_job_poller, sizeof_val};
+use crate::common::{build_args_values, sizeof_val};
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
 use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;

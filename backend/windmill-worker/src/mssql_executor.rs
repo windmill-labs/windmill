@@ -15,7 +15,8 @@ use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::{append_logs, CanceledBy};
 
-use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
+use crate::common::build_args_values;
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]

@@ -13,7 +13,7 @@ use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
 
-use crate::common::run_future_with_polling_update_job_poller;
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{build_args_values, resolve_job_timeout},
     AuthedClientBackgroundTask,

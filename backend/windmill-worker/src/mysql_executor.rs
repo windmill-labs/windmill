@@ -21,7 +21,7 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, run_future_with_polling_update_job_poller},
+    common::build_args_map, handle_child::run_future_with_polling_update_job_poller,
     AuthedClientBackgroundTask,
 };
 

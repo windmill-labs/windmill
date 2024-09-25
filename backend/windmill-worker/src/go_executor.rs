@@ -15,9 +15,10 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
+        capitalize, create_args_and_out_file, get_reserved_variables, read_result,
         start_child_process,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };

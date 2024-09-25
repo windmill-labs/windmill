@@ -20,10 +20,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     bash_executor::BIN_BASH,
-    common::{
-        get_reserved_variables, handle_child, read_and_check_result, start_child_process,
-        transform_json,
-    },
+    common::{get_reserved_variables, read_and_check_result, start_child_process, transform_json},
+    handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,

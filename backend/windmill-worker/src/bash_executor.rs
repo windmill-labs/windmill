@@ -24,9 +24,9 @@ lazy_static::lazy_static! {
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, handle_child, read_file, read_file_content,
-        start_child_process,
+        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
 };
