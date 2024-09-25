@@ -1341,6 +1341,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::debug!("set worker busy to 0");
         }
 
+        running_job_started_at = None;
+
         #[cfg(feature = "prometheus")]
         if let Some(ref um) = uptime_metric {
             um.inc_by(
@@ -1356,6 +1358,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
+
+            let total_occupation = if let Some(started_at) = running_job_started_at {
+                let elapsed = started_at.elapsed().as_secs_f32();
+                worker_code_execution_metric + elapsed
+            } else {
+                worker_code_execution_metric
+            };
+
             let (vcpus, memory) = if *REFRESH_CGROUP_READINGS
                 && last_reading.elapsed().as_secs() > NUM_SECS_READINGS
             {
@@ -1368,9 +1378,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let last_occupancy_elapsed = last_occupancy_rate_update.elapsed().as_secs();
             if last_occupancy_elapsed > 300 {
                 last_occupancy_rate_update = Instant::now();
-                let last_5min_occupancy_rate = (worker_code_execution_metric - last_worker_code_execution_metric) / last_occupancy_elapsed as f32;
+                let last_5min_occupancy_rate = (total_occupation - last_worker_code_execution_metric) / last_occupancy_elapsed as f32;
                 worker_occupancy_rate_history.push(last_5min_occupancy_rate);
-                last_worker_code_execution_metric = worker_code_execution_metric;
+                last_worker_code_execution_metric = total_occupation;
                 if worker_occupancy_rate_history.len() > 6 {
                     worker_occupancy_rate_history.remove(0);
                 }
@@ -1381,7 +1391,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                  memory = COALESCE($8, memory), occupancy_rate_5m = $9, occupancy_rate_30m = $10 WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
-                worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
+                total_occupation / start_time.elapsed().as_secs_f32(),
                 memory_usage,
                 wm_memory_usage,
                 &worker_name,
@@ -1536,6 +1546,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             wb.set(1);
             tracing::debug!("set worker busy to 1");
         }
+
+        running_job_started_at = Some(Instant::now());
 
 
         match next_job {

@@ -9,10 +9,13 @@ type GlobalOptions = {
 };
 
 
+function toPercent(value: number | undefined): string {
+  return value != undefined ? `${(value * 100).toFixed(5)}%` : '?%';
+}
 
 async function displayWorkers(opts: GlobalOptions) {
   const activeInstance = await pickInstance(opts, true);
-
+  
   if (activeInstance) {
       const workerGroups = await wmill.listWorkerGroups();
       const workers = await wmill.listWorkers({
@@ -61,8 +64,9 @@ async function displayWorkers(opts: GlobalOptions) {
         if (group.workers.length === 0) {
           log.info("  No workers in this group");
         } else {
+
           new Table()
-            .header(["Worker ID", "Host", "Queues",  "Jobs", "Last job", "Last Ping"])
+            .header(["Worker ID", "Host", "Queues",  "Jobs", "Occupancy rate 5m/30m/ever)", "Last job", "Last Ping"])
             .padding(2)
             .border(true)
             .maxColWidth(30)
@@ -71,6 +75,8 @@ async function displayWorkers(opts: GlobalOptions) {
               worker.worker_instance,
               worker.custom_tags?.join(', ') || '',
               worker.jobs_executed,
+              `${toPercent(worker.occupancy_rate_5m)}/${toPercent(worker.occupancy_rate_30m)}/${toPercent(worker.occupancy_rate)}`,
+              
               worker.last_job_id ? worker.last_job_id + ' ' +worker.last_job_workspace_id : '',
               `${worker.last_ping}s ago`
             ]))

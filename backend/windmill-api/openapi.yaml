@@ -11196,6 +11196,10 @@ components:
           type: string
         occupancy_rate:
           type: number
+        occupancy_rate_5m:
+          type: number
+        occupancy_rate_30m:
+          type: number
         memory:
           type: number
         vcpus:
