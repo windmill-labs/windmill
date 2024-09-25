@@ -200,7 +200,9 @@ export function getTypeStrFromPath(
     parsed.ext == ".gql" ||
     parsed.ext == ".ps1" ||
     parsed.ext == ".js" ||
-    parsed.ext == ".php"
+    parsed.ext == ".php" ||
+    parsed.ext == ".rs" ||
+    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
   }
