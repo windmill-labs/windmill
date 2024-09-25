@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.399.0](https://github.com/windmill-labs/windmill/compare/v1.398.1...v1.399.0) (2024-09-25)
+
+
+### Features
+
+* add tag filtering to external JWT authentication ([#4425](https://github.com/windmill-labs/windmill/issues/4425)) ([590321f](https://github.com/windmill-labs/windmill/commit/590321fd3c88046a657e0a751b62a19424102060))
+
+
+### Bug Fixes
+
+* **cli:** version the whole client for deno compatibility ([81c2bb0](https://github.com/windmill-labs/windmill/commit/81c2bb069176a95b8fb9c52b31e5e03c1cc78afc))
+* correct AI generation for CRON and regex ([#4437](https://github.com/windmill-labs/windmill/issues/4437)) ([aeb5b5b](https://github.com/windmill-labs/windmill/commit/aeb5b5bcd163e2e7d1413d7e4aed8bd769996f24))
+
 ## [1.398.1](https://github.com/windmill-labs/windmill/compare/v1.398.0...v1.398.1) (2024-09-23)
 
 
