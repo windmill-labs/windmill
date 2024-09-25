@@ -18,7 +18,7 @@
 	let scheduleEditor: ScheduleEditor
 
 	let schedule: Schedule | false | undefined = undefined
-	let schedules: Schedule[] | undefined = undefined
+	export let schedules: Schedule[] | undefined = undefined
 
 	$: path && loadSchedule()
 	$: path && loadSchedules()

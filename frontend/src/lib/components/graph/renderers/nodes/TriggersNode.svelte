@@ -8,6 +8,7 @@
 		triggerDetail: (e: { detail: 'webhook' | 'mail' | 'schedule' }) => void
 		isEditor: boolean
 		newFlow: boolean
+		extra_perms: Record<string, any>
 	}
 </script>
 

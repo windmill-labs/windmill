@@ -16,6 +16,7 @@
 	import { Route } from 'lucide-svelte'
 	import { canWrite } from '$lib/utils'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 
 	let schedules: Schedule[] | undefined = undefined
 	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
@@ -59,7 +60,7 @@
 	loadTriggers()
 
 	let drawer: Drawer | undefined = undefined
-	let selectedTab: 'webhooks' | 'mail' | 'routes' = 'webhooks'
+	let selectedTab: 'webhooks' | 'mail' | 'routes' | 'schedules' = 'webhooks'
 </script>
 
 {#if !newFlow}
@@ -70,6 +71,7 @@
 					<Tab value="webhooks">Webhooks</Tab>
 					<Tab value="mail">Mail</Tab>
 					<Tab value="routes">Routes</Tab>
+					<Tab value="schedules">Schedules</Tab>
 
 					<svelte:fragment slot="content">
 						{#if selectedTab === 'webhooks'}
@@ -88,6 +90,15 @@
 
 						{#if selectedTab === 'routes'}
 							<RoutesPanel path={path ?? ''} isFlow={true} bind:triggers />
+						{/if}
+
+						{#if selectedTab === 'schedules'}
+							<RunPageSchedules
+								isFlow={true}
+								path={path ?? ''}
+								can_write={canWrite(path, {}, $userStore)}
+								bind:schedules
+							/>
 						{/if}
 					</svelte:fragment>
 				</Tabs>
@@ -159,7 +170,8 @@
 						<TriggerButton
 							on:click={() => {
 								if (isEditor) {
-									dispatch('openSchedules')
+									selectedTab = 'schedules'
+									drawer?.openDrawer()
 								} else {
 									dispatch('triggerDetail', 'schedule')
 								}
