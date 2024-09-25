@@ -30,11 +30,13 @@
 	async function loadSchedules() {
 		if (!path) return
 		try {
-			schedules = await ScheduleService.listSchedules({
-				workspace: $workspaceStore ?? '',
-				path: path,
-				isFlow: true
-			})
+			schedules = (
+				await ScheduleService.listSchedules({
+					workspace: $workspaceStore ?? '',
+					path: path,
+					isFlow: true
+				})
+			).filter((s) => s.path != path)
 		} catch (e) {
 			console.error('impossible to load schedules')
 		}
@@ -114,8 +116,8 @@
 							Triggers
 
 							<Tooltip small wrapperClass="center-center">
-								The flow can be triggered by webhooks, emails, or schedules. Click on the icons to
-								see the triggers.
+								The flow can be triggered by webhooks, emails, schedules or routes. Click on the
+								icons to see the triggers.
 							</Tooltip>
 						</div>
 					</div>
