@@ -13,7 +13,8 @@
 		insertNewGridItem,
 		isContainer,
 		maxHeight,
-		selectId
+		selectId,
+		subGridIndexKey
 	} from './appUtils'
 	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
@@ -43,7 +44,8 @@
 		mode,
 		parentWidth,
 		breakpoint,
-		allIdsInPath
+		allIdsInPath,
+		worldStore
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -216,7 +218,12 @@
 								return
 							}
 
-							moveComponentBetweenSubgrids(id, overlapped, 0, { x, y })
+							moveComponentBetweenSubgrids(
+								id,
+								overlapped,
+								subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+								{ x, y }
+							)
 						}
 					}}
 				>

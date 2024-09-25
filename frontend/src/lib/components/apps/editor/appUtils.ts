@@ -1152,3 +1152,24 @@ export function isContainer(type: string): boolean {
 		type === 'decisiontreecomponent'
 	)
 }
+
+export function subGridIndexKey(type: string | undefined, id: string, world: World): number {
+	switch (type) {
+		case 'containercomponent':
+		case 'verticalsplitpanescomponent':
+		case 'horizontalsplitpanescomponent':
+		case 'listcomponent':
+			return 0
+		case 'tabscomponent': {
+			return (world?.outputsById?.[id]?.selectedTabIndex?.peak() as number) ?? 0
+		}
+		case 'steppercomponent': {
+			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'decisiontreecomponent': {
+			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0
+		}
+	}
+
+	return 0
+}

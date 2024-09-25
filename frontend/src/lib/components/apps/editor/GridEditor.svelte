@@ -13,7 +13,8 @@
 		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
-		isContainer
+		isContainer,
+		subGridIndexKey
 	} from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -39,7 +40,8 @@
 		parentWidth,
 		breakpoint,
 		allIdsInPath,
-		bgRuns
+		bgRuns,
+		worldStore
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, scale, componentActive } = getContext<AppEditorContext>('AppEditorContext')
@@ -202,7 +204,12 @@
 						return
 					}
 
-					moveComponentBetweenSubgrids(id, overlapped, 0, { x, y })
+					moveComponentBetweenSubgrids(
+						id,
+						overlapped,
+						subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+						{ x, y }
+					)
 				}}
 			>
 				<ComponentWrapper
