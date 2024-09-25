@@ -5977,6 +5977,12 @@ paths:
           required: false
           schema:
             type: integer
+        - name: workspace_id
+          in: query
+          description: Specific workspace ID to filter results (optional)
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Job counts by tag

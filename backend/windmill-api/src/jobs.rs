@@ -5111,6 +5111,7 @@ async fn get_completed_job_result(
 #[derive(Deserialize)]
 struct CountByTagQuery {
     horizon_secs: Option<i64>,
+    workspace_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -5131,12 +5132,13 @@ async fn count_by_tag(
         TagCount,
         r#"
         SELECT tag as "tag!", COUNT(*) as "count!"
-        FROM queue
-        WHERE scheduled_for > NOW() - make_interval(secs => $1)
+        FROM completed_job
+        WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
         GROUP BY tag
         ORDER BY "count!" DESC
         "#,
-        horizon as f64
+        horizon as f64,
+        query.workspace_id
     )
     .fetch_all(&db)
     .await?;

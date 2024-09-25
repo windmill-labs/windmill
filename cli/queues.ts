@@ -5,12 +5,13 @@ import { pickInstance } from "./instance.ts";
 
 type Data = {
   count: number;
+  later: number;
   waiting: number;
   running: number;
-  rps30s: number;
-  rps5min: number;
-  rps30min: number;
-  rps24h: number;
+  rps30s: string;
+  rps5min: string;
+  rps30min: string;
+  rps24h: string;
 }
 
     
@@ -21,55 +22,93 @@ function createRow(tag: string, data: Record<string, Data>) {
     data[tag] = {
       count: 0,
       waiting: 0,
+      later: 0,
       running: 0,
-      rps30s: 0,
-      rps5min: 0,
-      rps30min: 0,
-      rps24h: 0,
+      rps30s: "",
+      rps5min: "",
+      rps30min: "",
+      rps24h: "",
     }
   }
 }
-async function displayQueues({ workspace }: { workspace?: string }) {
+async function displayQueues(opts: {}, workspace?: string) {
   const activeInstance = await pickInstance({}, true);
-
   if (activeInstance) {
     try {
       const queuedJobs = await wmill.listQueue({workspace: workspace ?? 'admins', allWorkspaces: workspace === undefined});
       const jobCounts30s = await wmill.countJobsByTag({
         horizonSecs: 30,
+        workspaceId: workspace,
       });
+      const nowFromDb = new Date(await wmill.getDbClock());
       const jobCounts5min = await wmill.countJobsByTag({
         horizonSecs: 300,
+        workspaceId: workspace,
+
       });
       const jobCounts30min = await wmill.countJobsByTag({
         horizonSecs: 1800,
+        workspaceId: workspace,
+
       });
       const jobCounts24h = await wmill.countJobsByTag({
         horizonSecs: 86400,
+        workspaceId: workspace,
+
       });
-      const table = new Table();
-      table.header([
-        "Queue",
-        "Jobs Waiting",
-        "Jobs Running",
-        "RPS (30s)",
-        "RPS (5min)",
-        "RPS (30min)",
-        "RPS (24h)",
-      ]);
 
       const data: Record<string, Data> = {}
 
       for (const job of queuedJobs) {
-        createRow(job.queue, data);
-        data[job.queue].waiting += 1;
+        createRow(job.tag, data);
+        const scheduledFor = new Date(job.scheduled_for ?? "");
+        if (job.running) {
+          data[job.tag].running += 1;
+        } else if (scheduledFor <= nowFromDb) {
+          data[job.tag].waiting += 1;
+        } else {
+          data[job.tag].later += 1;
+        } 
       }
 
       for (const count of jobCounts30s) {
         const tag = count.tag;
         createRow(tag, data);
-        data[tag].running = count.count;
+        data[tag].rps30s = (count.count / 30).toFixed(3);
       }
+      for (const count of jobCounts5min) {
+        const tag = count.tag;
+        createRow(tag, data);
+        data[tag].rps5min = (count.count / 300).toFixed(3);
+      }
+      for (const count of jobCounts30min) {
+        const tag = count.tag;
+        createRow(tag, data);
+        data[tag].rps30min = (count.count / 1800).toFixed(3);
+      }
+
+      for (const count of jobCounts24h) {
+        const tag = count.tag;
+        createRow(tag, data);
+        data[tag].rps24h = (count.count / 86400).toFixed(3);
+      }
+
+      const table = new Table();
+      table.header([
+        "",
+        "Running",
+        "Waiting",
+        "Later",
+        "RPS (30s)",
+        "RPS (5min)",
+        "RPS (30min)",
+        "RPS (24h)",
+      ]);
+      let body = []
+      for (const tag in data) {
+        body.push([tag, data[tag].running, data[tag].waiting, data[tag].later, data[tag].rps30s, data[tag].rps5min, data[tag].rps30min, data[tag].rps24h]);
+      }
+      table.body(body).render();
 
     } catch (error) {
       log.error("Failed to fetch queue metrics:", error);
@@ -82,7 +121,7 @@ async function displayQueues({ workspace }: { workspace?: string }) {
 
 const command = new Command()
   .description("List all queues with their metrics")
-  .arguments("[workspace:string] the optional workspace to filter by")
-  .action(displayQueues);
+  .arguments("[workspace:string] the optional workspace to filter by (default to all workspaces)")
+  .action(displayQueues as any);
 
 export default command;
