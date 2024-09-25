@@ -7,6 +7,7 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 import {
   instantiate as instantiateWasm,
+  parse_ansible,
   parse_bash,
   parse_bigquery,
   parse_deno,
@@ -14,8 +15,10 @@ import {
   parse_graphql,
   parse_mssql,
   parse_mysql,
+  parse_php,
   parse_powershell,
   parse_python,
+  parse_rust,
   parse_snowflake,
   parse_sql,
 } from "./wasm/windmill_parser_wasm.generated.js";
@@ -324,7 +327,9 @@ async function updateScriptLock(
       language == "python3" ||
       language == "go" ||
       language == "deno" ||
-      language == "php"
+      language == "php" ||
+      language == "rust" ||
+      language == "ansible"
     )
   ) {
     return;
@@ -482,6 +487,12 @@ export function inferSchema(
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
     inferedSchema = JSON.parse(parse_powershell(content));
+  } else if (language === "php") {
+    inferedSchema = JSON.parse(parse_php(content));
+  } else if (language === "rust") {
+    inferedSchema = JSON.parse(parse_rust(content));
+  } else if (language === "ansible") {
+    inferedSchema = JSON.parse(parse_ansible(content));
   } else {
     throw new Error("Invalid language: " + language);
   }
