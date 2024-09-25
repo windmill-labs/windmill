@@ -346,7 +346,6 @@ lazy_static::lazy_static! {
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
-    #[cfg(windows)]
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
 
     static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
