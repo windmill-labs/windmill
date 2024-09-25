@@ -100,7 +100,7 @@
 				>
 					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
 					`wm_trigger` argument with trigger details. Learn more about all flow triggers
-					<a href="https://www.windmill.dev/docs/getting_started/trigger_flows" target="_blank">here</a>.
+					<a href="https://www.windmill.dev/docs/getting_started/trigger_flows" target="_blank" rel="noopener noreferrer">here</a>.
 				</Alert>
 			</div>
 		{/if}
