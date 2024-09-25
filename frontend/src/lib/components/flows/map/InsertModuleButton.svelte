@@ -32,8 +32,7 @@
 	export let modules: FlowModule[]
 	export let disableAi = false
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
-
-	// export let failureModule: boolean
+	export let preprocessorModule: boolean = false
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -67,7 +66,6 @@
 
 	onDestroy(() => {
 		$preventScroll = scrollInitialState
-		console.log('destroyed !')
 	})
 
 	$: open, handleOpen()
@@ -83,7 +81,7 @@
 >
 	<svelte:fragment slot="trigger">
 		<button
-			title="Add step"
+			title="Add {preprocessorModule ? 'preprocessor' : ''} step"
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
@@ -98,7 +96,9 @@
 	</svelte:fragment>
 	<div
 		id="flow-editor-insert-module"
-		class="flex flex-col h-[400px] w-[600px] pt-1 pr-1 pl-1 gap-1.5"
+		class="flex flex-col h-[400px] {preprocessorModule
+			? 'w-[450px]'
+			: 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
 		on:mouseenter={handleMouseenter}
 		on:mouseleave={handleMouseleave}
 		role="none"
@@ -109,134 +109,136 @@
 		</div>
 
 		<div class="flex flex-row grow min-h-0 gap-1">
-			<div class="flex-none flex flex-col text-xs text-primary">
-				<button
-					class={twMerge(
-						'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-						selectedKind === 'action' ? 'bg-surface-hover' : ''
-					)}
-					on:click={() => {
-						selectedKind = 'action'
-					}}
-					role="menuitem"
-					tabindex="-1"
-				>
-					<Code size={14} />
-					Action
-					<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-				</button>
-				{#if customUi?.triggers != false && trigger}
+			{#if !preprocessorModule}
+				<div class="flex-none flex flex-col text-xs text-primary">
 					<button
 						class={twMerge(
 							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-							selectedKind === 'trigger' ? 'bg-surface-hover' : ''
+							selectedKind === 'action' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
-							selectedKind = 'trigger'
+							selectedKind = 'action'
 						}}
 						role="menuitem"
 						tabindex="-1"
 					>
-						<Zap size={14} />
-						Trigger
+						<Code size={14} />
+						Action
 						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 					</button>
-				{/if}
-				<button
-					class={twMerge(
-						'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-						selectedKind === 'approval' ? 'bg-surface-hover' : ''
-					)}
-					on:click={() => {
-						selectedKind = 'approval'
-					}}
-					role="menuitem"
-					tabindex="-1"
-				>
-					<CheckCircle2 size={14} />
-					Approval/Prompt
-					<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-				</button>
-
-				{#if customUi?.flowNode != false}
+					{#if customUi?.triggers != false && trigger}
+						<button
+							class={twMerge(
+								'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+								selectedKind === 'trigger' ? 'bg-surface-hover' : ''
+							)}
+							on:click={() => {
+								selectedKind = 'trigger'
+							}}
+							role="menuitem"
+							tabindex="-1"
+						>
+							<Zap size={14} />
+							Trigger
+							<ChevronRight size={12} class="ml-auto" color="#4c566a" />
+						</button>
+					{/if}
 					<button
 						class={twMerge(
 							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-							selectedKind === 'flow' ? 'bg-surface-hover' : ''
+							selectedKind === 'approval' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
-							selectedKind = 'flow'
+							selectedKind = 'approval'
 						}}
 						role="menuitem"
+						tabindex="-1"
 					>
-						<BarsStaggered size={14} />
-						Flow
+						<CheckCircle2 size={14} />
+						Approval/Prompt
 						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 					</button>
-				{/if}
-				{#if stop}
+
+					{#if customUi?.flowNode != false}
+						<button
+							class={twMerge(
+								'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
+								selectedKind === 'flow' ? 'bg-surface-hover' : ''
+							)}
+							on:click={() => {
+								selectedKind = 'flow'
+							}}
+							role="menuitem"
+						>
+							<BarsStaggered size={14} />
+							Flow
+							<ChevronRight size={12} class="ml-auto" color="#4c566a" />
+						</button>
+					{/if}
+					{#if stop}
+						<button
+							class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+							on:pointerdown={() => {
+								close()
+								dispatch('new', { kind: 'end' })
+							}}
+							role="menuitem"
+						>
+							<Square size={14} />
+							End Flow
+						</button>
+					{/if}
 					<button
 						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
 							close()
-							dispatch('new', { kind: 'end' })
+							dispatch('new', { kind: 'forloop' })
 						}}
 						role="menuitem"
 					>
-						<Square size={14} />
-						End Flow
+						<Repeat size={14} />
+
+						For Loop
 					</button>
-				{/if}
-				<button
-					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', { kind: 'forloop' })
-					}}
-					role="menuitem"
-				>
-					<Repeat size={14} />
+					<button
+						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+						on:pointerdown={() => {
+							close()
+							dispatch('new', { kind: 'whileloop' })
+						}}
+						role="menuitem"
+					>
+						<Repeat size={14} />
 
-					For Loop
-				</button>
-				<button
-					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', { kind: 'whileloop' })
-					}}
-					role="menuitem"
-				>
-					<Repeat size={14} />
+						While Loop
+					</button>
 
-					While Loop
-				</button>
+					<button
+						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+						on:pointerdown={() => {
+							close()
+							dispatch('new', { kind: 'branchone' })
+						}}
+						role="menuitem"
+					>
+						<GitBranch size={14} />
+						Branch to one
+					</button>
 
-				<button
-					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', { kind: 'branchone' })
-					}}
-					role="menuitem"
-				>
-					<GitBranch size={14} />
-					Branch to one
-				</button>
+					<button
+						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
+						on:pointerdown={() => {
+							close()
+							dispatch('new', { kind: 'branchall' })
+						}}
+						role="menuitem"
+					>
+						<GitBranch size={14} />
 
-				<button
-					class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-					on:pointerdown={() => {
-						close()
-						dispatch('new', { kind: 'branchall' })
-					}}
-					role="menuitem"
-				>
-					<GitBranch size={14} />
-
-					Branch to all
-				</button>
-			</div>
+						Branch to all
+					</button>
+				</div>
+			{/if}
 
 			<FlowInputsQuick
 				bind:loading
@@ -249,6 +251,7 @@
 				{funcDesc}
 				{selectedKind}
 				failureModule={$selectedId === 'failure'}
+				{preprocessorModule}
 				on:new
 				on:pickScript
 				on:pickFlow

@@ -28,6 +28,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let failureModule: boolean
+	export let preprocessorModule: boolean
 	export let summary: string | undefined = undefined
 	export let filter = ''
 	export let disableAi = false
@@ -87,14 +88,15 @@
 		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
 			return true
 		}
+
 		if (lang == 'go') {
-			return kind == 'script' || kind == 'trigger' || failureModule
+			return (kind == 'script' || kind == 'trigger' || failureModule) && !preprocessorModule
 		}
 
 		if (lang == 'bash' || lang == 'nativets') {
-			return kind == 'script'
+			return kind == 'script' && !preprocessorModule
 		}
-		return kind == 'script' && !failureModule
+		return kind == 'script' && !failureModule && !preprocessorModule
 	}
 
 	async function onGenerate() {
@@ -284,7 +286,8 @@
 									inlineScript: {
 										language: lang == 'docker' ? 'bash' : lang,
 										kind,
-										subkind: lang == 'docker' ? 'docker' : 'flow',
+										subkind:
+											lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
 										summary
 									}
 								})

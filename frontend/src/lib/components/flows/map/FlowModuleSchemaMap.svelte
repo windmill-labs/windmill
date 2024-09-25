@@ -33,8 +33,6 @@
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore'
-	import { emptySchema } from '$lib/utils'
-	import { NEVER_TESTED_THIS_FAR } from '../models'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -114,6 +112,34 @@
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
 		return modules
+	}
+
+	async function insertNewPreprocessorModule(
+		inlineScript?: {
+			language: RawScript['language']
+			subkind: 'pgsql' | 'flow'
+		},
+		wsScript?: { path: string; summary: string; hash: string | undefined }
+	) {
+		var module: FlowModule = {
+			id: 'preprocessor',
+			value: { type: 'identity' }
+		}
+		var state = emptyFlowModuleState()
+
+		if (inlineScript) {
+			;[module, state] = await createInlineScriptModule(
+				inlineScript.language,
+				'script',
+				inlineScript.subkind,
+				'preprocessor'
+			)
+		} else if (wsScript) {
+			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		}
+
+		$flowStore.value.preprocessor_module = module
+		$flowStateStore[module.id] = state
 	}
 
 	function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -332,15 +358,7 @@
 							$moving = undefined
 						} else {
 							if (detail.detail === 'preprocessor') {
-								const preprocessorModule = {
-									schema: emptySchema(),
-									previewResult: NEVER_TESTED_THIS_FAR
-								}
-								$flowStore.value.preprocessor_module = {
-									id: 'preprocessor',
-									value: { type: 'identity' }
-								}
-								$flowStateStore['preprocessor'] = preprocessorModule
+								insertNewPreprocessorModule(detail.inlineScript, detail.script)
 								$selectedId = 'preprocessor'
 							} else {
 								await insertNewModuleAtIndex(
