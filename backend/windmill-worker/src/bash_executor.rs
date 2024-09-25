@@ -28,7 +28,7 @@ use crate::{
         start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, SYSTEM_ROOT, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -195,7 +195,7 @@ pub async fn handle_powershell_job(
     worker_name: &str,
     envs: HashMap<String, String>,
 ) -> Result<Box<RawValue>, Error> {
-    let pwsh_args = {
+    let mut pwsh_args = {
         let args = build_args_map(job, client, db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
@@ -222,13 +222,19 @@ pub async fn handle_powershell_job(
             .collect::<Vec<_>>()
     };
 
+    #[cfg(windows)]
+    let split_char = '\\';
+
+    #[cfg(unix)]
+    let split_char = '/';
+
     let installed_modules = fs::read_dir(POWERSHELL_CACHE_DIR)?
         .filter_map(|x| {
             x.ok().map(|x| {
                 x.path()
                     .display()
                     .to_string()
-                    .split('/')
+                    .split(split_char)
                     .last()
                     .unwrap_or_default()
                     .to_lowercase()
@@ -284,6 +290,7 @@ pub async fn handle_powershell_job(
     append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
     // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
+    #[cfg(unix)]
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
@@ -292,6 +299,17 @@ Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
     );
+
+    #[cfg(windows)]
+    let profile = format!(
+        "#$PSModuleAutoloadingPreference = 'None'
+$PSModulePathBackup = $env:PSModulePath
+#$env:PSModulePath = \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\Modules;C:\\Program Files\\PowerShell\\7\\Modules\"
+Get-Module -ListAvailable | Import-Module
+$env:PSModulePath = \"{};$PSModulePathBackup\"",
+        POWERSHELL_CACHE_DIR
+    );
+
     // make sure param() is first
     let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
     let content: String = if let Some(param_match) = param_match {
@@ -307,11 +325,29 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     };
 
     write_file(job_dir, "main.ps1", content.as_str())?;
+
+    #[cfg(unix)]
     write_file(
         job_dir,
         "wrapper.sh",
         &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
     )?;
+
+    #[cfg(windows)]
+    write_file(
+        job_dir,
+        "wrapper.ps1",
+        &format!(
+            " param([string[]]$args)\n\
+    $ErrorActionPreference = 'Stop'\n\
+    $pipe = New-TemporaryFile\n\
+    & \"{}\" -File ./main.ps1 @args 2>&1 | Tee-Object -FilePath $pipe\n\
+    Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
+    Remove-Item $pipe\n",
+            POWERSHELL_PATH.as_str()
+        ),
+    )?;
+
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -320,6 +356,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
+    #[cfg(unix)]
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
@@ -366,6 +403,38 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             .stderr(Stdio::piped())
             .spawn()?
     };
+
+    #[cfg(windows)]
+    pwsh_args.insert(0, r".\wrapper.ps1".to_string());
+
+    #[cfg(windows)]
+    let child = Command::new(POWERSHELL_PATH.as_str())
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(envs)
+        .envs(reserved_variables)
+        .env("PATH", PATH_ENV.as_str())
+        .env("BASE_INTERNAL_URL", base_internal_url)
+        .env("HOME", HOME_ENV.as_str())
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+        )
+        .env(
+            "PATHEXT",
+            ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
+        )
+        .args(
+            pwsh_args
+                .into_iter()
+                .map(|arg| arg.replace("--", "-"))
+                .collect::<Vec<String>>(),
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
     handle_child(
         &job.id,
         db,
