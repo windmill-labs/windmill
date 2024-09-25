@@ -14,6 +14,11 @@ type Data = {
   rps24h: string;
 }
 
+type GlobalOptions = {
+  instance?: string;
+  baseUrl?: string;
+};
+
     
 function createRow(tag: string, data: Record<string, Data>) {
   if (data[tag]) {
@@ -31,8 +36,8 @@ function createRow(tag: string, data: Record<string, Data>) {
     }
   }
 }
-async function displayQueues(opts: {}, workspace?: string) {
-  const activeInstance = await pickInstance({}, true);
+async function displayQueues(opts: GlobalOptions, workspace?: string) {
+  const activeInstance = await pickInstance(opts, true);
   if (activeInstance) {
     try {
       const queuedJobs = await wmill.listQueue({workspace: workspace ?? 'admins', allWorkspaces: workspace === undefined});
@@ -122,6 +127,14 @@ async function displayQueues(opts: {}, workspace?: string) {
 const command = new Command()
   .description("List all queues with their metrics")
   .arguments("[workspace:string] the optional workspace to filter by (default to all workspaces)")
+  .option(
+    "--instance [instance]",
+    "Name of the instance to push to, override the active instance"
+  )
+  .option(
+    "--base-url [baseUrl]",
+    "If used with --token, will be used as the base url for the instance"
+  )
   .action(displayQueues as any);
 
 export default command;

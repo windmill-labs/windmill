@@ -179,12 +179,21 @@ export type InstanceSyncOptions = {
   includeWorkspaces?: boolean;
   instance?: string;
   baseUrl?: string;
+  token?: string;
   yes?: boolean;
 };
 
 export async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
   const instances = await allInstances();
-
+  if (opts.baseUrl && opts.token) {
+    log.info("Using instance fully defined by --base-url and --token")
+    return {
+      name: "custom",
+      remote: opts.baseUrl,
+      token: opts.token,
+      prefix: "custom",
+    };
+  }
   if (!allowNew && instances.length < 1) {
     throw new Error("No instance found, please add one first");
   }
@@ -623,7 +632,7 @@ const command = new Command()
   )
   .option(
     "--base-url",
-    "Base url to be passed to the instance settings instead of the local one"
+    "If used with --token, will be used as the base url for the instance"
   )
   .action(instancePush as any)
   .command("whoami")

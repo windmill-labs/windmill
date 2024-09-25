@@ -123,12 +123,12 @@ const command = new Command()
     "Push instance settings, users, configs, group and overwrite remote"
   )
   .option(
-    "--instance",
+    "--instance [instance]",
     "Name of the instance to push to, override the active instance"
   )
   .option(
-    "--base-url",
-    "Base url to be passed to the instance settings instead of the local one"
+    "--base-url [baseUrl]",
+    "If used with --token, will be used as the base url for the instance"
   )
   .option("--yes", "Push without needing confirmation")
   .action(pushWorkerGroups as any);

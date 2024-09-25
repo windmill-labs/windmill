@@ -10,8 +10,8 @@ type GlobalOptions = {
 
 
 
-async function displayWorkers() {
-  const activeInstance = await pickInstance({}, true);
+async function displayWorkers(opts: GlobalOptions) {
+  const activeInstance = await pickInstance(opts, true);
 
   if (activeInstance) {
       const workerGroups = await wmill.listWorkerGroups();
@@ -86,6 +86,14 @@ async function displayWorkers() {
 
 const command = new Command()
   .description("List all workers grouped by worker groups")
-  .action(displayWorkers);
+  .option(
+    "--instance [instance]",
+    "Name of the instance to push to, override the active instance"
+  )
+  .option(
+    "--base-url [baseUrl]",
+    "If used with --token, will be used as the base url for the instance"
+  )
+  .action(displayWorkers as any);
 
 export default command;
