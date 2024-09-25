@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.401.0](https://github.com/windmill-labs/windmill/compare/v1.400.0...v1.401.0) (2024-09-25)
+
+
+### Features
+
+* add return_last_result annotation to sql ([#4443](https://github.com/windmill-labs/windmill/issues/4443)) ([3ce5587](https://github.com/windmill-labs/windmill/commit/3ce5587faae3912ceedae4644732fa9704eb6d76))
+
+
+### Bug Fixes
+
+* fix flow rendering ([fd58e7e](https://github.com/windmill-labs/windmill/commit/fd58e7eb48c4fb66d199c33d0f8aaf2535485a2f))
+
 ## [1.400.0](https://github.com/windmill-labs/windmill/compare/v1.399.0...v1.400.0) (2024-09-25)
 
 
