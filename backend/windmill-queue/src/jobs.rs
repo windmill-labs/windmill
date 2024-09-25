@@ -475,6 +475,11 @@ where
     }
 }
 
+#[derive(Deserialize)]
+struct RawFlowFailureModule {
+    failure_module: Option<Box<RawValue>>,
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
@@ -922,7 +927,17 @@ pub async fn add_completed_job<
             )
             .await;
         } else if !skip_downstream_error_handlers
-            && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
+            && (matches!(queued_job.job_kind, JobKind::Script)
+                || matches!(queued_job.job_kind, JobKind::Flow)
+                    && queued_job
+                        .raw_flow
+                        .as_ref()
+                        .and_then(|v| {
+                            serde_json::from_str::<RawFlowFailureModule>((**v).get())
+                                .ok()
+                                .and_then(|v| v.failure_module)
+                        })
+                        .is_none())
             && queued_job.parent_job.is_none()
         {
             let result = serde_json::from_str(
@@ -2866,10 +2881,21 @@ where
             (content_type, extra, raw, wrap_body)
         };
 
-        if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
+        let no_content_type = content_type.is_none();
+        if no_content_type || content_type.unwrap().starts_with("application/json") {
             let bytes = Bytes::from_request(req, _state)
                 .await
                 .map_err(IntoResponse::into_response)?;
+            if no_content_type && bytes.is_empty() {
+                if use_raw {
+                    extra.insert("raw_string".to_string(), to_raw_value(&"".to_string()));
+                }
+                let mut args = HashMap::new();
+                if wrap_body {
+                    args.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
+                }
+                return Ok(PushArgsOwned { extra: Some(extra), args: args });
+            }
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.397.4
+  version: 1.401.0
   title: Windmill API
 
   contact:
@@ -741,6 +741,35 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /settings/test_critical_channels:
+    post:
+      summary: test critical channels
+      operationId: testCriticalChannels
+      tags:
+        - setting
+      requestBody:
+        description: test critical channel payload
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  email:
+                    type: string
+                  slack_channel:
+                    type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /settings/test_license_key:
     post:

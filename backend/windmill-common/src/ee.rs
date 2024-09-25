@@ -26,7 +26,10 @@ pub async fn get_license_plan() -> LicensePlan {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub enum CriticalErrorChannel {}
+pub enum CriticalErrorChannel {
+    Email { email: String },
+    Slack { slack_channel: String },
+}
 
 pub enum CriticalAlertKind {
     #[cfg(feature = "enterprise")]
@@ -36,7 +39,13 @@ pub enum CriticalAlertKind {
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn send_critical_alert(_error_message: String, _db: &DB, _kind: CriticalAlertKind) {}
+pub async fn send_critical_alert(
+    _error_message: String,
+    _db: &DB,
+    _kind: CriticalAlertKind,
+    _channels: Option<Vec<CriticalErrorChannel>>,
+) {
+}
 
 #[cfg(feature = "enterprise")]
 pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
