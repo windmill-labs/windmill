@@ -451,6 +451,10 @@ export default function graphBuilder(
 		addEdge(id, 'Input', { type: 'empty' })
 	}
 
+	if (failureModule && !extra.flowModuleStates) {
+		addNode(failureModule, 0, 'module')
+	}
+
 	Object.keys(parents).forEach((key) => {
 		const node = nodes.find((n) => n.id === key)
 

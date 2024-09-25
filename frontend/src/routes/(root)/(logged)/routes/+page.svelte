@@ -160,7 +160,7 @@
 	<PageHeader
 		title="Custom HTTP routes"
 		tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/http_api"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 	>
 		{#if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
