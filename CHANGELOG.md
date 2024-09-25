@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.400.0](https://github.com/windmill-labs/windmill/compare/v1.399.0...v1.400.0) (2024-09-25)
+
+
+### Features
+
+* add static variable and resources support to ansible ([#4435](https://github.com/windmill-labs/windmill/issues/4435)) ([398a09b](https://github.com/windmill-labs/windmill/commit/398a09b7419c7adafa76e5f9f5a981bec6f0611d))
+* **frontend:** Catch flow errors in the UI ([#4429](https://github.com/windmill-labs/windmill/issues/4429)) ([84eefad](https://github.com/windmill-labs/windmill/commit/84eefadfcf06b4f38117b6c4c534f47fb2ef7cc7))
+
+
+### Bug Fixes
+
+* remove autocomplete for searchbar ([#4440](https://github.com/windmill-labs/windmill/issues/4440)) ([a1ac583](https://github.com/windmill-labs/windmill/commit/a1ac583f05c34a534c4ae78ca7d2a6850723ce85))
+
 ## [1.399.0](https://github.com/windmill-labs/windmill/compare/v1.398.1...v1.399.0) (2024-09-25)
 
 
