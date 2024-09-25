@@ -504,18 +504,20 @@ function ZipFSElement(
 
       if (formatExtension) {
         const fileContent: string = parsed["value"]["content"];
-        r.push({
-          isDirectory: false,
-          path:
-            removeSuffix(finalPath, ".resource.json") +
-            ".resource.file." +
-            formatExtension,
-          async *getChildren() {},
-          // deno-lint-ignore require-await
-          async getContentText() {
-            return fileContent;
-          },
-        });
+        if (typeof(fileContent) === "string") {
+          r.push({
+            isDirectory: false,
+            path:
+              removeSuffix(finalPath, ".resource.json") +
+              ".resource.file." +
+              formatExtension,
+            async *getChildren() {},
+            // deno-lint-ignore require-await
+            async getContentText() {
+              return fileContent;
+            },
+          });
+        }
       }
     }
     return r;
