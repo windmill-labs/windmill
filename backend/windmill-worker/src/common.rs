@@ -1240,6 +1240,46 @@ pub async fn handle_child(
     }
 }
 
+pub fn update_occupancy_metrics(
+    running_job_started_at: Option<Instant>,
+    worker_code_execution_metric: f32,
+    last_occupancy_rate_update: &mut Instant,
+    last_worker_code_execution_metric: &mut f32,
+    worker_occupancy_rate_history: &mut Vec<f32>,
+    start_time: Instant,
+) -> (f32, Option<f32>, Option<f32>) {
+    let total_occupation = if let Some(started_at) = running_job_started_at {
+        let elapsed = started_at.elapsed().as_secs_f32();
+        worker_code_execution_metric + elapsed
+    } else {
+        worker_code_execution_metric
+    };
+
+    let last_occupancy_elapsed = last_occupancy_rate_update.elapsed().as_secs();
+    if last_occupancy_elapsed > 300 {
+        *last_occupancy_rate_update = Instant::now();
+        let last_5min_occupancy_rate =
+            (total_occupation - *last_worker_code_execution_metric) / last_occupancy_elapsed as f32;
+        worker_occupancy_rate_history.push(last_5min_occupancy_rate);
+        *last_worker_code_execution_metric = total_occupation;
+        if worker_occupancy_rate_history.len() > 6 {
+            worker_occupancy_rate_history.remove(0);
+        }
+    }
+    let occupancy_rate = total_occupation / start_time.elapsed().as_secs_f32();
+    let occupancy_rate_5m = worker_occupancy_rate_history.last().copied();
+    let occupancy_rate_30m = if !worker_occupancy_rate_history.is_empty() {
+        Some(
+            worker_occupancy_rate_history.iter().sum::<f32>()
+                / worker_occupancy_rate_history.len() as f32,
+        )
+    } else {
+        None
+    };
+
+    (occupancy_rate, occupancy_rate_5m, occupancy_rate_30m)
+}
+
 pub fn process_status(status: ExitStatus) -> error::Result<()> {
     if status.success() {
         Ok(())

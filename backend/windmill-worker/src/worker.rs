@@ -84,7 +84,7 @@ use rand::Rng;
 
 use crate::{
     ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
-        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args, update_worker_ping_for_failed_init_script, NO_LOGS_AT_ALL, SLOW_LOGS
+        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args, update_occupancy_metrics, update_worker_ping_for_failed_init_script, NO_LOGS_AT_ALL, SLOW_LOGS
     }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
     }, worker_lockfiles::{
@@ -698,6 +698,8 @@ fn add_outstanding_wait_time(
     }.in_current_span());
 }
 
+
+
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name, hostname = %hostname))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
@@ -1076,7 +1078,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 "admins"
             )
             .fetch_one(db)
-            .await
             .unwrap_or_else(|_e| panic!("failed to insert dedicated jobs"));
             sqlx::query!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11))",
                     hash,
@@ -1359,12 +1360,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
 
-            let total_occupation = if let Some(started_at) = running_job_started_at {
-                let elapsed = started_at.elapsed().as_secs_f32();
-                worker_code_execution_metric + elapsed
-            } else {
-                worker_code_execution_metric
-            };
 
             let (vcpus, memory) = if *REFRESH_CGROUP_READINGS
                 && last_reading.elapsed().as_secs() > NUM_SECS_READINGS
@@ -1375,30 +1370,30 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 (None, None)
             };
 
-            let last_occupancy_elapsed = last_occupancy_rate_update.elapsed().as_secs();
-            if last_occupancy_elapsed > 300 {
-                last_occupancy_rate_update = Instant::now();
-                let last_5min_occupancy_rate = (total_occupation - last_worker_code_execution_metric) / last_occupancy_elapsed as f32;
-                worker_occupancy_rate_history.push(last_5min_occupancy_rate);
-                last_worker_code_execution_metric = total_occupation;
-                if worker_occupancy_rate_history.len() > 6 {
-                    worker_occupancy_rate_history.remove(0);
-                }
-            }
+
+            let (occupancy_rate, occupancy_rate_5m, occupancy_rate_30m) = update_occupancy_metrics(
+                running_job_started_at,
+                worker_code_execution_metric,
+                &mut last_occupancy_rate_update,
+                &mut last_worker_code_execution_metric,
+                &mut worker_occupancy_rate_history,
+                start_time,
+            );
+            
             if let Err(e) = sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
                  occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
                  memory = COALESCE($8, memory), occupancy_rate_5m = $9, occupancy_rate_30m = $10 WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
-                total_occupation / start_time.elapsed().as_secs_f32(),
+                occupancy_rate,
                 memory_usage,
                 wm_memory_usage,
                 &worker_name,
                 vcpus,
                 memory,
-                worker_occupancy_rate_history.last(),
-                if worker_occupancy_rate_history.len() > 0  { Some(worker_occupancy_rate_history.iter().sum::<f32>() / worker_occupancy_rate_history.len() as f32) } else { None }
+                occupancy_rate_5m,
+                occupancy_rate_30m
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
