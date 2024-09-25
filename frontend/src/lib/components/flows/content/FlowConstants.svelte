@@ -121,7 +121,7 @@
 					</Alert>
 				{/if}
 			{/if}
-			{#each steps as [args, filter, m] (m.id)}
+			{#each steps as [args, filter, m], index (m.id + index)}
 				{#if filter.length > 0}
 					<div class="relative h-full border-t p-4">
 						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">

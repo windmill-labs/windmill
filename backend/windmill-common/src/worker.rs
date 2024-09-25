@@ -198,7 +198,7 @@ pub fn write_file_at_user_defined_location(
     job_dir: &str,
     user_defined_path: &str,
     content: &str,
-) -> error::Result<File> {
+) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
 
@@ -217,6 +217,7 @@ pub fn write_file_at_user_defined_location(
         .into());
     }
 
+    let full_path = normalized_full_path.as_path();
     if let Some(parent_dir) = full_path.parent() {
         std::fs::create_dir_all(parent_dir)?;
     }
@@ -224,7 +225,7 @@ pub fn write_file_at_user_defined_location(
     let mut file = File::create(full_path)?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
-    Ok(file)
+    Ok(normalized_full_path)
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
@@ -324,6 +325,22 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
         annotations.contains(&"nobundling".to_string()) || nodejs_mode || *DISABLE_BUNDLING;
 
     Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
+}
+
+pub struct SqlAnnotations {
+    pub return_last_result: bool,
+}
+
+pub fn get_sql_annotations(inner_content: &str) -> SqlAnnotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("--"))
+        .map(|x| x.to_string().replace("--", "").trim().to_string())
+        .collect_vec();
+
+    let return_last_result: bool = annotations.contains(&"return_last_result".to_string());
+
+    SqlAnnotations { return_last_result }
 }
 
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {

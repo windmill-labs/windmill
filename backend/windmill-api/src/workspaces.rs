@@ -2577,7 +2577,7 @@ async fn tarball_workspace(
                 }
                 ScriptLang::Php => "php",
                 ScriptLang::Rust => "rs",
-                ScriptLang::Ansible => "yaml",
+                ScriptLang::Ansible => "playbook.yml",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
