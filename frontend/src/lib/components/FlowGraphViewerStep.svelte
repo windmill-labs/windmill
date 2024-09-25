@@ -103,12 +103,17 @@
 	{:else if typeof stepDetail != 'string' && stepDetail.value}
 		<div class="">
 			<div class="sticky top-0 bg-surface w-full flex items-center py-2">
-				{#if stepDetail.id}
+				{#if stepDetail.id && stepDetail.id != 'failure' && stepDetail.id != 'preprocessor'}
 					<Badge color="indigo">
 						{stepDetail.id}
 					</Badge>
 				{/if}
-				<span class="ml-2 font-medium text-lg">
+				<span
+					class={twMerge(
+						'font-medium text-lg',
+						stepDetail.id !== 'failure' && stepDetail.id !== 'preprocessor' ? 'ml-2' : ''
+					)}
+				>
 					{#if stepDetail.summary}
 						{stepDetail.summary}
 					{:else if stepDetail.value.type == 'identity'}
@@ -124,6 +129,10 @@
 						Inner flow
 					{:else if stepDetail.value.type == 'whileloopflow'}
 						While loop
+					{:else if stepDetail.id === 'failure'}
+						Error handler
+					{:else if stepDetail.id === 'preprocessor'}
+						Preprocessor
 					{:else}
 						Anonymous step
 					{/if}
@@ -147,10 +156,12 @@
 				An identity step returns its inputs as outputs
 			</p>
 		{:else if stepDetail.value.type == 'rawscript'}
-			<div class="text-xs">
-				<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
-				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
-			</div>
+			{#if stepDetail.id !== 'preprocessor'}
+				<div class="text-xs">
+					<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
+				</div>
+			{/if}
 
 			<div>
 				<div class="mb-2 mt-4 flex justify-between items-center">
@@ -180,10 +191,12 @@
 				</div>
 			</div>
 		{:else if stepDetail.value.type == 'script'}
-			<div class="text-2xs">
-				<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
-				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
-			</div>
+			{#if stepDetail.id !== 'preprocessor'}
+				<div class="text-2xs">
+					<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
+				</div>
+			{/if}
 			{#if stepDetail.value.path.startsWith('hub/')}
 				<div class="flex flex-col grow">
 					<div class="mb-2 flex justify-between items-center">

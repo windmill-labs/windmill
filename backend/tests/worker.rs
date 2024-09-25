@@ -1913,6 +1913,109 @@ def main():
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_bun_job_datetime(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(a: Date) {
+    return typeof a;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bun,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("object"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_deno_job_datetime(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(a: Date) {
+    return typeof a;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Deno,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("object"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_python_job_datetime_and_bytes(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+from datetime import datetime
+def main(a: datetime, b: bytes):
+    return (isinstance(a, datetime), isinstance(b, bytes))
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Python3,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .arg("b", json!("dGVzdA=="))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!([true, true]));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_empty_loop_1(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;

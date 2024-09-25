@@ -1,5 +1,8 @@
 use std::{
-    collections::HashMap, os::unix::fs::PermissionsExt, path::{Path, PathBuf}, process::Stdio
+    collections::HashMap,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Stdio,
 };
 
 use anyhow::anyhow;
@@ -10,16 +13,20 @@ use uuid::Uuid;
 use windmill_common::{
     error,
     jobs::QueuedJob,
-    worker::{write_file, write_file_at_user_defined_location, WORKER_CONFIG},
+    worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
 use windmill_parser_yaml::AnsibleRequirements;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
-    bash_executor::BIN_BASH, common::{
+    bash_executor::BIN_BASH,
+    common::{
         get_reserved_variables, handle_child, read_and_check_result, start_child_process,
         transform_json,
-    }, python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile}, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV
+    },
+    python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -198,7 +205,6 @@ pub async fn handle_ansible_job(
     append_logs(&job.id, &job.workspace_id, logs, db).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
-
     let additional_python_paths = handle_ansible_python_deps(
         job_dir,
         requirements_o,
@@ -215,7 +221,13 @@ pub async fn handle_ansible_job(
 
     let interpolated_args;
     if let Some(args) = &job.args {
-        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
+        let mut args = args.0.clone();
+        if let Some(reqs) = reqs.clone() {
+            for (name, path) in reqs.resources.iter().chain(reqs.vars.iter()) {
+                args.insert(name.clone(), to_raw_value(path));
+            }
+        }
+        if let Some(x) = transform_json(client, &job.workspace_id, &args, job, db).await? {
             write_file(
                 job_dir,
                 "args.json",
@@ -228,13 +240,19 @@ pub async fn handle_ansible_job(
                 "args.json",
                 &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
             )?;
-            interpolated_args = Some(args.clone().0);
+            interpolated_args = Some(args);
         }
     } else {
         interpolated_args = None;
         write_file(job_dir, "args.json", "{}")?;
     };
     write_file(job_dir, "result.json", "")?;
+
+    let cmd_options: Vec<String> = reqs
+        .as_ref()
+        .map(|r| r.options.clone())
+        .map(|r| get_cmd_options(r))
+        .unwrap_or_default();
 
     let inventories: Vec<String> = reqs
         .as_ref()
@@ -282,14 +300,16 @@ pub async fn handle_ansible_job(
         db,
     )
     .await;
-    let ansible_cfg_content = format!(r#"
+    let ansible_cfg_content = format!(
+        r#"
 [defaults]
 collections_path = ./
 roles_path = ./roles
 home={job_dir}/.ansible
 local_tmp={job_dir}/.ansible/tmp
 remote_tmp={job_dir}/.ansible/tmp
-"#);
+"#
+    );
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let mut reserved_variables = get_reserved_variables(job, &authed_client.token, db).await?;
@@ -331,10 +351,11 @@ mount {{
 
     let mut cmd_args = vec!["main.yml", "--extra-vars", "@args.json"];
     cmd_args.extend(inventories.iter().map(|s| s.as_str()));
+    cmd_args.extend(cmd_options.iter().map(|s| s.as_str()));
 
     let child = if !*DISABLE_NSJAIL {
-
-        let wrapper = format!(r#"set -eou pipefail
+        let wrapper = format!(
+            r#"set -eou pipefail
 {0} "$@"
 if [ -f "result" ]; then
     cat result > result_nsjail_mount.json
@@ -342,7 +363,9 @@ fi
 if [ -f "result.json" ]; then
     cat result.json > result_nsjail_mount.json
 fi
-"#, ANSIBLE_PLAYBOOK_PATH.as_str());
+"#,
+            ANSIBLE_PLAYBOOK_PATH.as_str()
+        );
 
         let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
 
@@ -404,6 +427,36 @@ fi
     )
     .await?;
     read_and_check_result(job_dir).await
+}
+
+fn get_cmd_options(r: windmill_parser_yaml::AnsiblePlaybookOptions) -> Vec<String> {
+    let mut ret = vec![];
+
+    if let Some(v) = r.verbosity {
+        if v.chars().all(|c| c == 'v') && v.len() <= 6 {
+            ret.push(format!("-{}", v));
+        }
+    }
+
+    if let Some(o) = r.timeout {
+        ret.push("--timeout".to_string());
+        ret.push(o.to_string());
+    }
+
+    if let Some(o) = r.forks {
+        ret.push("--forks".to_string());
+        ret.push(o.to_string());
+    }
+
+    if r.flush_cache.is_some() {
+        ret.push("--flush-cache".to_string());
+    }
+
+    if r.force_handlers.is_some() {
+        ret.push("--force-handlers".to_string());
+    }
+
+    ret
 }
 
 fn define_nsjail_mount(job_dir: &str, path: &PathBuf) -> anyhow::Result<String> {

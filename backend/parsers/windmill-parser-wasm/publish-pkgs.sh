@@ -21,3 +21,6 @@ popd
 
 pushd "pkg-rust" && npm publish ${args}
 popd
+
+pushd "pkg-yaml" && npm publish ${args}
+popd
