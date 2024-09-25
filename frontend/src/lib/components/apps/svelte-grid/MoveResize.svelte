@@ -200,6 +200,7 @@
 	let sign = { x: 0, y: 0 }
 	let vel = { x: 0, y: 0 }
 	let intervalId: NodeJS.Timeout | undefined = undefined
+	let shadowHidden: boolean = false
 
 	const stopAutoscroll = () => {
 		intervalId && clearInterval(intervalId)
@@ -217,9 +218,19 @@
 			let gridX = Math.round(boundX / xPerPx)
 			let gridY = Math.round(boundY / yPerPx)
 
+			// is the mouse above directly on the element
+
+			const rows = Math.floor((nativeContainer.clientHeight + gapY) / (yPerPx + gapY))
+
 			if (shadow) {
-				shadow.x = Math.max(Math.min(gridX, cols - shadow.w), 0)
-				shadow.y = Math.max(gridY, 0)
+				if ((gridX < 0 || gridX >= cols || gridY < 0 || gridY >= rows) && moveMode === 'insert') {
+					shadowHidden = true
+				} else {
+					shadow.x = Math.max(Math.min(gridX, cols - shadow.w), 0)
+					shadow.y = Math.max(gridY, 0)
+
+					shadowHidden = false
+				}
 			}
 		}
 	}
@@ -303,14 +314,12 @@
 			dragClosure = undefined
 		}
 
-		if (!overlapped) {
-			return
-		}
+		const overlappedElement = overlapped
+			? document.getElementById(`component-${overlapped}`)
+			: document.getElementById('root-grid')
 
 		const xRelativeToElement = element ? e.clientX - element.getBoundingClientRect().left : 0
 		const yRelativeToElement = element ? e.clientY - element.getBoundingClientRect().top : 0
-
-		const overlappedElement = document.getElementById(`component-${overlapped}`)
 
 		const xRelativeToOverlappedElement = overlappedElement
 			? e.clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
@@ -421,7 +430,7 @@
 	<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
 </div>
 
-{#if xPerPx > 0 && (active || trans) && shadow}
+{#if xPerPx > 0 && (active || trans) && shadow && !shadowHidden}
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',

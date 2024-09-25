@@ -178,6 +178,7 @@
 					push(history, $app)
 					$app.grid = e.detail
 				}}
+				root
 				let:dataItem
 				let:hidden
 				let:overlapped

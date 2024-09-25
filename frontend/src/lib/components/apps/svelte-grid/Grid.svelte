@@ -6,6 +6,8 @@
 </script>
 
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
+
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
 	import { onMount, createEventDispatcher } from 'svelte'
@@ -35,6 +37,7 @@
 	export let containerWidth: number | undefined = undefined
 	export let scroller: HTMLElement | undefined = undefined
 	export let sensor = 20
+	export let root: boolean = false
 
 	export let parentWidth: number | undefined = undefined
 
@@ -246,7 +249,24 @@
 
 <svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
 
-<div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
+<div
+	class="svlt-grid-container"
+	style="height: {containerHeight}px"
+	bind:this={container}
+	id={root ? 'root-grid' : undefined}
+>
+	{#if isCtrlOrMetaPressed && root}
+		<div
+			class={twMerge(
+				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
+				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
+				$componentDraggedIdStore && $overlappedStore === undefined
+					? 'bg-draggedover dark:bg-draggedover-dark'
+					: ''
+			)}
+		/>
+	{/if}
+
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			<MoveResize

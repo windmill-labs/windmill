@@ -116,6 +116,40 @@
 		// Update the app state
 		$app = { ...$app }
 	}
+
+	export function moveToRoot(componentId: string, position?: { x: number; y: number }) {
+		// Find the component in the source subgrid
+		const component = findGridItem($app, componentId)
+
+		if (!component) {
+			return
+		}
+
+		let parentGrid = findGridItemParentGrid($app, component.id)
+
+		if (parentGrid) {
+			$app.subgrids &&
+				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+					(item) => item.id !== component?.id
+				))
+		} else {
+			$app.grid = $app.grid.filter((item) => item.id !== component?.id)
+		}
+
+		const gridItem = component
+
+		insertNewGridItem(
+			$app,
+			(id) => ({ ...gridItem.data, id }),
+			undefined,
+			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
+			component.id,
+			position
+		)
+
+		// Update the app state
+		$app = { ...$app }
+	}
 </script>
 
 <div
@@ -166,20 +200,24 @@
 					on:dropped={(e) => {
 						const { id, overlapped, x, y } = e.detail
 
-						const overlappedComponent = findGridItem($app, overlapped)
-
-						if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
-							return
-						}
 						if (!overlapped) {
-							return
-						}
+							moveToRoot(id, { x, y })
+						} else {
+							const overlappedComponent = findGridItem($app, overlapped)
 
-						if (id === overlapped) {
-							return
-						}
+							if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
+								return
+							}
+							if (!overlapped) {
+								return
+							}
 
-						moveComponentBetweenSubgrids(id, overlapped, 0, { x, y })
+							if (id === overlapped) {
+								return
+							}
+
+							moveComponentBetweenSubgrids(id, overlapped, 0, { x, y })
+						}
 					}}
 				>
 					<ComponentWrapper
