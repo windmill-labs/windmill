@@ -65,22 +65,32 @@ export default function graphBuilder(
 
 		const parents: { [key: string]: string[] } = {}
 
-		function detectCycle(nodeId: string, visited: Set<string>, recStack: Set<string>): boolean {
+		//
+		function detectCycle(nodeId: string, visited: Set<string>, currentPath: Set<string>): boolean {
+			// If the node hasn't been visited yet
 			if (!visited.has(nodeId)) {
 				visited.add(nodeId)
-				recStack.add(nodeId)
+				currentPath.add(nodeId)
 
+				// If the current node has parent nodes
 				if (parents[nodeId]) {
-					for (const neighbor of parents[nodeId]) {
-						if (!visited.has(neighbor) && detectCycle(neighbor, visited, recStack)) {
-							return true
-						} else if (recStack.has(neighbor)) {
-							return true
+					// Check each parent node
+					// Nodes can have multiples parents: the node that that gathers the result for branches or loops for instance
+					for (const parentNode of parents[nodeId]) {
+						// If the parentNode hasn't been visited and a cycle is detected in its path
+						if (!visited.has(parentNode) && detectCycle(parentNode, visited, currentPath)) {
+							return true // Cycle detected
+						}
+						// If the parentNode is already in the current path, it's a cycle
+						else if (currentPath.has(parentNode)) {
+							return true // Cycle detected
 						}
 					}
 				}
 			}
-			recStack.delete(nodeId)
+			// Remove the node from the current path as we're done processing it
+			currentPath.delete(nodeId)
+			// No cycle detected for this path
 			return false
 		}
 
@@ -102,6 +112,7 @@ export default function graphBuilder(
 
 			const visited = new Set<string>()
 			const recStack = new Set<string>()
+
 			if (detectCycle(sourceId, visited, recStack)) {
 				throw new Error(
 					`Cycle detected: adding edge from '${sourceId}' to '${targetId}' would create a cycle.`
@@ -480,6 +491,10 @@ export default function graphBuilder(
 			addNode(preprocessorModule, 0, 'module')
 			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
 			addEdge(id, 'Input', { type: 'empty' })
+		}
+
+		if (failureModule && !extra.flowModuleStates) {
+			addNode(failureModule, 0, 'module')
 		}
 
 		Object.keys(parents).forEach((key) => {

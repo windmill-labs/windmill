@@ -239,7 +239,7 @@
 					<Menu>
 						<div
 							slot="trigger"
-							class="w-full text-gray-400 text-2xs flex flex-row justify-center gap-1 items-center"
+							class="w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded"
 						>
 							<Plus size={14} />
 						</div>
