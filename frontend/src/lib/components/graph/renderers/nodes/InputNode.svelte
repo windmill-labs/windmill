@@ -26,7 +26,7 @@
 	}>('FlowGraphContext')
 </script>
 
-<NodeWrapper let:darkMode>
+<NodeWrapper let:darkMode above>
 	{#if data.insertable && !data.disableAi && !data.hasPreprocessor}
 		<FlowCopilotButton className="-top-[4.25rem]" />
 	{/if}

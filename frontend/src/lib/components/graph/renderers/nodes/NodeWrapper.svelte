@@ -6,12 +6,13 @@
 	export let enableTargetHandle: boolean = true
 	export let offset: number = 0
 
+	export let above: boolean = false
 	let darkMode: boolean = false
 </script>
 
 <DarkModeObserver bind:darkMode />
 
-<div class="relative shadow-md" style={`margin-left: ${offset}px;`}>
+<div class="{above ? 'z-50' : ''} relative shadow-md" style={`margin-left: ${offset}px;`}>
 	<slot {darkMode} />
 </div>
 

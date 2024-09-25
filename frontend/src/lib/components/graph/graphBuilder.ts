@@ -122,7 +122,7 @@ export default function graphBuilder(
 		type: 'result'
 	}
 
-	nodes.push(inputNode)
+	
 	nodes.push(resultNode)
 
 	function processModules(
@@ -494,6 +494,8 @@ export default function graphBuilder(
 			})
 		}
 	}
+
+	nodes.push(inputNode)
 
 	return { nodes, edges }
 }

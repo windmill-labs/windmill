@@ -19,22 +19,27 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowCopilotModule } from '../../copilot/flow'
-	import type { FlowEditorContext } from '../types'
-	import type { Writable } from 'svelte/store'
+
+	// import type { Writable } from 'svelte/store'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
 	export let stop = false
 	export let open: boolean | undefined = undefined
-	export let index: number
+	export let index: number = 0
 	export let funcDesc = ''
 	let filteredItems: (Script & { marked?: string })[] = []
-	export let modules: FlowModule[]
+	export let modules: FlowModule[] = []
 	export let disableAi = false
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 	export let preprocessorModule: boolean = false
+	export let failureModule: boolean = false
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	type Alignment = 'start' | 'end' | 'center'
+	type Side = 'top' | 'bottom'
+	type Placement = `${Side}-${Alignment}`
+
+	export let placement: Placement = 'bottom-center'
 
 	$: !open && (funcDesc = '')
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -42,43 +47,38 @@
 	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 	let loading = false
 
-	const { preventScroll } = getContext<{
-		preventScroll: Writable<boolean | undefined>
-	}>('FlowGraphContext')
+	// const context = getContext<{
+	// 	preventScroll: Writable<boolean | undefined>
+	// }>('FlowGraphContext')
 
-	let scrollInitialState: boolean | undefined = undefined
-	let wasOpened = open
+	// const preventScroll = context?.preventScroll ?? false
+
+	// let scrollInitialState: boolean | undefined = undefined
+	// let wasOpened = open
 
 	function handleMouseenter() {
-		$preventScroll = false
+		// $preventScroll = false
 	}
 
 	function handleMouseleave() {
-		$preventScroll = scrollInitialState
+		// 	$preventScroll = scrollInitialState
 	}
 
 	function handleOpen() {
-		if (open !== wasOpened) {
-			wasOpened = open
-			open ? (scrollInitialState = $preventScroll) : ($preventScroll = scrollInitialState)
-		}
+		// if (open !== wasOpened) {
+		// wasOpened = open
+		// open ? (scrollInitialState = $preventScroll) : ($preventScroll = scrollInitialState)
 	}
+	// }
 
-	onDestroy(() => {
-		$preventScroll = scrollInitialState
-	})
+	// onDestroy(() => {
+	// 	$preventScroll = scrollInitialState
+	// })
 
 	$: open, handleOpen()
 </script>
 
-<Menu
-	transitionDuration={0}
-	pointerDown
-	bind:show={open}
-	noMinW
-	placement="bottom-center"
-	let:close
->
+<Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close>
 	<svelte:fragment slot="trigger">
 		<button
 			title="Add {preprocessorModule ? 'preprocessor' : ''} step"
@@ -101,6 +101,10 @@
 			: 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
 		on:mouseenter={handleMouseenter}
 		on:mouseleave={handleMouseleave}
+		on:wheel={(e) => {
+			e.stopPropagation()
+			console.log('scroll')
+		}}
 		role="none"
 	>
 		<div class="flex flex-row items-center gap-2">
@@ -109,7 +113,7 @@
 		</div>
 
 		<div class="flex flex-row grow min-h-0 gap-1">
-			{#if !preprocessorModule}
+			{#if !preprocessorModule && !failureModule}
 				<div class="flex-none flex flex-col text-xs text-primary">
 					<button
 						class={twMerge(
@@ -250,7 +254,7 @@
 				{filteredItems}
 				{funcDesc}
 				{selectedKind}
-				failureModule={$selectedId === 'failure'}
+				{failureModule}
 				{preprocessorModule}
 				on:new
 				on:pickScript
