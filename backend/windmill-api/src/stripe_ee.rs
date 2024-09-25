@@ -1,1 +1,7 @@
-/git/windmill/../windmill-ee-private/windmill-api/src/stripe_ee.rs
+#[cfg(feature = "stripe")]
+use axum::Router;
+
+#[cfg(feature = "stripe")]
+pub fn add_stripe_routes(router: Router) -> Router {
+    return router;
+}
