@@ -327,6 +327,22 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
 }
 
+pub struct SqlAnnotations {
+    pub return_last_result: bool,
+}
+
+pub fn get_sql_annotations(inner_content: &str) -> SqlAnnotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("--"))
+        .map(|x| x.to_string().replace("--", "").trim().to_string())
+        .collect_vec();
+
+    let return_last_result: bool = annotations.contains(&"return_last_result".to_string());
+
+    SqlAnnotations { return_last_result }
+}
+
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded from local cache: {}\n", bin_path))

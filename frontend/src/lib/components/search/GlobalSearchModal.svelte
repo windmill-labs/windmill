@@ -521,8 +521,9 @@
 							id="quickSearchInput"
 							bind:this={textInput}
 							type="text"
-							class="quick-search-input"
+							class="quick-search-input !bg-surface"
 							bind:value={searchTerm}
+							autocomplete="off"
 						/>
 						<label
 							for="quickSearchInput"
