@@ -84,8 +84,7 @@ use rand::Rng;
 
 use crate::{
     ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
-        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
-        NO_LOGS_AT_ALL, SLOW_LOGS,
+        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args, update_worker_ping_for_failed_init_script, NO_LOGS_AT_ALL, SLOW_LOGS
     }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
     }, worker_lockfiles::{
@@ -195,6 +194,7 @@ pub async fn create_token_for_owner(
         exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
             as usize,
         job_id: Some(job_id.to_string()),
+        scopes: None,
     };
 
     let token = jsonwebtoken::encode(
@@ -1143,6 +1143,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let job_completed_processor_is_done2 = job_completed_processor_is_done.clone();
     let same_worker_queue_size2 = same_worker_queue_size.clone();
+
+
     let send_result = tokio::spawn(
         (async move {
             let mut has_been_killed = false;
@@ -1178,6 +1180,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         if is_init_script_and_failure {
                             tracing::error!("init script errored, exiting");
                             killpill_tx2.send(()).unwrap_or_default();
+                            break;
                         }
                         if is_dependency_job && is_dedicated_worker {
                             tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
@@ -1695,8 +1698,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     #[cfg(feature = "prometheus")]
                     let tag = job.tag.clone();
 
+                    let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
                     let arc_job = Arc::new(job);
-                    if let Err(err) = handle_queued_job(
+                    
+                    match handle_queued_job(
                         arc_job.clone(),
                         db,
                         &authed_client,
@@ -1712,10 +1717,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         worker_flow_initial_transition_duration.clone(),
                         worker_code_execution_duration.clone(),
                     )
-                    .await
-                    {
-                        let is_init_script = arc_job.tag.as_str() == INIT_SCRIPT_TAG;
-                        handle_job_error(
+                    .await {
+                        Err(err) => {
+                            handle_job_error(
                             db,
                             &authed_client.get_authed().await,
                             arc_job.as_ref(),
@@ -1730,12 +1734,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             (&job_completed_tx.0).clone(),
                         )
                         .await;
-                        if is_init_script {
-                            tracing::error!("failed to execute init_script, exiting");
-                            killpill_tx.send(()).unwrap();
+                        if is_init_script  {
+                            tracing::error!("init script job failed (in handler), exiting");
+                            update_worker_ping_for_failed_init_script(db, &worker_name, arc_job.id).await;
                             break;
                         }
-                    };
+                    },
+                    Ok(false) if is_init_script => {
+                            tracing::error!("init script job failed, exiting");
+                            update_worker_ping_for_failed_init_script(db, &worker_name, arc_job.id).await;
+                            break;
+                        
+                    }
+                    _ => {}
+                }
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -1810,6 +1822,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         };
     }
 
+    tracing::info!("worker {} exiting", worker_name);
     // #[cfg(feature = "benchmark")]
     // {
     //     println!("Writing benchmark file");
@@ -1824,10 +1837,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     drop(dedicated_workers);
 
-    for handle in dedicated_handles {
-        if let Err(e) = handle.await {
-            tracing::error!("error in dedicated worker waiting for it to end: {:?}", e)
+    let has_dedicated_workers = !dedicated_handles.is_empty();
+    if has_dedicated_workers {
+        for handle in dedicated_handles {
+            if let Err(e) = handle.await {
+                tracing::error!("error in dedicated worker waiting for it to end: {:?}", e)
+            }
         }
+        tracing::info!("all dedicated workers have exited");
     }
 
     drop(job_completed_tx);
@@ -1843,7 +1860,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
     rsmq: Option<R>,
-) -> error::Result<()> {
+) -> error::Result<bool> {
     if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
         let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
         let ehm = HashMap::new();
@@ -1889,8 +1906,10 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             .await
             .map_err(to_anyhow)?;
         tracing::info!("Creating initial job {uuid} from initial script script: {content}");
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
 // async fn process_result<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -2041,7 +2060,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     worker_code_execution_metric: &mut f32,
     _worker_flow_initial_transition_duration: Option<Histo>,
     _worker_code_execution_duration: Option<Histo>,
-) -> windmill_common::error::Result<()> {
+) -> windmill_common::error::Result<bool> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -2137,7 +2156,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             )
             .fetch_one(db)
             .await
-            .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e:#}")))?
+            .map_err(|e| Error::InternalErr(format!("Fetching script path from queue for caching purposes: {e:#}")))?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
             let step = match step.unwrap() {
                 Step::Step(i) => i.to_string(),
@@ -2186,12 +2205,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 .await
                 .expect("send job completed");
 
-            return Ok(());
+            return Ok(true);
         }
     };
     if job.is_flow() {
-        #[cfg(feature = "prometheus")]
-        let timer = _worker_flow_initial_transition_duration.map(|x| x.start_timer());
         handle_flow(
             job,
             db,
@@ -2203,8 +2220,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             job_completed_tx.0.clone(),
         )
         .await?;
-        #[cfg(feature = "prometheus")]
-        timer.map(|x| x.stop_and_record());
+        Ok(true)
     } else {
         let mut logs = "".to_string();
         let mut mem_peak: i32 = 0;
@@ -2323,14 +2339,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
         //it's a test job, no need to update the db
         if job.as_ref().workspace_id == "" {
-            return Ok(());
+            return Ok(true);
         }
 
         if result
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
         {
-            return Ok(());
+            return Ok(false);
         }
 
         process_result(
@@ -2346,9 +2362,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             new_args,
             db,
         )
-        .await?;
-    };
-    Ok(())
+        .await
+    }
 }
 
 

@@ -55,7 +55,7 @@ pub async fn process_result(
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
-) -> error::Result<()> {
+) -> error::Result<bool> {
     match result {
         Ok(r) => {
             let job = if column_order.is_some() || new_args.is_some() {
@@ -111,6 +111,7 @@ pub async fn process_result(
                 token,
             )
             .await;
+            Ok(true)
         }
         Err(e) => {
             let error_value = match e {
@@ -152,9 +153,9 @@ pub async fn process_result(
                 token,
             )
             .await;
+            Ok(false)
         }
-    };
-    Ok(())
+    }
 }
 
 pub async fn handle_receive_completed_job<

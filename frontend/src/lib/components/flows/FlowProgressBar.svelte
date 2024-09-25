@@ -3,6 +3,7 @@
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
+	export let currentSubJobProgress: number | undefined = undefined
 
 	let error: number | undefined = undefined
 	let index = 0
@@ -59,6 +60,9 @@
 			//                  Jitter protection >^^^^^^^^
 			subStepLength = 100
 			subIndexIsPercent = true;
+			currentSubJobProgress = subStepIndex
+		} else {
+			currentSubJobProgress = undefined
 		}
 
 		error = newError
