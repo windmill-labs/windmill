@@ -475,6 +475,7 @@ where
     }
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct RawFlowFailureModule {
     failure_module: Option<Box<RawValue>>,
