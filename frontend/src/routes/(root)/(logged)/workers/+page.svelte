@@ -74,7 +74,7 @@
 	async function loadWorkerGroups(): Promise<void> {
 		try {
 			workerGroups = Object.fromEntries(
-				(await ConfigService.listWorkerGroups()).map((x) => [x.name.substring(8), x.config])
+				(await ConfigService.listWorkerGroups()).map((x) => [x.name, x.config])
 			)
 		} catch (err) {
 			sendUserToast(`Could not load worker groups: ${err}`, true)
@@ -240,6 +240,14 @@
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
+
+	function displayOccupancyRate(occupancy_rate: number | undefined) {
+		if (occupancy_rate == undefined) {
+			return '--'
+		}
+
+		return Math.ceil(occupancy_rate * 100) + '%'
+	}
 </script>
 
 {#if $superadmin}
@@ -503,7 +511,7 @@
 								<Cell head>Jobs ran</Cell>
 								{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 									<Cell head>Last job</Cell>
-									<Cell head>Occupancy rate</Cell>
+									<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
 								{/if}
 								<Cell head>Memory usage<br />(Windmill)</Cell>
 								<Cell head>Limits</Cell>
@@ -538,7 +546,7 @@
 								</tr>
 
 								{#if workers}
-									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 										<tr>
 											<Cell first>{worker}</Cell>
 											<Cell>
@@ -564,7 +572,11 @@
 													{/if}
 												</Cell>
 												<Cell>
-													{Math.ceil((occupancy_rate ?? 0) * 100)}%
+													{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
+														occupancy_rate_5m
+													)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
+														occupancy_rate
+													)}
 												</Cell>
 											{/if}
 											<Cell>

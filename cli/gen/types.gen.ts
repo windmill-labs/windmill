@@ -613,6 +613,9 @@ export type WorkerPing = {
     last_job_id?: string;
     last_job_workspace_id?: string;
     occupancy_rate?: number;
+    occupancy_rate_15s?: number;
+    occupancy_rate_5m?: number;
+    occupancy_rate_30m?: number;
     memory?: number;
     vcpus?: number;
     memory_usage?: number;
@@ -4405,6 +4408,22 @@ export type ListJobsData = {
 export type ListJobsResponse = (Array<Job>);
 
 export type GetDbClockResponse = (number);
+
+export type CountJobsByTagData = {
+    /**
+     * Past Time horizon in seconds (when to start the count = now - horizon) (default is 3600)
+     */
+    horizonSecs?: number;
+    /**
+     * Specific workspace ID to filter results (optional)
+     */
+    workspaceId?: string;
+};
+
+export type CountJobsByTagResponse = (Array<{
+    tag: string;
+    count: number;
+}>);
 
 export type GetJobData = {
     id: string;
