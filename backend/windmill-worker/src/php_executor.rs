@@ -15,9 +15,10 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_result, start_child_process,
+        create_args_and_out_file, get_main_override, get_reserved_variables, read_result,
+        start_child_process, OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
     NSJAIL_PATH, PHP_PATH,
 };
@@ -70,6 +71,7 @@ pub async fn composer_install(
     worker_name: &str,
     requirements: String,
     lock: Option<String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<String> {
     check_php_exists()?;
 
@@ -101,6 +103,7 @@ pub async fn composer_install(
         "composer install",
         None,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -160,6 +163,7 @@ pub async fn handle_php_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     shared_mount: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     check_php_exists()?;
 
@@ -190,6 +194,7 @@ pub async fn handle_php_job(
             worker_name,
             composer_json,
             composer_lock,
+            occupancy_metrics,
         )
         .await?;
         "require './vendor/autoload.php';"
@@ -346,6 +351,7 @@ try {{
         "php run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

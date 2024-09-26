@@ -8,6 +8,7 @@ import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 import * as wmill from "./gen/services.gen.ts";
 import { Config, GlobalSetting } from "./gen/types.gen.ts";
+import { removeWorkerPrefix } from "./worker_groups.ts";
 
 export interface SimplifiedSettings {
   // slack_team_id?: string;
@@ -354,7 +355,12 @@ export async function pushInstanceSettings(
 }
 
 export async function pullInstanceConfigs(preview = false) {
-  const remoteConfigs = await wmill.listConfigs();
+  const remoteConfigs = (await wmill.listConfigs()).map((x) => {
+    return {
+      ...x,
+      name: removeWorkerPrefix(x.name),
+    };
+  });
 
   if (preview) {
     let localConfigs: Config[] = [];
@@ -383,7 +389,12 @@ export async function pullInstanceConfigs(preview = false) {
 }
 
 export async function pushInstanceConfigs(preview: boolean = false) {
-  const remoteConfigs = await wmill.listConfigs();
+  const remoteConfigs = (await wmill.listConfigs()).map((x) => {
+    return {
+      ...x,
+      name: removeWorkerPrefix(x.name),
+    };
+  });
   const localConfigs = (await Deno.readTextFile("instance_configs.yaml")
     .then((raw) => yamlParse(raw))
     .catch(() => [])) as Config[];
@@ -404,7 +415,7 @@ export async function pushInstanceConfigs(preview: boolean = false) {
       }
       try {
         await wmill.updateConfig({
-          name: config.name,
+          name: config.name.startsWith('worker__') ? config.name : `worker__${config.name}`,
           requestBody: config.config,
         });
       } catch (err) {

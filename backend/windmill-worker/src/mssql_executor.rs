@@ -14,7 +14,8 @@ use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::{append_logs, CanceledBy};
 
-use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
+use crate::common::{build_args_values, OccupancyMetrics};
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]
@@ -39,6 +40,7 @@ pub async fn do_mssql(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -157,6 +159,7 @@ pub async fn do_mssql(
         result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
