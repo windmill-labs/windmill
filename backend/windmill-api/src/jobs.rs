@@ -1254,13 +1254,16 @@ pub fn list_queue_jobs_query(
     w_id: &str,
     lq: &ListQueueQuery,
     fields: &[&str],
+    pagination: Pagination,
     join_outstanding_wait_times: bool,
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
+    let (limit, offset) = paginate(pagination);
     let mut sqlb = SqlBuilder::select_from("queue")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .limit(1000)
+        .limit(limit)
+        .offset(offset)
         .clone();
 
     if let Some(tags) = tags {
@@ -1273,6 +1276,7 @@ pub fn list_queue_jobs_query(
 #[derive(Serialize, FromRow)]
 struct ListableQueuedJob {
     pub id: Uuid,
+    pub running: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -1295,6 +1299,7 @@ async fn list_queue_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
     let sql = list_queue_jobs_query(
@@ -1302,6 +1307,7 @@ async fn list_queue_jobs(
         &lq,
         &[
             "id",
+            "running",
             "created_by",
             "created_at",
             "started_at",
@@ -1321,6 +1327,7 @@ async fn list_queue_jobs(
             "priority",
             "workspace_id",
         ],
+        pagination,
         false,
         get_scope_tags(&authed),
     )
@@ -1576,6 +1583,7 @@ async fn list_jobs(
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("jobs:listjobs"))?;
 
+    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
@@ -1607,6 +1615,7 @@ async fn list_jobs(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
+            Pagination { per_page: Some(limit), page: None },
             true,
             get_scope_tags(&authed),
         );
