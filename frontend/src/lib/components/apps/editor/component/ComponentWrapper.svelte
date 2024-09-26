@@ -62,7 +62,6 @@
 			e.stopPropagation()
 		}
 	}}
-	on:drop
 	on:pointerdown={onPointerDown}
 	on:click|capture={(event) =>
 		preventInteraction(event, type === 'tabscomponent' || type === 'steppercomponent')}
