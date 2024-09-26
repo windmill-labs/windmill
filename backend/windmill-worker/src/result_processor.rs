@@ -168,8 +168,6 @@ pub async fn handle_receive_completed_job<
     same_worker_tx: &SameWorkerSender,
     rsmq: Option<R>,
     worker_name: &str,
-    worker_save_completed_job_duration: Option<Histo>,
-    worker_flow_transition_duration: Option<Histo>,
     job_completed_tx: Sender<SendResult>,
 ) {
     let token = jc.token.clone();
@@ -191,8 +189,6 @@ pub async fn handle_receive_completed_job<
         same_worker_tx.clone(),
         rsmq.clone(),
         worker_name,
-        worker_save_completed_job_duration,
-        worker_flow_transition_duration,
         job_completed_tx.clone(),
     )
     .await
@@ -215,6 +211,9 @@ pub async fn handle_receive_completed_job<
     }
 }
 
+#[cfg(feature = "benchmark")]
+lazy_static::lazy_static! {}
+
 #[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
@@ -224,8 +223,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     same_worker_tx: SameWorkerSender,
     rsmq: Option<R>,
     worker_name: &str,
-    _worker_save_completed_job_duration: Option<Histo>,
-    _worker_flow_transition_duration: Option<Histo>,
     job_completed_tx: Sender<SendResult>,
 ) -> windmill_common::error::Result<()> {
     if success {
@@ -238,10 +235,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
-        #[cfg(feature = "prometheus")]
-        let timer = _worker_save_completed_job_duration
-            .as_ref()
-            .map(|x| x.start_timer());
+
         add_completed_job(
             db,
             &job,
@@ -256,15 +250,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         .await?;
         drop(job);
 
-        #[cfg(feature = "prometheus")]
-        timer.map(|x| x.stop_and_record());
-
         if is_flow_step {
             if let Some(parent_job) = parent_job {
-                #[cfg(feature = "prometheus")]
-                let timer = _worker_flow_transition_duration
-                    .as_ref()
-                    .map(|x| x.start_timer());
                 tracing::info!(parent_flow = %parent_job, subflow = %job_id, "updating flow status (2)");
                 update_flow_status_after_job_completion(
                     db,
@@ -283,8 +270,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     job_completed_tx,
                 )
                 .await?;
-                #[cfg(feature = "prometheus")]
-                timer.map(|x| x.stop_and_record());
             }
         }
     } else {

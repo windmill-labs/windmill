@@ -1127,15 +1127,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     #[cfg(feature = "prometheus")]
     let worker_job_completed_channel_queue2 = worker_job_completed_channel_queue.clone();
-    #[cfg(feature = "prometheus")]
-    let worker_save_completed_job_duration2 = worker_save_completed_job_duration.clone();
-    #[cfg(feature = "prometheus")]
-    let worker_flow_transition_duration2 = worker_flow_transition_duration.clone();
 
-    #[cfg(not(feature = "prometheus"))]
-    let worker_save_completed_job_duration2 = None;
-    #[cfg(not(feature = "prometheus"))]
-    let worker_flow_transition_duration2 = None;
 
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
@@ -1174,8 +1166,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             &same_worker_tx2,
                             rsmq2,
                             &worker_name2,
-                            worker_save_completed_job_duration2.clone(),
-                            worker_flow_transition_duration2.clone(),
                             job_completed_sender.clone(),
                         )
                         .await;
@@ -1567,7 +1557,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                                 let timer = worker_dedicated_channel_queue_send_duration
                                     .as_ref()
                                     .map(|x| x.start_timer());
-
+                                
                                 if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
                                     tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                                 }
