@@ -160,6 +160,7 @@ export type QueuedJob = {
     priority?: number;
     self_wait_time_ms?: number;
     aggregate_wait_time_ms?: number;
+    suspend?: number;
 };
 
 export type job_kind = 'script' | 'preview' | 'dependencies' | 'flowdependencies' | 'appdependencies' | 'flow' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow';

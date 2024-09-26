@@ -6,6 +6,7 @@ import { pickInstance } from "./instance.ts";
 type Data = {
   count: number;
   later: number;
+  suspended: number;
   waiting: number;
   running: number;
   rps30s: string;
@@ -29,6 +30,7 @@ function createRow(tag: string, data: Record<string, Data>) {
       waiting: 0,
       later: 0,
       running: 0,
+      suspended: 0,
       rps30s: "",
       rps5min: "",
       rps30min: "",
@@ -40,7 +42,7 @@ async function displayQueues(opts: GlobalOptions, workspace?: string) {
   const activeInstance = await pickInstance(opts, true);
   if (activeInstance) {
     try {
-      const queuedJobs = await wmill.listQueue({workspace: workspace ?? 'admins', allWorkspaces: workspace === undefined});
+      const queuedJobs = await wmill.listQueue({workspace: workspace ?? 'admins', allWorkspaces: workspace === undefined, perPage: 100000});
       const jobCounts30s = await wmill.countJobsByTag({
         horizonSecs: 30,
         workspaceId: workspace,
@@ -68,7 +70,11 @@ async function displayQueues(opts: GlobalOptions, workspace?: string) {
         createRow(job.tag, data);
         const scheduledFor = new Date(job.scheduled_for ?? "");
         if (job.running) {
-          data[job.tag].running += 1;
+          if (job.suspend) {
+            data[job.tag].suspended += 1;
+          } else {
+            data[job.tag].running += 1;
+          }
         } else if (scheduledFor <= nowFromDb) {
           data[job.tag].waiting += 1;
         } else {
@@ -104,6 +110,7 @@ async function displayQueues(opts: GlobalOptions, workspace?: string) {
         "Running",
         "Waiting",
         "Later",
+        "Suspended",
         "RPS (30s)",
         "RPS (5min)",
         "RPS (30min)",
@@ -111,7 +118,7 @@ async function displayQueues(opts: GlobalOptions, workspace?: string) {
       ]);
       let body = []
       for (const tag in data) {
-        body.push([tag, data[tag].running, data[tag].waiting, data[tag].later, data[tag].rps30s, data[tag].rps5min, data[tag].rps30min, data[tag].rps24h]);
+        body.push([tag, data[tag].running, data[tag].waiting, data[tag].later, data[tag].suspended, data[tag].rps30s, data[tag].rps5min, data[tag].rps30min, data[tag].rps24h]);
       }
       table.body(body).render();
 
