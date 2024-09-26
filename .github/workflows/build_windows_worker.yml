@@ -1,4 +1,4 @@
-name: Backend only integration tests
+name: Build Windows Worker
 
 on:
   push:
@@ -44,5 +44,5 @@ jobs:
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml && rustup target add x86_64-pc-windows-gnu && 
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info cargo build --target x86_64-pc-windows-gnu --release 
-          --all -- --nocapture
+          DISABLE_EMBEDDING=true RUST_LOG=info cargo build --target x86_64-pc-windows-gnu --release
+          
