@@ -3,6 +3,7 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
+	import { findGridItemParentGrid } from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
@@ -31,7 +32,7 @@
 	export let moveMode: 'move' | 'insert' = 'move'
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
-	const { mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const scale = ctx ? ctx.scale : writable(100)
 
@@ -407,10 +408,12 @@
 			return true
 		}
 
-		if (overlapped === undefined) {
-			return false
-		} else if (overlapped !== id) {
-			return true
+		const parent = findGridItemParentGrid($app, id)
+
+		if (parent === undefined) {
+			return overlapped === undefined
+		} else if (overlapped) {
+			return parent.startsWith(overlapped)
 		}
 
 		return false
@@ -453,7 +456,7 @@
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
 			overlapped && moveMode === 'insert' ? 'svlte-grid-shadow-drop' : '',
-			shouldDisplayShadow(overlapped) ? 'hidden' : ''
+			shouldDisplayShadow(overlapped) ? '' : 'hidden'
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
