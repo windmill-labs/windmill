@@ -43,6 +43,6 @@ jobs:
         run:
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml && apt-get install gcc-mingw-w64 python-is-python3 --yes && rustup target add x86_64-pc-windows-gnu && 
-          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
+          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill OPENSSL_DIR="/usr/lib/ssl" 
           DISABLE_EMBEDDING=true RUST_LOG=info cargo build --target x86_64-pc-windows-gnu --release
 
