@@ -1,68 +1,23 @@
-use async_recursion::async_recursion;
 use deno_ast::swc::parser::lexer::util::CharExt;
-use futures::Future;
 use itertools::Itertools;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use object_store::path::Path;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use serde_json::{json, Value};
-use sqlx::types::Json;
-use sqlx::{Pool, Postgres};
-use tokio::process::Command;
-use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
+
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
-#[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{
-    get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
-};
-use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
-use windmill_common::worker::{
-    get_windmill_memory_usage, get_worker_memory_usage, to_raw_value, write_file, CLOUD_HOSTED,
-    ROOT_CACHE_DIR, TMP_DIR, WORKER_CONFIG,
-};
-use windmill_common::{
-    error::{self, Error},
-    jobs::QueuedJob,
-    variables::ContextualVariable,
-};
 
-use anyhow::{anyhow, Result};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_common::error::{self};
+use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::os::unix::process::ExitStatusExt;
+use windmill_queue::append_logs;
 
-use std::process::ExitStatus;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    io, panic,
-    time::Duration,
-};
 
 use uuid::Uuid;
-use windmill_common::{variables, DB};
-
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::Child,
-    sync::broadcast,
-    time::{interval, Instant, MissedTickBehavior},
-};
-
-use futures::{future::FutureExt, stream, StreamExt};
-
-use crate::{
-    AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION,
-};
+use windmill_common::DB;
 
 pub enum CompactLogs {
     NotEE,
@@ -214,7 +169,7 @@ async fn default_disk_log_storage(
     }
 }
 
-async fn append_job_logs(
+pub(crate) async fn append_job_logs(
     job_id: Uuid,
     w_id: String,
     logs: String,

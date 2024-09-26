@@ -38,7 +38,7 @@ use windmill_parser_sql::{
 };
 use windmill_queue::CanceledBy;
 
-use crate::common::{build_args_values, sizeof_val};
+use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
 use bytes::{Buf, BytesMut};
@@ -163,6 +163,7 @@ pub async fn do_postgresql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, db).await?;
 
@@ -352,6 +353,7 @@ pub async fn do_postgresql(
         result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 

@@ -1,43 +1,19 @@
-use async_recursion::async_recursion;
-use deno_ast::swc::parser::lexer::util::CharExt;
 use futures::Future;
-use itertools::Itertools;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::sys::signal::{self, Signal};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-use object_store::path::Path;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use serde_json::{json, Value};
-use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
-use tokio::process::Command;
-use tokio::{fs::File, io::AsyncReadExt};
+use tokio::fs::File;
 use windmill_common::error::to_anyhow;
-use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
-#[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{
-    get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
-};
-use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
-use windmill_common::worker::{
-    get_windmill_memory_usage, get_worker_memory_usage, to_raw_value, write_file, CLOUD_HOSTED,
-    ROOT_CACHE_DIR, TMP_DIR, WORKER_CONFIG,
-};
-use windmill_common::{
-    error::{self, Error},
-    jobs::QueuedJob,
-    variables::ContextualVariable,
-};
 
-use anyhow::{anyhow, Result};
+use windmill_common::error::{self, Error};
+
+use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED};
+
+use anyhow::Result;
 use windmill_queue::{append_logs, CanceledBy};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -46,16 +22,11 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    io, panic,
-    time::Duration,
-};
+use std::{io, panic, time::Duration};
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::{variables, DB};
+use windmill_common::DB;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::job_metrics;
@@ -72,11 +43,9 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::resolve_job_timeout;
-use crate::{
-    AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM,
-};
+use crate::common::{resolve_job_timeout, OccupancyMetrics};
+use crate::job_logger::{append_job_logs, append_with_limit, LARGE_LOG_THRESHOLD_SIZE};
+use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
@@ -100,6 +69,7 @@ pub async fn handle_child(
     child_name: &str,
     custom_timeout: Option<i32>,
     sigterm: bool,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<()> {
     let start = Instant::now();
 
@@ -140,6 +110,7 @@ pub async fn handle_child(
         worker,
         w_id,
         rx,
+        occupancy_metrics,
     );
 
     #[derive(PartialEq, Debug)]
@@ -391,6 +362,36 @@ pub async fn handle_child(
     }
 }
 
+async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
+    if pid.is_none() {
+        return -1;
+    }
+    let pid = if nsjail {
+        // This is a bit hacky, but the process id of the nsjail process is the pid of nsjail + 1.
+        // Ideally, we would get the number from fork() itself. This works in MOST cases.
+        pid.unwrap() + 1
+    } else {
+        pid.unwrap()
+    };
+
+    if let Ok(file) = File::open(format!("/proc/{}/status", pid)).await {
+        let mut lines = BufReader::new(file).lines();
+        while let Some(line) = lines.next_line().await.unwrap_or(None) {
+            if line.starts_with("VmHWM:") {
+                return line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .unwrap_or(-1);
+            };
+        }
+        -2
+    } else {
+        // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
+        -3
+    }
+}
+
 pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     job_id: Uuid,
     timeout: Option<i32>,
@@ -400,6 +401,7 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     result_f: Fut,
     worker_name: &str,
     w_id: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<T>
 where
     Fut: Future<Output = anyhow::Result<T>>,
@@ -415,6 +417,7 @@ where
         worker_name,
         w_id,
         rx,
+        occupancy_metrics,
     );
 
     let timeout_ms = u64::try_from(
@@ -457,6 +460,7 @@ pub async fn update_job_poller<F, Fut>(
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> UpdateJobPollingExit
 where
     F: Fn() -> Fut,
@@ -485,14 +489,20 @@ where
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
                     tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
+                    let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
                     if job_id != Uuid::nil() {
                         sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
+                            "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
+                            occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
                             &job_id,
                             &w_id,
                             memory_usage,
                             wm_memory_usage,
-                            &worker_name
+                            &worker_name,
+                            occupancy.map(|x| x.0),
+                            occupancy.and_then(|x| x.1),
+                            occupancy.and_then(|x| x.2),
+                            occupancy.and_then(|x| x.3),
                         )
                         .execute(&db)
                         .await

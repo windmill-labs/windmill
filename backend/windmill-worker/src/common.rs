@@ -28,27 +28,16 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::os::unix::process::ExitStatusExt;
-
-use std::process::ExitStatus;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    io,
     time::Duration,
 };
 
 use uuid::Uuid;
 use windmill_common::{variables, DB};
 
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::Child,
-    time::Instant,
-};
-
-use futures::stream;
+use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
@@ -444,36 +433,6 @@ pub fn get_main_override(args: Option<&Json<HashMap<String, Box<RawValue>>>>) ->
         .flatten();
 }
 
-async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
-    if pid.is_none() {
-        return -1;
-    }
-    let pid = if nsjail {
-        // This is a bit hacky, but the process id of the nsjail process is the pid of nsjail + 1.
-        // Ideally, we would get the number from fork() itself. This works in MOST cases.
-        pid.unwrap() + 1
-    } else {
-        pid.unwrap()
-    };
-
-    if let Ok(file) = File::open(format!("/proc/{}/status", pid)).await {
-        let mut lines = BufReader::new(file).lines();
-        while let Some(line) = lines.next_line().await.unwrap_or(None) {
-            if line.starts_with("VmHWM:") {
-                return line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .unwrap_or(-1);
-            };
-        }
-        -2
-    } else {
-        // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
-        -3
-    }
-}
-
 pub fn sizeof_val(v: &serde_json::Value) -> usize {
     std::mem::size_of::<serde_json::Value>()
         + match v {
@@ -515,45 +474,81 @@ pub async fn update_worker_ping_for_failed_init_script(
         tracing::error!("Error updating worker ping for failed init script: {e:?}");
     }
 }
+pub struct OccupancyMetrics {
+    pub running_job_started_at: Option<Instant>,
+    pub total_duration_of_running_jobs: f32,
+    pub worker_occupancy_rate_history: Vec<(f32, f32)>,
+    pub start_time: Instant,
+}
 
-pub fn update_occupancy_metrics(
-    running_job_started_at: Option<Instant>,
-    worker_code_execution_metric: f32,
-    last_occupancy_rate_update: &mut Instant,
-    last_worker_code_execution_metric: &mut f32,
-    worker_occupancy_rate_history: &mut Vec<f32>,
-    start_time: Instant,
-) -> (f32, Option<f32>, Option<f32>) {
-    let total_occupation = if let Some(started_at) = running_job_started_at {
-        let elapsed = started_at.elapsed().as_secs_f32();
-        worker_code_execution_metric + elapsed
-    } else {
-        worker_code_execution_metric
-    };
-
-    let last_occupancy_elapsed = last_occupancy_rate_update.elapsed().as_secs();
-    if last_occupancy_elapsed > 300 {
-        *last_occupancy_rate_update = Instant::now();
-        let last_5min_occupancy_rate =
-            (total_occupation - *last_worker_code_execution_metric) / last_occupancy_elapsed as f32;
-        worker_occupancy_rate_history.push(last_5min_occupancy_rate);
-        *last_worker_code_execution_metric = total_occupation;
-        if worker_occupancy_rate_history.len() > 6 {
-            worker_occupancy_rate_history.remove(0);
+impl OccupancyMetrics {
+    pub fn new(start_time: Instant) -> Self {
+        OccupancyMetrics {
+            running_job_started_at: None,
+            total_duration_of_running_jobs: 0.0,
+            worker_occupancy_rate_history: Vec::new(),
+            start_time,
         }
     }
-    let occupancy_rate = total_occupation / start_time.elapsed().as_secs_f32();
-    let occupancy_rate_5m = worker_occupancy_rate_history.last().copied();
-    let occupancy_rate_30m = if !worker_occupancy_rate_history.is_empty() {
-        Some(
-            worker_occupancy_rate_history.iter().sum::<f32>()
-                / worker_occupancy_rate_history.len() as f32,
-        )
-    } else {
-        None
-    };
 
-    (occupancy_rate, occupancy_rate_5m, occupancy_rate_30m)
+    pub fn update_occupancy_metrics(&mut self) -> (f32, Option<f32>, Option<f32>, Option<f32>) {
+        let metrics = self;
+        let current_occupied_duration = metrics
+            .running_job_started_at
+            .map(|started_at| started_at.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        let total_occupation = metrics.total_duration_of_running_jobs + current_occupied_duration;
+
+        let elapsed = metrics.start_time.elapsed().as_secs_f32();
+
+        let (occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m) =
+            if !metrics.worker_occupancy_rate_history.is_empty() {
+                let mut total_occupation_15s = 0.0;
+                let mut total_occupation_5m = 0.0;
+                let mut total_occupation_30m = 0.0;
+                let mut index30m = 0;
+                for (i, (past_total_occupation, time)) in
+                    metrics.worker_occupancy_rate_history.iter().enumerate()
+                {
+                    let diff = elapsed - time;
+                    if diff < 1800.0 && total_occupation_30m == 0.0 {
+                        total_occupation_30m = (total_occupation - past_total_occupation) / diff;
+                        index30m = i;
+                    }
+                    if diff < 300.0 && total_occupation_5m == 0.0 {
+                        total_occupation_5m = (total_occupation - past_total_occupation) / diff;
+                    }
+                    if diff < 15.0 {
+                        total_occupation_15s = (total_occupation - past_total_occupation) / diff;
+                        break;
+                    }
+                }
+
+                //drop all elements before the oldest one in 30m windows
+                metrics.worker_occupancy_rate_history.drain(..index30m);
+
+                (
+                    Some(total_occupation_15s),
+                    Some(total_occupation_5m),
+                    Some(total_occupation_30m),
+                )
+            } else {
+                (None, None, None)
+            };
+        let occupancy_rate = total_occupation / elapsed;
+
+        //push the current occupancy rate and the timestamp
+        metrics
+            .worker_occupancy_rate_history
+            .push((total_occupation, elapsed));
+
+        (
+            occupancy_rate,
+            occupancy_rate_15s,
+            occupancy_rate_5m,
+            occupancy_rate_30m,
+        )
+    }
 }
 
 pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {

@@ -1,4 +1,4 @@
-import { Command, setClient, Table } from "./deps.ts";
+import { Command,  Table } from "./deps.ts";
 import { log } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 import { pickInstance } from "./instance.ts";
@@ -10,7 +10,7 @@ type GlobalOptions = {
 
 
 function toPercent(value: number | undefined): string {
-  return value != undefined ? `${(value * 100).toFixed(5)}%` : '?%';
+  return value != undefined ? `${(value * 100).toFixed(1)}%` : '?%';
 }
 
 async function displayWorkers(opts: GlobalOptions) {
@@ -66,7 +66,7 @@ async function displayWorkers(opts: GlobalOptions) {
         } else {
 
           new Table()
-            .header(["Worker ID", "Host", "Queues",  "Jobs", "Occupancy rate 5m/30m/ever)", "Last job", "Last Ping"])
+            .header(["Worker ID", "Host", "Queues",  "Jobs", "Occupancy rate 15s/5m/30m/ever)", "Last job", "Last Ping"])
             .padding(2)
             .border(true)
             .maxColWidth(30)
@@ -75,7 +75,7 @@ async function displayWorkers(opts: GlobalOptions) {
               worker.worker_instance,
               worker.custom_tags?.join(', ') || '',
               worker.jobs_executed,
-              `${toPercent(worker.occupancy_rate_5m)}/${toPercent(worker.occupancy_rate_30m)}/${toPercent(worker.occupancy_rate)}`,
+              `${toPercent(worker.occupancy_rate_15s)}/${toPercent(worker.occupancy_rate_5m)}/${toPercent(worker.occupancy_rate_30m)}/${toPercent(worker.occupancy_rate)}`,
               
               worker.last_job_id ? worker.last_job_id + ' ' +worker.last_job_workspace_id : '',
               `${worker.last_ping}s ago`

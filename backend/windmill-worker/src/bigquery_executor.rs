@@ -14,6 +14,7 @@ use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
 
+use crate::common::OccupancyMetrics;
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{build_args_values, resolve_job_timeout},
@@ -210,6 +211,7 @@ pub async fn do_bigquery(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, db).await?;
 
@@ -364,6 +366,7 @@ pub async fn do_bigquery(
         result_f.map_err(to_anyhow),
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 

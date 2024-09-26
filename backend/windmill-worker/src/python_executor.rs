@@ -55,9 +55,10 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_file, read_result, start_child_process,
+        create_args_and_out_file, get_main_override, get_reserved_variables, read_file,
+        read_result, start_child_process, OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, TZ_ENV,
@@ -101,6 +102,7 @@ pub async fn pip_compile(
     db: &Pool<Postgres>,
     worker_name: &str,
     w_id: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<String> {
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
@@ -210,6 +212,7 @@ pub async fn pip_compile(
         "pip-compile",
         None,
         false,
+        occupancy_metrics,
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
@@ -247,6 +250,7 @@ pub async fn handle_python_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_python_deps(
@@ -261,6 +265,7 @@ pub async fn handle_python_job(
         worker_dir,
         mem_peak,
         canceled_by,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -485,6 +490,7 @@ mount {{
         "python run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -753,6 +759,7 @@ async fn handle_python_deps(
     worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
 
@@ -790,6 +797,7 @@ async fn handle_python_deps(
                     db,
                     worker_name,
                     w_id,
+                    occupancy_metrics,
                 )
                 .await
                 .map_err(|e| {
@@ -813,6 +821,7 @@ async fn handle_python_deps(
             worker_name,
             job_dir,
             worker_dir,
+            occupancy_metrics,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -834,6 +843,7 @@ pub async fn handle_python_reqs(
     worker_name: &str,
     job_dir: &str,
     worker_dir: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
@@ -1089,6 +1099,7 @@ pub async fn handle_python_reqs(
             &format!("pip install {req}"),
             None,
             false,
+            occupancy_metrics,
         )
         .await;
         tracing::info!(
@@ -1173,6 +1184,7 @@ pub async fn start_worker(
         job_dir,
         &mut mem_peak,
         &mut canceled_by,
+        &mut None,
     )
     .await?;
 
