@@ -76,6 +76,7 @@
 						x: (moveX / $scale) * 100 - initX,
 						y: (moveY / $scale) * 100 - initY
 					}
+
 					dispatch('move', { cordDiff, clientY: clientY })
 				}
 				return x
@@ -200,7 +201,6 @@
 	let sign = { x: 0, y: 0 }
 	let vel = { x: 0, y: 0 }
 	let intervalId: NodeJS.Timeout | undefined = undefined
-	let shadowHidden: boolean = false
 
 	const stopAutoscroll = () => {
 		intervalId && clearInterval(intervalId)
@@ -218,19 +218,9 @@
 			let gridX = Math.round(boundX / xPerPx)
 			let gridY = Math.round(boundY / yPerPx)
 
-			// is the mouse above directly on the element
-
-			const rows = Math.floor((nativeContainer.clientHeight + gapY) / (yPerPx + gapY))
-
 			if (shadow) {
-				if ((gridX < 0 || gridX >= cols || gridY < 0 || gridY >= rows) && moveMode === 'insert') {
-					shadowHidden = true
-				} else {
-					shadow.x = Math.max(Math.min(gridX, cols - shadow.w), 0)
-					shadow.y = Math.max(gridY, 0)
-
-					shadowHidden = false
-				}
+				shadow.x = Math.max(Math.min(gridX, cols - shadow.w), 0)
+				shadow.y = Math.max(gridY, 0)
 			}
 		}
 	}
@@ -246,15 +236,21 @@
 
 		const elementsAtPoint = document.elementsFromPoint(event.clientX, event.clientY)
 		const intersectingElement = elementsAtPoint.find(
-			(el) => el.classList.contains('svlt-grid-item') && el.id !== divId
+			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
 		)
+
+		const position = computePosition(clientX, clientY)
 
 		dispatch('move', {
 			cordDiff,
 			clientY,
 			intersectingElement: intersectingElement?.id
 				? intersectingElement.id.split('-')[1]
-				: undefined
+				: undefined,
+			shadow: {
+				x: position.x,
+				y: position.y
+			}
 		})
 	}
 
@@ -300,6 +296,30 @@
 
 	let element: HTMLElement | undefined = undefined
 
+	function computePosition(clientX: number, clientY: number) {
+		const overlappedElement = overlapped
+			? document.getElementById(`component-${overlapped}`)
+			: document.getElementById('root-grid')
+
+		const xRelativeToElement = element ? clientX - element.getBoundingClientRect().left : 0
+		const yRelativeToElement = element ? clientY - element.getBoundingClientRect().top : 0
+
+		const xRelativeToOverlappedElement = overlappedElement
+			? clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
+			: 0
+		const yRelativeToOverlappedElement = overlappedElement
+			? clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
+			: 0
+
+		const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
+		const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
+
+		return {
+			x: gridX,
+			y: gridY
+		}
+	}
+
 	const pointerup = (e) => {
 		ctx.componentActive.set(false)
 		stopAutoscroll()
@@ -313,25 +333,9 @@
 		} else {
 			dragClosure = undefined
 		}
+		const position = computePosition(e.clientX, e.clientY)
 
-		const overlappedElement = overlapped
-			? document.getElementById(`component-${overlapped}`)
-			: document.getElementById('root-grid')
-
-		const xRelativeToElement = element ? e.clientX - element.getBoundingClientRect().left : 0
-		const yRelativeToElement = element ? e.clientY - element.getBoundingClientRect().top : 0
-
-		const xRelativeToOverlappedElement = overlappedElement
-			? e.clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
-			: 0
-		const yRelativeToOverlappedElement = overlappedElement
-			? e.clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
-			: 0
-
-		const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
-		const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
-
-		dispatch('dropped', { id, overlapped, x: gridX, y: gridY })
+		dispatch('dropped', { id, overlapped, x: position?.x, y: position?.y })
 	}
 
 	let resizeInitPos = { x: 0, y: 0 }
@@ -397,6 +401,20 @@
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
 	}
+
+	function shouldDisplayShadow(overlapped: string | undefined) {
+		if (moveMode === 'move') {
+			return true
+		}
+
+		if (overlapped === undefined) {
+			return false
+		} else if (overlapped !== id) {
+			return true
+		}
+
+		return false
+	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -430,11 +448,12 @@
 	<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
 </div>
 
-{#if xPerPx > 0 && (active || trans) && shadow && !shadowHidden}
+{#if xPerPx > 0 && (active || trans) && shadow}
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			overlapped && moveMode === 'insert' ? 'svlte-grid-shadow-drop' : ''
+			overlapped && moveMode === 'insert' ? 'svlte-grid-shadow-drop' : '',
+			shouldDisplayShadow(overlapped) ? 'hidden' : ''
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +

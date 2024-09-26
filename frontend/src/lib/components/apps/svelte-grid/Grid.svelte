@@ -38,7 +38,6 @@
 	export let scroller: HTMLElement | undefined = undefined
 	export let sensor = 20
 	export let root: boolean = false
-
 	export let parentWidth: number | undefined = undefined
 
 	let getComputedCols
@@ -227,6 +226,15 @@
 		})
 
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
+
+		/*
+		fakeShadow = {
+			w: width,
+			h: height,
+			x: detail.shadow.x,
+			y: detail.shadow.y
+		}
+			*/
 
 		if (!isCtrlOrMetaPressed) {
 			$overlappedStore = undefined
