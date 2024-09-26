@@ -283,11 +283,11 @@ pub async fn handle_powershell_job(
     logs2.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
-    // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
+    // make sure only default modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-$env:PSModulePath = ($Env:PSModulePath -split ':')[-1]
+$env:PSModulePath = \"$PSHome/Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
