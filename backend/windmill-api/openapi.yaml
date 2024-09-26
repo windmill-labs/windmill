@@ -9987,6 +9987,8 @@ components:
           type: number
         aggregate_wait_time_ms:
           type: number
+        suspend:
+          type: number
       required:
         - id
         - running

@@ -82,6 +82,12 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
     (per_page, offset)
 }
 
+pub fn paginate_without_limits(pagination: Pagination) -> (usize, usize) {
+    let per_page = pagination.per_page.unwrap_or(MAX_PER_PAGE);
+    let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
+    (per_page, offset)
+}
+
 pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
 ) -> Result<chrono::DateTime<chrono::Utc>> {

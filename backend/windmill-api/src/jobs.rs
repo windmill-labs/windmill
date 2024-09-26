@@ -1258,7 +1258,7 @@ pub fn list_queue_jobs_query(
     join_outstanding_wait_times: bool,
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
-    let (limit, offset) = paginate(pagination);
+    let (limit, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("queue")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
