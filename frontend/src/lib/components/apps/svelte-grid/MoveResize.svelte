@@ -3,7 +3,7 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
-	import { findGridItemParentGrid } from '../editor/appUtils'
+	import { computePosition, findGridItemParentGrid } from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
@@ -240,17 +240,34 @@
 			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
 		)
 
-		const position = computePosition(clientX, clientY)
+		const container = overlapped
+			? intersectingElement?.querySelector('.svlt-grid-container')
+			: document.getElementById('root-grid')
+
+		const position = computePosition(
+			clientX,
+			clientY,
+			Number(container?.getAttribute('data-xperpx')) ?? xPerPx,
+			yPerPx,
+			overlapped,
+			element
+		)
+
+		const intersectingElementId = intersectingElement?.id
+			? intersectingElement.id.split('-')[1]
+			: undefined
 
 		dispatch('move', {
 			cordDiff,
 			clientY,
-			intersectingElement: intersectingElement?.id
-				? intersectingElement.id.split('-')[1]
-				: undefined,
+			intersectingElement: intersectingElementId,
 			shadow: {
 				x: position.x,
-				y: position.y
+				y: position.y,
+				xPerPx: Number(container?.getAttribute('data-xperpx')) ?? 0,
+				yPerPx,
+				h: item.h,
+				w: item.w
 			}
 		})
 	}
@@ -297,30 +314,6 @@
 
 	let element: HTMLElement | undefined = undefined
 
-	function computePosition(clientX: number, clientY: number) {
-		const overlappedElement = overlapped
-			? document.getElementById(`component-${overlapped}`)
-			: document.getElementById('root-grid')
-
-		const xRelativeToElement = element ? clientX - element.getBoundingClientRect().left : 0
-		const yRelativeToElement = element ? clientY - element.getBoundingClientRect().top : 0
-
-		const xRelativeToOverlappedElement = overlappedElement
-			? clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
-			: 0
-		const yRelativeToOverlappedElement = overlappedElement
-			? clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
-			: 0
-
-		const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
-		const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
-
-		return {
-			x: gridX,
-			y: gridY
-		}
-	}
-
 	const pointerup = (e) => {
 		ctx.componentActive.set(false)
 		stopAutoscroll()
@@ -334,9 +327,32 @@
 		} else {
 			dragClosure = undefined
 		}
-		const position = computePosition(e.clientX, e.clientY)
 
-		dispatch('dropped', { id, overlapped, x: position?.x, y: position?.y })
+		const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY)
+
+		const intersectingElement = elementsAtPoint.find(
+			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
+		)
+
+		const container = intersectingElement?.querySelector('.svlt-grid-container')
+
+		const position = computePosition(
+			e.clientX,
+			e.clientY,
+			container?.getAttribute('data-xperpx')
+				? Number(container?.getAttribute('data-xperpx'))
+				: xPerPx,
+			yPerPx,
+			overlapped,
+			element
+		)
+
+		dispatch('dropped', {
+			id,
+			overlapped,
+			x: position?.x,
+			y: position?.y
+		})
 	}
 
 	let resizeInitPos = { x: 0, y: 0 }

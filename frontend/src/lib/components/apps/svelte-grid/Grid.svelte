@@ -3,6 +3,21 @@
 
 	const componentDraggedIdStore = writable<string | undefined>(undefined)
 	const overlappedStore = writable<string | undefined>(undefined)
+	const fakeShadowStore = writable<{
+		x: number
+		y: number
+		xPerPx: number
+		yPerPx: number
+		w: number
+		h: number
+	}>({
+		x: 0,
+		y: 0,
+		xPerPx: 0,
+		yPerPx: 0,
+		w: 0,
+		h: 0
+	})
 </script>
 
 <script lang="ts">
@@ -227,14 +242,14 @@
 
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 
-		/*
-		fakeShadow = {
-			w: width,
-			h: height,
+		$fakeShadowStore = {
 			x: detail.shadow.x,
-			y: detail.shadow.y
+			y: detail.shadow.y,
+			xPerPx: detail.shadow.xPerPx,
+			yPerPx: detail.shadow.yPerPx,
+			w: detail.shadow.w,
+			h: detail.shadow.h
 		}
-			*/
 
 		if (!isCtrlOrMetaPressed) {
 			$overlappedStore = undefined
@@ -262,8 +277,11 @@
 	style="height: {containerHeight}px"
 	bind:this={container}
 	id={root ? 'root-grid' : undefined}
+	data-xperpx={xPerPx}
 >
 	{#if isCtrlOrMetaPressed && root}
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 		<div
 			class={twMerge(
 				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
@@ -273,12 +291,48 @@
 					: ''
 			)}
 		/>
+		{#if $overlappedStore === undefined && $componentDraggedIdStore}
+			<div class="absolute left-0 top-0 right-0">
+				<div class="relative h-full w-full">
+					<div
+						class="absolute bg-blue-300 transition-all duration-75"
+						style={`
+								left: calc(${$fakeShadowStore.x * xPerPx + gapX}px + 0.5rem);
+								top: calc(${$fakeShadowStore.y * yPerPx + gapY}px + 0.5rem);
+								width: ${$fakeShadowStore.w * xPerPx}px;
+								height: ${$fakeShadowStore.h * yPerPx}px;
+							`}
+					/>
+				</div>
+			</div>
+		{/if}
 	{/if}
 
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
+			{#if item.id === $overlappedStore && $componentDraggedIdStore}
+				<div
+					class="absolute"
+					style={`
+						left: ${item[getComputedCols].x * xPerPx + gapX}px;
+						top: ${item[getComputedCols].y * yPerPx + gapY}px;
+					`}
+				>
+					<div class="relative h-full w-full">
+						<div
+							class="absolute bg-blue-300 transition-all duration-75"
+							style={`
+								left: calc(${$fakeShadowStore.x * $fakeShadowStore.xPerPx + gapX}px + 0.5rem);
+								top: calc(${$fakeShadowStore.y * $fakeShadowStore.yPerPx + gapY}px + 0.5rem);
+								width: ${$fakeShadowStore.w * $fakeShadowStore.xPerPx}px;
+								height: ${$fakeShadowStore.h * $fakeShadowStore.yPerPx}px;
+							`}
+						/>
+					</div>
+				</div>
+			{/if}
+
 			<MoveResize
-				on:elementIntersecting={(e) => console.log(e)}
 				on:initmove={() => handleInitMove(item.id)}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}

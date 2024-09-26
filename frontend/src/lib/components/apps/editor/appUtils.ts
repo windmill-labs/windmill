@@ -1173,3 +1173,34 @@ export function subGridIndexKey(type: string | undefined, id: string, world: Wor
 
 	return 0
 }
+
+export function computePosition(
+	clientX: number,
+	clientY: number,
+	xPerPx: number,
+	yPerPx: number,
+	overlapped?: string,
+	element?: HTMLElement
+) {
+	const overlappedElement = overlapped
+		? document.getElementById(`component-${overlapped}`)
+		: document.getElementById('root-grid')
+
+	const xRelativeToElement = element ? clientX - element.getBoundingClientRect().left : 0
+	const yRelativeToElement = element ? clientY - element.getBoundingClientRect().top : 0
+
+	const xRelativeToOverlappedElement = overlappedElement
+		? clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
+		: 0
+	const yRelativeToOverlappedElement = overlappedElement
+		? clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
+		: 0
+
+	const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
+	const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
+
+	return {
+		x: gridX,
+		y: gridY
+	}
+}
