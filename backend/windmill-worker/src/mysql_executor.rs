@@ -22,7 +22,8 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, run_future_with_polling_update_job_poller},
+    common::{build_args_map, OccupancyMetrics},
+    handle_child::run_future_with_polling_update_job_poller,
     AuthedClientBackgroundTask,
 };
 
@@ -110,6 +111,7 @@ pub async fn do_mysql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -295,6 +297,7 @@ pub async fn do_mysql(
         result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
