@@ -305,9 +305,9 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
 
     #[cfg(windows)]
     let profile = format!(
-        "#$PSModuleAutoloadingPreference = 'None'
+        "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-#$env:PSModulePath = \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\Modules;C:\\Program Files\\PowerShell\\7\\Modules\"
+$env:PSModulePath = \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\Modules;C:\\Program Files\\PowerShell\\7\\Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{};$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
