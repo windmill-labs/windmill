@@ -84,8 +84,8 @@ use rand::Rng;
 
 use crate::{
     ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
-        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args, update_worker_ping_for_failed_init_script, NO_LOGS_AT_ALL, SLOW_LOGS
-    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_job_error, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
+        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args, update_worker_ping_for_failed_init_script, OccupancyMetrics
+    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
     }, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
@@ -698,6 +698,8 @@ fn add_outstanding_wait_time(
     }.in_current_span());
 }
 
+
+
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name, hostname = %hostname))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
@@ -877,6 +879,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         None
     };
 
+    
     let worker_flow_initial_transition_duration = {
         #[cfg(feature = "prometheus")]
         if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed) && METRICS_ENABLED.load(Ordering::Relaxed)
@@ -1028,8 +1031,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             None
         };
 
-    let mut worker_code_execution_metric: f32 = 0.0;
-
+    let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
 
     #[cfg(feature = "prometheus")]
@@ -1336,6 +1338,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::debug!("set worker busy to 0");
         }
 
+        occupancy_metrics.running_job_started_at = None;
+
         #[cfg(feature = "prometheus")]
         if let Some(ref um) = uptime_metric {
             um.inc_by(
@@ -1351,6 +1355,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
+
+
             let (vcpus, memory) = if *REFRESH_CGROUP_READINGS
                 && last_reading.elapsed().as_secs() > NUM_SECS_READINGS
             {
@@ -1360,16 +1366,24 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 (None, None)
             };
 
+
+            let (occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m) = occupancy_metrics.update_occupancy_metrics();
+            
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
+                 occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
+                 memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
-                worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
+                occupancy_rate,
                 memory_usage,
                 wm_memory_usage,
                 &worker_name,
                 vcpus,
-                memory
+                memory,
+                occupancy_rate_15s,
+                occupancy_rate_5m,
+                occupancy_rate_30m
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
@@ -1517,6 +1531,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             wb.set(1);
             tracing::debug!("set worker busy to 1");
         }
+
+        occupancy_metrics.running_job_started_at = Some(Instant::now());
 
 
         match next_job {
@@ -1713,7 +1729,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         base_internal_url,
                         rsmq.clone(),
                         job_completed_tx.clone(),
-                        &mut worker_code_execution_metric,
+                        &mut occupancy_metrics,
                         worker_flow_initial_transition_duration.clone(),
                         worker_code_execution_duration.clone(),
                     )
@@ -2012,6 +2028,7 @@ async fn do_nativets(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<(Box<RawValue>, String)> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -2033,6 +2050,7 @@ async fn do_nativets(
         worker_name,
         &job.workspace_id,
         true,
+        occupancy_metrics,
     )
     .await?;
     Ok((result.0, result.1))
@@ -2057,7 +2075,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
-    worker_code_execution_metric: &mut f32,
+    occupancy_metrics: &mut OccupancyMetrics,
     _worker_flow_initial_transition_duration: Option<Histo>,
     _worker_code_execution_duration: Option<Histo>,
 ) -> windmill_common::error::Result<bool> {
@@ -2273,6 +2291,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     base_internal_url,
                     &client.get_token().await,
                     rsmq.clone(),
+                    occupancy_metrics,
                 )
                 .await
             }
@@ -2288,6 +2307,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     base_internal_url,
                     &client.get_token().await,
                     rsmq.clone(),
+                    occupancy_metrics,
                 )
                 .await
             }
@@ -2302,6 +2322,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 base_internal_url,
                 &client.get_token().await,
                 rsmq.clone(),
+                occupancy_metrics,
             )
             .await
             .map(|()| serde_json::from_str("{}").unwrap()),
@@ -2328,9 +2349,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_name,
                     &mut column_order,
                     &mut new_args,
+                    occupancy_metrics,
                 )
                 .await;
-                *worker_code_execution_metric += metric_timer.elapsed().as_secs_f32();
+                occupancy_metrics.total_duration_of_running_jobs += metric_timer.elapsed().as_secs_f32();
                 #[cfg(feature = "prometheus")]
                 timer.map(|x| x.stop_and_record());
                 r
@@ -2496,6 +2518,7 @@ async fn handle_code_execution_job(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let ContentReqLangEnvs {
         content: inner_content,
@@ -2551,6 +2574,7 @@ async fn handle_code_execution_job(
             canceled_by,
             worker_name,
             column_order,
+            occupancy_metrics,
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
@@ -2563,6 +2587,7 @@ async fn handle_code_execution_job(
             canceled_by,
             worker_name,
             column_order,
+            occupancy_metrics,
         )
         .await;
     } else if language == Some(ScriptLang::Bigquery) {
@@ -2584,6 +2609,7 @@ async fn handle_code_execution_job(
                 canceled_by,
                 worker_name,
                 column_order,
+                occupancy_metrics,
             )
             .await;
         }
@@ -2606,6 +2632,7 @@ async fn handle_code_execution_job(
                 canceled_by,
                 worker_name,
                 column_order,
+                occupancy_metrics,
             )
             .await;
         }
@@ -2627,6 +2654,7 @@ async fn handle_code_execution_job(
                 mem_peak,
                 canceled_by,
                 worker_name,
+                occupancy_metrics,
             )
             .await;
         }
@@ -2639,6 +2667,7 @@ async fn handle_code_execution_job(
             mem_peak,
             canceled_by,
             worker_name,
+            occupancy_metrics,
         )
         .await;
     } else if language == Some(ScriptLang::Nativets) {
@@ -2668,6 +2697,7 @@ async fn handle_code_execution_job(
             mem_peak,
             canceled_by,
             worker_name,
+            occupancy_metrics,
         )
         .await?;
         append_logs(&job.id, &job.workspace_id, ts_logs, db).await;
@@ -2729,6 +2759,7 @@ mount {{
                 base_internal_url,
                 envs,
                 new_args,
+                occupancy_metrics,
             )
             .await
         }
@@ -2746,6 +2777,7 @@ mount {{
                 worker_name,
                 envs,
                 new_args,
+                occupancy_metrics,
             )
             .await
         }
@@ -2765,6 +2797,7 @@ mount {{
                 envs,
                 &shared_mount,
                 new_args,
+                occupancy_metrics,
             )
             .await
         }
@@ -2782,6 +2815,7 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
+                occupancy_metrics,
             )
             .await
         }
@@ -2798,6 +2832,7 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
+                occupancy_metrics,
             )
             .await
         }
@@ -2814,6 +2849,7 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
+                occupancy_metrics,
             )
             .await
         }
@@ -2831,6 +2867,7 @@ mount {{
                 worker_name,
                 envs,
                 &shared_mount,
+                occupancy_metrics,
             )
             .await
         }
@@ -2848,6 +2885,7 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
+                occupancy_metrics,
             )
             .await
         }
@@ -2867,6 +2905,7 @@ mount {{
                 &shared_mount,
                 base_internal_url,
                 envs,
+                occupancy_metrics,
             ).await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),

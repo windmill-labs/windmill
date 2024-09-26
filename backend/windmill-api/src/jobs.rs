@@ -11,6 +11,7 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
+use windmill_common::error::JsonResult;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -247,7 +248,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
 
-pub fn global_service() -> Router {
+pub fn workspace_unauthed_service() -> Router {
     Router::new()
         .route(
             "/resume/:job_id/:resume_id/:secret",
@@ -291,7 +292,12 @@ pub fn global_service() -> Router {
 }
 
 pub fn global_root_service() -> Router {
-    Router::new().route("/db_clock", get(get_db_clock))
+    Router::new()
+    .route("/db_clock", get(get_db_clock))
+    .route(
+        "/completed/count_by_tag",
+        get(count_by_tag),
+    )
 }
 
 #[derive(Deserialize)]
@@ -5098,6 +5104,46 @@ async fn get_completed_job_result(
     log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
 
     Ok(Json(result).into_response())
+}
+
+
+
+#[derive(Deserialize)]
+struct CountByTagQuery {
+    horizon_secs: Option<i64>,
+    workspace_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TagCount {
+    tag: String,
+    count: i64,
+}
+
+async fn count_by_tag(
+    ApiAuthed { email, ..}: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<CountByTagQuery>,
+) -> JsonResult<Vec<TagCount>> {
+    require_super_admin(&db, &email).await?;
+    let horizon = query.horizon_secs.unwrap_or(3600); // Default to 1 hour if not specified
+
+    let counts = sqlx::query_as!(
+        TagCount,
+        r#"
+        SELECT tag as "tag!", COUNT(*) as "count!"
+        FROM completed_job
+        WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
+        GROUP BY tag
+        ORDER BY "count!" DESC
+        "#,
+        horizon as f64,
+        query.workspace_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(counts))
 }
 
 #[derive(Serialize)]

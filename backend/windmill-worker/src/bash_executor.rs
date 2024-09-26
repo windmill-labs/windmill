@@ -24,9 +24,10 @@ lazy_static::lazy_static! {
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, handle_child, read_file, read_file_content,
-        start_child_process,
+        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
+        OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
 };
@@ -49,6 +50,7 @@ pub async fn handle_bash_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
@@ -142,6 +144,7 @@ pub async fn handle_bash_job(
         "bash run",
         job.timeout,
         true,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -194,6 +197,7 @@ pub async fn handle_powershell_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
         let args = build_args_map(job, client, db).await?.map(Json);
@@ -275,6 +279,7 @@ pub async fn handle_powershell_job(
             "powershell install",
             job.timeout,
             false,
+            &mut Some(occupancy_metrics),
         )
         .await?;
     }
@@ -378,6 +383,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         "powershell run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 

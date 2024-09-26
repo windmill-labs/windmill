@@ -40,7 +40,8 @@ use windmill_common::{error::Error, flow_status::JobResult, DB};
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{run_future_with_polling_update_job_poller, unsafe_raw},
+    common::{unsafe_raw, OccupancyMetrics},
+    handle_child::run_future_with_polling_update_job_poller,
     AuthedClient,
 };
 
@@ -688,6 +689,7 @@ pub async fn eval_fetch_timeout(
     worker_name: &str,
     w_id: &str,
     load_client: bool,
+    occupation_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<(Box<RawValue>, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
@@ -836,6 +838,7 @@ pub async fn eval_fetch_timeout(
         async { result_f.await? },
         worker_name,
         w_id,
+        &mut Some(occupation_metrics),
     )
     .await
     .map_err(|e| {
