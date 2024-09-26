@@ -364,85 +364,82 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let child;
-
-    #[cfg(unix)]
-    {
-        child = if !*DISABLE_NSJAIL {
-            let _ = write_file(
-                job_dir,
-                "run.config.proto",
-                &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                    .replace("{SHARED_MOUNT}", shared_mount)
-                    .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
-            )?;
-            let mut cmd_args = vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                BIN_BASH.as_str(),
-                "wrapper.sh",
-            ];
-            cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-            Command::new(NSJAIL_PATH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(reserved_variables)
-                .env("TZ", TZ_ENV.as_str())
-                .env("PATH", PATH_ENV.as_str())
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .args(cmd_args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        } else {
-            let mut cmd_args = vec!["wrapper.sh"];
-            cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-            Command::new(BIN_BASH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(envs)
-                .envs(reserved_variables)
-                .env("TZ", TZ_ENV.as_str())
-                .env("PATH", PATH_ENV.as_str())
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .env("HOME", HOME_ENV.as_str())
-                .args(cmd_args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        };
-    }
-
-    #[cfg(windows)]
-    {
-        let mut cmd_args = vec![r".\wrapper.ps1".to_string()];
-        cmd_args.extend(pwsh_args.iter().map(|x| x.replace("--", "-")));
-
-        child = Command::new(POWERSHELL_PATH.as_str())
+    let child = if !*DISABLE_NSJAIL {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
+        )?;
+        let mut cmd_args = vec![
+            "--config",
+            "run.config.proto",
+            "--",
+            BIN_BASH.as_str(),
+            "wrapper.sh",
+        ];
+        cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
+        Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
-            .envs(envs)
             .envs(reserved_variables)
+            .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("HOME", HOME_ENV.as_str())
-            .env("SystemRoot", SYSTEM_ROOT.as_str())
-            .env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-            )
-            .env(
-                "PATHEXT",
-                ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
-            )
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
-    }
+            .spawn()?
+    } else {
+        let mut cmd;
+        let mut cmd_args;
+
+        #[cfg(unix)]
+        {
+            cmd_args = vec!["wrapper.sh"];
+            cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
+            cmd = Command::new(BIN_BASH.as_str());
+        }
+
+        #[cfg(windows)]
+        {
+            cmd_args = vec![r".\wrapper.ps1".to_string()];
+            cmd_args.extend(pwsh_args.iter().map(|x| x.replace("--", "-")));
+            cmd = Command::new(POWERSHELL_PATH.as_str());
+        }
+
+        cmd.current_dir(job_dir)
+            .env_clear()
+            .envs(envs)
+            .envs(reserved_variables)
+            .env("TZ", TZ_ENV.as_str())
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", HOME_ENV.as_str())
+            .args(&cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "PATHEXT",
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
+                        String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
+                    }),
+                );
+        }
+
+        cmd.spawn()?
+    };
 
     handle_child(
         &job.id,

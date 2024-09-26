@@ -838,21 +838,23 @@ pub async fn handle_bun_job(
 
     let mut gbuntar_name: Option<String> = None;
     if has_bundle_cache {
+        let target;
+        let symlink;
+
         #[cfg(unix)]
-        let target = format!("{job_dir}/main.js");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&local_path, &target).map_err(|e| {
+        {
+            target = format!("{job_dir}/main.js");
+            symlink = std::os::unix::fs::symlink(&local_path, &target);
+        }
+        #[cfg(windows)]
+        {
+            target = format!("{job_dir}\\main.js");
+            symlink = std::os::windows::fs::symlink_dir(&local_path, &target);
+        }
+
+        symlink.map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "could not copy cached binary from {local_path} to {job_dir}/main: {e:?}"
-            ))
-        })?;
-
-        #[cfg(windows)]
-        let target = format!("{job_dir}\\main.js");
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&local_path, &target).map_err(|e| {
-            error::Error::ExecutionErr(format!(
-                "could not copy cached binary from {local_path} to {job_dir}\\main: {e:?}"
             ))
         })?;
     } else if let Some(codebase) = codebase.as_ref() {

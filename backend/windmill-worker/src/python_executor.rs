@@ -402,6 +402,9 @@ except BaseException as e:
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
 
+    #[cfg(windows)]
+    let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
+
     if !*DISABLE_NSJAIL {
         let shared_deps = additional_python_paths
             .into_iter()
@@ -433,13 +436,6 @@ mount {{
                 ),
         )?;
     } else {
-        #[cfg(windows)]
-        reserved_variables.insert(
-            "PYTHONPATH".to_string(),
-            additional_python_paths_folders.replace(":", ";"),
-        );
-
-        #[cfg(unix)]
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }
 

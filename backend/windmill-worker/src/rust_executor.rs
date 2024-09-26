@@ -28,23 +28,25 @@ use crate::SYSTEM_ROOT;
 
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
 
-#[cfg(unix)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| "/usr/local/cargo".to_string());
-    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| "/usr/local/rustup".to_string());
-    static ref CARGO_PATH: String = format!("{}/bin/cargo", std::env::var("CARGO_HOME").unwrap_or("/usr/local/cargo/bin/cargo".to_string()));
+    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
+    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
+    static ref RUSTUP_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
+    static ref CARGO_PATH: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_PATH_DEFAULT.clone() });
 }
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
-    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
-    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| {
-        format!("{}\\.cargo", *HOME_DIR)
-    });
-    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| {
-        format!("{}\\.rustup", *HOME_DIR)
-    });
-    static ref CARGO_PATH: String = format!("{}/bin/cargo.exe", *CARGO_HOME);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
+    static ref CARGO_PATH_DEFAULT: String = format!("{}/bin/cargo.exe", *CARGO_HOME);
+}
+
+#[cfg(unix)]
+lazy_static::lazy_static! {
+    static ref CARGO_HOME_DEFAULT: String = "usr/local/cargo".to_string();
+    static ref RUSTUP_HOME_DEFAULT: String = "/usr/local/rustup".to_string();
+    static ref CARGO_PATH_DEFAULT: String = "/usr/local/cargo/bin/cargo".to_string();
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -197,10 +199,9 @@ pub async fn build_rust_crate(
         .env("HOME", HOME_ENV.as_str())
         .env("CARGO_HOME", CARGO_HOME.as_str())
         .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+        .args(vec!["build", "--release"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    build_rust_cmd.args(vec!["build", "--release"]);
 
     #[cfg(windows)]
     {
@@ -314,15 +315,13 @@ pub async fn handle_rust_job(
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
-            Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
-            ))
-        })?;
 
+        #[cfg(unix)]
+        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&bin_path, &target).map_err(|e| {
+        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+
+        symlink.map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))
