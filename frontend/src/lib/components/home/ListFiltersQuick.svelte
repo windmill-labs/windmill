@@ -60,8 +60,6 @@
 			: [selectedAppFilter, ...filters]
 		: filters
 
-	$: console.log('filters and selected', filtersAndSelected)
-
 	let icon: any
 </script>
 
