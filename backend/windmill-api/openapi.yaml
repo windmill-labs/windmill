@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.401.0
+  version: 1.402.0
   title: Windmill API
 
   contact:
@@ -9986,6 +9986,8 @@ components:
         self_wait_time_ms:
           type: number
         aggregate_wait_time_ms:
+          type: number
+        suspend:
           type: number
       required:
         - id
