@@ -41,6 +41,7 @@
 	export let modules: FlowModule[]
 	export let owners: string[] = []
 	export let loading = false
+	export let small = false
 
 	let trigger = false
 	let lang: FlowCopilotModule['lang'] = undefined
@@ -125,31 +126,12 @@
 </script>
 
 <div
-	class="flex flex-row grow min-w-0 divide-x shadow-[inset_25px_0px_12px_-30px_rgba(94,129,172,0.5)]"
+	class="flex flex-row grow min-w-0 divide-x {!small
+		? 'shadow-[inset_25px_0px_12px_-30px_rgba(94,129,172,0.5)]'
+		: ''}"
 >
 	<Scrollable scrollableClass="w-32 grow-0 shrink-0 ">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
-			<!-- {#if funcDesc.length === 0 && preFilter == 'all'}
-				<div class="font-mono text-xs text-secondary">
-					<button
-						class={twMerge(
-							'w-full text-left py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center',
-							selected?.kind === 'inline' ? 'bg-surface-hover' : ''
-						)}
-						on:click={() => {
-							selected =
-								selected && selected.kind === 'inline'
-									? undefined
-									: { kind: 'inline', name: undefined }
-						}}
-						role="menuitem"
-						tabindex="-1"
-					>
-						<Code size={14} />
-						Inline Script
-					</button>
-				</div>
-			{/if} -->
 			{#if preFilter === 'all' || preFilter === 'workspace'}
 				{#if preFilter !== 'workspace'}
 					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace Folders</div>

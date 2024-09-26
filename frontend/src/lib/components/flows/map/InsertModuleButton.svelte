@@ -46,12 +46,19 @@
 	let selectedKind: 'action' | 'trigger' | 'approval' | 'flow' = 'action'
 	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 	let loading = false
+	let small = false
+
+	$: small = preprocessorModule || failureModule
 </script>
 
 <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close>
 	<svelte:fragment slot="trigger">
 		<button
-			title="Add {preprocessorModule ? 'preprocessor' : ''} step"
+			title="Add {failureModule
+				? ' failure module '
+				: preprocessorModule
+				? 'preprocessor step'
+				: 'step'}"
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
@@ -66,9 +73,7 @@
 	</svelte:fragment>
 	<div
 		id="flow-editor-insert-module"
-		class="flex flex-col h-[400px] {preprocessorModule
-			? 'w-[450px]'
-			: 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
+		class="flex flex-col h-[400px] {small ? 'w-[450px]' : 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
 		on:wheel={(e) => {
 			e.stopPropagation()
 			console.log('scroll')
@@ -228,6 +233,7 @@
 				on:pickScript
 				on:pickFlow
 				{preFilter}
+				{small}
 			/>
 		</div>
 	</div>
