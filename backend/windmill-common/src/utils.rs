@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
