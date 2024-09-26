@@ -25,7 +25,7 @@
 		wsScript?: { path: string; summary: string; hash: string | undefined }
 	) {
 		var module: FlowModule = {
-			id: 'preprocessor',
+			id: 'failure',
 			value: { type: 'identity' }
 		}
 		var state: FlowModuleState = {
@@ -62,12 +62,12 @@
 	class={classNames(
 		'z-10',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
-		'border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 bg-surface text-sm flex justify-between items-center flex-row',
+		'border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
 		$selectedId?.includes('failure')
 			? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400'
 			: ''
 	)}
-	style={small ? 'min-width: 200px' : 'min-width: 275px'}
+	style="min-width: {small ? '200px' : '230px'}; max-width: 275px;"
 	on:click={() => {
 		if ($copilotCurrentStepStore !== undefined) return
 		if ($flowStore?.value?.failure_module) {
@@ -78,21 +78,20 @@
 	{#if $copilotCurrentStepStore !== undefined}
 		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]" />
 	{/if}
-	<div class=" flex justify-between items-center flex-wrap gap-2">
-		<Bug size={16} />
-		<span class="font-bold text-xs">Error Handler</span>
+	<div class="flex items-center grow-0 min-w-0 gap-2">
+		<Bug size={16} color={$flowStore?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
 	</div>
 
-	<div class=" items-center truncate flex text-xs">
-		{#if Boolean($flowStore?.value?.failure_module)}
-			<span>
-				{$flowStore.value.failure_module?.summary ||
-					($flowStore.value.failure_module?.value.type === 'rawscript'
-						? `${$flowStore.value.failure_module?.value.language}`
-						: 'TBD')}
-			</span>
-		{/if}
-	</div>
+	{#if !$flowStore?.value?.failure_module}
+		<div class="grow text-center font-bold text-xs">Error Handler</div>
+	{:else}
+		<div class="truncate grow min-w-0 text-center text-xs">
+			{$flowStore.value.failure_module?.summary ||
+				($flowStore.value.failure_module?.value.type === 'rawscript'
+					? `${$flowStore.value.failure_module?.value.language}`
+					: 'TBD')}
+		</div>
+	{/if}
 
 	{#if !$flowStore?.value?.failure_module}
 		<InsertModuleButton
@@ -113,10 +112,10 @@
 			title="Delete failure script"
 			type="button"
 			class={twMerge(
-				'w-5 h-5 flex items-center justify-center',
+				'w-5 h-5 flex items-center justify-center grow-0 shrink-0',
 				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
 				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover   rounded '
+				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
 			on:click={() => {
 				$flowStore.value.failure_module = undefined

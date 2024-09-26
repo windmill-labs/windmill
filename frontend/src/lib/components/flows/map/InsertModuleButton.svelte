@@ -65,7 +65,7 @@
 				'w-5 h-5 flex items-center justify-center',
 				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
 				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover   rounded '
+				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
 		>
 			<Cross size={12} />
