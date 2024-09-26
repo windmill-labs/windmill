@@ -14,7 +14,7 @@ on:
       - ".github/workflows/backend-test.yml"
 
 jobs:
-  cargo_test:
+  cargo_build_windos:
     runs-on: ubicloud-standard-8
     container:
       image: ghcr.io/windmill-labs/backend-tests
@@ -42,7 +42,7 @@ jobs:
         timeout-minutes: 15
         run:
           mkdir frontend/build && cd backend && touch
-          windmill-api/openapi-deref.yaml && apt-get install gcc-mingw-w64 && rustup target add x86_64-pc-windows-gnu && 
+          windmill-api/openapi-deref.yaml && apt-get install gcc-mingw-w64 --yes && rustup target add x86_64-pc-windows-gnu && 
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
           DISABLE_EMBEDDING=true RUST_LOG=info cargo build --target x86_64-pc-windows-gnu --release
 
