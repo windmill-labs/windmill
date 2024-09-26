@@ -23,7 +23,7 @@
 		: undefined
 </script>
 
-<NodeWrapper offset={data.offset} let:darkMode>
+<NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={data.label ?? 'No branches'}
 		id={data.id}

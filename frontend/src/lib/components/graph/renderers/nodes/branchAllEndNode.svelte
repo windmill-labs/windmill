@@ -16,7 +16,7 @@
 	}
 </script>
 
-<NodeWrapper offset={data.offset} let:darkMode>
+<NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={'Collect result from all branches'}
 		id={data.id}
