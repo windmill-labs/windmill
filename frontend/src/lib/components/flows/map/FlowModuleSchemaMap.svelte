@@ -306,6 +306,7 @@
 		<FlowGraphV2
 			{disableAi}
 			insertable
+			scroll
 			{minHeight}
 			moving={$moving?.module.id}
 			maxHeight={minHeight}

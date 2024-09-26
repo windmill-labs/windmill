@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import {
 		CheckCircle2,
 		Code,
@@ -46,36 +46,6 @@
 	let selectedKind: 'action' | 'trigger' | 'approval' | 'flow' = 'action'
 	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 	let loading = false
-
-	// const context = getContext<{
-	// 	preventScroll: Writable<boolean | undefined>
-	// }>('FlowGraphContext')
-
-	// const preventScroll = context?.preventScroll ?? false
-
-	// let scrollInitialState: boolean | undefined = undefined
-	// let wasOpened = open
-
-	function handleMouseenter() {
-		// $preventScroll = false
-	}
-
-	function handleMouseleave() {
-		// 	$preventScroll = scrollInitialState
-	}
-
-	function handleOpen() {
-		// if (open !== wasOpened) {
-		// wasOpened = open
-		// open ? (scrollInitialState = $preventScroll) : ($preventScroll = scrollInitialState)
-	}
-	// }
-
-	// onDestroy(() => {
-	// 	$preventScroll = scrollInitialState
-	// })
-
-	$: open, handleOpen()
 </script>
 
 <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close>
@@ -99,8 +69,6 @@
 		class="flex flex-col h-[400px] {preprocessorModule
 			? 'w-[450px]'
 			: 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
-		on:mouseenter={handleMouseenter}
-		on:mouseleave={handleMouseleave}
 		on:wheel={(e) => {
 			e.stopPropagation()
 			console.log('scroll')
