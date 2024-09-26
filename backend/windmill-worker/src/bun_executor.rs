@@ -19,8 +19,11 @@ use crate::{
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
-    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, SYSTEM_ROOT, TZ_ENV,
+    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
+
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
 
 use tokio::{fs::File, process::Command};
 
@@ -1325,7 +1328,7 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut cmd = if annotation.nodejs_mode {
+        let cmd = if annotation.nodejs_mode {
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*NODE_BIN_PATH);
@@ -1338,6 +1341,10 @@ try {{
                 .args(vec!["--preserve-symlinks", &script_path])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            bun_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
             bun_cmd
         } else {
             let script_path = format!("{job_dir}/wrapper.mjs");
@@ -1364,11 +1371,12 @@ try {{
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            bun_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
             bun_cmd
         };
-
-        #[cfg(windows)]
-        cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
         start_child_process(
             cmd,

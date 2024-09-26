@@ -60,8 +60,11 @@ use crate::{
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, SYSTEM_ROOT, TZ_ENV,
+    PIP_INDEX_URL, TZ_ENV,
 };
+
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
 
 pub async fn create_dependencies_dir(job_dir: &str) {
     DirBuilder::new()
