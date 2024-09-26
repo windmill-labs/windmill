@@ -1071,73 +1071,68 @@ pub async fn monitor_db(
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
-    let tx = db.begin().await;
-    if let Ok(mut tx) = tx {
-        let last_check = sqlx::query_scalar!(
+    let last_check = sqlx::query_scalar!(
             "SELECT created_at FROM metrics WHERE id LIKE 'queue_count_%' ORDER BY created_at DESC LIMIT 1"
         )
         .fetch_optional(db)
         .await
         .unwrap_or(Some(chrono::Utc::now()));
 
-        let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
-        let save_metrics = last_check
-            .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
-            .unwrap_or(true);
+    let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let save_metrics = last_check
+        .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
+        .unwrap_or(true);
 
-        if metrics_enabled || save_metrics {
-            let queue_counts = sqlx::query!(
-                "SELECT tag, count(*) as count FROM queue WHERE
+    if metrics_enabled || save_metrics {
+        let queue_counts = sqlx::query!(
+            "SELECT tag, count(*) as count FROM queue WHERE
                 scheduled_for <= now() - ('3 seconds')::interval AND running = false
                 GROUP BY tag"
-            )
-            .fetch_all(&mut *tx)
-            .await
-            .ok()
-            .unwrap_or_else(|| vec![]);
+        )
+        .fetch_all(db)
+        .await
+        .ok()
+        .unwrap_or_else(|| vec![]);
 
-            for q in queue_counts {
-                let count = q.count.unwrap_or(0);
-                let tag = q.tag;
-                if metrics_enabled {
-                    let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
-                    metric.set(count as i64);
-                }
+        for q in queue_counts {
+            let count = q.count.unwrap_or(0);
+            let tag = q.tag;
+            if metrics_enabled {
+                let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
+                metric.set(count as i64);
+            }
 
-                // save queue_count and delay metrics per tag
-                if save_metrics {
+            // save queue_count and delay metrics per tag
+            if save_metrics {
+                sqlx::query!(
+                    "INSERT INTO metrics (id, value) VALUES ($1, $2)",
+                    format!("queue_count_{}", tag),
+                    serde_json::json!(count)
+                )
+                .execute(db)
+                .await
+                .ok();
+                if count > 0 {
                     sqlx::query!(
-                        "INSERT INTO metrics (id, value) VALUES ($1, $2)",
-                        format!("queue_count_{}", tag),
-                        serde_json::json!(count)
-                    )
-                    .execute(&mut *tx)
-                    .await
-                    .ok();
-                    if count > 0 {
-                        sqlx::query!(
                             "INSERT INTO metrics (id, value)
                             VALUES ($1, to_jsonb((SELECT EXTRACT(EPOCH FROM now() - scheduled_for)
                             FROM queue WHERE tag = $2 AND running = false AND scheduled_for <= now() - ('3 seconds')::interval
-                            ORDER BY priority DESC NULLS LAST, scheduled_for, created_at LIMIT 1)))",
+                            ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1)))",
                             format!("queue_delay_{}", tag),
                             tag
-                        ).execute(&mut *tx).await.ok();
-                    }
+                        ).execute(db).await.ok();
                 }
             }
         }
-
-        // clean queue metrics older than 14 days
-        sqlx::query!(
-            "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
-        )
-        .execute(&mut *tx)
-        .await
-        .ok();
-
-        tx.commit().await.ok();
     }
+
+    // clean queue metrics older than 14 days
+    sqlx::query!(
+        "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
+    )
+    .execute(db)
+    .await
+    .ok();
 }
 
 pub async fn reload_smtp_config(db: &Pool<Postgres>) {

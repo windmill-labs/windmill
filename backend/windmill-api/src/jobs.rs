@@ -18,6 +18,7 @@ use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use tower::ServiceBuilder;
+use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -77,6 +78,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 #[cfg(feature = "prometheus")]
 use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
+use windmill_common::utils::paginate_without_limits;
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     cancel_job, get_queued_job, get_result_by_id_from_running_flow, job_is_complete, push,
@@ -247,7 +249,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
 
-pub fn global_service() -> Router {
+pub fn workspace_unauthed_service() -> Router {
     Router::new()
         .route(
             "/resume/:job_id/:resume_id/:secret",
@@ -291,7 +293,9 @@ pub fn global_service() -> Router {
 }
 
 pub fn global_root_service() -> Router {
-    Router::new().route("/db_clock", get(get_db_clock))
+    Router::new()
+        .route("/db_clock", get(get_db_clock))
+        .route("/completed/count_by_tag", get(count_by_tag))
 }
 
 #[derive(Deserialize)]
@@ -1248,13 +1252,16 @@ pub fn list_queue_jobs_query(
     w_id: &str,
     lq: &ListQueueQuery,
     fields: &[&str],
+    pagination: Pagination,
     join_outstanding_wait_times: bool,
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
+    let (limit, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("queue")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .limit(1000)
+        .limit(limit)
+        .offset(offset)
         .clone();
 
     if let Some(tags) = tags {
@@ -1267,6 +1274,7 @@ pub fn list_queue_jobs_query(
 #[derive(Serialize, FromRow)]
 struct ListableQueuedJob {
     pub id: Uuid,
+    pub running: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -1289,6 +1297,7 @@ async fn list_queue_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
     let sql = list_queue_jobs_query(
@@ -1296,6 +1305,7 @@ async fn list_queue_jobs(
         &lq,
         &[
             "id",
+            "running",
             "created_by",
             "created_at",
             "started_at",
@@ -1315,6 +1325,7 @@ async fn list_queue_jobs(
             "priority",
             "workspace_id",
         ],
+        pagination,
         false,
         get_scope_tags(&authed),
     )
@@ -1570,6 +1581,7 @@ async fn list_jobs(
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("jobs:listjobs"))?;
 
+    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
@@ -1601,6 +1613,7 @@ async fn list_jobs(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
+            Pagination { per_page: Some(limit), page: None },
             true,
             get_scope_tags(&authed),
         );
@@ -5098,6 +5111,44 @@ async fn get_completed_job_result(
     log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
 
     Ok(Json(result).into_response())
+}
+
+#[derive(Deserialize)]
+struct CountByTagQuery {
+    horizon_secs: Option<i64>,
+    workspace_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TagCount {
+    tag: String,
+    count: i64,
+}
+
+async fn count_by_tag(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<CountByTagQuery>,
+) -> JsonResult<Vec<TagCount>> {
+    require_super_admin(&db, &email).await?;
+    let horizon = query.horizon_secs.unwrap_or(3600); // Default to 1 hour if not specified
+
+    let counts = sqlx::query_as!(
+        TagCount,
+        r#"
+        SELECT tag as "tag!", COUNT(*) as "count!"
+        FROM completed_job
+        WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
+        GROUP BY tag
+        ORDER BY "count!" DESC
+        "#,
+        horizon as f64,
+        query.workspace_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(counts))
 }
 
 #[derive(Serialize)]

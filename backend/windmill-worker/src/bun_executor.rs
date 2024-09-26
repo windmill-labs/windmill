@@ -13,10 +13,11 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
-        write_file_binary,
+        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
+        read_file, read_file_content, read_result, start_child_process, write_file_binary,
+        OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
     NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
@@ -72,6 +73,7 @@ pub async fn gen_bun_lockfile(
     export_pkg: bool,
     raw_deps: Option<String>,
     npm_mode: bool,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
@@ -131,6 +133,7 @@ pub async fn gen_bun_lockfile(
                 "bun build",
                 None,
                 false,
+                occupancy_metrics,
             )
             .await?;
         } else {
@@ -155,6 +158,7 @@ pub async fn gen_bun_lockfile(
             worker_name,
             common_bun_proc_envs,
             npm_mode,
+            occupancy_metrics,
         )
         .await?;
     } else {
@@ -236,6 +240,7 @@ pub async fn install_bun_lockfile(
     worker_name: &str,
     common_bun_proc_envs: HashMap<String, String>,
     npm_mode: bool,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
     child_cmd
@@ -305,6 +310,7 @@ pub async fn install_bun_lockfile(
             "bun install",
             None,
             false,
+            occupancy_metrics,
         )
         .await?
     } else {
@@ -445,6 +451,7 @@ pub async fn generate_wrapper_mjs(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -472,6 +479,7 @@ pub async fn generate_wrapper_mjs(
         "bun build",
         timeout,
         false,
+        occupancy_metrics,
     )
     .await?;
     fs::rename(
@@ -492,6 +500,7 @@ pub async fn generate_bun_bundle(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -520,6 +529,7 @@ pub async fn generate_bun_bundle(
             "bun build",
             timeout,
             false,
+            &mut Some(occupancy_metrics),
         )
         .await?;
     } else {
@@ -626,6 +636,7 @@ pub async fn prebundle_bun_script(
     base_internal_url: &str,
     worker_name: &str,
     token: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -673,6 +684,7 @@ pub async fn prebundle_bun_script(
         &mut 0,
         &mut None,
         &common_bun_proc_envs,
+        occupancy_metrics,
     )
     .await?;
 
@@ -772,6 +784,7 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
@@ -893,6 +906,7 @@ pub async fn handle_bun_job(
                     worker_name,
                     common_bun_proc_envs.clone(),
                     annotation.npm_mode,
+                    &mut Some(occupancy_metrics),
                 )
                 .await?;
 
@@ -920,7 +934,6 @@ pub async fn handle_bun_job(
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
-
         let _ = gen_bun_lockfile(
             mem_peak,
             canceled_by,
@@ -935,6 +948,7 @@ pub async fn handle_bun_job(
             false,
             None,
             annotation.npm_mode,
+            &mut Some(occupancy_metrics),
         )
         .await?;
 
@@ -1160,6 +1174,7 @@ try {{
                 mem_peak,
                 canceled_by,
                 &common_bun_proc_envs,
+                occupancy_metrics,
             )
             .await?;
             if !local_path.is_empty() {
@@ -1201,6 +1216,7 @@ try {{
                 mem_peak,
                 canceled_by,
                 &common_bun_proc_envs,
+                &mut Some(occupancy_metrics),
             )
             .await?;
         }
@@ -1236,6 +1252,7 @@ try {{
             worker_name,
             &job.workspace_id,
             false,
+            occupancy_metrics,
         )
         .await?;
         tracing::info!(
@@ -1401,6 +1418,7 @@ try {{
         "bun run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -1542,6 +1560,7 @@ pub async fn start_worker(
                 worker_name,
                 common_bun_proc_envs.clone(),
                 annotation.npm_mode,
+                &mut None,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -1562,6 +1581,7 @@ pub async fn start_worker(
             false,
             None,
             annotation.npm_mode,
+            &mut None,
         )
         .await?;
     }
@@ -1658,6 +1678,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             &mut mem_peak,
             &mut canceled_by,
             &common_bun_proc_envs,
+            &mut None,
         )
         .await?;
     }
