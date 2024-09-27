@@ -27,8 +27,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: cargo build windows
         timeout-minutes: 15
-        run: cargo build --release
-          # mkdir frontend/build && cd backend && touch
-          # windmill-api/openapi-deref.yaml && 
-            
+        run: mkdir frontend/build && cd backend && type NUL > windmill-api/openapi-deref.yaml && cargo build --release            
 
