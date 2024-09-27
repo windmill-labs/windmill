@@ -2,6 +2,7 @@
 	import { writable } from 'svelte/store'
 
 	const componentDraggedIdStore = writable<string | undefined>(undefined)
+	const componentDraggedParentIdStore = writable<string | undefined>(undefined)
 	const overlappedStore = writable<string | undefined>(undefined)
 	const fakeShadowStore = writable<{
 		x: number
@@ -21,15 +22,19 @@
 </script>
 
 <script lang="ts">
+	import type { AppViewerContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher, getContext } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
 	import {
+		findGridItemParentGrid,
+		getDeltaXByComponent,
+		getDeltaYByComponent,
 		isContainer,
 		ROW_GAP_X,
 		ROW_GAP_Y,
@@ -40,6 +45,8 @@
 	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
+
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let items: FilledItem<T>[]
 	export let rowHeight: number = ROW_HEIGHT
@@ -56,7 +63,6 @@
 	export let parentWidth: number | undefined = undefined
 
 	let getComputedCols
-
 	let container
 
 	$: [gapX, gapY] = gap
@@ -261,6 +267,7 @@
 
 	export function handleInitMove(id: string) {
 		$componentDraggedIdStore = id
+		$componentDraggedParentIdStore = findGridItemParentGrid($app, id)?.split('-')[0]
 
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
@@ -291,12 +298,11 @@
 					: ''
 			)}
 		/>
-		{#if $overlappedStore === undefined && $componentDraggedIdStore && !sortedItems.find((item) => item.id === $componentDraggedIdStore)}
+		{#if $overlappedStore === undefined && $componentDraggedIdStore}
 			{@const columnGap = gapX}
 			<!-- gap between the columns in px -->
 			{@const containerBorder = 0.5 * 16}
 			<!-- 0.5rem converted to px (1rem = 16px) -->
-
 			{@const gridTotalWidth = containerWidth ? containerWidth - 2 * containerBorder : 0}
 			<!-- subtract borders -->
 			{@const availableWidth = gridTotalWidth - 11 * columnGap}
@@ -323,12 +329,11 @@
 
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
-			{#if item.id === $overlappedStore && $componentDraggedIdStore}
+			{#if item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id}
 				{@const columnGap = gapX}
 				<!-- gap between the columns in px -->
 				{@const containerBorder = 0.5 * 16}
 				<!-- 0.5rem converted to px (1rem = 16px) -->
-
 				{@const gridTotalWidth = containerWidth ? containerWidth - 2 * containerBorder : 0}
 				<!-- subtract borders -->
 				{@const availableWidth = gridTotalWidth - 11 * columnGap}
@@ -348,10 +353,14 @@
 						<div
 							class={twMerge('absolute transition-all duration-75', 'bg-blue-300')}
 							style={`
-								left: calc(${Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX}px + 0.5rem);
-								top: calc(${$fakeShadowStore.y * $fakeShadowStore.yPerPx + gapY}px + 0.5rem);
-								width: ${$fakeShadowStore.w * $fakeShadowStore.xPerPx}px;
-								height: ${$fakeShadowStore.h * $fakeShadowStore.yPerPx}px;
+								left: calc(${
+									Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX
+								}px + 0.5rem + ${getDeltaXByComponent(item.data['type'])});
+								top: calc(${
+									$fakeShadowStore.y * $fakeShadowStore.yPerPx + gapY
+								}px + 0.5rem + ${getDeltaYByComponent(item.data['type'])});
+								width: ${$fakeShadowStore.w * $fakeShadowStore.xPerPx - gapX * 2}px;
+								height: ${$fakeShadowStore.h * $fakeShadowStore.yPerPx - gapY * 2}px;
 							`}
 						/>
 					</div>
@@ -370,6 +379,7 @@
 				{yPerPx}
 				on:dropped={(e) => {
 					$componentDraggedIdStore = undefined
+					$componentDraggedParentIdStore = undefined
 
 					if (!isCtrlOrMetaPressed) {
 						return

@@ -1204,3 +1204,29 @@ export function computePosition(
 		y: gridY
 	}
 }
+
+export function getDeltaYByComponent(type: string) {
+	switch (type) {
+		case 'steppercomponent': {
+			return '36px + 0.5rem'
+		}
+		case 'tabscomponent': {
+			return '32px'
+		}
+		default:
+			return '0px'
+	}
+}
+
+export function getDeltaXByComponent(type: string) {
+	switch (type) {
+		case 'steppercomponent': {
+			return '0.5rem'
+		}
+		case 'tabscomponent': {
+			return '0px'
+		}
+		default:
+			return '0px'
+	}
+}
