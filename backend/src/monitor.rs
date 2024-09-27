@@ -525,7 +525,7 @@ fn read_log_counters(ts_str: String) -> (usize, usize) {
             ok_lines = counter.non_error_count;
             err_lines = counter.error_count;
         } else {
-            println!("no counter found for {ts_str}");
+            // println!("no counter found for {ts_str}");
         }
     } else {
         println!("Error reading log counters 2");
