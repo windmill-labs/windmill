@@ -4,6 +4,7 @@
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import { computePosition, findGridItemParentGrid } from '../editor/appUtils'
+	import { throttle } from './utils/other'
 
 	const dispatch = createEventDispatcher()
 
@@ -226,6 +227,44 @@
 		}
 	}
 
+	// Shared state for the shadow position
+	let currentShadowPosition:
+		| { x: number; y: number; xPerPx: number; yPerPx: number; h: number; w: number }
+		| undefined = undefined
+	let currentIntersectingElementId: string | undefined = undefined
+
+	function computeShadow(clientX: number, clientY: number) {
+		const elementsAtPoint = document.elementsFromPoint(clientX, clientY)
+		const intersectingElement = elementsAtPoint.find(
+			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
+		)
+
+		const container = overlapped
+			? intersectingElement?.querySelector('.svlt-grid-container')
+			: document.getElementById('root-grid')
+
+		const xPerPxComputed = Number(container?.getAttribute('data-xperpx')) ?? xPerPx
+
+		const position = computePosition(clientX, clientY, xPerPxComputed, yPerPx, overlapped, element)
+
+		// Update shared state
+		currentShadowPosition = {
+			x: position.x,
+			y: position.y,
+			xPerPx: xPerPxComputed,
+			yPerPx,
+			h: item.h,
+			w: item.w
+		}
+		currentIntersectingElementId = intersectingElement?.id
+			? intersectingElement.id.split('-')[1]
+			: undefined
+	}
+
+	const throttledComputeShadow = throttle((clientX, clientY) => {
+		computeShadow(clientX, clientY)
+	}, 50)
+
 	const pointermove = (event) => {
 		dragClosure && dragClosure()
 		event.preventDefault()
@@ -235,40 +274,32 @@
 		const { clientX, clientY } = event
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
-		const elementsAtPoint = document.elementsFromPoint(event.clientX, event.clientY)
-		const intersectingElement = elementsAtPoint.find(
-			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
-		)
+		if (moveMode === 'move') {
+			dispatch('move', {
+				cordDiff,
+				clientY,
+				intersectingElement: undefined,
+				shadow: {
+					x: 0,
+					y: 0,
+					xPerPx: 0,
+					yPerPx: 0,
+					h: 0,
+					w: 0
+				}
+			})
 
-		const container = overlapped
-			? intersectingElement?.querySelector('.svlt-grid-container')
-			: document.getElementById('root-grid')
+			return
+		}
 
-		const position = computePosition(
-			clientX,
-			clientY,
-			Number(container?.getAttribute('data-xperpx')) ?? xPerPx,
-			yPerPx,
-			overlapped,
-			element
-		)
-
-		const intersectingElementId = intersectingElement?.id
-			? intersectingElement.id.split('-')[1]
-			: undefined
+		throttledComputeShadow(clientX, clientY)
 
 		dispatch('move', {
 			cordDiff,
 			clientY,
-			intersectingElement: intersectingElementId,
-			shadow: {
-				x: position.x,
-				y: position.y,
-				xPerPx: Number(container?.getAttribute('data-xperpx')) ?? 0,
-				yPerPx,
-				h: item.h,
-				w: item.w
-			}
+			intersectingElement: currentIntersectingElementId,
+			shadow: currentShadowPosition,
+			overlapped
 		})
 	}
 

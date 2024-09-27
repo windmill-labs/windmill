@@ -4,14 +4,17 @@
 	const componentDraggedIdStore = writable<string | undefined>(undefined)
 	const componentDraggedParentIdStore = writable<string | undefined>(undefined)
 	const overlappedStore = writable<string | undefined>(undefined)
-	const fakeShadowStore = writable<{
-		x: number
-		y: number
-		xPerPx: number
-		yPerPx: number
-		w: number
-		h: number
-	}>({
+	const fakeShadowStore = writable<
+		| {
+				x: number
+				y: number
+				xPerPx: number
+				yPerPx: number
+				w: number
+				h: number
+		  }
+		| undefined
+	>({
 		x: 0,
 		y: 0,
 		xPerPx: 0,
@@ -248,18 +251,30 @@
 
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 
-		$fakeShadowStore = {
-			x: detail.shadow.x,
-			y: detail.shadow.y,
-			xPerPx: detail.shadow.xPerPx,
-			yPerPx: detail.shadow.yPerPx,
-			w: detail.shadow.w,
-			h: detail.shadow.h
-		}
-
 		if (!isCtrlOrMetaPressed) {
 			$overlappedStore = undefined
 			return
+		} else {
+			if ($componentDraggedParentIdStore !== $overlappedStore) {
+				if (
+					$fakeShadowStore?.x !== detail.shadow.x ||
+					$fakeShadowStore?.y !== detail.shadow.y ||
+					$fakeShadowStore?.w !== detail.shadow.w ||
+					$fakeShadowStore?.h !== detail.shadow.h
+				) {
+					// It prevents the case where we are 1-off while reading the xperpx
+					if (detail.shadow.xPerPx !== xPerPx) {
+						$fakeShadowStore = {
+							x: detail.shadow.x,
+							y: detail.shadow.y,
+							xPerPx: detail.shadow.xPerPx,
+							yPerPx: detail.shadow.yPerPx,
+							w: detail.shadow.w,
+							h: detail.shadow.h
+						}
+					}
+				}
+			}
 		}
 
 		$overlappedStore = detail.intersectingElement
@@ -286,7 +301,7 @@
 	id={root ? 'root-grid' : undefined}
 	data-xperpx={xPerPx}
 >
-	{#if isCtrlOrMetaPressed && root}
+	{#if isCtrlOrMetaPressed && root && $overlappedStore !== $componentDraggedParentIdStore}
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 		<div
@@ -298,7 +313,7 @@
 					: ''
 			)}
 		/>
-		{#if $overlappedStore === undefined && $componentDraggedIdStore}
+		{#if $overlappedStore === undefined && $componentDraggedIdStore && $fakeShadowStore}
 			{@const columnGap = gapX}
 			<!-- gap between the columns in px -->
 			{@const containerBorder = 0.5 * 16}
@@ -314,7 +329,7 @@
 			<div class="absolute inset-0">
 				<div class="relative h-full w-full">
 					<div
-						class="absolute bg-blue-300 transition-all duration-75"
+						class="absolute bg-blue-300 transition-all"
 						style={`
 								left:${Math.min(maxX, $fakeShadowStore.x) * xPerPx + gapX}px ;
 								top: ${$fakeShadowStore.y * yPerPx + gapY}px;
@@ -329,7 +344,7 @@
 
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
-			{#if item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id}
+			{#if item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
 				{@const columnGap = gapX}
 				<!-- gap between the columns in px -->
 				{@const containerBorder = 0.5 * 16}
