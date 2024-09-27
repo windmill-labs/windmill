@@ -42,7 +42,9 @@ use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::build_crypt;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::workspaces::{WorkspaceDeploymentUISettings, WorkspaceGitSyncSettings};
+#[cfg(feature = "enterprise")]
+use windmill_common::workspaces::WorkspaceDeploymentUISettings;
+use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -991,6 +993,7 @@ async fn edit_large_file_storage_config(
 
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
+    #[cfg(feature = "enterprise")]
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
@@ -1056,6 +1059,7 @@ async fn edit_git_sync_config(
 
 #[derive(Deserialize)]
 struct EditDeployUIConfig {
+    #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
 }
 
@@ -1064,7 +1068,6 @@ async fn edit_deploy_ui_config(
     _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
-    Json(_new_config): Json<EditDeployUIConfig>,
 ) -> Result<String> {
     return Err(Error::BadRequest(
         "Deployment UI is only available on Windmill Enterprise Edition".to_string(),
@@ -1122,6 +1125,7 @@ async fn edit_deploy_ui_config(
 
 #[derive(Deserialize)]
 pub struct EditDefaultApp {
+    #[cfg(feature = "enterprise")]
     pub default_app_path: Option<String>,
 }
 

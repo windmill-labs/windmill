@@ -967,6 +967,7 @@ async fn list_paths(
 
 #[derive(Deserialize)]
 pub struct ToggleWorkspaceErrorHandler {
+    #[cfg(feature = "enterprise")]
     pub muted: Option<bool>,
 }
 

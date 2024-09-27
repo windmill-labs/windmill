@@ -26,8 +26,13 @@ use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{read_result, save_in_cache},
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, Histo, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult,
+    AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult,
 };
+
+use crate::add_time;
+
+#[cfg(feature = "benchmark")]
+use crate::bench::BenchmarkIter;
 
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
@@ -169,6 +174,7 @@ pub async fn handle_receive_completed_job<
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
@@ -190,6 +196,8 @@ pub async fn handle_receive_completed_job<
         rsmq.clone(),
         worker_name,
         job_completed_tx.clone(),
+        #[cfg(feature = "benchmark")]
+        bench,
     )
     .await
     {
@@ -211,9 +219,6 @@ pub async fn handle_receive_completed_job<
     }
 }
 
-#[cfg(feature = "benchmark")]
-lazy_static::lazy_static! {}
-
 #[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
@@ -224,6 +229,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<()> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
@@ -235,6 +241,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
+
+        add_time!(bench, "pre add_completed_job");
 
         add_completed_job(
             db,
@@ -249,6 +257,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         )
         .await?;
         drop(job);
+
+        add_time!(bench, "post add_completed_job");
 
         if is_flow_step {
             if let Some(parent_job) = parent_job {
@@ -272,6 +282,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 .await?;
             }
         }
+        add_time!(bench, "post update_flow_status");
     } else {
         let result = add_completed_job_error(
             db,
