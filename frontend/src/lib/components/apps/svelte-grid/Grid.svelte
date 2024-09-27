@@ -262,16 +262,13 @@
 					$fakeShadowStore?.w !== detail.shadow.w ||
 					$fakeShadowStore?.h !== detail.shadow.h
 				) {
-					// It prevents the case where we are 1-off while reading the xperpx
-					if (detail.shadow.xPerPx !== xPerPx) {
-						$fakeShadowStore = {
-							x: detail.shadow.x,
-							y: detail.shadow.y,
-							xPerPx: detail.shadow.xPerPx,
-							yPerPx: detail.shadow.yPerPx,
-							w: detail.shadow.w,
-							h: detail.shadow.h
-						}
+					$fakeShadowStore = {
+						x: detail.shadow.x,
+						y: detail.shadow.y,
+						xPerPx: detail.shadow.xPerPx,
+						yPerPx: detail.shadow.yPerPx,
+						w: detail.shadow.w,
+						h: detail.shadow.h
 					}
 				}
 			}
@@ -366,7 +363,7 @@
 				>
 					<div class="relative h-full w-full">
 						<div
-							class={twMerge('absolute transition-all duration-75', 'bg-blue-300 -z-50')}
+							class={twMerge('absolute transition-all duration-7 bg-blue-300')}
 							style={`
 								left: calc(${
 									Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX

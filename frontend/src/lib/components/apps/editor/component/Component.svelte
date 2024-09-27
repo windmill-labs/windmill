@@ -92,8 +92,6 @@
 	export let overlapped: string | undefined = undefined
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
-
-
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
