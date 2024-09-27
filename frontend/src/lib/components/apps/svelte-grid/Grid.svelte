@@ -366,7 +366,7 @@
 				>
 					<div class="relative h-full w-full">
 						<div
-							class={twMerge('absolute transition-all duration-75', 'bg-blue-300')}
+							class={twMerge('absolute transition-all duration-75', 'bg-blue-300 -z-50')}
 							style={`
 								left: calc(${
 									Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX
