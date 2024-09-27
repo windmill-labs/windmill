@@ -19,7 +19,6 @@ use anyhow::{Context, Result};
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::{
-    core::{AtomicI64, GenericGauge},
     IntCounter,
 };
 use tracing::Instrument;
@@ -574,16 +573,7 @@ impl JobCompletedSender {
         &self,
         jc: JobCompleted,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
-        #[cfg(feature = "prometheus")]
-        if let Some(wj) = self.1.as_ref() {
-            wj.inc()
-        }
-        #[cfg(feature = "prometheus")]
-        let timer = self.2.as_ref().map(|x| x.start_timer());
-        let r = self.0.send(SendResult::JobCompleted(jc)).await;
-        #[cfg(feature = "prometheus")]
-        timer.map(|x| x.stop_and_record());
-        r
+        self.0.send(SendResult::JobCompleted(jc)).await
     }
 }
 
@@ -1737,58 +1727,6 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     }
 }
 
-// async fn process_result<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-//     client: AuthedClient,
-//     job: QueuedJob,
-//     result: error::Result<serde_json::Value>,
-//     cached_res_path: Option<String>,
-//     db: &DB,
-//     worker_dir: &str,
-//     job_dir: &str,
-//     metrics: Option<Metrics>,
-//     same_worker_tx: Sender<Uuid>,
-//     base_internal_url: &str,
-//     rsmq: Option<R>,
-//     job_completed_tx: Sender<JobCompleted>,
-//     logs: String,
-// ) -> error::Result<()> {
-
-// fn build_language_metrics(
-//     worker_execution_failed: &HashMap<
-//         Option<ScriptLang>,
-//         prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
-//     >,
-//     language: &Option<ScriptLang>,
-// ) -> Option<Metrics> {
-//     let metrics = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-//         Some(Metrics {
-//             worker_execution_failed: worker_execution_failed
-//                 .get(language)
-//                 .expect("no timer found")
-//                 .clone(),
-//         })
-//     } else {
-//         None
-//     };
-//     metrics
-// }
-
-// pub async fn create_barrier_for_all_workers(num_workers: u32, sync_barrier: Arc<RwLock<Option<tokio::sync::Barrier>>>) {
-//     tracing::debug!("acquiring write lock");
-//     let mut barrier = sync_barrier.write().await;
-//     *barrier = Some(tokio::sync::Barrier::new(num_workers as usize));
-//     drop(barrier);
-//     tracing::debug!("dropped write lock");
-//     if let Some(b) = sync_barrier.read().await.as_ref() {
-//         tracing::debug!("leader worker waiting for barrier");
-//         b.wait().await;
-//         tracing::debug!("leader worker done waiting for barrier");
-//     };
-//     let mut barrier = sync_barrier.write().await;
-//     *barrier = None;
-//     tracing::debug!("leader worker done waiting for");
-// }
-
 pub enum SendResult {
     JobCompleted(JobCompleted),
     UpdateFlow {
@@ -1803,19 +1741,6 @@ pub enum SendResult {
     Kill,
 }
 
-// db: &DB,
-// client: &AuthedClient,
-// flow: uuid::Uuid,
-// job_id_for_status: &Uuid,
-// w_id: &str,
-// success: bool,
-// result: &'a RawValue,
-// unrecoverable: bool,
-// same_worker_tx: Sender<Uuid>,
-// worker_dir: &str,
-// stop_early_override: Option<bool>,
-// rsmq: Option<R>,
-// worker_name: &str,
 
 #[derive(Debug, Clone)]
 pub struct JobCompleted {
@@ -2141,8 +2066,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 .map(|x| x.to_owned())
                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
             _ => {
-                #[cfg(feature = "prometheus")]
-                let timer = _worker_code_execution_duration.map(|x| x.start_timer());
                 let metric_timer = Instant::now();
                 let r = handle_code_execution_job(
                     job.as_ref(),
@@ -2160,8 +2083,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 )
                 .await;
                 occupancy_metrics.total_duration_of_running_jobs += metric_timer.elapsed().as_secs_f32();
-                #[cfg(feature = "prometheus")]
-                timer.map(|x| x.stop_and_record());
                 r
             }
         };
