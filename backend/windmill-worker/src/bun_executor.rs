@@ -557,6 +557,7 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         if is_tar {
             extract_tar(fs::read(bun_cache_path)?.into(), job_dir).await?;
         } else {
+            #[cfg(unix)]
             tokio::fs::symlink(&bun_cache_path, dst).await?;
         }
     } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
@@ -570,6 +571,7 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         if is_tar {
             extract_tar(bytes, job_dir).await?;
         } else {
+            #[cfg(unix)]
             tokio::fs::symlink(bun_cache_path, dst).await?;
         }
 

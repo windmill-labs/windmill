@@ -373,8 +373,16 @@ async fn windmill_main() -> anyhow::Result<()> {
     let is_agent = mode == Mode::Agent;
 
     if !is_agent {
-        // migration code to avoid break
-        windmill_api::migrate_db(&db).await?;
+        let skip_migration = std::env::var("SKIP_MIGRATION")
+            .map(|val| val == "true")
+            .unwrap_or(false);
+
+        if !skip_migration {
+            // migration code to avoid break
+            windmill_api::migrate_db(&db).await?;
+        } else {
+            tracing::info!("SKIP_MIGRATION set, skipping db migration...")
+        }
     }
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
