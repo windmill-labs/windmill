@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.402.0](https://github.com/windmill-labs/windmill/compare/v1.401.0...v1.402.0) (2024-09-26)
+
+
+### Features
+
+* **cli:** add queues, workers and worker-groups commands ([#4439](https://github.com/windmill-labs/windmill/issues/4439)) ([9f91b19](https://github.com/windmill-labs/windmill/commit/9f91b1995a98c9e096c6e599c4d5a8d5ea499ada))
+
 ## [1.401.0](https://github.com/windmill-labs/windmill/compare/v1.400.0...v1.401.0) (2024-09-25)
 
 
