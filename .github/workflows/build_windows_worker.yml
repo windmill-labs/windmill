@@ -23,8 +23,6 @@ env:
 jobs:
   cargo_build_windows:
     runs-on: windows-latest
-    container:
-      image: ghcr.io/windmill-labs/backend-tests
     services:
       postgres:
         image: postgres
