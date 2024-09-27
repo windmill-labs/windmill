@@ -291,16 +291,29 @@
 					: ''
 			)}
 		/>
-		{#if $overlappedStore === undefined && $componentDraggedIdStore}
-			<div class="absolute left-0 top-0 right-0">
+		{#if $overlappedStore === undefined && $componentDraggedIdStore && !sortedItems.find((item) => item.id === $componentDraggedIdStore)}
+			{@const columnGap = gapX}
+			<!-- gap between the columns in px -->
+			{@const containerBorder = 0.5 * 16}
+			<!-- 0.5rem converted to px (1rem = 16px) -->
+
+			{@const gridTotalWidth = containerWidth ? containerWidth - 2 * containerBorder : 0}
+			<!-- subtract borders -->
+			{@const availableWidth = gridTotalWidth - 11 * columnGap}
+			<!-- subtract gaps between the 12 columns (11 gaps) -->
+			{@const columnWidthPx = availableWidth / 12}
+			<!-- divide by the number of columns -->
+			{@const maxX = Math.floor(availableWidth / columnWidthPx) - $fakeShadowStore.w}
+
+			<div class="absolute inset-0">
 				<div class="relative h-full w-full">
 					<div
 						class="absolute bg-blue-300 transition-all duration-75"
 						style={`
-								left: calc(${$fakeShadowStore.x * xPerPx + gapX}px + 0.5rem);
-								top: calc(${$fakeShadowStore.y * yPerPx + gapY}px + 0.5rem);
-								width: ${$fakeShadowStore.w * xPerPx}px;
-								height: ${$fakeShadowStore.h * yPerPx}px;
+								left:${Math.min(maxX, $fakeShadowStore.x) * xPerPx + gapX}px ;
+								top: ${$fakeShadowStore.y * yPerPx + gapY}px;
+								width: ${$fakeShadowStore.w * xPerPx - gapX}px;
+								height: ${$fakeShadowStore.h * yPerPx - gapY}px;
 							`}
 					/>
 				</div>
@@ -311,6 +324,19 @@
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			{#if item.id === $overlappedStore && $componentDraggedIdStore}
+				{@const columnGap = gapX}
+				<!-- gap between the columns in px -->
+				{@const containerBorder = 0.5 * 16}
+				<!-- 0.5rem converted to px (1rem = 16px) -->
+
+				{@const gridTotalWidth = containerWidth ? containerWidth - 2 * containerBorder : 0}
+				<!-- subtract borders -->
+				{@const availableWidth = gridTotalWidth - 11 * columnGap}
+				<!-- subtract gaps between the 12 columns (11 gaps) -->
+				{@const columnWidthPx = availableWidth / 12}
+				<!-- divide by the number of columns -->
+				{@const maxX = Math.floor(availableWidth / columnWidthPx) - $fakeShadowStore.w}
+
 				<div
 					class="absolute"
 					style={`
@@ -320,9 +346,9 @@
 				>
 					<div class="relative h-full w-full">
 						<div
-							class="absolute bg-blue-300 transition-all duration-75"
+							class={twMerge('absolute transition-all duration-75', 'bg-blue-300')}
 							style={`
-								left: calc(${$fakeShadowStore.x * $fakeShadowStore.xPerPx + gapX}px + 0.5rem);
+								left: calc(${Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX}px + 0.5rem);
 								top: calc(${$fakeShadowStore.y * $fakeShadowStore.yPerPx + gapY}px + 0.5rem);
 								width: ${$fakeShadowStore.w * $fakeShadowStore.xPerPx}px;
 								height: ${$fakeShadowStore.h * $fakeShadowStore.yPerPx}px;

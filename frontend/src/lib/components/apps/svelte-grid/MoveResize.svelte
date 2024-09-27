@@ -336,12 +336,24 @@
 
 		const container = intersectingElement?.querySelector('.svlt-grid-container')
 
+		let xPerPxComputed = container?.getAttribute('data-xperpx')
+			? Number(container?.getAttribute('data-xperpx'))
+			: xPerPx
+
+		if (!container) {
+			const root = document.getElementById('root-grid')
+
+			const rootXPerPx = root?.getAttribute('data-xperpx')
+				? Number(root?.getAttribute('data-xperpx'))
+				: xPerPx
+
+			xPerPxComputed = rootXPerPx
+		}
+
 		const position = computePosition(
 			e.clientX,
 			e.clientY,
-			container?.getAttribute('data-xperpx')
-				? Number(container?.getAttribute('data-xperpx'))
-				: xPerPx,
+			xPerPxComputed,
 			yPerPx,
 			overlapped,
 			element
