@@ -312,7 +312,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-$env:PSModulePath = \"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\Modules;C:\\Program Files\\PowerShell\\7\\Modules\"
+$env:PSModulePath = \"C:\\Program Files\\PowerShell\\7\\Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{};$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
@@ -426,6 +426,31 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         #[cfg(windows)]
         {
             cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+                )
+                .env(
+                    "ProgramData",
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                )
+                .env(
+                    "ProgramFiles",
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
+                )
+                .env(
+                    "ProgramFiles(x86)",
+                    std::env::var("ProgramFiles(x86)")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files (x86)")),
+                )
+                .env(
+                    "ProgramW6432",
+                    std::env::var("ProgramW6432")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
+                )
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
