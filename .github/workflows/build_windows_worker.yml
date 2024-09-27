@@ -23,16 +23,6 @@ env:
 jobs:
   cargo_build_windows:
     runs-on: windows-latest
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_DB: windmill
-          POSTGRES_PASSWORD: changeme
-
-        options: >-
-          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - name: cargo build windows
