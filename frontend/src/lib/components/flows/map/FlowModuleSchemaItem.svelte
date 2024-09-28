@@ -224,13 +224,12 @@
 			<slot name="icon" />
 		{/if}
 		<div class="truncate" class:font-bold={bold}>{label}</div>
-		<div class="flex items-center space-x-2">
+		<div class="flex items-center space-x-2 relative">
 			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
 				<Badge color="indigo">{id}</Badge>
-
 				{#if deletable}
 					<button
-						class="absolute -left-[20px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-150 hover:bg-blue-400 {editId
+						class="absolute -left-[28px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-150 hover:bg-blue-400 {editId
 							? '!bg-blue-400'
 							: ''} hover:text-white
 hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
@@ -254,15 +253,15 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 		</button>
 
 		{#if id !== 'preprocessor'}
-		<button
-			class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+			<button
+				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
  {hover ? '' : '!hidden'}"
-			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
-			title="Move"
-		>
-			<Move class="mx-[3px]" size={12} strokeWidth={2} />
-		</button>
+				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
+				title="Move"
+			>
+				<Move class="mx-[3px]" size={12} strokeWidth={2} />
+			</button>
 		{/if}
 
 		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
