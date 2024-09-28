@@ -53,8 +53,8 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, get_queued_job,
-    handle_maybe_scheduled_job, CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
+    add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job,
+    CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -291,77 +291,96 @@ pub async fn update_flow_status_after_job_completion_internal<
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let (mut stop_early, mut skip_if_stop_early, continue_on_error) =
-            if let Some(se) = stop_early_override {
-                //do not stop early if module is a flow step
-                let flow_job = get_queued_job(&flow, w_id, db).await?.ok_or_else(|| {
-                    Error::InternalErr(format!("requiring flow to be in the queue"))
-                })?;
-                let module = get_module(&flow_job, &module_step);
+        let (mut stop_early, mut skip_if_stop_early, continue_on_error) = if let Some(se) =
+            stop_early_override
+        {
+            //do not stop early if module is a flow step
+            let step = match module_step {
+                Step::PreprocessorStep => None,
+                Step::FailureStep => None,
+                Step::Step(i) => Some(i),
+            };
 
-                if module.is_some_and(|x| x.is_flow()) {
-                    (false, false, false)
-                } else {
-                    (true, se, false)
-                }
-            } else if is_failure_step || matches!(module_step, Step::PreprocessorStep) {
+            let is_flow = if let Some(step) = step {
+                sqlx::query_scalar!(
+                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM queue WHERE id = $2",
+                    step as i32,
+                    &flow
+                )
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
+                    })?
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if is_flow {
                 (false, false, false)
-            } else if let Some(current_module) = current_module.as_ref() {
-                let stop_early = success
-                    && !is_branch_all
-                    && if let Some(ref expr) = current_module
-                        .stop_after_if
-                        .as_ref()
-                        .map(|x| x.expr.clone())
-                    {
-                        let all_iters =
-                            match &module_status {
-                                FlowStatusModule::InProgress {
-                                    flow_jobs: Some(flow_jobs), ..
-                                } if expr.contains("all_iters") => Some(Arc::new(
-                                    retrieve_flow_jobs_results(db, w_id, flow_jobs).await?,
-                                )),
-                                _ => None,
-                            };
-                        let args = sqlx::query_as::<_, RowArgs>(
-                            "SELECT
+            } else {
+                (true, se, false)
+            }
+        } else if is_failure_step || matches!(module_step, Step::PreprocessorStep) {
+            (false, false, false)
+        } else if let Some(current_module) = current_module.as_ref() {
+            let stop_early = success
+                && !is_branch_all
+                && if let Some(ref expr) = current_module
+                    .stop_after_if
+                    .as_ref()
+                    .map(|x| x.expr.clone())
+                {
+                    let all_iters = match &module_status {
+                        FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. }
+                            if expr.contains("all_iters") =>
+                        {
+                            Some(Arc::new(
+                                retrieve_flow_jobs_results(db, w_id, flow_jobs).await?,
+                            ))
+                        }
+                        _ => None,
+                    };
+                    let args = sqlx::query_as::<_, RowArgs>(
+                        "SELECT
                                         args
                                     FROM queue
                                     WHERE id = $2",
-                        )
-                        .bind(old_status.step)
-                        .bind(flow)
-                        .fetch_one(db)
-                        .await
-                        .map_err(|e| {
-                            Error::InternalErr(format!("retrieval of args from state: {e:#}"))
-                        })?;
-                        compute_bool_from_expr(
-                            expr.to_string(),
-                            Marc::new(args.args.unwrap_or_default().0),
-                            result.clone(),
-                            all_iters,
-                            None,
-                            Some(client),
-                            None,
-                            None,
-                        )
-                        .await?
-                    } else {
-                        false
-                    };
-                (
-                    stop_early,
-                    current_module
-                        .stop_after_if
-                        .as_ref()
-                        .map(|x| x.skip_if_stopped)
-                        .unwrap_or(false),
-                    current_module.continue_on_error.unwrap_or(false),
-                )
-            } else {
-                (false, false, false)
-            };
+                    )
+                    .bind(old_status.step)
+                    .bind(flow)
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
+                    })?;
+                    compute_bool_from_expr(
+                        expr.to_string(),
+                        Marc::new(args.args.unwrap_or_default().0),
+                        result.clone(),
+                        all_iters,
+                        None,
+                        Some(client),
+                        None,
+                        None,
+                    )
+                    .await?
+                } else {
+                    false
+                };
+            (
+                stop_early,
+                current_module
+                    .stop_after_if
+                    .as_ref()
+                    .map(|x| x.skip_if_stopped)
+                    .unwrap_or(false),
+                current_module.continue_on_error.unwrap_or(false),
+            )
+        } else {
+            (false, false, false)
+        };
 
         let skip_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -380,14 +399,12 @@ pub async fn update_flow_status_after_job_completion_internal<
             _ => false,
         };
 
-        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-
         if matches!(module_step, Step::PreprocessorStep) {
             sqlx::query!(
                 "UPDATE queue SET args = (select result FROM completed_job WHERE id = $1) WHERE id = $2",
                 job_id_for_status,
                 flow
-            ).execute(&mut tx).await.map_err(|e| {
+            ).execute(db).await.map_err(|e| {
                 Error::InternalErr(format!("error while updating args in preprocessing step: {e:#}"))
             })?;
 
@@ -395,7 +412,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 r#"UPDATE completed_job SET args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb WHERE id = $1"#,
                 job_id_for_status
             )
-            .execute(&mut tx)
+            .execute(db)
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
@@ -403,6 +420,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                 ))
             })?;
         }
+
+        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
         add_time!(bench, "process module status START");
 
