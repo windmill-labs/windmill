@@ -1,13 +1,21 @@
 use serde::Serialize;
 use sqlx::{types::Json, Pool, Postgres};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, AtomicU16, Ordering},
+        Arc,
+    },
+};
 
 use uuid::Uuid;
 
 use windmill_common::{
+    add_time,
+    bench::BenchmarkInfo,
     error::{self, Error},
-    jobs::QueuedJob,
-    worker::to_raw_value,
+    jobs::{JobKind, QueuedJob},
+    worker::{to_raw_value, WORKER_GROUP},
     DB,
 };
 
@@ -18,7 +26,13 @@ use windmill_queue::register_metric;
 
 use serde_json::{json, value::RawValue};
 
-use tokio::sync::mpsc::Sender;
+use tokio::{
+    sync::{
+        self,
+        mpsc::{Receiver, Sender},
+    },
+    task::JoinHandle,
+};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -26,13 +40,151 @@ use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{read_result, save_in_cache},
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult,
+    AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
 
-use crate::add_time;
-
 #[cfg(feature = "benchmark")]
-use crate::bench::BenchmarkIter;
+use windmill_common::bench::BenchmarkIter;
+
+pub fn start_background_processor<R>(
+    mut job_completed_rx: Receiver<SendResult>,
+    job_completed_sender: Sender<SendResult>,
+    same_worker_queue_size: Arc<AtomicU16>,
+    job_completed_processor_is_done: Arc<AtomicBool>,
+    base_internal_url: String,
+    db: DB,
+    worker_dir: String,
+    same_worker_tx: SameWorkerSender,
+    rsmq: Option<R>,
+    worker_name: String,
+    killpill_tx: sync::broadcast::Sender<()>,
+    is_dedicated_worker: bool,
+) -> JoinHandle<()>
+where
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
+{
+    tokio::spawn(async move {
+        let mut has_been_killed = false;
+
+        #[cfg(feature = "benchmark")]
+        let mut infos = BenchmarkInfo::new();
+
+        //if we have been killed, we want to drain the queue of jobs
+        while let Some(sr) = {
+            if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
+                job_completed_rx.try_recv().ok()
+            } else {
+                job_completed_rx.recv().await
+            }
+        } {
+            #[cfg(feature = "benchmark")]
+            let mut bench = BenchmarkIter::new();
+
+            match sr {
+                SendResult::JobCompleted(jc) => {
+                    let rsmq = rsmq.clone();
+
+                    let is_init_script_and_failure =
+                        !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    let is_dependency_job = matches!(
+                        jc.job.job_kind,
+                        JobKind::Dependencies | JobKind::FlowDependencies
+                    );
+
+                    handle_receive_completed_job(
+                        jc,
+                        &base_internal_url,
+                        &db,
+                        &worker_dir,
+                        &same_worker_tx,
+                        rsmq,
+                        &worker_name,
+                        job_completed_sender.clone(),
+                        #[cfg(feature = "benchmark")]
+                        &mut bench,
+                    )
+                    .await;
+
+                    if is_init_script_and_failure {
+                        tracing::error!("init script errored, exiting");
+                        killpill_tx.send(()).unwrap_or_default();
+                        break;
+                    }
+                    if is_dependency_job && is_dedicated_worker {
+                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                        sqlx::query!(
+                                "UPDATE config SET config = config WHERE name = $1",
+                                format!("worker__{}", *WORKER_GROUP)
+                            )
+                            .execute(&db)
+                            .await
+                            .expect("update config to trigger restart of all dedicated workers at that config");
+                        killpill_tx.send(()).unwrap_or_default();
+                    }
+                    add_time!(bench, "job completed processed");
+
+                    #[cfg(feature = "benchmark")]
+                    {
+                        infos.add_iter(bench, true);
+                    }
+                }
+                SendResult::UpdateFlow {
+                    flow,
+                    w_id,
+                    success,
+                    result,
+                    worker_dir,
+                    stop_early_override,
+                    token,
+                } => {
+                    // let r;
+                    tracing::info!(parent_flow = %flow, "updating flow status");
+                    if let Err(e) = update_flow_status_after_job_completion(
+                        &db,
+                        &AuthedClient {
+                            base_internal_url: base_internal_url.to_string(),
+                            workspace: w_id.clone(),
+                            token: token.clone(),
+                            force_client: None,
+                        },
+                        flow,
+                        &Uuid::nil(),
+                        &w_id,
+                        success,
+                        Arc::new(result),
+                        true,
+                        same_worker_tx.clone(),
+                        &worker_dir,
+                        stop_early_override,
+                        rsmq.clone(),
+                        &worker_name,
+                        job_completed_sender.clone(),
+                        #[cfg(feature = "benchmark")]
+                        &mut bench,
+                    )
+                    .await
+                    {
+                        tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
+                    }
+                }
+                SendResult::Kill => {
+                    has_been_killed = true;
+                }
+            }
+        }
+
+        job_completed_processor_is_done.store(true, Ordering::SeqCst);
+
+        tracing::info!("finished processing all completed jobs");
+
+        #[cfg(feature = "benchmark")]
+        {
+            infos
+                .write_to_file("profiling_result_processor.json")
+                .expect("write to file profiling");
+        }
+    })
+}
 
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
@@ -214,6 +366,8 @@ pub async fn handle_receive_completed_job<
             rsmq.clone(),
             worker_name,
             job_completed_tx,
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await;
     }
@@ -242,8 +396,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
 
-        add_time!(bench, "pre add_completed_job");
-
         add_completed_job(
             db,
             &job,
@@ -254,11 +406,13 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             canceled_by,
             rsmq.clone(),
             false,
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await?;
         drop(job);
 
-        add_time!(bench, "post add_completed_job");
+        add_time!(bench, "add_completed_job END");
 
         if is_flow_step {
             if let Some(parent_job) = parent_job {
@@ -278,11 +432,13 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     rsmq.clone(),
                     worker_name,
                     job_completed_tx,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?;
             }
         }
-        add_time!(bench, "post update_flow_status");
+        add_time!(bench, "updated flow status END");
     } else {
         let result = add_completed_job_error(
             db,
@@ -295,6 +451,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             rsmq.clone(),
             worker_name,
             false,
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await?;
         if job.is_flow_step {
@@ -315,6 +473,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     rsmq,
                     worker_name,
                     job_completed_tx,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?;
             }
@@ -337,6 +497,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
@@ -361,6 +522,8 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             rsmq_2,
             worker_name,
             false,
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await
     };
@@ -395,6 +558,8 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             rsmq.clone(),
             worker_name,
             job_completed_tx.clone(),
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await;
 
@@ -420,6 +585,8 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                         rsmq,
                         worker_name,
                         false,
+                        #[cfg(feature = "benchmark")]
+                        bench,
                     )
                     .await;
                 }

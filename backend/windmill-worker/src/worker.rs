@@ -18,9 +18,8 @@ use windmill_common::{
 use anyhow::{Context, Result};
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
-use prometheus::{
-    IntCounter,
-};
+use prometheus::IntCounter;
+
 use tracing::Instrument;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
@@ -31,12 +30,15 @@ use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap}, fs::DirBuilder, hash::Hash, sync::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    fs::DirBuilder,
+    hash::Hash,
+    sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
-    }, time::Duration
+    },
+    time::Duration,
 };
-
 
 use uuid::Uuid;
 
@@ -52,8 +54,8 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result,  pull, push, CanceledBy,
-    PushArgs, PushIsolationLevel, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PushArgs,
+    PushIsolationLevel, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -78,15 +80,31 @@ use tokio::{
 
 use rand::Rng;
 
-
 use crate::{
-    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
-        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args, update_worker_ping_for_failed_init_script, OccupancyMetrics
-    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{handle_receive_completed_job, process_result}, rust_executor::handle_rust_job, worker_flow::{
-        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, Step,
-    }, worker_lockfiles::{
+    ansible_executor::handle_ansible_job,
+    bash_executor::{handle_bash_job, handle_powershell_job},
+    bun_executor::handle_bun_job,
+    common::{
+        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
+        update_worker_ping_for_failed_init_script, OccupancyMetrics,
+    },
+    deno_executor::handle_deno_job,
+    go_executor::handle_go_job,
+    graphql_executor::do_graphql,
+    handle_child::SLOW_LOGS,
+    handle_job_error,
+    job_logger::NO_LOGS_AT_ALL,
+    js_eval::{eval_fetch_timeout, transpile_ts},
+    mysql_executor::do_mysql,
+    pg_executor::do_postgresql,
+    php_executor::handle_php_job,
+    python_executor::handle_python_job,
+    result_processor::{process_result, start_background_processor},
+    rust_executor::handle_rust_job,
+    worker_flow::{handle_flow, update_flow_status_in_progress, Step},
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
 
 #[cfg(feature = "enterprise")]
@@ -98,18 +116,9 @@ use crate::{
 };
 
 #[cfg(feature = "benchmark")]
-use crate::bench::{BenchmarkInfo, BenchmarkIter, benchmark_init};
+use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
-#[macro_export]
-macro_rules! add_time {
-    ($bench:expr, $name:expr) => {
-        #[cfg(feature = "benchmark")]
-        {
-            $bench.add_timing($name);
-            // println!("{}: {:?}", $z, $y.elapsed());
-        }
-    };
-}
+use windmill_common::add_time;
 
 pub async fn create_token_for_owner_in_bg(
     db: &Pool<Postgres>,
@@ -552,16 +561,12 @@ impl AuthedClient {
     }
 }
 
-
-
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct JobCompletedSender(Sender<SendResult>);
 
-
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
-
 
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
@@ -586,7 +591,6 @@ impl SameWorkerSender {
         self.0.send(payload).await
     }
 }
-
 
 // on linux, we drop caches every DROP_CACHE_PERIOD to avoid OOM killer believing we are using too much memory just because we create lots of files when executing jobs
 #[cfg(any(target_os = "linux"))]
@@ -673,8 +677,6 @@ fn add_outstanding_wait_time(
             }
     }.in_current_span());
 }
-
-
 
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name, hostname = %hostname))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
@@ -780,8 +782,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         None
     };
 
-
-
     #[cfg(feature = "prometheus")]
     let worker_save_completed_job_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
         && METRICS_ENABLED.load(Ordering::Relaxed)
@@ -797,8 +797,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     } else {
         None
     };
-
-
 
     #[cfg(feature = "prometheus")]
     let worker_pull_duration_counter_empty =
@@ -921,7 +919,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let is_dedicated_worker: bool = WORKER_CONFIG.read().await.dedicated_worker.is_some();
 
     #[cfg(feature = "benchmark")]
-    benchmark_init(is_dedicated_worker, &db).await;
+    let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
+        .unwrap_or("5000".to_string())
+        .parse::<i32>()
+        .unwrap();
+
+    #[cfg(feature = "benchmark")]
+    benchmark_init(benchmark_jobs, &db).await;
 
     #[cfg(feature = "prometheus")]
     if let Some(ws) = WORKER_STARTED.as_ref() {
@@ -930,158 +934,30 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<SendResult>(3);
+    let (job_completed_tx, job_completed_rx) = mpsc::channel::<SendResult>(3);
 
-    let job_completed_tx = JobCompletedSender(
-        job_completed_tx,
-    );
+    let job_completed_tx = JobCompletedSender(job_completed_tx);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
-
-    let db2 = db.clone();
-    let base_internal_url2 = base_internal_url.to_string();
-    let same_worker_tx2 = same_worker_tx.clone();
-    let rsmq2 = rsmq.clone();
-    let worker_dir2 = worker_dir.clone();
-
-
-
-    let worker_name2 = worker_name.clone();
-    let killpill_tx2 = killpill_tx.clone();
-    let job_completed_sender = job_completed_tx.0.clone();
-
     let job_completed_processor_is_done = Arc::new(AtomicBool::new(false));
 
-    let job_completed_processor_is_done2 = job_completed_processor_is_done.clone();
-    let same_worker_queue_size2 = same_worker_queue_size.clone();
-
-
-    let send_result = tokio::spawn(
-        (async move {
-            let mut has_been_killed = false;
-
-            #[cfg(feature = "benchmark")]
-            let mut infos = BenchmarkInfo::new();
-
-
-            //if we have been killed, we want to drain the queue of jobs
-            while let Some(sr) = {
-                if has_been_killed && same_worker_queue_size2.load(Ordering::SeqCst) == 0 {
-                    job_completed_rx.try_recv().ok() 
-                } else {
-                    job_completed_rx.recv().await
-                 } 
-                } {
-
-                #[cfg(feature = "benchmark")]
-                let mut bench = BenchmarkIter::new();
-
-                match sr {
-                    SendResult::JobCompleted(jc) => {
-                        let rsmq2 = rsmq2.clone();
-            
-                        let is_init_script_and_failure = !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
-                        let is_dependency_job = matches!(
-                            jc.job.job_kind,
-                            JobKind::Dependencies | JobKind::FlowDependencies
-                        );
-                        add_time!(bench, "pre handle_receive_completed_job");
-                        
-                        handle_receive_completed_job(
-                            jc,
-                            &base_internal_url2,
-                            &db2,
-                            &worker_dir2,
-                            &same_worker_tx2,
-                            rsmq2,
-                            &worker_name2,
-                            job_completed_sender.clone(),
-                            #[cfg(feature = "benchmark")]
-                            &mut bench
-                        )
-                        .await;
-
-                        if is_init_script_and_failure {
-                            tracing::error!("init script errored, exiting");
-                            killpill_tx2.send(()).unwrap_or_default();
-                            break;
-                        }
-                        if is_dependency_job && is_dedicated_worker {
-                            tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                            sqlx::query!(
-                                "UPDATE config SET config = config WHERE name = $1",
-                                format!("worker__{}", *WORKER_GROUP)
-                            )
-                            .execute(&db2)
-                            .await
-                            .expect("update config to trigger restart of all dedicated workers at that config");
-                            killpill_tx2.send(()).unwrap_or_default();
-                        }
-                        add_time!(bench, "post handle_receive_completed_job");
-
-                        #[cfg(feature = "benchmark")] {
-                            infos.add_iter(bench);
-                        }
-                    }
-                    SendResult::UpdateFlow {
-                        flow,
-                        w_id,
-                        success,
-                        result,
-                        worker_dir,
-                        stop_early_override,
-                        token,
-                    } => {
-                        // let r;
-                        tracing::info!(parent_flow = %flow, "updating flow status");
-                        if let Err(e) = update_flow_status_after_job_completion(
-                            &db2,
-                            &AuthedClient {
-                                base_internal_url: base_internal_url2.to_string(),
-                                workspace: w_id.clone(),
-                                token: token.clone(),
-                                force_client: None,
-                            },
-                            flow,
-                            &Uuid::nil(),
-                            &w_id,
-                            success,
-                            Arc::new(result),
-                            true,
-                            same_worker_tx2.clone(),
-                            &worker_dir,
-                            stop_early_override,
-                            rsmq2.clone(),
-                            &worker_name2,
-                            job_completed_sender.clone(),
-                        )
-                        .await
-                        {
-                            tracing::error!("Error updating flow status after job completion for {flow} on {worker_name2}: {e:#}");
-                        }
-                    }
-                    SendResult::Kill => {
-                        has_been_killed = true;
-                    }
-                }
-            }
-
-            job_completed_processor_is_done2.store(true, Ordering::SeqCst);
-
-            tracing::info!("finished processing all completed jobs");
-
-            #[cfg(feature = "benchmark")]
-            {
-                infos.write_to_file("profiling_result_processor.json").expect("write to file profiling");
-            }
-        
-        })
-        .instrument(tracing::Span::current()),
+    let send_result = start_background_processor(
+        job_completed_rx,
+        job_completed_tx.0.clone(),
+        same_worker_queue_size.clone(),
+        job_completed_processor_is_done.clone(),
+        base_internal_url.to_string(),
+        db.clone(),
+        worker_dir.clone(),
+        same_worker_tx.clone(),
+        rsmq.clone(),
+        worker_name.clone(),
+        killpill_tx.clone(),
+        is_dedicated_worker,
     );
 
     let mut last_executed_job: Option<Instant> = None;
-    let mut last_checked_suspended = Instant::now();
 
     #[cfg(feature = "benchmark")]
     let mut started = false;
@@ -1155,8 +1031,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     };
     let mut suspend_first_success = false;
     let mut last_reading = Instant::now() - Duration::from_secs(NUM_SECS_READINGS + 1);
-
+    let mut last_30jobs_suspended: Vec<bool> = vec![false; 30];
+    let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
+
     loop {
         #[cfg(feature = "benchmark")]
         let mut bench = BenchmarkIter::new();
@@ -1185,7 +1063,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
 
-
             let (vcpus, memory) = if *REFRESH_CGROUP_READINGS
                 && last_reading.elapsed().as_secs() > NUM_SECS_READINGS
             {
@@ -1195,9 +1072,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 (None, None)
             };
 
+            let (occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m) =
+                occupancy_metrics.update_occupancy_metrics();
 
-            let (occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m) = occupancy_metrics.update_occupancy_metrics();
-            
             if let Err(e) = sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
                  occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
@@ -1251,6 +1128,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             jobs_executed += 1;
         }
 
+        #[cfg(feature = "benchmark")]
+        if benchmark_jobs > 0 && infos.iters == benchmark_jobs as u64 {
+            tracing::info!("benchmark finished, exiting");
+            job_completed_tx
+                .0
+                .send(SendResult::Kill)
+                .await
+                .expect("send kill to job completed tx");
+            break;
+        } else {
+            tracing::info!("benchmark not finished, still pulling jobs {}", infos.iters);
+        }
+
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
             #[cfg(feature = "benchmark")]
@@ -1275,7 +1165,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     tracing::error!(
                         "failed to fetch same_worker job on a non recoverable job, exiting"
                     );
-                    job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
+                    job_completed_tx
+                        .0
+                        .send(SendResult::Kill)
+                        .await
+                        .expect("send kill to job completed tx");
                     break;
                 } else {
                     r
@@ -1284,7 +1178,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 if !killed_but_draining_same_worker_jobs {
                     tracing::info!("received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
                     killed_but_draining_same_worker_jobs = true;
-                    job_completed_tx.0.send(SendResult::Kill).await.expect("send kill to job completed tx");
+                    job_completed_tx
+                        .0
+                        .send(SendResult::Kill)
+                        .await
+                        .expect("send kill to job completed tx");
                 }
                 continue;
             } else if killed_but_draining_same_worker_jobs {
@@ -1298,21 +1196,24 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 }
             } else {
                 let pull_time = Instant::now();
-                let suspend_first =
-                    if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
-                        last_checked_suspended = Instant::now();
-                        true
-                    } else {
-                        false
-                    };
-                add_time!(bench, "pre pull");
+                let likelihood_of_suspend =
+                    (1.0 + last_30jobs_suspended.iter().filter(|&&x| x).count() as f64) / 31.0;
+                let suspend_first = suspend_first_success
+                    || rand::random::<f64>() < likelihood_of_suspend
+                    || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+                if suspend_first {
+                    last_suspend_first = Instant::now();
+                }
+
                 let job = pull(&db, rsmq.clone(), suspend_first).await;
-                add_time!(bench, "post pull");
+
+                add_time!(bench, "job pulled from DB");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
                 let err_pull = job.is_ok();
-                let empty = job.as_ref().is_ok_and(|x| x.is_none());
-                suspend_first_success = suspend_first && !empty;
+                // let empty = job.as_ref().is_ok_and(|x| x.is_none());
+
                 if !agent_mode && duration_pull_s > 0.5 {
+                    let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
                     tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
@@ -1323,6 +1224,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         wp.inc();
                     }
                 } else if !agent_mode && duration_pull_s > 0.1 {
+                    let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
                     tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
@@ -1334,8 +1236,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     }
                 }
 
-                #[cfg(feature = "prometheus")]
                 if let Ok(j) = job.as_ref() {
+                    let suspend_success = j.1;
+                    if suspend_first {
+                        last_30jobs_suspended.push(suspend_success);
+                        if last_30jobs_suspended.len() > 30 {
+                            last_30jobs_suspended.remove(0);
+                        }
+                    }
+                    suspend_first_success = suspend_first && suspend_success;
+                    #[cfg(feature = "prometheus")]
                     if j.is_some() {
                         if let Some(wp) = worker_pull_duration_counter.as_ref() {
                             wp.inc_by(duration_pull_s);
@@ -1352,7 +1262,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         }
                     }
                 }
-                job
+                job.map(|x| x.0)
             }
         };
 
@@ -1364,21 +1274,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         occupancy_metrics.running_job_started_at = Some(Instant::now());
 
-        add_time!(bench, "pre next job");
-
-
         match next_job {
             Ok(Some(job)) => {
-
-
                 last_executed_job = None;
                 jobs_executed += 1;
 
                 tracing::debug!("started handling of job {}", job.id);
 
-
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
-
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {
                             job.flow_step_id.as_ref().map(|x| x.to_string())
@@ -1386,11 +1289,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             job.script_path.as_ref().map(|x| x.to_string())
                         };
                         if let Some(key) = key_o {
-                            if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {                                
+                            if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
                                 if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
                                     tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                                 }
 
+                                #[cfg(feature = "benchmark")]
+                                {
+                                    add_time!(bench, "sent to dedicated worker");
+                                    infos.add_iter(bench, true);
+                                }
 
                                 continue;
                             }
@@ -1398,7 +1306,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     }
                 }
                 if matches!(job.job_kind, JobKind::Noop) {
-
+                    add_time!(bench, "send job completed START");
                     job_completed_tx
                         .send(JobCompleted {
                             job: Arc::new(job),
@@ -1410,9 +1318,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             canceled_by: None,
                         })
                         .await
-                        .expect("send job completed");
-
-
+                        .expect("send job completed END");
+                    add_time!(bench, "sent job completed");
                 } else {
                     let token = create_token_for_owner_in_bg(&db, &job).await;
                     add_outstanding_wait_time(&job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
@@ -1477,7 +1384,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-                    
+
                     let folder = if job.language == Some(ScriptLang::Go) {
                         DirBuilder::new()
                             .recursive(true)
@@ -1487,7 +1394,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     } else {
                         ""
                     };
-                    
+
                     let target = &format!("{job_dir}{folder}/shared");
 
                     if same_worker && job.parent_job.is_some() {
@@ -1521,7 +1428,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
                     let arc_job = Arc::new(job);
-                    
+                    add_time!(bench, "handle_queued_job START");
                     match handle_queued_job(
                         arc_job.clone(),
                         db,
@@ -1535,38 +1442,48 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         rsmq.clone(),
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
+                        #[cfg(feature = "benchmark")]
+                        &mut bench,
                     )
-                    .await {
+                    .await
+                    {
                         Err(err) => {
                             handle_job_error(
-                            db,
-                            &authed_client.get_authed().await,
-                            arc_job.as_ref(),
-                            0,
-                            None,
-                            err,
-                            false,
-                            same_worker_tx.clone(),
-                            &worker_dir,
-                            rsmq.clone(),
-                            &worker_name,
-                            (&job_completed_tx.0).clone(),
-                        )
-                        .await;
-                        if is_init_script  {
-                            tracing::error!("init script job failed (in handler), exiting");
-                            update_worker_ping_for_failed_init_script(db, &worker_name, arc_job.id).await;
+                                db,
+                                &authed_client.get_authed().await,
+                                arc_job.as_ref(),
+                                0,
+                                None,
+                                err,
+                                false,
+                                same_worker_tx.clone(),
+                                &worker_dir,
+                                rsmq.clone(),
+                                &worker_name,
+                                (&job_completed_tx.0).clone(),
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .await;
+                            if is_init_script {
+                                tracing::error!("init script job failed (in handler), exiting");
+                                update_worker_ping_for_failed_init_script(
+                                    db,
+                                    &worker_name,
+                                    arc_job.id,
+                                )
+                                .await;
+                                break;
+                            }
+                        }
+                        Ok(false) if is_init_script => {
+                            tracing::error!("init script job failed, exiting");
+                            update_worker_ping_for_failed_init_script(db, &worker_name, arc_job.id)
+                                .await;
                             break;
                         }
-                    },
-                    Ok(false) if is_init_script => {
-                            tracing::error!("init script job failed, exiting");
-                            update_worker_ping_for_failed_init_script(db, &worker_name, arc_job.id).await;
-                            break;
-                        
+                        _ => {}
                     }
-                    _ => {}
-                }
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -1594,13 +1511,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
-                add_time!(bench, "post next job");
 
                 #[cfg(feature = "benchmark")]
                 {
                     if started {
-                        add_time!(bench, "post iter");
-                        infos.add_iter(bench);
+                        add_time!(bench, "job processed");
+                        infos.add_iter(bench, true);
                     }
                 }
             }
@@ -1623,9 +1539,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     None
                 };
 
-
                 tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
 
+                #[cfg(feature = "benchmark")]
+                {
+                    add_time!(bench, "sleep because empty job queue");
+                    infos.add_iter(bench, false);
+                }
                 #[cfg(feature = "prometheus")]
                 _timer.map(|timer| {
                     let duration = timer.elapsed().as_secs_f64();
@@ -1638,17 +1558,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 tracing::error!("Failed to pull jobs: {}", err);
             }
         };
-
-
     }
 
     tracing::info!("worker {} exiting", worker_name);
 
     #[cfg(feature = "benchmark")]
     {
-        infos.write_to_file("profiling_main.json").expect("write to file profiling");
+        infos
+            .write_to_file("profiling_main.json")
+            .expect("write to file profiling");
     }
-
 
     drop(dedicated_workers);
 
@@ -1668,6 +1587,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         tracing::error!("error in awaiting send_result process: {e:?}")
     }
     tracing::info!("worker {} exited", worker_name);
+    tracing::info!("number of jobs executed: {}", jobs_executed);
 }
 
 async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
@@ -1741,7 +1661,6 @@ pub enum SendResult {
     Kill,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct JobCompleted {
     pub job: Arc<QueuedJob>,
@@ -1810,6 +1729,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
@@ -1906,7 +1826,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             )
             .fetch_one(db)
             .await
-            .map_err(|e| Error::InternalErr(format!("Fetching script path from queue for caching purposes: {e:#}")))?
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "Fetching script path from queue for caching purposes: {e:#}"
+                ))
+            })?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
             let step = match step.unwrap() {
                 Step::Step(i) => i.to_string(),
@@ -2082,7 +2006,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     occupancy_metrics,
                 )
                 .await;
-                occupancy_metrics.total_duration_of_running_jobs += metric_timer.elapsed().as_secs_f32();
+                occupancy_metrics.total_duration_of_running_jobs +=
+                    metric_timer.elapsed().as_secs_f32();
                 r
             }
         };
@@ -2115,7 +2040,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         .await
     }
 }
-
 
 pub fn build_envs(
     envs: Option<Vec<String>>,
@@ -2446,7 +2370,11 @@ async fn handle_code_execution_job(
     );
 
     let shared_mount = if job.same_worker && job.language != Some(ScriptLang::Deno) {
-        let folder = if job.language == Some(ScriptLang::Go) { "/go" } else { "" };
+        let folder = if job.language == Some(ScriptLang::Go) {
+            "/go"
+        } else {
+            ""
+        };
         format!(
             r#"
 mount {{
@@ -2618,7 +2546,6 @@ mount {{
             .await
         }
         Some(ScriptLang::Ansible) => {
-
             handle_ansible_job(
                 requirements_o,
                 job_dir,
@@ -2634,7 +2561,8 @@ mount {{
                 base_internal_url,
                 envs,
                 occupancy_metrics,
-            ).await
+            )
+            .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
