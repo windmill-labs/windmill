@@ -12,12 +12,14 @@ use uuid::Uuid;
 
 use windmill_common::{
     add_time,
-    bench::BenchmarkInfo,
     error::{self, Error},
     jobs::{JobKind, QueuedJob},
     worker::{to_raw_value, WORKER_GROUP},
     DB,
 };
+
+#[cfg(feature = "benchmark")]
+use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
 
@@ -42,9 +44,6 @@ use crate::{
     worker_flow::update_flow_status_after_job_completion,
     AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
-
-#[cfg(feature = "benchmark")]
-use windmill_common::bench::BenchmarkIter;
 
 pub fn start_background_processor<R>(
     mut job_completed_rx: Receiver<SendResult>,

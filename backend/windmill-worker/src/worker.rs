@@ -1246,7 +1246,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     }
                     suspend_first_success = suspend_first && suspend_success;
                     #[cfg(feature = "prometheus")]
-                    if j.is_some() {
+                    if j.0.is_some() {
                         if let Some(wp) = worker_pull_duration_counter.as_ref() {
                             wp.inc_by(duration_pull_s);
                         }
