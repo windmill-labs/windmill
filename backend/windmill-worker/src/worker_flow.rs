@@ -369,12 +369,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                 parallel,
                 ..
             } => compute_skip_branchall_failure(
-                flow,
                 job_id_for_status,
-                old_status.step,
                 *branch,
                 *parallel,
                 db,
+                current_module.as_ref(),
             )
             .await?
             .unwrap_or(false),
@@ -1205,12 +1204,11 @@ fn get_module(flow_job: &QueuedJob, module_step: &Step) -> Option<FlowModule> {
 }
 
 async fn compute_skip_branchall_failure<'c>(
-    flow: Uuid,
     job: &Uuid,
-    step: i32,
     branch: usize,
     parallel: bool,
     db: &DB,
+    flow_module: Option<&FlowModule>,
 ) -> Result<Option<bool>, Error> {
     let branch = if parallel {
         sqlx::query_scalar!("SELECT script_path FROM completed_job WHERE id = $1", job)
@@ -1234,22 +1232,13 @@ async fn compute_skip_branchall_failure<'c>(
     } else {
         branch as i32
     };
-    sqlx::query_as(
-        "SELECT (raw_flow->'modules'->$1->'value'->'branches'->$2->>'skip_failure')::bool
-        FROM queue
-        WHERE id = $3",
-    )
-    .bind(step)
-    .bind(branch)
-    .bind(flow)
-    .fetch_one(db)
-    .await
-    .map(|(v,)| v)
-    .map_err(|e| {
-        Error::InternalErr(format!(
-            "error during retrieval of skip_loop_failures: {e:#}"
-        ))
-    })
+    Ok(flow_module
+        .and_then(|x| x.get_branches_skip_failures().ok())
+        .and_then(|x| {
+            x.branches
+                .get(branch as usize)
+                .map(|x| x.skip_failure.unwrap_or(false))
+        }))
 }
 
 async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
