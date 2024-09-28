@@ -292,6 +292,16 @@ pub struct FlowModuleValueWithSkipFailures {
     pub parallelism: Option<u16>,
 }
 
+#[derive(Deserialize)]
+pub struct BranchWithSkipFailures {
+    pub skip_failure: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct FlowModuleWithBranches {
+    pub branches: Vec<BranchWithSkipFailures>,
+}
+
 impl FlowModule {
     pub fn id_append(&mut self, s: &str) {
         self.id = format!("{}-{}", self.id, s);
@@ -302,6 +312,11 @@ impl FlowModule {
 
     pub fn get_value_with_skip_failures(&self) -> anyhow::Result<FlowModuleValueWithSkipFailures> {
         serde_json::from_str::<FlowModuleValueWithSkipFailures>(self.value.get())
+            .map_err(crate::error::to_anyhow)
+    }
+
+    pub fn get_branches_skip_failures(&self) -> anyhow::Result<FlowModuleWithBranches> {
+        serde_json::from_str::<FlowModuleWithBranches>(self.value.get())
             .map_err(crate::error::to_anyhow)
     }
 
