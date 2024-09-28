@@ -29,7 +29,10 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
+use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
+#[cfg(feature = "benchmark")]
+use windmill_common::bench::BenchmarkIter;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
@@ -76,6 +79,7 @@ pub async fn update_flow_status_after_job_completion<
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
     // todo!();
@@ -97,6 +101,8 @@ pub async fn update_flow_status_after_job_completion<
         rsmq.clone(),
         worker_name,
         job_completed_tx.clone(),
+        #[cfg(feature = "benchmark")]
+        bench,
     )
     .await?;
     while let Some(nrec) = rec {
@@ -117,6 +123,8 @@ pub async fn update_flow_status_after_job_completion<
             rsmq.clone(),
             worker_name,
             job_completed_tx.clone(),
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await
         {
@@ -141,6 +149,8 @@ pub async fn update_flow_status_after_job_completion<
                     rsmq.clone(),
                     worker_name,
                     job_completed_tx.clone(),
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?
             }
@@ -193,7 +203,9 @@ pub async fn update_flow_status_after_job_completion_internal<
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
+    add_time!(bench, "update flow status internal START");
     let (
         should_continue_flow,
         flow_job,
@@ -376,6 +388,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             })?;
         }
 
+        add_time!(bench, "process module status START");
+
         let (inc_step_counter, new_status) = match module_status {
             FlowStatusModule::InProgress {
                 iterator,
@@ -517,9 +531,9 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tracing::info!(
                         "parallel iteration {job_id_for_status} of flow {flow} has finished",
                     );
-
                     (true, Some(new_status))
                 } else {
+                    add_time!(bench, "handle parallel flow start");
                     tx.commit().await?;
 
                     if parallelism.is_some() {
@@ -562,7 +576,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             r.unwrap()
                         );
                     }
-
+                    add_time!(bench, "non final parallel flow finished");
                     return Ok(None);
                 }
             }
@@ -964,6 +978,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                 rsmq.clone(),
                 worker_name,
                 true,
+                #[cfg(feature = "benchmark")]
+                bench,
             )
             .await?;
         } else {
@@ -994,6 +1010,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             let success = success
                 && (!is_failure_step || result_has_recover_true(nresult.clone()))
                 && !skip_error_handler;
+
+            add_time!(bench, "flow status update 1");
             if success {
                 add_completed_job(
                     db,
@@ -1005,6 +1023,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?;
             } else {
@@ -1022,6 +1042,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?;
             }
@@ -1059,6 +1081,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     rsmq.clone(),
                     worker_name,
                     true,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await;
                 true
