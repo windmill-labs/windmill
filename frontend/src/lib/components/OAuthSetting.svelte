@@ -9,7 +9,7 @@
 
 	$: enabled = value != undefined
 
-	let allowed_domains = value?.['allowed_domains'] ?? ''
+	let allowed_domains = value?.['allowed_domains']?.join(', ') ?? ''
 
 	let tenant: string = ''
 	$: name == 'microsoft' && changeTenantId(tenant)
@@ -66,7 +66,8 @@
 				</label>
 			{:else if login}
 				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Allowed domain</span>
+					<span class="text-primary font-semibold text-sm">Allowed domains</span>
+					<span class="text-secondary text-xs">Separate domains with commas</span>
 					<input
 						type="text"
 						placeholder="windmill.dev"
@@ -75,7 +76,7 @@
 							if (allowed_domains == '') {
 								value['allowed_domains'] = undefined
 							} else {
-								value['allowed_domains'] = [allowed_domains]
+								value['allowed_domains'] = allowed_domains.split(',')
 							}
 						}}
 					/>
