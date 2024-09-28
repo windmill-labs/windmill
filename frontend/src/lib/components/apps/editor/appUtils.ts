@@ -1230,3 +1230,30 @@ export function getDeltaXByComponent(type: string) {
 			return '0px'
 	}
 }
+
+export type GridShadow = {
+	x: number
+	y: number
+	xPerPx: number
+	yPerPx: number
+	w: number
+	h: number
+}
+
+export function areShadowsTheSame(
+	shadow1: GridShadow | undefined,
+	shadow2: GridShadow | undefined
+) {
+	if (!shadow1 || !shadow2) {
+		return false
+	}
+
+	return (
+		shadow1.x === shadow2.x &&
+		shadow1.y === shadow2.y &&
+		shadow1.xPerPx === shadow2.xPerPx &&
+		shadow1.yPerPx === shadow2.yPerPx &&
+		shadow1.w === shadow2.w &&
+		shadow1.h === shadow2.h
+	)
+}

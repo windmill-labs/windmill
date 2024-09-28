@@ -233,38 +233,6 @@
 		| undefined = undefined
 	let currentIntersectingElementId: string | undefined = undefined
 
-	function computeShadow(clientX: number, clientY: number) {
-		const elementsAtPoint = document.elementsFromPoint(clientX, clientY)
-		const intersectingElement = elementsAtPoint.find(
-			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
-		)
-
-		const container = overlapped
-			? intersectingElement?.querySelector('.svlt-grid-container')
-			: document.getElementById('root-grid')
-
-		const xPerPxComputed = Number(container?.getAttribute('data-xperpx')) ?? xPerPx
-
-		const position = computePosition(clientX, clientY, xPerPxComputed, yPerPx, overlapped, element)
-
-		// Update shared state
-		currentShadowPosition = {
-			x: position.x,
-			y: position.y,
-			xPerPx: xPerPxComputed,
-			yPerPx,
-			h: item.h,
-			w: item.w
-		}
-		currentIntersectingElementId = intersectingElement?.id
-			? intersectingElement.id.split('-')[1]
-			: undefined
-	}
-
-	const throttledComputeShadow = throttle((clientX, clientY) => {
-		computeShadow(clientX, clientY)
-	}, 50)
-
 	const pointermove = (event) => {
 		dragClosure && dragClosure()
 		event.preventDefault()
@@ -279,14 +247,7 @@
 				cordDiff,
 				clientY,
 				intersectingElement: undefined,
-				shadow: {
-					x: 0,
-					y: 0,
-					xPerPx: 0,
-					yPerPx: 0,
-					h: 0,
-					w: 0
-				}
+				shadow: undefined
 			})
 
 			return
@@ -344,6 +305,50 @@
 	}
 
 	let element: HTMLElement | undefined = undefined
+
+	function computeShadow(clientX: number, clientY: number) {
+		const elementsAtPoint = document.elementsFromPoint(clientX, clientY)
+		const intersectingElement = elementsAtPoint.find(
+			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
+		)
+
+		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[1] : undefined
+
+		const container = newOverlapped
+			? intersectingElement?.querySelector('.svlt-grid-container')
+			: document.getElementById('root-grid')
+
+		const xPerPxComputed = Number(container?.getAttribute('data-xperpx')) ?? xPerPx
+
+		const position = computePosition(
+			clientX,
+			clientY,
+			xPerPxComputed,
+			yPerPx,
+			newOverlapped,
+			element
+		)
+
+		if (overlapped !== newOverlapped) {
+			currentShadowPosition = undefined
+		} else {
+			// Update shared state
+			currentShadowPosition = {
+				x: position.x,
+				y: position.y,
+				xPerPx: xPerPxComputed,
+				yPerPx,
+				h: item.h,
+				w: item.w
+			}
+		}
+
+		currentIntersectingElementId = newOverlapped
+	}
+
+	const throttledComputeShadow = throttle((clientX, clientY) => {
+		computeShadow(clientX, clientY)
+	}, 50)
 
 	const pointerup = (e) => {
 		ctx.componentActive.set(false)

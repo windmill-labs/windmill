@@ -4,24 +4,7 @@
 	const componentDraggedIdStore = writable<string | undefined>(undefined)
 	const componentDraggedParentIdStore = writable<string | undefined>(undefined)
 	const overlappedStore = writable<string | undefined>(undefined)
-	const fakeShadowStore = writable<
-		| {
-				x: number
-				y: number
-				xPerPx: number
-				yPerPx: number
-				w: number
-				h: number
-		  }
-		| undefined
-	>({
-		x: 0,
-		y: 0,
-		xPerPx: 0,
-		yPerPx: 0,
-		w: 0,
-		h: 0
-	})
+	const fakeShadowStore = writable<GridShadow | undefined>(undefined)
 </script>
 
 <script lang="ts">
@@ -35,6 +18,7 @@
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
 	import {
+		areShadowsTheSame,
 		findGridItemParentGrid,
 		getDeltaXByComponent,
 		getDeltaYByComponent,
@@ -42,7 +26,8 @@
 		ROW_GAP_X,
 		ROW_GAP_Y,
 		ROW_HEIGHT,
-		sortGridItemsPosition
+		sortGridItemsPosition,
+		type GridShadow
 	} from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
@@ -120,7 +105,7 @@
 	let sortedItems: FilledItem<T>[] = []
 	$: sortedItems = JSON.parse(JSON.stringify(items)).sort((a, b) => a.id.localeCompare(b.id))
 
-	let isCtrlOrMetaPressed = false
+	let isCtrlOrMetaPressed: boolean = false
 
 	function handleKeyDown(event) {
 		if (event.key === 'Control' || event.key === 'Meta') {
@@ -130,7 +115,9 @@
 
 	function handleKeyUp(event) {
 		if (event.key === 'Control' || event.key === 'Meta') {
-			isCtrlOrMetaPressed = false
+			setTimeout(() => {
+				isCtrlOrMetaPressed = false
+			}, 50)
 		}
 	}
 
@@ -254,32 +241,38 @@
 		if (!isCtrlOrMetaPressed) {
 			$overlappedStore = undefined
 			return
-		} else {
-			if ($componentDraggedParentIdStore !== $overlappedStore) {
-				if (
-					$fakeShadowStore?.x !== detail.shadow.x ||
-					$fakeShadowStore?.y !== detail.shadow.y ||
-					$fakeShadowStore?.w !== detail.shadow.w ||
-					$fakeShadowStore?.h !== detail.shadow.h
-				) {
-					$fakeShadowStore = {
-						x: detail.shadow.x,
-						y: detail.shadow.y,
-						xPerPx: detail.shadow.xPerPx,
-						yPerPx: detail.shadow.yPerPx,
-						w: detail.shadow.w,
-						h: detail.shadow.h
-					}
-				}
+		}
+
+		if (
+			// We don't display the fake shadow if the dragged component is a child of the overlapped component
+			$componentDraggedParentIdStore !== $overlappedStore &&
+			detail.shadow &&
+			// only update the fake shadow if the are different
+			!areShadowsTheSame($fakeShadowStore, detail.shadow)
+		) {
+			$fakeShadowStore = {
+				x: detail.shadow.x,
+				y: detail.shadow.y,
+				xPerPx: detail.shadow.xPerPx,
+				yPerPx: detail.shadow.yPerPx,
+				w: detail.shadow.w,
+				h: detail.shadow.h
 			}
 		}
 
+		// When leaving the overlapped component, we clear the fake shadow
+		// to avoid rendering it with the wrong position at the next intersection
+		if (detail.intersectingElement !== $overlappedStore) {
+			$fakeShadowStore = undefined
+		}
+
+		// Update the overlapped component
 		$overlappedStore = detail.intersectingElement
 	}
 
 	export function handleInitMove(id: string) {
 		$componentDraggedIdStore = id
-		$componentDraggedParentIdStore = findGridItemParentGrid($app, id)?.split('-')[0]
+		$componentDraggedParentIdStore = findGridItemParentGrid($app, id)?.split('-')[0] ?? undefined
 
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
@@ -298,9 +291,8 @@
 	id={root ? 'root-grid' : undefined}
 	data-xperpx={xPerPx}
 >
+	<!-- ROOT SHADOW-->
 	{#if isCtrlOrMetaPressed && root && $overlappedStore !== $componentDraggedParentIdStore}
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 		<div
 			class={twMerge(
 				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
@@ -363,7 +355,7 @@
 				>
 					<div class="relative h-full w-full">
 						<div
-							class={twMerge('absolute transition-all duration-7 bg-blue-300')}
+							class={twMerge('absolute transition-all duration-75 bg-blue-300')}
 							style={`
 								left: calc(${
 									Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX
@@ -392,19 +384,14 @@
 				on:dropped={(e) => {
 					$componentDraggedIdStore = undefined
 					$componentDraggedParentIdStore = undefined
+					$overlappedStore = undefined
+					$fakeShadowStore = undefined
 
 					if (!isCtrlOrMetaPressed) {
 						return
 					}
 
-					dispatch('dropped', {
-						id: e.detail.id,
-						overlapped: e.detail.overlapped,
-						x: e.detail.x,
-						y: e.detail.y
-					})
-
-					$overlappedStore = undefined
+					dispatch('dropped', e.detail)
 				}}
 				width={xPerPx == 0
 					? 0
