@@ -285,12 +285,24 @@ pub struct FlowModuleValueWithParallel {
     pub parallelism: Option<u16>,
 }
 
+#[derive(Deserialize)]
+pub struct FlowModuleValueWithSkipFailures {
+    pub skip_failures: Option<bool>,
+    pub parallel: Option<bool>,
+    pub parallelism: Option<u16>,
+}
+
 impl FlowModule {
     pub fn id_append(&mut self, s: &str) {
         self.id = format!("{}-{}", self.id, s);
     }
     pub fn get_value(&self) -> anyhow::Result<FlowModuleValue> {
         serde_json::from_str::<FlowModuleValue>(self.value.get()).map_err(crate::error::to_anyhow)
+    }
+
+    pub fn get_value_with_skip_failures(&self) -> anyhow::Result<FlowModuleValueWithSkipFailures> {
+        serde_json::from_str::<FlowModuleValueWithSkipFailures>(self.value.get())
+            .map_err(crate::error::to_anyhow)
     }
 
     pub fn is_flow(&self) -> bool {
