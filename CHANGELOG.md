@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.402.1](https://github.com/windmill-labs/windmill/compare/v1.402.0...v1.402.1) (2024-09-28)
+
+
+### Bug Fixes
+
+* allow preprocessor to write to args.json on nsjail ([#4455](https://github.com/windmill-labs/windmill/issues/4455)) ([0b9ec83](https://github.com/windmill-labs/windmill/commit/0b9ec83036e2a1d0773b4ec5856f907b383e9323))
+* **frontend:** Fix flow graph bg in dark mode on chrome ([#4454](https://github.com/windmill-labs/windmill/issues/4454)) ([6956a3a](https://github.com/windmill-labs/windmill/commit/6956a3a2ba6d189528cb34ab05f7137fdf4f840b))
+* improve suspend_first behavior and frequency ([b5e226b](https://github.com/windmill-labs/windmill/commit/b5e226b977e6d24ebd28bc1e7c867cb4888f77b2))
+
 ## [1.402.0](https://github.com/windmill-labs/windmill/compare/v1.401.0...v1.402.0) (2024-09-26)
 
 
