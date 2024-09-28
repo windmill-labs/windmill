@@ -10760,7 +10760,7 @@ dependencies = [
  "regex",
  "serde_json",
  "syn 2.0.79",
- "toml 0.7.8",
+ "toml 0.8.19",
  "windmill-parser",
 ]
 
