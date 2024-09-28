@@ -1201,6 +1201,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 let suspend_first = suspend_first_success
                     || rand::random::<f64>() < likelihood_of_suspend
                     || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+
                 if suspend_first {
                     last_suspend_first = Instant::now();
                 }
