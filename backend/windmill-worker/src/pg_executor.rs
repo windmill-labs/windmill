@@ -30,7 +30,7 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::{get_sql_annotations, to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -38,7 +38,8 @@ use windmill_parser_sql::{
 };
 use windmill_queue::CanceledBy;
 
-use crate::common::{build_args_values, run_future_with_polling_update_job_poller, sizeof_val};
+use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
 use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;
@@ -68,7 +69,8 @@ fn do_postgresql_inner<'a>(
     client: &'a Client,
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
-) -> error::Result<BoxFuture<'a, anyhow::Result<Vec<Value>>>> {
+    skip_collect: bool,
+) -> error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
     let mut query_params = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -93,51 +95,60 @@ fn do_postgresql_inner<'a>(
 
     let result_f = async move {
         // Now we can execute a simple statement that just returns its parameter.
-        let rows = client
-            .query_raw(&query, query_params)
-            .await
-            .map_err(to_anyhow)?;
-
-        let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-
-        if let Some(column_order) = column_order {
-            *column_order = Some(
-                rows.first()
-                    .map(|x| {
-                        x.columns()
-                            .iter()
-                            .map(|x| x.name().to_string())
-                            .collect::<Vec<String>>()
-                    })
-                    .unwrap_or_default(),
-            );
-        }
 
         let mut res: Vec<serde_json::Value> = vec![];
-        for row in rows.into_iter() {
-            let r = postgres_row_to_json_value(row);
-            if let Ok(v) = r.as_ref() {
-                let size = sizeof_val(v);
-                siz.fetch_add(size, Ordering::Relaxed);
+
+        if skip_collect {
+            client
+                .execute_raw(&query, query_params)
+                .await
+                .map_err(to_anyhow)?;
+        } else {
+            let rows = client
+                .query_raw(&query, query_params)
+                .await
+                .map_err(to_anyhow)?;
+
+            let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+
+            if let Some(column_order) = column_order {
+                *column_order = Some(
+                    rows.first()
+                        .map(|x| {
+                            x.columns()
+                                .iter()
+                                .map(|x| x.name().to_string())
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default(),
+                );
             }
-            if *CLOUD_HOSTED {
-                let siz = siz.load(Ordering::Relaxed);
-                if siz > MAX_RESULT_SIZE * 4 {
-                    return Err(anyhow::anyhow!(
-                        "Query result too large for cloud (size = {} > {})",
-                        siz,
-                        MAX_RESULT_SIZE & 4
-                    ));
+
+            for row in rows.into_iter() {
+                let r = postgres_row_to_json_value(row);
+                if let Ok(v) = r.as_ref() {
+                    let size = sizeof_val(v);
+                    siz.fetch_add(size, Ordering::Relaxed);
                 }
-            }
-            if let Ok(v) = r {
-                res.push(v);
-            } else {
-                return Err(to_anyhow(r.err().unwrap()));
+                if *CLOUD_HOSTED {
+                    let siz = siz.load(Ordering::Relaxed);
+                    if siz > MAX_RESULT_SIZE * 4 {
+                        return Err(anyhow::anyhow!(
+                            "Query result too large for cloud (size = {} > {})",
+                            siz,
+                            MAX_RESULT_SIZE & 4
+                        ));
+                    }
+                }
+                if let Ok(v) = r {
+                    res.push(v);
+                } else {
+                    return Err(to_anyhow(r.err().unwrap()));
+                }
             }
         }
 
-        Ok(res)
+        Ok(to_raw_value(&res))
     };
 
     Ok(result_f.boxed())
@@ -152,6 +163,7 @@ pub async fn do_postgresql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, db).await?;
 
@@ -178,6 +190,9 @@ pub async fn do_postgresql(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    let annotations = get_sql_annotations(query);
+
     let sslmode = match database.sslmode.as_deref() {
         Some("allow") => "prefer".to_string(),
         Some("verify-ca") | Some("verify-full") => "require".to_string(),
@@ -291,24 +306,30 @@ pub async fn do_postgresql(
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
-            .map(|x| {
+            .enumerate()
+            .map(|(i, x)| {
                 do_postgresql_inner(
                     x.to_string(),
                     &param_idx_to_arg_and_value,
                     client,
                     None,
                     &size,
+                    annotations.return_last_result && i < queries.len() - 1,
                 )
             })
             .collect::<error::Result<Vec<_>>>()?;
 
         let f = async {
-            let mut res: Vec<serde_json::Value> = vec![];
+            let mut res: Vec<Box<RawValue>> = vec![];
             for fut in futures {
                 let r = fut.await?;
-                res.push(serde_json::to_value(r).map_err(to_anyhow)?);
+                res.push(r);
             }
-            Ok(res)
+            if annotations.return_last_result && res.len() > 0 {
+                Ok(res.pop().unwrap())
+            } else {
+                Ok(to_raw_value(&res))
+            }
         };
 
         f.boxed()
@@ -319,6 +340,7 @@ pub async fn do_postgresql(
             client,
             Some(column_order),
             &size,
+            false,
         )?
     };
 
@@ -331,6 +353,7 @@ pub async fn do_postgresql(
         result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 

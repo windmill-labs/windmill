@@ -280,14 +280,29 @@
 						Pick a script or flow to be triggered<Required required={true} /><br />
 						To handle headers, query or path parameters, add a preprocessor to your runnable.
 					</p>
-					<ScriptPicker
-						disabled={!can_write}
-						initialPath={initialScriptPath}
-						kinds={['script']}
-						allowFlow={true}
-						bind:itemKind
-						bind:scriptPath={script_path}
-					/>
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={!can_write}
+							initialPath={initialScriptPath}
+							kinds={['script']}
+							allowFlow={true}
+							bind:itemKind
+							bind:scriptPath={script_path}
+							allowRefresh
+						/>
+
+						{#if script_path === undefined}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href={itemKind === 'flow'
+									? '/flows/add?hub=55'
+									: '/scripts/add?hub=hub%2F9088%2Fwindmill%2FHTTP%20route%20script%20with%20preprocessor%20template'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
+					</div>
 				</Section>
 				<Section label="Settings">
 					<div class="flex flex-col gap-4">

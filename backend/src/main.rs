@@ -8,7 +8,10 @@
 
 use anyhow::Context;
 use git_version::git_version;
-use monitor::{send_current_log_file_to_object_store, send_logs_to_object_store};
+use monitor::{
+    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
+    send_logs_to_object_store,
+};
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
@@ -35,7 +38,7 @@ use windmill_common::{
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -74,7 +77,7 @@ use crate::monitor::{
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
     reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
+    reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
     reload_worker_config,
 };
 
@@ -155,6 +158,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 "global",
                 "global",
                 "",
+                &mut None,
             )
             .await?;
             tokio::fs::remove_dir_all(job_dir).await?;
@@ -175,6 +179,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     "cache_init",
                     windmill_worker::get_common_bun_proc_envs(None).await,
                     false,
+                    &mut None,
                 )
                 .await?;
             } else {
@@ -563,9 +568,7 @@ Windmill Community Edition {GIT_VERSION}
                                         "notify_config_change" => {
                                             match n.payload() {
                                                 "server" if server_mode => {
-                                                    tracing::info!("Server config change detected: {}", n.payload());
-
-                                                    reload_server_config(&db).await;
+                                                    tracing::error!("Server config change detected but server config is obsolete: {}", n.payload());
                                                 },
                                                 a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
                                                     tracing::info!("Worker config change detected: {}", n.payload());
@@ -609,6 +612,12 @@ Windmill Community Edition {GIT_VERSION}
                                                         tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
                                                     }
                                                 }
+                                                SMTP_SETTING => {
+                                                    reload_smtp_config(&db).await;
+                                                },
+                                                TIMEOUT_WAIT_RESULT_SETTING => {
+                                                    reload_timeout_wait_result_setting(&db).await
+                                                },
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
                                                 },

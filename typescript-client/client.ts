@@ -391,6 +391,7 @@ export async function setState(state: any): Promise<void> {
  * Set the progress
  * Progress cannot go back and limited to 0% to 99% range
  * @param percent Progress to set in %
+ * @param jobId? Job to set progress for
  */
 export async function setProgress(percent: number, jobId?: any): Promise<void> {
   const workspace = getWorkspace();
@@ -412,7 +413,8 @@ export async function setProgress(percent: number, jobId?: any): Promise<void> {
     id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
     workspace,
     requestBody: {
-      percent,
+      // In case user inputs float, it should be converted to int
+      percent: Math.floor(percent),
       flow_job_id: (flowId == "") ? undefined : flowId,
     }
   });
@@ -420,6 +422,7 @@ export async function setProgress(percent: number, jobId?: any): Promise<void> {
 
 /**
  * Get the progress
+ * @param jobId? Job to get progress from
  * @returns Optional clamped between 0 and 100 progress value 
  */
 export async function getProgress(jobId?: any): Promise<number | null> {

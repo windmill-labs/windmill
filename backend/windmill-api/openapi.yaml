@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.397.4
+  version: 1.402.1
   title: Windmill API
 
   contact:
@@ -741,6 +741,35 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /settings/test_critical_channels:
+    post:
+      summary: test critical channels
+      operationId: testCriticalChannels
+      tags:
+        - setting
+      requestBody:
+        description: test critical channel payload
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  email:
+                    type: string
+                  slack_channel:
+                    type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /settings/test_license_key:
     post:
@@ -5935,6 +5964,43 @@ paths:
               schema:
                 type: integer
 
+  /jobs/completed/count_by_tag:
+    get:
+      summary: Count jobs by tag
+      operationId: countJobsByTag
+      tags:
+        - job
+      parameters:
+        - name: horizon_secs
+          in: query
+          description: Past Time horizon in seconds (when to start the count = now - horizon) (default is 3600)
+          required: false
+          schema:
+            type: integer
+        - name: workspace_id
+          in: query
+          description: Specific workspace ID to filter results (optional)
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job counts by tag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tag:
+                      type: string
+                    count:
+                      type: integer
+                  required:
+                    - tag
+                    - count
+
   /w/{workspace}/jobs_u/get/{id}:
     get:
       summary: get job
@@ -6468,6 +6534,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 
   /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:
@@ -9920,6 +9987,8 @@ components:
           type: number
         aggregate_wait_time_ms:
           type: number
+        suspend:
+          type: number
       required:
         - id
         - running
@@ -11128,6 +11197,12 @@ components:
         last_job_workspace_id:
           type: string
         occupancy_rate:
+          type: number
+        occupancy_rate_15s:
+          type: number
+        occupancy_rate_5m:
+          type: number
+        occupancy_rate_30m:
           type: number
         memory:
           type: number

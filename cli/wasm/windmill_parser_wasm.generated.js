@@ -15,20 +15,6 @@ function getObject(idx) {
   return heap[idx];
 }
 
-let heap_next = heap.length;
-
-function dropObject(idx) {
-  if (idx < 132) return;
-  heap[idx] = heap_next;
-  heap_next = idx;
-}
-
-function takeObject(idx) {
-  const ret = getObject(idx);
-  dropObject(idx);
-  return ret;
-}
-
 let WASM_VECTOR_LEN = 0;
 
 let cachedUint8Memory0 = null;
@@ -103,6 +89,38 @@ function getInt32Memory0() {
   return cachedInt32Memory0;
 }
 
+let heap_next = heap.length;
+
+function dropObject(idx) {
+  if (idx < 132) return;
+  heap[idx] = heap_next;
+  heap_next = idx;
+}
+
+function takeObject(idx) {
+  const ret = getObject(idx);
+  dropObject(idx);
+  return ret;
+}
+
+let cachedFloat64Memory0 = null;
+
+function getFloat64Memory0() {
+  if (cachedFloat64Memory0 === null || cachedFloat64Memory0.byteLength === 0) {
+    cachedFloat64Memory0 = new Float64Array(wasm.memory.buffer);
+  }
+  return cachedFloat64Memory0;
+}
+
+function addHeapObject(obj) {
+  if (heap_next === heap.length) heap.push(heap.length + 1);
+  const idx = heap_next;
+  heap_next = heap[idx];
+
+  heap[idx] = obj;
+  return idx;
+}
+
 const cachedTextDecoder = typeof TextDecoder !== "undefined"
   ? new TextDecoder("utf-8", { ignoreBOM: true, fatal: true })
   : {
@@ -116,24 +134,6 @@ if (typeof TextDecoder !== "undefined") cachedTextDecoder.decode();
 function getStringFromWasm0(ptr, len) {
   ptr = ptr >>> 0;
   return cachedTextDecoder.decode(getUint8Memory0().subarray(ptr, ptr + len));
-}
-
-function addHeapObject(obj) {
-  if (heap_next === heap.length) heap.push(heap.length + 1);
-  const idx = heap_next;
-  heap_next = heap[idx];
-
-  heap[idx] = obj;
-  return idx;
-}
-
-let cachedFloat64Memory0 = null;
-
-function getFloat64Memory0() {
-  if (cachedFloat64Memory0 === null || cachedFloat64Memory0.byteLength === 0) {
-    cachedFloat64Memory0 = new Float64Array(wasm.memory.buffer);
-  }
-  return cachedFloat64Memory0;
 }
 
 let cachedBigInt64Memory0 = null;
@@ -698,9 +698,6 @@ function handleError(f, args) {
 
 const imports = {
   __wbindgen_placeholder__: {
-    __wbindgen_object_drop_ref: function (arg0) {
-      takeObject(arg0);
-    },
     __wbindgen_string_get: function (arg0, arg1) {
       const obj = getObject(arg1);
       const ret = typeof obj === "string" ? obj : undefined;
@@ -715,9 +712,8 @@ const imports = {
       getInt32Memory0()[arg0 / 4 + 1] = len1;
       getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     },
-    __wbindgen_error_new: function (arg0, arg1) {
-      const ret = new Error(getStringFromWasm0(arg0, arg1));
-      return addHeapObject(ret);
+    __wbindgen_object_drop_ref: function (arg0) {
+      takeObject(arg0);
     },
     __wbindgen_boolean_get: function (arg0) {
       const v = getObject(arg0);
@@ -755,7 +751,11 @@ const imports = {
       const ret = BigInt.asUintN(64, arg0);
       return addHeapObject(ret);
     },
-    __wbg_eval_b7405fdd08ddef3d: function (arg0, arg1) {
+    __wbindgen_error_new: function (arg0, arg1) {
+      const ret = new Error(getStringFromWasm0(arg0, arg1));
+      return addHeapObject(ret);
+    },
+    __wbg_eval_8243d86342a64a9b: function (arg0, arg1) {
       const ret = eval(getStringFromWasm0(arg0, arg1));
       return addHeapObject(ret);
     },

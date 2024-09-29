@@ -1,6 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use futures::TryFutureExt;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -10,12 +9,13 @@ use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{get_sql_annotations, to_raw_value};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::{append_logs, CanceledBy};
 
-use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
+use crate::common::{build_args_values, OccupancyMetrics};
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]
@@ -40,6 +40,7 @@ pub async fn do_mssql(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -66,6 +67,8 @@ pub async fn do_mssql(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    let annotations = get_sql_annotations(query);
 
     let mut config = Config::new();
 
@@ -124,37 +127,45 @@ pub async fn do_mssql(
         // polled to the end before querying again. Using streams allows
         // fetching data in an asynchronous manner, if needed.
         let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
-        stream
-            .into_results()
-            .await
-            .map_err(to_anyhow)?
-            .into_iter()
-            .map(|rows| {
-                let result = rows
-                    .into_iter()
-                    .map(|row| row_to_json(row))
-                    .collect::<Result<Vec<Map<String, Value>>, Error>>();
-                result
-            })
-            .collect::<Result<Vec<Vec<Map<String, Value>>>, Error>>()
+
+        let results = stream.into_results().await.map_err(to_anyhow)?;
+        let len = results.len();
+        let mut json_results = vec![];
+        for (i, statement_result) in results.into_iter().enumerate() {
+            if annotations.return_last_result && i < len - 1 {
+                continue;
+            }
+            let mut json_rows = vec![];
+            for row in statement_result {
+                let row = row_to_json(row)?;
+                json_rows.push(row);
+            }
+            json_results.push(json_rows);
+        }
+
+        if annotations.return_last_result && json_results.len() > 0 {
+            Ok(to_raw_value(&json_results.pop().unwrap()))
+        } else {
+            Ok(to_raw_value(&json_results))
+        }
     };
 
-    let rows = run_future_with_polling_update_job_poller(
+    let raw_result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
         db,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
-    let r = to_raw_value(&rows);
-    *mem_peak = (r.get().len() / 1000) as i32;
+    *mem_peak = (raw_result.get().len() / 1000) as i32;
 
-    return Ok(to_raw_value(&rows));
+    Ok(raw_result)
 }
 
 fn json_value_to_sql<'a>(
@@ -221,7 +232,7 @@ fn json_value_to_sql<'a>(
     Ok(())
 }
 
-fn row_to_json(row: Row) -> Result<Map<String, Value>, Error> {
+fn row_to_json(row: Row) -> Result<Value, Error> {
     let cols = row
         .columns()
         .iter()
@@ -231,7 +242,7 @@ fn row_to_json(row: Row) -> Result<Map<String, Value>, Error> {
     for (col, val) in cols.iter().zip(row.into_iter()) {
         map.insert(col.name().to_string(), sql_to_json_value(val)?);
     }
-    Ok(map)
+    Ok(Value::Object(map))
 }
 
 fn value_or_null<T>(

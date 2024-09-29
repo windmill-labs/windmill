@@ -9,6 +9,7 @@ use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
+use windmill_common::worker::get_sql_annotations;
 
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
@@ -17,7 +18,8 @@ use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{resolve_job_timeout, run_future_with_polling_update_job_poller};
+use crate::common::{resolve_job_timeout, OccupancyMetrics};
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 #[derive(Serialize)]
@@ -74,34 +76,41 @@ struct SnowflakeError {
 }
 
 trait SnowflakeResponseExt {
-    async fn get_snowflake_response<T: for<'a> Deserialize<'a>>(
+    async fn parse_snowflake_response<T: for<'a> Deserialize<'a>>(
         self,
     ) -> windmill_common::error::Result<T>;
 }
 
+async fn handle_snowflake_result(
+    result: Result<Response, reqwest::Error>,
+) -> windmill_common::error::Result<Response> {
+    match result {
+        Ok(response) => match response.error_for_status_ref() {
+            Ok(_) => Ok(response),
+            Err(e) => {
+                let resp = response.text().await.unwrap_or("".to_string());
+                match serde_json::from_str::<SnowflakeError>(&resp) {
+                    Ok(sf_err) => return Err(Error::ExecutionErr(sf_err.message)),
+                    Err(_) => return Err(Error::ExecutionErr(e.to_string())),
+                }
+            }
+        },
+        Err(e) => Err(Error::ExecutionErr(format!(
+            "Could not send request: {:?}",
+            e
+        ))),
+    }
+}
+
 impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
-    async fn get_snowflake_response<T: for<'a> Deserialize<'a>>(
+    async fn parse_snowflake_response<T: for<'a> Deserialize<'a>>(
         self,
     ) -> windmill_common::error::Result<T> {
-        match self {
-            Ok(response) => match response.error_for_status_ref() {
-                Ok(_) => response
-                    .json::<T>()
-                    .await
-                    .map_err(|e| Error::ExecutionErr(e.to_string())),
-                Err(e) => {
-                    let resp = response.text().await.unwrap_or("".to_string());
-                    match serde_json::from_str::<SnowflakeError>(&resp) {
-                        Ok(sf_err) => return Err(Error::ExecutionErr(sf_err.message)),
-                        Err(_) => return Err(Error::ExecutionErr(e.to_string())),
-                    }
-                }
-            },
-            Err(e) => Err(Error::ExecutionErr(format!(
-                "Could not send request: {:?}",
-                e
-            ))),
-        }
+        let response = handle_snowflake_result(self).await?;
+        response
+            .json::<T>()
+            .await
+            .map_err(|e| Error::ExecutionErr(e.to_string()))
     }
 }
 
@@ -112,6 +121,7 @@ fn do_snowflake_inner<'a>(
     account_identifier: &'a str,
     token: &'a str,
     column_order: Option<&'a mut Option<Vec<String>>>,
+    skip_collect: bool,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     body.insert("statement".to_string(), json!(query));
 
@@ -135,7 +145,7 @@ fn do_snowflake_inner<'a>(
     }
 
     let result_f = async move {
-        let response = HTTP_CLIENT
+        let result = HTTP_CLIENT
             .post(format!(
                 "https://{}.snowflakecomputing.com/api/v2/statements/",
                 account_identifier.to_uppercase()
@@ -144,67 +154,76 @@ fn do_snowflake_inner<'a>(
             .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
             .json(&body)
             .send()
-            .await
-            .get_snowflake_response::<SnowflakeResponse>()
-            .await?;
+            .await;
 
-        if response.resultSetMetaData.numRows > 10000 {
-            return Err(Error::ExecutionErr(
-                "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
-                    .to_string(),
-            ));
-        }
-        if let Some(column_order) = column_order {
-            *column_order = Some(
-                response
-                    .resultSetMetaData
-                    .rowType
-                    .iter()
-                    .map(|x| x.name.clone())
-                    .collect::<Vec<String>>(),
-            );
-        }
+        if skip_collect {
+            handle_snowflake_result(result).await?;
+            Ok(to_raw_value(&Value::Array(vec![])))
+        } else {
+            let response = result
+                .parse_snowflake_response::<SnowflakeResponse>()
+                .await?;
 
-        let mut rows = response.data;
-
-        if response.resultSetMetaData.partitionInfo.len() > 1 {
-            for idx in 1..response.resultSetMetaData.partitionInfo.len() {
-                let url = format!(
-                    "https://{}.snowflakecomputing.com/api/v2/statements/{}",
-                    account_identifier.to_uppercase(),
-                    response.statementHandle
-                );
-                let response = HTTP_CLIENT
-                    .get(url)
-                    .bearer_auth(token)
-                    .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-                    .query(&[("partition", idx.to_string())])
-                    .send()
-                    .await
-                    .get_snowflake_response::<SnowflakeDataOnlyResponse>()
-                    .await?;
-
-                rows.extend(response.data);
+            if response.resultSetMetaData.numRows > 10000 {
+                return Err(Error::ExecutionErr(
+                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
+                        .to_string(),
+                ));
             }
+            if let Some(column_order) = column_order {
+                *column_order = Some(
+                    response
+                        .resultSetMetaData
+                        .rowType
+                        .iter()
+                        .map(|x| x.name.clone())
+                        .collect::<Vec<String>>(),
+                );
+            }
+
+            let mut rows = response.data;
+
+            if response.resultSetMetaData.partitionInfo.len() > 1 {
+                for idx in 1..response.resultSetMetaData.partitionInfo.len() {
+                    let url = format!(
+                        "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+                        account_identifier.to_uppercase(),
+                        response.statementHandle
+                    );
+                    let response = HTTP_CLIENT
+                        .get(url)
+                        .bearer_auth(token)
+                        .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+                        .query(&[("partition", idx.to_string())])
+                        .send()
+                        .await
+                        .parse_snowflake_response::<SnowflakeDataOnlyResponse>()
+                        .await?;
+
+                    rows.extend(response.data);
+                }
+            }
+
+            let rows = to_raw_value(
+                &rows
+                    .iter()
+                    .map(|row| {
+                        let mut row_map = serde_json::Map::new();
+                        row.iter()
+                            .zip(response.resultSetMetaData.rowType.iter())
+                            .for_each(|(val, row_type)| {
+                                row_map.insert(
+                                    row_type.name.clone(),
+                                    parse_val(&val, &row_type.r#type),
+                                );
+                            });
+                        row_map
+                    })
+                    .collect::<Vec<_>>(),
+            );
+
+            Ok(rows)
         }
-
-        let rows = to_raw_value(
-            &rows
-                .iter()
-                .map(|row| {
-                    let mut row_map = serde_json::Map::new();
-                    row.iter()
-                        .zip(response.resultSetMetaData.rowType.iter())
-                        .for_each(|(val, row_type)| {
-                            row_map
-                                .insert(row_type.name.clone(), parse_val(&val, &row_type.r#type));
-                        });
-                    row_map
-                })
-                .collect::<Vec<_>>(),
-        );
-
-        Ok(rows)
     };
 
     Ok(result_f.boxed())
@@ -219,6 +238,7 @@ pub async fn do_snowflake(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let snowflake_args = build_args_values(job, client, db).await?;
 
@@ -245,6 +265,8 @@ pub async fn do_snowflake(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    let annotations = get_sql_annotations(query);
 
     let qualified_username = format!(
         "{}.{}",
@@ -315,7 +337,8 @@ pub async fn do_snowflake(
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
-            .map(|x| {
+            .enumerate()
+            .map(|(i, x)| {
                 do_snowflake_inner(
                     x,
                     &snowflake_args,
@@ -323,6 +346,7 @@ pub async fn do_snowflake(
                     &database.account_identifier,
                     &token,
                     None,
+                    annotations.return_last_result && i < queries.len() - 1,
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -333,7 +357,11 @@ pub async fn do_snowflake(
                 let r = fut.await?;
                 res.push(r);
             }
-            Ok(to_raw_value(&res))
+            if annotations.return_last_result && res.len() > 0 {
+                Ok(res.pop().unwrap())
+            } else {
+                Ok(to_raw_value(&res))
+            }
         };
 
         f.boxed()
@@ -345,6 +373,7 @@ pub async fn do_snowflake(
             &database.account_identifier,
             &token,
             Some(column_order),
+            false,
         )?
     };
     let r = run_future_with_polling_update_job_poller(
@@ -356,6 +385,7 @@ pub async fn do_snowflake(
         result_f.map_err(to_anyhow),
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     *mem_peak = (r.get().len() / 1000) as i32;

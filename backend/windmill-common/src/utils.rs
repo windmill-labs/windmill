@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
@@ -78,6 +78,12 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
         .unwrap_or(DEFAULT_PER_PAGE)
         .max(1)
         .min(MAX_PER_PAGE);
+    let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
+    (per_page, offset)
+}
+
+pub fn paginate_without_limits(pagination: Pagination) -> (usize, usize) {
+    let per_page = pagination.per_page.unwrap_or(MAX_PER_PAGE);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
     (per_page, offset)
 }
@@ -288,7 +294,7 @@ pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     }
 
     #[cfg(feature = "enterprise")]
-    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError).await;
+    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
 }
 
 pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
@@ -304,5 +310,11 @@ pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
         tracing::error!("Failed to save critical error to database: {}", err);
     }
     #[cfg(feature = "enterprise")]
-    send_critical_alert(message, &_db, CriticalAlertKind::RecoveredCriticalError).await;
+    send_critical_alert(
+        message,
+        &_db,
+        CriticalAlertKind::RecoveredCriticalError,
+        None,
+    )
+    .await;
 }

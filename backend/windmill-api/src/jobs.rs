@@ -11,6 +11,7 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
+use windmill_common::error::JsonResult;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -33,6 +34,7 @@ use crate::add_webhook_allowed_origin;
 use crate::concurrency_groups::join_concurrency_key;
 use crate::db::ApiAuthed;
 
+use crate::users::get_scope_tags;
 use crate::utils::content_plain;
 use crate::{
     db::DB,
@@ -58,7 +60,7 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
+use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -68,7 +70,7 @@ use windmill_common::{
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
+    utils::{not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin, Pagination, StripPath},
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -246,7 +248,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
 
-pub fn global_service() -> Router {
+pub fn workspace_unauthed_service() -> Router {
     Router::new()
         .route(
             "/resume/:job_id/:resume_id/:secret",
@@ -290,7 +292,12 @@ pub fn global_service() -> Router {
 }
 
 pub fn global_root_service() -> Router {
-    Router::new().route("/db_clock", get(get_db_clock))
+    Router::new()
+    .route("/db_clock", get(get_db_clock))
+    .route(
+        "/completed/count_by_tag",
+        get(count_by_tag),
+    )
 }
 
 #[derive(Deserialize)]
@@ -1247,13 +1254,21 @@ pub fn list_queue_jobs_query(
     w_id: &str,
     lq: &ListQueueQuery,
     fields: &[&str],
+    pagination: Pagination,
     join_outstanding_wait_times: bool,
+    tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
-    let sqlb = SqlBuilder::select_from("queue")
+    let (limit, offset) = paginate_without_limits(pagination);
+    let mut sqlb = SqlBuilder::select_from("queue")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .limit(1000)
+        .limit(limit)
+        .offset(offset)
         .clone();
+
+    if let Some(tags) = tags {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
 
     filter_list_queue_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
@@ -1261,6 +1276,7 @@ pub fn list_queue_jobs_query(
 #[derive(Serialize, FromRow)]
 struct ListableQueuedJob {
     pub id: Uuid,
+    pub running: bool,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -1283,6 +1299,7 @@ async fn list_queue_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
     let sql = list_queue_jobs_query(
@@ -1290,6 +1307,7 @@ async fn list_queue_jobs(
         &lq,
         &[
             "id",
+            "running",
             "created_by",
             "created_at",
             "started_at",
@@ -1309,7 +1327,9 @@ async fn list_queue_jobs(
             "priority",
             "workspace_id",
         ],
+        pagination,
         false,
+        get_scope_tags(&authed),
     )
     .sql()?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1498,6 +1518,10 @@ async fn list_filtered_uuids(
 
     sqlb.and_where_is_null("schedule_path");
 
+    if let Some(tags) = get_scope_tags(&authed) {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
+
     sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
 
     let sql = sqlb.query()?;
@@ -1557,8 +1581,9 @@ async fn list_jobs(
     Query(lq): Query<ListCompletedQuery>,
     Extension(_api_list_jobs_query_duration): Extension<Option<Histo>>,
 ) -> error::JsonResult<Vec<Job>> {
-    check_scopes(&authed, || format!("listjobs"))?;
+    check_scopes(&authed, || format!("jobs:listjobs"))?;
 
+    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
@@ -1575,6 +1600,7 @@ async fn list_jobs(
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
             true,
+            get_scope_tags(&authed),
         ))
     } else {
         None
@@ -1589,7 +1615,9 @@ async fn list_jobs(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
+            Pagination { per_page: Some(limit), page: None },
             true,
+            get_scope_tags(&authed),
         );
 
         if let Some(sqlc) = sqlc {
@@ -1640,7 +1668,7 @@ pub async fn resume_suspended_flow_as_owner(
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
-    check_scopes(&authed, || format!("resumeflow"))?;
+    check_scopes(&authed, || format!("jobs:resumeflow"))?;
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
@@ -3165,6 +3193,17 @@ impl Drop for Guard {
     }
 }
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_WAIT_RESULT: Arc<RwLock<Option<u64>>> = Arc::new(RwLock::new(
+        std::env::var("TIMEOUT_WAIT_RESULT")
+            .ok()
+            .and_then(|x| x.parse::<u64>().ok())
+    ));
+}
+
 #[derive(Deserialize)]
 pub struct WindmillCompositeResult {
     windmill_status_code: Option<u16>,
@@ -3179,7 +3218,7 @@ async fn run_wait_result(
     username: &str,
 ) -> error::Result<Response> {
     let mut result = None;
-    let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
+    let timeout = TIMEOUT_WAIT_RESULT.read().await.clone().unwrap_or(600);
     let timeout_ms = if timeout <= 0 {
         2000
     } else {
@@ -3836,7 +3875,7 @@ async fn run_preview_script(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    check_scopes(&authed, || format!("runscript"))?;
+    check_scopes(&authed, || format!("jobs:runscript"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -3906,7 +3945,7 @@ async fn run_bundle_preview_script(
 
     check_license_key_valid().await?;
 
-    check_scopes(&authed, || format!("runscript"))?;
+    check_scopes(&authed, || format!("jobs:runscript"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -4392,7 +4431,7 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_scopes(&authed, || format!("runflow"))?;
+    check_scopes(&authed, || format!("jobs:runflow"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -4652,8 +4691,8 @@ async fn get_job_update(
                 "progress_perc"
                 
             )
-            .fetch_one(&db)
-            .await?
+            .fetch_optional(&db)
+            .await?.and_then(|inner| inner)
     } else {
         None
     };
@@ -4832,13 +4871,18 @@ pub fn list_completed_jobs_query(
     lq: &ListCompletedQuery,
     fields: &[&str],
     join_outstanding_wait_times: bool,
+    tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
-    let sqlb = SqlBuilder::select_from("completed_job")
+    let mut sqlb = SqlBuilder::select_from("completed_job")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .offset(offset)
         .limit(per_page)
         .clone();
+
+    if let Some(tags) = tags {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
 
     filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
@@ -4884,7 +4928,7 @@ async fn list_completed_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<ListableCompletedJob>> {
-    check_scopes(&authed, || format!("listjobs"))?;
+    check_scopes(&authed, || format!("jobs:listjobs"))?;
 
     let (per_page, offset) = paginate(pagination);
 
@@ -4926,6 +4970,7 @@ async fn list_completed_jobs(
             "'CompletedJob' as type",
         ],
         false,
+        get_scope_tags(&authed),
     )
     .sql()?;
     let mut tx = user_db.begin(&authed).await?;
@@ -5070,6 +5115,46 @@ async fn get_completed_job_result(
     Ok(Json(result).into_response())
 }
 
+
+
+#[derive(Deserialize)]
+struct CountByTagQuery {
+    horizon_secs: Option<i64>,
+    workspace_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TagCount {
+    tag: String,
+    count: i64,
+}
+
+async fn count_by_tag(
+    ApiAuthed { email, ..}: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<CountByTagQuery>,
+) -> JsonResult<Vec<TagCount>> {
+    require_super_admin(&db, &email).await?;
+    let horizon = query.horizon_secs.unwrap_or(3600); // Default to 1 hour if not specified
+
+    let counts = sqlx::query_as!(
+        TagCount,
+        r#"
+        SELECT tag as "tag!", COUNT(*) as "count!"
+        FROM completed_job
+        WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
+        GROUP BY tag
+        ORDER BY "count!" DESC
+        "#,
+        horizon as f64,
+        query.workspace_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(counts))
+}
+
 #[derive(Serialize)]
 struct CompletedJobResult {
     started: Option<bool>,
@@ -5150,7 +5235,7 @@ async fn delete_completed_job<'a>(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    check_scopes(&authed, || format!("deletejob"))?;
+    check_scopes(&authed, || format!("jobs:deletejob"))?;
 
     let mut tx = user_db.begin(&authed).await?;
 

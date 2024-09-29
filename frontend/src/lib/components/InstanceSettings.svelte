@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
-	import { ConfigService, SettingService, SettingsService } from '$lib/gen'
+	import { SettingService, SettingsService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -54,7 +54,6 @@
 		attempted_at: string
 	} | null = null
 
-	let serverConfig = {}
 	let initialValues: Record<string, any> = {}
 	let loading = true
 
@@ -71,17 +70,10 @@
 
 	async function loadSettings() {
 		loading = true
-		try {
-			serverConfig = (await ConfigService.getConfig({ name: 'server' })) ?? {}
-		} catch (e) {
-			console.log("Sever config not found, assuming it's first setup")
-		}
 
 		async function getValue(key: string, storage: SettingStorage) {
 			if (storage == 'setting') {
 				return SettingService.getGlobal({ key })
-			} else if (storage == 'config') {
-				return serverConfig[key]
 			}
 		}
 		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
@@ -110,6 +102,9 @@
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
 		}
+		if (values['smtp_connect'] == undefined) {
+			values['smtp_connect'] = {}
+		}
 		loading = false
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
@@ -118,18 +113,6 @@
 	export async function saveSettings() {
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
-			const newServerConfig = Object.fromEntries(
-				allSettings
-					.filter((x) => x[1].storage == 'config' && values?.[x[1].key] && values?.[x[1].key] != '')
-					.map((x) => [x[1].key, values?.[x[1].key]])
-			)
-			if (!deepEqual(newServerConfig, serverConfig)) {
-				await ConfigService.updateConfig({
-					name: 'server',
-					requestBody: newServerConfig
-				})
-				serverConfig = JSON.parse(JSON.stringify(newServerConfig))
-			}
 			let licenseKeySet = false
 			await Promise.all(
 				allSettings
@@ -291,29 +274,45 @@
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
 						<div class="text-secondary pb-4 text-xs"
-							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
-							instance.</div
+							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the instance or sending critical alerts.
+							<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_smtp">Learn more</a></div
 						>
+					{:else if category == 'Registries'}
+						<div class="text-secondary pb-4 text-xs">
+							Add private registries for Pip, Bun and npm. <a target="_blank" href="https://www.windmill.dev/docs/advanced/imports">Learn more</a>
+						</div>
 					{:else if category == 'Slack'}
 						<div class="text-secondary pb-4 text-xs">
-							Connecting your instance to a Slack workspace enables critical alerts to be sent to a
-							Slack channel.
+							Connecting your instance to a Slack workspace enables critical alerts to be sent to a Slack channel.
+							<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim">Learn more</a>
+						</div>
+					{:else if category == 'SCIM/SAML'}
+						<div class="text-secondary pb-4 text-xs">
+							Setting up SAML and SCIM allows you to authenticate users using your identity provider.
+							<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#slack">Learn more</a>
+						</div>
+					{:else if category == 'Debug'}
+						<div class="text-secondary pb-4 text-xs">
+							Enable debug mode to get more detailed logs.
 						</div>
 					{:else if category == 'Telemetry'}
 						<div class="text-secondary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
-								<li>version</li>
+								<li>version of your instance</li>
 								<li>number and total duration of jobs</li>
 								<li>accounts usage</li>
 								<li>login type usage</li>
 								<li>workers usage</li>
-								<li>vcpus usage</li>
+								<li>vCPUs usage</li>
 								<li>memory usage</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
+						<div class="text-secondary pb-4 text-xs">
+							On Enterprise Edition, you must send data to check that usage is in line with the terms of the subscription. You can either enable telemetry or regularly send usage data by clicking the button below.
+						</div>
 							<Button
 								on:click={sendStats}
 								variant="border"
@@ -341,12 +340,12 @@
 								{/if}
 
 								<div class="py-1" />
-								<Alert type="info" title="Single Sign On">
-									When at least one of the below option is set, users will be able to login to
-									Windmill via their third-party account.
-									<br /> To test SSO, the recommended workflow is to to save the settings and try to
-									login in an incognito window.
-								</Alert>
+									<div class="mb-2">
+										<span class="text-primary text-sm">When at least one of the below options is set, users will be able to login to
+											Windmill via their third-party account.
+											<br /> To test SSO, the recommended workflow is to to save the settings and try to
+											login in an incognito window. <a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#sso">Learn more</a></span>
+									</div>
 								<div class="flex flex-col gap-2 py-4">
 									<OAuthSetting name="google" bind:value={oauths['google']} />
 									<OAuthSetting name="microsoft" bind:value={oauths['microsoft']} />
@@ -425,13 +424,14 @@
 									/>
 								</div>
 							{:else if ssoOrOauth === 'oauth'}
-								<Alert type="info" title="OAuth Resources">
-									When one of the below option is set, you will be able to create a specific
-									resource containing a token automatically generated by the third-party provider.
-									<br />
-									To test it after setting an oauth client, go to the Resources menu and create a new
-									one of the type of your oauth client (i.e. a 'github' resource if you set Github OAuth).
-								</Alert>
+								<div class="mb-2">
+									<span class="text-primary text-sm">When one of the below options is set, you will be able to create a specific
+										resource containing a token automatically generated by the third-party provider.
+										<br />
+										To test it after setting an oauth client, go to the Resources menu and create a new
+										one of the type of your oauth client (i.e. a 'github' resource if you set Github OAuth).
+										<br /><a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#oauth">Learn more</a></span>
+								</div>
 								<div class="py-1" />
 								<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 								<div class="py-1" />
@@ -524,7 +524,9 @@
 									<label class="block pb-2">
 										<span class="text-primary font-semibold text-sm">{setting.label}</span>
 										{#if setting.description}
-											<span class="text-secondary text-xs">{setting.description}</span>
+											<span class="text-secondary text-xs">
+												{@html setting.description}
+											</span>
 										{/if}
 										{#if setting.tooltip}
 											<Tooltip>{setting.tooltip}</Tooltip>
@@ -693,79 +695,102 @@
 													bind:value={values[setting.key]}
 												/>
 											{:else if setting.fieldType == 'critical_error_channels'}
-												<div class="w-full">
-													<div class="flex max-w-md mt-1 gap-2 w-full items-center">
-														<select disabled>
-															<option>Tracing</option>
-														</select>
-														<input disabled />
-														<button
-															transition:fade|local={{ duration: 100 }}
-															class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-															aria-label="Clear"
-															disabled
-														>
-															<X size={14} />
-														</button>
+												<div class="w-full flex gap-x-16 flex-wrap">
+													<div class="w-full max-w-lg">
+														<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
+															<input
+																type="text"
+																placeholder="Logs (critical errors are always logged)"
+																disabled
+															/>
+														</div>
+
+														{#if $enterpriseLicense && Array.isArray(values[setting.key])}
+															{#each values[setting.key] ?? [] as v, i}
+																<div class="flex w-full max-w-lg mt-1 gap-2 w-full items-center">
+																	<select
+																		class="w-20"
+																		on:change={(e) => {
+																			if (e.target?.['value']) {
+																				values[setting.key][i] = {
+																					[e.target['value']]: ''
+																				}
+																			}
+																		}}
+																		value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
+																	>
+																		<option value="email">Email</option>
+																		<option value="slack_channel">Slack</option>
+																	</select>
+																	{#if v && 'slack_channel' in v}
+																		<input
+																			type="text"
+																			placeholder="Slack channel"
+																			on:input={(e) => {
+																				if (e.target?.['value']) {
+																					values[setting.key][i] = {
+																						slack_channel: e.target['value']
+																					}
+																				}
+																			}}
+																			value={v?.slack_channel ?? ''}
+																		/>
+																	{:else}
+																		<input
+																			type="email"
+																			placeholder="Email address"
+																			on:input={(e) => {
+																				if (e.target?.['value']) {
+																					values[setting.key][i] = {
+																						email: e.target['value']
+																					}
+																				}
+																			}}
+																			value={v?.email ?? ''}
+																		/>
+																	{/if}
+																	<button
+																		transition:fade|local={{ duration: 100 }}
+																		class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+																		aria-label="Clear"
+																		on:click={() => {
+																			values[setting.key] = values[setting.key].filter(
+																				(_, index) => index !== i
+																			)
+																		}}
+																	>
+																		<X size={14} />
+																	</button>
+																</div>
+															{/each}
+														{/if}
 													</div>
-													{#if $enterpriseLicense && Array.isArray(values[setting.key])}
-														{#each values[setting.key] ?? [] as v, i}
-															<div class="flex max-w-md mt-1 gap-2 w-full items-center">
-																<select
-																	on:change={(e) => {
-																		if (e.target?.['value']) {
-																			values[setting.key][i] = {
-																				[e.target['value']]: ''
-																			}
-																		}
-																	}}
-																	value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
-																>
-																	<option value="email">Email</option>
-																	<option value="slack_channel">Slack</option>
-																</select>
-																{#if v && 'slack_channel' in v}
-																	<input
-																		type="text"
-																		placeholder="Slack channel"
-																		on:input={(e) => {
-																			if (e.target?.['value']) {
-																				values[setting.key][i] = {
-																					slack_channel: e.target['value']
-																				}
-																			}
-																		}}
-																		value={v?.slack_channel ?? ''}
-																	/>
-																{:else}
-																	<input
-																		type="email"
-																		placeholder="Email address"
-																		on:input={(e) => {
-																			if (e.target?.['value']) {
-																				values[setting.key][i] = {
-																					email: e.target['value']
-																				}
-																			}
-																		}}
-																		value={v?.email ?? ''}
-																	/>
-																{/if}
-																<button
-																	transition:fade|local={{ duration: 100 }}
-																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-																	aria-label="Clear"
-																	on:click={() => {
-																		values[setting.key] = values[setting.key].filter(
-																			(_, index) => index !== i
+													<div
+														><div class="flex mt-1">
+															<Button
+																size="xs"
+																variant="contained"
+																on:click={async () => {
+																	try {
+																		await SettingService.testCriticalChannels({
+																			requestBody: values[setting.key]
+																		})
+																		sendUserToast(
+																			'Test message sent successfully to critical channels',
+																			false
 																		)
-																	}}
-																>
-																	<X size={14} />
-																</button>
-															</div>
-														{/each}
-													{/if}
+																	} catch (error) {
+																		sendUserToast(
+																			'Failed to send test message: ' + error.message,
+																			true
+																		)
+																	}
+																}}
+															>
+																Test Critical Channels
+															</Button>
+														</div>
+													</div>
 												</div>
 												<div class="flex mt-2 gap-20 items-baseline">
 													<Button
@@ -818,6 +843,65 @@
 														</Button>
 													{/if}
 												</div>
+											{:else if setting.fieldType == 'smtp_connect'}
+												<div class="flex flex-col gap-4 mt-4">
+													{#if values[setting.key]}
+														<div>
+															<label for="smtp_host" class="block text-sm font-medium">Host</label>
+															<input
+																type="text"
+																id="smtp_host"
+																placeholder="smtp.gmail.com"
+																bind:value={values[setting.key].smtp_host}
+															/>
+														</div>
+														<div>
+															<label for="smtp_port" class="block text-sm font-medium">Port</label>
+															<input
+																type="number"
+																id="smtp_port"
+																placeholder="587"
+																bind:value={values[setting.key].smtp_port}
+															/>
+														</div>
+														<div>
+															<label for="smtp_username" class="block text-sm font-medium"
+																>Username</label
+															>
+															<input
+																type="text"
+																id="smtp_username"
+																placeholder="ruben@windmill.dev"
+																bind:value={values[setting.key].smtp_username}
+															/>
+														</div>
+														<div>
+															<label for="smtp_password" class="block text-sm font-medium"
+																>Password</label
+															>
+															<Password bind:password={values[setting.key].smtp_password} />
+														</div>
+														<div>
+															<label for="smtp_from" class="block text-sm font-medium"
+																>From Address</label
+															>
+															<input
+																type="email"
+																id="smtp_from"
+																placeholder="noreply@windmill.dev"
+																bind:value={values[setting.key].smtp_from}
+															/>
+														</div>
+														<div>
+															<Toggle
+																id="smtp_tls_implicit"
+																bind:checked={values[setting.key].smtp_tls_implicit}
+																options={{ right: 'Implicit TLS' }}
+																label="Implicit TLS"
+															/>
+														</div>
+													{/if}
+												</div>
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
 												<div class="mb-6" />
@@ -863,21 +947,22 @@
 						</div>
 					</div>
 					{#if category == 'SMTP'}
+						{@const smtp = values['smtp_settings']}
 						<div class="flex gap-4"
 							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
 							<Button
-								disabled={to == ''}
+								disabled={to == '' || !smtp}
 								on:click={async () => {
 									await SettingService.testSmtp({
 										requestBody: {
 											to,
 											smtp: {
-												host: values['smtp_host'],
-												username: values['smtp_username'],
-												password: values['smtp_password'],
-												port: values['smtp_port'],
-												from: values['smtp_from'],
-												tls_implicit: values['smtp_tls_implicit']
+												host: smtp['smtp_host'],
+												username: smtp['smtp_username'],
+												password: smtp['smtp_password'],
+												port: smtp['smtp_port'],
+												from: smtp['smtp_from'],
+												tls_implicit: smtp['smtp_tls_implicit']
 											}
 										}
 									})

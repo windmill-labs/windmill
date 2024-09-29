@@ -20,7 +20,6 @@
 	import { settingsKeys } from './instanceSettings'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	let drawer: Drawer
@@ -98,7 +97,7 @@
 />
 
 <Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:close={removeHash}>
-	<DrawerContent overflow_y={true} title="Instance Settings" on:close={closeDrawer}>
+	<DrawerContent overflow_y={true} title="Instance settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full w-full">
 			<div>
 				<div class="flex justify-between">
@@ -121,7 +120,7 @@
 			</div>
 			<div class="pt-4 h-full">
 				<Tabs bind:selected={tab}>
-					<Tab value="users">Global Users</Tab>
+					<Tab value="users">Global users</Tab>
 					{#each settingsKeys as category}
 						<Tab value={category}>{category}</Tab>
 					{/each}
@@ -133,11 +132,10 @@
 									<div class="mb-4">
 										<h3 class="mb-2">
 											Automatic username creation
-											<Tooltip>
-												Automatically create a username for new users based on their email, shared
-												across workspaces.
-											</Tooltip>
 										</h3>
+										<div class="mb-2">
+											<span class="text-primary text-sm">Automatically create a username for new users based on their email, shared across workspaces. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#automatic-username-creation">Learn more</a></span>
+										</div>
 										<Button
 											btnClasses="w-auto"
 											size="sm"

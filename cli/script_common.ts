@@ -48,9 +48,9 @@ export function inferContentTypeFromFilePath(
     return "bash";
   } else if (contentPath.endsWith(".ps1")) {
     return "powershell";
-  } else if (contentPath.endsWith("php")) {
+  } else if (contentPath.endsWith(".php")) {
     return "php";
-  } else if (contentPath.endsWith("rs")) {
+  } else if (contentPath.endsWith(".rs")) {
     return "rust";
   } else if (contentPath.endsWith(".playbook.yml")) {
     return "ansible";

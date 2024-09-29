@@ -22,6 +22,7 @@ use tokio::{
 #[cfg(feature = "embedding")]
 use windmill_api::embeddings::update_embeddings_db;
 use windmill_api::{
+    jobs::TIMEOUT_WAIT_RESULT,
     oauth2_ee::{build_oauth_clients, OAuthClient},
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
@@ -40,17 +41,17 @@ use windmill_common::{
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
         PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
-    server::load_server_config,
+    server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
     utils::{now_from_db, rd_string, report_critical_error, Mode},
     worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SMTP_CONFIG, WORKER_CONFIG,
         WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
@@ -172,8 +173,9 @@ pub async fn initial_load(
         reload_s3_cache_setting(&db).await;
     }
 
+    reload_smtp_config(&db).await;
+
     if server_mode {
-        reload_server_config(&db).await;
         reload_retention_period_setting(&db).await;
         reload_request_size(&db).await;
         reload_saml_metadata_setting(&db).await;
@@ -523,7 +525,7 @@ fn read_log_counters(ts_str: String) -> (usize, usize) {
             ok_lines = counter.non_error_count;
             err_lines = counter.error_count;
         } else {
-            println!("no counter found for {ts_str}");
+            // println!("no counter found for {ts_str}");
         }
     } else {
         println!("Error reading log counters 2");
@@ -698,6 +700,15 @@ pub async fn reload_scim_token_setting(db: &DB) {
         .await;
 }
 
+pub async fn reload_timeout_wait_result_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        TIMEOUT_WAIT_RESULT_SETTING,
+        "TIMEOUT_WAIT_RESULT",
+        TIMEOUT_WAIT_RESULT.clone(),
+    )
+    .await;
+}
 pub async fn reload_saml_metadata_setting(db: &DB) {
     reload_option_setting_with_tracing(
         db,
@@ -1060,83 +1071,78 @@ pub async fn monitor_db(
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
-    let tx = db.begin().await;
-    if let Ok(mut tx) = tx {
-        let last_check = sqlx::query_scalar!(
+    let last_check = sqlx::query_scalar!(
             "SELECT created_at FROM metrics WHERE id LIKE 'queue_count_%' ORDER BY created_at DESC LIMIT 1"
         )
         .fetch_optional(db)
         .await
         .unwrap_or(Some(chrono::Utc::now()));
 
-        let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
-        let save_metrics = last_check
-            .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
-            .unwrap_or(true);
+    let metrics_enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let save_metrics = last_check
+        .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
+        .unwrap_or(true);
 
-        if metrics_enabled || save_metrics {
-            let queue_counts = sqlx::query!(
-                "SELECT tag, count(*) as count FROM queue WHERE
+    if metrics_enabled || save_metrics {
+        let queue_counts = sqlx::query!(
+            "SELECT tag, count(*) as count FROM queue WHERE
                 scheduled_for <= now() - ('3 seconds')::interval AND running = false
                 GROUP BY tag"
-            )
-            .fetch_all(&mut *tx)
-            .await
-            .ok()
-            .unwrap_or_else(|| vec![]);
+        )
+        .fetch_all(db)
+        .await
+        .ok()
+        .unwrap_or_else(|| vec![]);
 
-            for q in queue_counts {
-                let count = q.count.unwrap_or(0);
-                let tag = q.tag;
-                if metrics_enabled {
-                    let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
-                    metric.set(count as i64);
-                }
+        for q in queue_counts {
+            let count = q.count.unwrap_or(0);
+            let tag = q.tag;
+            if metrics_enabled {
+                let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
+                metric.set(count as i64);
+            }
 
-                // save queue_count and delay metrics per tag
-                if save_metrics {
+            // save queue_count and delay metrics per tag
+            if save_metrics {
+                sqlx::query!(
+                    "INSERT INTO metrics (id, value) VALUES ($1, $2)",
+                    format!("queue_count_{}", tag),
+                    serde_json::json!(count)
+                )
+                .execute(db)
+                .await
+                .ok();
+                if count > 0 {
                     sqlx::query!(
-                        "INSERT INTO metrics (id, value) VALUES ($1, $2)",
-                        format!("queue_count_{}", tag),
-                        serde_json::json!(count)
-                    )
-                    .execute(&mut *tx)
-                    .await
-                    .ok();
-                    if count > 0 {
-                        sqlx::query!(
                             "INSERT INTO metrics (id, value)
                             VALUES ($1, to_jsonb((SELECT EXTRACT(EPOCH FROM now() - scheduled_for)
                             FROM queue WHERE tag = $2 AND running = false AND scheduled_for <= now() - ('3 seconds')::interval
-                            ORDER BY priority DESC NULLS LAST, scheduled_for, created_at LIMIT 1)))",
+                            ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1)))",
                             format!("queue_delay_{}", tag),
                             tag
-                        ).execute(&mut *tx).await.ok();
-                    }
+                        ).execute(db).await.ok();
                 }
             }
         }
-
-        // clean queue metrics older than 14 days
-        sqlx::query!(
-            "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
-        )
-        .execute(&mut *tx)
-        .await
-        .ok();
-
-        tx.commit().await.ok();
     }
+
+    // clean queue metrics older than 14 days
+    sqlx::query!(
+        "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
+    )
+    .execute(db)
+    .await
+    .ok();
 }
 
-pub async fn reload_server_config(db: &Pool<Postgres>) {
-    let config = load_server_config(&db).await;
-    if let Err(e) = config {
-        tracing::error!("Error reloading server config: {:?}", e)
+pub async fn reload_smtp_config(db: &Pool<Postgres>) {
+    let smtp_config = load_smtp_config(&db).await;
+    if let Err(e) = smtp_config {
+        tracing::error!("Error reloading smtp config: {:?}", e)
     } else {
-        let mut wc = SERVER_CONFIG.write().await;
-        tracing::info!("Reloading server config...");
-        *wc = config.unwrap()
+        let mut wc = SMTP_CONFIG.write().await;
+        tracing::info!("Reloading smtp config...");
+        *wc = smtp_config.unwrap()
     }
 }
 
@@ -1362,6 +1368,8 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             rsmq.clone(),
             worker_name,
             send_result_never_used,
+            #[cfg(feature = "benchmark")]
+            &mut windmill_common::bench::BenchmarkIter::new(),
         )
         .await;
     }

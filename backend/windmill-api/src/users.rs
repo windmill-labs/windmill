@@ -51,7 +51,7 @@ use windmill_audit::ActionKind;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::users::truncate_token;
 use windmill_common::utils::{paginate, send_email};
-use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
+use windmill_common::worker::{CLOUD_HOSTED, SMTP_CONFIG};
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, JWT_SECRET},
     db::UserDB,
@@ -651,9 +651,12 @@ where
                 {
                     if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
                         parts.extensions.insert(authed.clone());
-                        if authed.scopes.is_some()
-                            && (path_vec.len() < 3
-                                || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
+                        if authed.scopes.as_ref().is_some_and(|scopes| {
+                            scopes
+                                .iter()
+                                .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
+                        }) && (path_vec.len() < 3
+                            || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
                         {
                             BRUTE_FORCE_COUNTER.increment().await;
                             return Err((
@@ -681,13 +684,28 @@ pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,
 {
-    if let Some(scopes) = &authed.scopes {
+    if authed.scopes.as_ref().is_some_and(|scopes| {
+        scopes
+            .iter()
+            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
+    }) {
         let req = &required();
-        if !scopes.contains(req) {
+        if !authed.scopes.as_ref().unwrap().contains(req) {
             return Err(Error::BadRequest(format!("missing required scope: {req}")));
         }
     }
     Ok(())
+}
+
+pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
+    authed
+        .scopes
+        .as_ref()?
+        .iter()
+        .find_map(|s| match s.split(":").collect::<Vec<_>>().as_slice() {
+            ["if_jobs", "filter_tags", tags] => Some(tags.split(",").collect::<Vec<_>>()),
+            _ => None,
+        })
 }
 
 #[derive(Clone, Debug)]
@@ -1966,7 +1984,7 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 }
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: String) -> Result<()> {
-    if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
+    if let Some(smtp) = SMTP_CONFIG.read().await.clone() {
         send_email(subject, content, vec![to], smtp, None).await?;
     }
     return Ok(());

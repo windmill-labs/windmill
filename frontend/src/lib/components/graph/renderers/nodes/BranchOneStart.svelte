@@ -50,7 +50,7 @@ hover:border-red-700"
 				data.eventHandlers.deleteBranch(
 					{
 						module: data.modules.find((m) => m.id === data.id),
-						index: data.branchIndex
+						index: data.branchIndex + 1
 					},
 					data.label
 				)
