@@ -550,6 +550,4 @@ export default function graphBuilder(
 		}
 	}
 
-
-	return { nodes, edges }
 }
