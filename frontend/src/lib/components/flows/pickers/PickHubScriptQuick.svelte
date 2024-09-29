@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { Alert, Skeleton } from '$lib/components/common'
+	import { Skeleton } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
@@ -103,10 +103,12 @@
 </script>
 
 {#if hubNotAvailable}
-	<Alert type="error" title="Hub not available" size="xs" />
+	<div class="text-2xs text-red-400 ftext-2xs font-light text-center py-2 px-3 items-center">
+		Hub not available
+	</div>
 {:else if items.length > 0 && apps.length > 0}
 	{#if items.length == 0}
-		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
+		<div class="text-2xs text-tertiary font-extralight text-center py-2 px-3 items-center">
 			No items found.
 		</div>
 	{:else}

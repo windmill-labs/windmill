@@ -68,7 +68,9 @@
 
 {#if filteredItems}
 	{#if filter.length > 0 && filteredItems.length == 0}
-		<div class="text-2xs text-tercary text-center py-2 px-3 items-center"> No items found. </div>
+		<div class="text-2xs text-tertiary font-light text-center py-2 px-3 items-center">
+			No items found.
+		</div>
 	{/if}
 	<ul>
 		{#each filteredItems as { path, hash, summary, marked }}

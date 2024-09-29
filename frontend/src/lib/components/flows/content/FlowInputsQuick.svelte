@@ -158,7 +158,7 @@
 						</div>
 					{/each}
 				{:else}
-					<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
+					<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
 						No items found.
 					</div>
 				{/if}
@@ -198,7 +198,7 @@
 
 	<Scrollable scrollableClass="grow min-w-0">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
-			{#if !disableAi && funcDesc.length > 0}
+			{#if !disableAi && funcDesc?.length > 0}
 				<ul class="transition-all">
 					<li>
 						<button
@@ -234,7 +234,7 @@
 					</li>
 				</ul>
 			{/if}
-			{#if funcDesc.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
+			{#if funcDesc?.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
 				<div class="pt-2 pb-0 flex flex-row items-center gap-2">
 					<div class=" text-2xs font-light text-secondary ml-2">Create Inline Script</div>
 					<DefaultScripts size={'xs3'} noText={true} />
@@ -293,7 +293,7 @@
 			{/if}
 
 			{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
-				{#if !selected && (preFilter !== 'workspace' || funcDesc.length > 0)}
+				{#if !selected && (preFilter !== 'workspace' || funcDesc?.length > 0)}
 					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
 				{/if}
 				<WorkspaceScriptPickerQuick
@@ -305,7 +305,7 @@
 				/>
 			{/if}
 
-			{#if funcDesc.length > 0 && filteredItems.length > 0}
+			{#if funcDesc?.length > 0 && filteredItems?.length > 0}
 				<div class="text-left mt-2">
 					<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
 					<ul class="transition-all">

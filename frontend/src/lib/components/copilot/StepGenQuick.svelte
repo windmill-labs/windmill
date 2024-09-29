@@ -6,6 +6,7 @@
 	import { Wand2, Loader2 } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import { emptyString } from '$lib/utils'
+	import { onMount } from 'svelte'
 
 	export let funcDesc: string
 	export let trigger = false
@@ -53,6 +54,12 @@
 			if (err.name !== 'CancelError') throw err
 		}
 	}
+
+	let input: HTMLInputElement
+
+	onMount(() => {
+		input?.focus()
+	})
 </script>
 
 <SearchItems
@@ -65,11 +72,14 @@
 <div class="relative text-primary items-center transition-all flex-grow">
 	<div class="grow items-cente">
 		<input
+			bind:this={input}
 			type="text"
 			bind:value={funcDesc}
 			on:input={() => {
-				if (funcDesc.length > 2) {
-					getHubCompletions(funcDesc)
+				if (funcDesc?.length > 2) {
+					setTimeout(() => {
+						getHubCompletions(funcDesc)
+					}, 0)
 				} else {
 					hubCompletions = []
 				}
@@ -81,7 +91,7 @@
 		{#if loading}
 			<Loader2 size={16} class="animate-spin text-gray-400" />
 		{/if}
-		{#if funcDesc.length === 0 && !loading}
+		{#if funcDesc?.length === 0 && !loading}
 			<Wand2 size={14} class="fill-current opacity-70 text-violet-800 dark:text-violet-400" />
 		{/if}
 	</div>

@@ -18,7 +18,7 @@
 	export let disableSettings = false
 	export let smallErrorHandler = false
 
-	let size = 40
+	let size = 50
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Menu } from '$lib/components/common'
+	import { Popup } from '$lib/components/common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import {
 		CheckCircle2,
@@ -25,7 +25,6 @@
 	const dispatch = createEventDispatcher()
 	export let trigger = false
 	export let stop = false
-	export let open: boolean | undefined = undefined
 	export let index: number = 0
 	export let funcDesc = ''
 	let filteredItems: (Script & { marked?: string })[] = []
@@ -51,8 +50,16 @@
 	$: small = preprocessorModule || failureModule
 </script>
 
-<Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close>
-	<svelte:fragment slot="trigger">
+<!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
+
+<Popup
+	let:close
+	floatingConfig={{ strategy: 'absolute', placement }}
+	floatingClasses="mt-2"
+	containerClasses="border rounded-lg shadow-lg  bg-surface"
+	noTransition
+>
+	<svelte:fragment slot="button">
 		<button
 			title="Add {failureModule
 				? ' failure module '
@@ -156,7 +163,7 @@
 						<button
 							class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 							on:pointerdown={() => {
-								close()
+								close(null)
 								dispatch('new', { kind: 'end' })
 							}}
 							role="menuitem"
@@ -168,7 +175,7 @@
 					<button
 						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
-							close()
+							close(null)
 							dispatch('new', { kind: 'forloop' })
 						}}
 						role="menuitem"
@@ -180,7 +187,7 @@
 					<button
 						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
-							close()
+							close(null)
 							dispatch('new', { kind: 'whileloop' })
 						}}
 						role="menuitem"
@@ -193,7 +200,7 @@
 					<button
 						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
-							close()
+							close(null)
 							dispatch('new', { kind: 'branchone' })
 						}}
 						role="menuitem"
@@ -205,7 +212,7 @@
 					<button
 						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
 						on:pointerdown={() => {
-							close()
+							close(null)
 							dispatch('new', { kind: 'branchall' })
 						}}
 						role="menuitem"
@@ -237,4 +244,4 @@
 			/>
 		</div>
 	</div>
-</Menu>
+</Popup>

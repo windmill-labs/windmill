@@ -34,7 +34,7 @@
 	{#if !disableAi}
 		<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger on:insert />
 	{/if}
-	{#if funcDesc.length === 0}
+	{#if funcDesc?.length === 0}
 		<div class="font-mono divide-y text-xs w-full text-secondary whitespace-nowrap">
 			<button
 				class="w-full text-left py-2 px-3 hover:bg-surface-hover flex flex-row items-center gap-2"

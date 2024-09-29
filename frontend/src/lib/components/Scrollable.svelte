@@ -27,7 +27,7 @@
 		mutationObserver = new MutationObserver(() => {
 			isScrollable = checkIfScrollable(el)
 		})
-		mutationObserver.observe(el, { childList: true, subtree: true, characterData: true })
+		mutationObserver?.observe(el, { childList: true, subtree: true, characterData: true })
 	}
 
 	onMount(() => {
@@ -35,7 +35,7 @@
 	})
 
 	onDestroy(() => {
-		mutationObserver.disconnect()
+		mutationObserver?.disconnect()
 	})
 </script>
 

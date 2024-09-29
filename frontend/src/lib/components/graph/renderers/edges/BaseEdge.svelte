@@ -47,14 +47,12 @@
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
-
-	let menuOpen = false
 </script>
 
 <EdgeLabelRenderer>
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
-			class={twMerge('edgeButtonContainer nodrag nopan top-0', menuOpen ? 'z-50' : '')}
+			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY + 2}px)"
 		>
 			<InsertModuleButton
@@ -84,7 +82,6 @@
 						flow: e.detail
 					})
 				}}
-				bind:open={menuOpen}
 			/>
 		</div>
 		{#if data.enableTrigger}
