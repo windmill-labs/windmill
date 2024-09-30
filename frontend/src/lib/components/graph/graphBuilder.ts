@@ -173,9 +173,16 @@ export default function graphBuilder(
 			}
 
 			nodes.push(triggerNode)
-			addEdge('Trigger', 'Input', {
-				type: 'hiddenedge'
-			})
+
+			if (!!preprocessorModule) {
+				addEdge('Trigger', preprocessorModule.id, {
+					type: 'hiddenedge'
+				})
+			} else {
+				addEdge('Trigger', 'Input', {
+					type: 'hiddenedge'
+				})
+			}
 		}
 
 		const resultNode: Node = {
