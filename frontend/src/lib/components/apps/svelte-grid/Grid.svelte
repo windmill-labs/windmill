@@ -111,19 +111,15 @@
 
 	let resizing: boolean = false
 
-	function handleKeyDown(event) {
-		if (event.key === 'Control' || event.key === 'Meta') {
-			if (resizing) {
-				return
-			}
-			isCtrlOrMetaPressed = true
-		}
-	}
-
 	function handleKeyUp(event) {
 		if (event.key === 'Control' || event.key === 'Meta') {
 			setTimeout(() => {
 				isCtrlOrMetaPressed = false
+
+				if (lastDetail) {
+					updateMatrix({ detail: lastDetail })
+					lastDetail = undefined
+				}
 			}, 50)
 		}
 	}
@@ -233,6 +229,8 @@
 
 	//let hiddenComponents = writable({})
 
+	let lastDetail: { isPointerUp: false; activate: false; id: string | undefined } | undefined =
+		undefined
 	const handleRepaint = ({ detail }) => {
 		if (!detail.isPointerUp) {
 			throttleMatrix({ detail })
@@ -250,6 +248,21 @@
 		*/
 	}
 
+	function handleKeyDown(event) {
+		if (event.key === 'Control' || event.key === 'Meta') {
+			if (resizing) {
+				return
+			}
+
+			isCtrlOrMetaPressed = true
+
+			if (lastDetail) {
+				updateMatrix({ detail: lastDetail })
+				lastDetail = undefined
+			}
+		}
+	}
+
 	let moveResizes: Record<string, MoveResize> = {}
 	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
 
@@ -260,6 +273,7 @@
 			}
 		})
 
+		lastDetail = detail
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 
 		if (!isCtrlOrMetaPressed) {
