@@ -33,7 +33,7 @@ pub fn global_service() -> Router {
 
 #[derive(Serialize, Deserialize, FromRow)]
 struct Config {
-    name: String,
+    name: Option<String>,
     config: serde_json::Value,
 }
 
@@ -41,9 +41,18 @@ async fn list_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    let configs_raw = sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
-        .fetch_all(&db)
-        .await?;
+    let mut configs_raw =
+        sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
+            .fetch_all(&db)
+            .await?;
+    // Remove the 'worker__' prefix from all config names
+    for config in configs_raw.iter_mut() {
+        if let Some(name) = &config.name {
+            if name.starts_with("worker__") {
+                config.name = Some(name.strip_prefix("worker__").unwrap().to_string());
+            }
+        }
+    }
     let configs = if !authed.is_admin {
         let mut obfuscated_configs: Vec<Config> = vec![];
         for config in configs_raw {

@@ -6,6 +6,7 @@ import {
   yamlParse,
   Command,
   setClient,
+  Table,
 } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
@@ -62,39 +63,49 @@ export async function allInstances(): Promise<Instance[]> {
     return [];
   }
 }
-export async function addInstance() {
-  let remote = await Input.prompt({
-    message: "Enter the remote url of this instance",
-    default: "https://app.windmill.dev/",
-  });
-  remote = new URL(remote).toString(); // add trailing slash in all cases!
+export async function addInstance(
+  opts: {},
+  instanceName: string | undefined,
+  remote: string | undefined,
+  token: string | undefined
+) {
+  if (!remote) {
+    remote = await Input.prompt({
+      message: "Enter the remote url of this instance",
+      default: "https://my.windmill.dev/",
+    });
+    remote = new URL(remote).toString(); // add trailing slash in all cases!
+  }
 
-  const defaultName = new URL(remote).hostname;
+  if (!instanceName) {
+    const defaultName = new URL(remote).hostname.split(".")[0];
 
-  const name = await Input.prompt({
-    message: "Enter a name for this instance",
-    default: defaultName,
-  });
+    instanceName = await Input.prompt({
+      message: "Enter a name for this instance",
+      default: defaultName,
+    });
+  }
+  const prefix = instanceName.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  const prefix = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-  let token: string | undefined = undefined;
   while (!token) {
     token = await loginInteractive(remote);
   }
 
   await appendInstance({
-    name,
+    name: instanceName,
     remote,
     token,
     prefix,
   });
   log.info(
-    colors.green.underline(`Added instance ${name} with remote ${remote}!`)
+    colors.green.underline(
+      `Added instance ${instanceName} with remote ${remote}!`
+    )
   );
 
+  await switchI({}, instanceName);
   return {
-    name,
+    name: instanceName,
     remote,
     token,
     prefix,
@@ -160,37 +171,59 @@ export function compareInstanceObjects<T extends string>(
   return changes;
 }
 
-type InstanceSyncOptions = {
+export type InstanceSyncOptions = {
   skipUsers?: boolean;
   skipSettings?: boolean;
   skipConfigs?: boolean;
   skipGroups?: boolean;
   includeWorkspaces?: boolean;
+  instance?: string;
   baseUrl?: string;
+  token?: string;
+  yes?: boolean;
 };
 
-async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
+export async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
   const instances = await allInstances();
-  let instance: Instance;
-  if (instances.length < 1) {
-    instance = await addInstance();
-  } else {
-    const choice = (await Select.prompt({
-      message: "Select an instance to pull from",
-      options: [
-        ...instances.map((i) => ({
-          name: `${i.name} (${i.remote})`,
-          value: i.name,
-        })),
-        { name: "Add new instance", value: "new" },
-      ],
-    })) as unknown as string;
-
-    if (choice === "new") {
-      instance = await addInstance();
+  if (opts.baseUrl && opts.token) {
+    log.info("Using instance fully defined by --base-url and --token")
+    return {
+      name: "custom",
+      remote: opts.baseUrl,
+      token: opts.token,
+      prefix: "custom",
+    };
+  }
+  if (!allowNew && instances.length < 1) {
+    throw new Error("No instance found, please add one first");
+  }
+  const instanceName = await getActiveInstance(opts);
+  let instance: Instance | undefined = instances.find(
+    (i) => i.name === instanceName
+  );
+  if (!instance) {
+    if (instances.length < 1) {
+      instance = await addInstance({}, undefined, undefined, undefined);
     } else {
-      instance = instances.find((i) => i.name === choice)!;
+      const choice = (await Select.prompt({
+        message: "Select an instance",
+        options: [
+          ...instances.map((i) => ({
+            name: `${i.name} (${i.remote})`,
+            value: i.name,
+          })),
+          { name: "Add new instance", value: "new" },
+        ],
+      })) as unknown as string;
+
+      if (choice === "new") {
+        instance = await addInstance({}, undefined, undefined, undefined);
+      } else {
+        instance = instances.find((i) => i.name === choice)!;
+      }
     }
+  } else {
+    log.info(`Selected instance: ${instance.name}`);
   }
 
   setClient(
@@ -198,6 +231,10 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     instance.remote.slice(0, instance.remote.length - 1)
   );
 
+  return instance;
+}
+async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
+  const instance = await pickInstance(opts, true);
   log.info("Pulling instance-level changes");
   log.info(`remote (${instance.name}) -> local`);
 
@@ -221,10 +258,13 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
   if (totalChanges > 0) {
-    const confirm = await Confirm.prompt({
-      message: `Do you want to apply these ${totalChanges} instance-level changes?`,
-      default: true,
-    });
+    let confirm = true;
+    if (opts.yes !== true) {
+      confirm = await Confirm.prompt({
+        message: `Do you want to pull these ${totalChanges} instance-level changes?`,
+        default: true,
+      });
+    }
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
@@ -318,32 +358,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
 async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
   let instances = await allInstances();
-  let instance: Instance;
-  if (instances.length < 1) {
-    instance = await addInstance();
-  } else {
-    const choice = (await Select.prompt({
-      message: "Select an instance to push to",
-      options: [
-        ...instances.map((i) => ({
-          name: `${i.name} (${i.remote})`,
-          value: i.name,
-        })),
-        { name: "Add new instance", value: "new" },
-      ],
-    })) as unknown as string;
-
-    if (choice === "new") {
-      instance = await addInstance();
-    } else {
-      instance = instances.find((i) => i.name === choice)!;
-    }
-  }
-
-  setClient(
-    instance.token,
-    instance.remote.slice(0, instance.remote.length - 1)
-  );
+  const instance = await pickInstance(opts, true);
 
   log.info("Pushing instance-level changes");
   log.info!(`remote (${instance.name}) <- local`);
@@ -368,10 +383,13 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
   if (totalChanges > 0) {
-    const confirm = await Confirm.prompt({
-      message: `Do you want to apply these ${totalChanges} instance-level changes?`,
-      default: true,
-    });
+    let confirm = true;
+    if (opts.yes !== true) {
+      confirm = await Confirm.prompt({
+        message: `Do you want to apply these ${totalChanges} instance-level changes?`,
+        default: true,
+      });
+    }
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
@@ -485,36 +503,140 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
   }
 }
 
+async function switchI(opts: {}, instanceName: string) {
+  const all = await allInstances();
+  if (all.findIndex((x) => x.name === instanceName) === -1) {
+    log.info(
+      colors.red.bold(`! This instance ${instanceName} does not exist locally.`)
+    );
+    log.info("available instances:");
+    for (const w of all) {
+      log.info("  - " + w.name);
+    }
+    return;
+  }
+
+  await Deno.writeTextFile(
+    (await getRootStore()) + "/activeInstance",
+    instanceName
+  );
+
+  log.info(colors.green.underline(`Switched to instance ${instanceName}`));
+}
+
+export async function getActiveInstance(opts: {
+  instance?: string;
+}): Promise<string | undefined> {
+  if (opts.instance) {
+    return opts.instance;
+  }
+  try {
+    return await Deno.readTextFile((await getRootStore()) + "/activeInstance");
+  } catch {
+    return undefined;
+  }
+}
+
+async function whoami(opts: {}) {
+  await pickInstance({}, false);
+  try {
+    const whoamiInfo = await wmill.globalWhoami();
+    log.info(colors.green.underline(`global whoami infos:`));
+    log.info(JSON.stringify(whoamiInfo, null, 2));
+  } catch (error) {
+    log.error(colors.red(`Failed to retrieve whoami information: ${error.message}`));
+  }
+}
+
 const command = new Command()
   .description(
     "sync local with a remote instance or the opposite (push or pull)"
   )
-  .action(() =>
-    log.info("2 actions available, pull and push. Use -h to display help.")
-  )
+  .action(async () => {
+    log.info(
+      "4 actions available, add, remove, switch, pull and push. Use -h to display help."
+    );
+    const activeInstance = await getActiveInstance({});
+
+    new Table()
+      .header(["name", "remote", "token"])
+      .padding(2)
+      .border(true)
+      .body(
+        (await allInstances()).map((x) => [
+          x.name === activeInstance ? colors.underline(x.name) : x.name,
+          x.remote,
+          x.token.substring(0, 7) + "***",
+        ])
+      )
+      .render();
+    if (activeInstance) {
+      log.info(`Selected instance: ${activeInstance}`);
+    } else {
+      log.info("No active instance selected");
+    }
+    log.info("Use 'wmill instance add' to add a new instance");
+  })
+  .command("add")
+  .description("Add a new instance")
+  .action(addInstance as any)
+  .arguments("[instance_name:string] [remote:string] [token:string]")
+  .command("remove")
+  .description("Remove an instance")
+  .complete("instance", async () => (await allInstances()).map((x) => x.name))
+  .arguments("<instance:string:instance>")
+  .action(async (instance) => {
+    const instances = await allInstances();
+
+    const choice = (await Select.prompt({
+      message: "Select an instance to remove",
+      options: instances.map((i) => ({
+        name: `${i.name} (${i.remote})`,
+        value: i.name,
+      })),
+    })) as unknown as string;
+
+    await removeInstance(choice);
+    log.info(colors.green.underline(`Removed instance ${choice}`));
+  })
+  .command("switch")
+  .complete("instance", async () => (await allInstances()).map((x) => x.name))
+  .arguments("<instance:string:instance>")
+  .description("Switch the current instance")
+  .action(switchI as any)
   .command("pull")
   .description(
     "Pull instance settings, users, configs, instance groups and overwrite local"
   )
+  .option("--yes", "Pull without needing confirmation")
   .option("--skip-users", "Skip pulling users")
   .option("--skip-settings", "Skip pulling settings")
   .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pulling instance groups")
   .option("--include-workspaces", "Also pull workspaces")
+
   .action(instancePull as any)
   .command("push")
   .description(
     "Push instance settings, users, configs, group and overwrite remote"
   )
+  .option("--yes", "Push without needing confirmation")
   .option("--skip-users", "Skip pushing users")
   .option("--skip-settings", "Skip pushing settings")
   .option("--skip-configs", "Skip pushing configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pushing instance groups")
   .option("--include-workspaces", "Also push workspaces")
   .option(
-    "--base-url",
-    "Base url to be passed to the instance settings instead of the local one"
+    "--instance",
+    "Name of the instance to push to, override the active instance"
   )
-  .action(instancePush as any);
+  .option(
+    "--base-url",
+    "If used with --token, will be used as the base url for the instance"
+  )
+  .action(instancePush as any)
+  .command("whoami")
+  .description("Display information about the currently logged-in user")
+  .action(whoami as any);
 
 export default command;

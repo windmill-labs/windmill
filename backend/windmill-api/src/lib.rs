@@ -329,7 +329,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/w/:workspace_id/jobs_u",
-                    jobs::global_service().layer(cors.clone()),
+                    jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .nest(
                     "/w/:workspace_id/resources_u",

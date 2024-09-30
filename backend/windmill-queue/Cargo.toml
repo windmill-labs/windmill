@@ -12,7 +12,7 @@ path = "src/lib.rs"
 default = []
 enterprise = ["windmill-common/enterprise"]
 cloud = []
-benchmark = []
+benchmark = ["windmill-common/benchmark"]
 prometheus = ["dep:prometheus"]
 
 [dependencies]
