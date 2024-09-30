@@ -30,6 +30,9 @@
 		mutationObserver?.observe(el, { childList: true, subtree: true, characterData: true })
 	}
 
+	export function scrollIntoView(top: number) {
+		el.scrollTo({ top, behavior: 'smooth' })
+	}
 	onMount(() => {
 		observeScrollability(el)
 	})

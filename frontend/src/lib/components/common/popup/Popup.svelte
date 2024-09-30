@@ -43,7 +43,7 @@
 					</PopoverPanel>
 				</Transition>
 			{:else}
-				<PopoverPanel let:close static={blockOpen}>
+				<PopoverPanel focus={false} let:close static={blockOpen}>
 					<div class={containerClasses}>
 						<slot {close} />
 					</div>

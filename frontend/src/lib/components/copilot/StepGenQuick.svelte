@@ -31,30 +31,6 @@
 
 	$: scripts == undefined && funcDesc?.length > 1 && loadScripts()
 
-	let doneTs = 0
-	async function getHubCompletions(text: string) {
-		try {
-			// make sure we display the results of the last request last
-			const ts = Date.now()
-			const scripts = (
-				await ScriptService.queryHubScripts({
-					text: `${text}`,
-					limit: 3,
-					kind: trigger ? 'trigger' : 'script'
-				})
-			).map((s) => ({
-				...s,
-				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-			}))
-			if (ts < doneTs) return
-			doneTs = ts
-
-			hubCompletions = scripts as FlowCopilotModule['hubCompletions']
-		} catch (err) {
-			if (err.name !== 'CancelError') throw err
-		}
-	}
-
 	let input: HTMLInputElement
 
 	onMount(() => {
@@ -75,15 +51,6 @@
 			bind:this={input}
 			type="text"
 			bind:value={funcDesc}
-			on:input={() => {
-				if (funcDesc?.length > 2) {
-					setTimeout(() => {
-						getHubCompletions(funcDesc)
-					}, 0)
-				} else {
-					hubCompletions = []
-				}
-			}}
 			placeholder="Search {trigger ? 'triggers' : 'scripts'} or AI gen"
 		/>
 	</div>

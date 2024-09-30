@@ -10,12 +10,13 @@
 	export let filter = ''
 
 	export let loading = false
+	export let selected: number | undefined = undefined
 	let hubNotAvailable = false
 
 	const dispatch = createEventDispatcher()
 
 	export let appFilter: string | undefined = undefined
-	let items: {
+	export let items: {
 		path: string
 		summary: string
 		id: number
@@ -59,7 +60,7 @@
 			hubNotAvailable = false
 			const ts = Date.now()
 			startTs = ts
-			await new Promise((r) => setTimeout(r, 100))
+			await new Promise((resolved, rejected) => setTimeout(resolved, 200))
 			if (ts < startTs) return
 			const scripts =
 				filter.length > 0
@@ -76,9 +77,7 @@
 								kind: filterKind
 							})
 					  ).asks ?? []
-			if (ts === startTs) {
-				loading = false
-			}
+
 			items = scripts.map(
 				(x: {
 					summary: string
@@ -93,6 +92,9 @@
 					summary: `${x.summary} (${x.app})`
 				})
 			)
+			if (ts === startTs) {
+				loading = false
+			}
 			hubNotAvailable = false
 		} catch (err) {
 			hubNotAvailable = true
@@ -100,12 +102,24 @@
 			loading = false
 		}
 	}
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (selected && selected < items?.length! && e.key === 'Enter') {
+			let item = items![selected]
+			dispatch('pickScript', item)
+		}
+	}
 </script>
 
+<svelte:window on:keydown={onKeyDown} />
 {#if hubNotAvailable}
 	<div class="text-2xs text-red-400 ftext-2xs font-light text-center py-2 px-3 items-center">
 		Hub not available
 	</div>
+{:else if loading}
+	{#each Array(15).fill(0) as _}
+		<Skeleton layout={[0.1, [1.5]]} />
+	{/each}
 {:else if items.length > 0 && apps.length > 0}
 	{#if items.length == 0}
 		<div class="text-2xs text-tertiary font-extralight text-center py-2 px-3 items-center">
@@ -113,10 +127,13 @@
 		</div>
 	{:else}
 		<ul>
-			{#each items as item (item.path)}
+			{#each items as item, index (item.path)}
 				<li class="w-full">
 					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md"
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
+						selected
+							? 'bg-surface-hover'
+							: ''}"
 						on:click={() => dispatch('pickScript', item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
@@ -138,6 +155,9 @@
 						<span class="grow truncate text-left text-2xs text-primary font-normal">
 							{item.summary ?? ''}
 						</span>
+						{#if index === selected}
+							<kbd class="!text-xs">&crarr;</kbd>
+						{/if}
 					</button>
 				</li>
 			{/each}

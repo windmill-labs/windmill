@@ -6,6 +6,7 @@
 	import { defaultScriptLanguages } from '$lib/scripts'
 	import Alert from './common/alert/Alert.svelte'
 
+	export let small = false
 	$: langs = computeLangs($defaultScripts)
 
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
@@ -34,12 +35,12 @@
 <Alert title="Global to workspace" type="info" class="mb-4">
 	This setting is only available to admins and will affect all users in the workspace.
 </Alert>
-<div class="h-full w-full flex-col gap-2 flex">
+<div class="h-full w-full flex-col {small ? 'gap-0' : 'gap-2'} flex">
 	{#each langs as lang, i (lang)}
 		<div
 			animate:flip={{ duration: 300 }}
-			class="w-full p-2 rounded border border-seconadry grid grid-cols-3"
-			><h3>{lang}</h3>
+			class="w-full p-2 rounded {small ? '' : 'border border-secondary'} grid grid-cols-3"
+			><h3 class={small ? 'text-sm' : ''}>{lang}</h3>
 			<div>
 				{#if i > 0}
 					<button on:click={() => changePosition(i ?? 0, true)} class="text-lg mr-2">

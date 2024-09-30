@@ -13,7 +13,7 @@
 	} from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
-	import type { FlowModule, Script } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
@@ -27,7 +27,6 @@
 	export let stop = false
 	export let index: number = 0
 	export let funcDesc = ''
-	let filteredItems: (Script & { marked?: string })[] = []
 	export let modules: FlowModule[] = []
 	export let disableAi = false
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
@@ -229,9 +228,7 @@
 				filter={funcDesc}
 				{modules}
 				{index}
-				{hubCompletions}
 				{disableAi}
-				{filteredItems}
 				{funcDesc}
 				{selectedKind}
 				{failureModule}

@@ -9,6 +9,7 @@
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let isTemplate: boolean | undefined = undefined
+	export let selected: number | undefined = undefined
 
 	type Item = {
 		path: string
@@ -19,7 +20,7 @@
 
 	let items: Item[] | undefined = undefined
 
-	let filteredItems: (Item & { marked?: string })[] | undefined = undefined
+	export let filteredItems: (Item & { marked?: string })[] | undefined = undefined
 	export let filter = ''
 	export let owners: string[] = []
 
@@ -57,6 +58,13 @@
 
 	const dispatch = createEventDispatcher()
 	let lockHash = false
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (selected && selected < filteredItems?.length! && e.key === 'Enter') {
+			let item = filteredItems![selected]
+			dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
+		}
+	}
 </script>
 
 <SearchItems
@@ -66,6 +74,7 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
+<svelte:window on:keydown={onKeyDown} />
 {#if filteredItems}
 	{#if filter.length > 0 && filteredItems.length == 0}
 		<div class="text-2xs text-tertiary font-light text-center py-2 px-3 items-center">
@@ -73,10 +82,13 @@
 		</div>
 	{/if}
 	<ul>
-		{#each filteredItems as { path, hash, summary, marked }}
+		{#each filteredItems as { path, hash, summary, marked }, index}
 			<li class="w-full">
 				<button
-					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md"
+					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
+					selected
+						? 'bg-surface-hover'
+						: ''}"
 					on:click={() => {
 						dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
 					}}
@@ -89,6 +101,9 @@
 							{!summary || summary.length == 0 ? path : summary}
 						{/if}</span
 					>
+					{#if index === selected}
+						<kbd class="!text-xs">&crarr;</kbd>
+					{/if}
 				</button>
 			</li>
 		{/each}

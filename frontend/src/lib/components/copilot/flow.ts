@@ -25,6 +25,8 @@ export type FlowCopilotModule = {
 		kind: string
 		app: string
 		ask_id: number
+		id: number
+		version_id: number
 	}[]
 	selectedCompletion:
 		| {

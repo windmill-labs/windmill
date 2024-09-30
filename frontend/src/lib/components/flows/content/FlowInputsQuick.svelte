@@ -4,16 +4,14 @@
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import WorkspaceScriptPickerQuick from '../pickers/WorkspaceScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
-	import { defaultScripts } from '$lib/stores'
+	import { defaultScripts, enterpriseLicense, userStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
 	import { type Script, type FlowModule } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
-	import { APP_TO_ICON_COMPONENT } from '../../icons'
-	import { Folder, Wand2, User } from 'lucide-svelte'
-	import { defaultIfEmptyString } from '$lib/utils'
+	import { Folder, User } from 'lucide-svelte'
 	import type { FlowCopilotContext, FlowCopilotModule } from '../../copilot/flow'
 	import type { FlowEditorContext } from '../../flows/types'
 	import { copilotInfo } from '$lib/stores'
@@ -23,7 +21,10 @@
 	import { flip } from 'svelte/animate'
 	import FlowInputsFlowQuick from '../content/FlowInputsFlowQuick.svelte'
 	import Scrollable from '$lib/components/Scrollable.svelte'
-	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
+	import { Button } from '$lib/components/common'
+	import { SettingsIcon } from 'lucide-svelte'
+	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
+	import GenAiQuick from './GenAiQuick.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -35,8 +36,6 @@
 	export let syncQuery = false
 	export let preFilter: 'all' | 'workspace' | 'hub' = 'hub'
 	export let funcDesc: string
-	export let filteredItems: (Script & { marked?: string })[] = []
-	export let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 	export let index: number
 	export let modules: FlowModule[]
 	export let owners: string[] = []
@@ -46,6 +45,10 @@
 	let trigger = false
 	let lang: FlowCopilotModule['lang'] = undefined
 	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
+
+	let filteredItems: (Script & { marked?: string })[] = []
+
+	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { modulesStore: copilotModulesStore, genFlow } =
@@ -123,8 +126,52 @@
 		]
 		genFlow?.(index, modules, true)
 	}
+
+	let openScriptSettings = false
+
+	let selectedByKeyboard = 0
+
+	let inlineScripts: [string, SupportedLanguage | 'docker'][] = []
+
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
+
+	function computeInlineScriptChoices(funcDesc: string) {
+		if (['action', 'trigger', 'approval'].includes(selectedKind)) {
+			if ((!selected || selected?.kind === 'inline') && preFilter == 'all') {
+				inlineScripts = langs.filter(
+					(lang) =>
+						((customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) &&
+							(funcDesc?.length == 0 ||
+								lang?.[0]?.toLowerCase()?.includes(funcDesc?.toLowerCase())) &&
+							displayLang(lang?.[1], kind) &&
+							!enterpriseLangs.includes(lang?.[1] || '')) ||
+						!!$enterpriseLicense
+				)
+			}
+		}
+	}
+
+	$: computeInlineScriptChoices(funcDesc)
+
+	$: aiLength =
+		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+
+	let scrollable: Scrollable | undefined
+	function onKeyDown(e: KeyboardEvent) {
+		let length = inlineScripts.length + aiLength + filteredItems.length + hubCompletions.length
+		if (e.key === 'ArrowDown') {
+			selectedByKeyboard = (selectedByKeyboard + 1) % length
+
+			scrollable?.scrollIntoView(selectedByKeyboard * 32)
+		} else if (e.key === 'ArrowUp') {
+			selectedByKeyboard = (selectedByKeyboard - 1 + length) % length
+			scrollable?.scrollIntoView(selectedByKeyboard * 32)
+		}
+		e.preventDefault()
+	}
 </script>
 
+<svelte:window on:keydown={onKeyDown} />
 <div
 	class="flex flex-row grow min-w-0 divide-x {!small
 		? 'shadow-[inset_25px_0px_12px_-30px_rgba(94,129,172,0.5)]'
@@ -132,9 +179,9 @@
 >
 	<Scrollable scrollableClass="w-32 grow-0 shrink-0 ">
 		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
-			{#if preFilter === 'all' || preFilter === 'workspace'}
+			{#if (preFilter === 'all' && owners.length > 0) || preFilter === 'workspace'}
 				{#if preFilter !== 'workspace'}
-					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace Folders</div>
+					<div class="pb-0 text-2xs font-light text-secondary ml-2">Workspace Folders</div>
 				{/if}
 				{#if owners.length > 0}
 					{#each owners as owner (owner)}
@@ -196,146 +243,137 @@
 		{/if}
 	</Scrollable>
 
-	<Scrollable scrollableClass="grow min-w-0">
-		{#if ['action', 'trigger', 'approval'].includes(selectedKind)}
-			{#if !disableAi && funcDesc?.length > 0}
-				<ul class="transition-all">
-					<li>
-						<button
-							class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md"
-							on:click={() => {
-								lang = 'bun'
-								onGenerate()
-								close()
-							}}
-						>
-							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
-
-							<span class="grow truncate text-left text-2xs text-primary font-normal">
-								Generate "{funcDesc}" in TypeScript
-							</span>
-						</button>
-					</li>
-					<li>
-						<button
-							class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md"
-							on:click={() => {
-								lang = 'python3'
-								onGenerate()
-								close()
-							}}
-						>
-							<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
-
-							<span class="grow truncate text-left text-2xs text-primary font-normal">
-								Generate "{funcDesc}" in Python
-							</span>
-						</button>
-					</li>
-				</ul>
-			{/if}
-			{#if funcDesc?.length === 0 && (!selected || selected?.kind === 'inline') && preFilter == 'all'}
-				<div class="pt-2 pb-0 flex flex-row items-center gap-2">
-					<div class=" text-2xs font-light text-secondary ml-2">Create Inline Script</div>
-					<DefaultScripts size={'xs3'} noText={true} />
-				</div>
-				{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
-					{#if displayLang(lang, kind)}
-						<FlowScriptPickerQuick
-							{label}
-							lang={lang == 'docker' ? 'bash' : lang}
-							on:click={() => {
-								if (lang == 'docker') {
-									if (isCloudHosted()) {
-										sendUserToast(
-											'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-											true,
-											[
-												{
-													label: 'Learn more',
-													callback: () => {
-														window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-													}
-												}
-											]
-										)
-										return
-									}
-								}
-
-								dispatch('new', {
-									kind: 'script',
-									inlineScript: {
-										language: lang == 'docker' ? 'bash' : lang,
-										kind,
-										subkind:
-											lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
-										summary
-									}
-								})
-							}}
+	<Scrollable bind:this={scrollable} scrollableClass="grow min-w-0">
+		{#if inlineScripts?.length > 0}
+			<div class="pb-0 flex flex-row items-center gap-2">
+				<div class=" text-2xs font-light text-secondary ml-2">New Inline Script</div>
+				{#if $userStore?.is_admin || $userStore?.is_super_admin}
+					{#if !openScriptSettings}
+						<Button
+							on:click={() => (openScriptSettings = true)}
+							startIcon={{ icon: SettingsIcon }}
+							color="light"
+							size="xs2"
+							btnClasses="!text-tertiary"
+							variant="contained"
 						/>
+					{:else}
+						<Button
+							on:click={() => (openScriptSettings = false)}
+							startIcon={{ icon: SettingsIcon }}
+							color="dark"
+							size="xs2"
+							variant="contained"
+						>
+							Close
+						</Button>
 					{/if}
-				{/each}
-			{/if}
-			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
-				{#if !selected && preFilter !== 'hub'}
-					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
 				{/if}
-				<PickHubScriptQuick
-					bind:filter
-					bind:apps
-					appFilter={selected?.name}
-					{kind}
-					on:pickScript
-					bind:loading
-				/>
-			{/if}
-
-			{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
-				{#if !selected && (preFilter !== 'workspace' || funcDesc?.length > 0)}
-					<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
-				{/if}
-				<WorkspaceScriptPickerQuick
-					bind:owners
-					bind:ownerFilter={selected}
-					{filter}
-					{kind}
-					on:pickScript
-				/>
-			{/if}
-
-			{#if funcDesc?.length > 0 && filteredItems?.length > 0}
-				<div class="text-left mt-2">
-					<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
-					<ul class="transition-all">
-						{#each filteredItems.slice(0, 3) as item (item.path)}
-							<li>
-								<button
-									class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full rounded-md"
-									on:click={() => {
-										dispatch('insert', { path: item.path, summary: item.summary })
-										close()
-									}}
-								>
-									<div class="flex items-center gap-2.5 px-2">
-										<div
-											class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
-										>
-											<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} />
-										</div>
-
-										<div class="text-left text-2xs text-primary font-normal">
-											{defaultIfEmptyString(item.summary, item.path)}
-										</div>
-									</div>
-								</button>
-							</li>
-						{/each}
-					</ul>
+			</div>
+			{#if openScriptSettings}
+				<div class="p-2">
+					<DefaultScriptsInner small />
 				</div>
 			{/if}
-		{:else if selectedKind === 'flow'}
+			{#each inlineScripts as [label, lang], i (lang)}
+				<FlowScriptPickerQuick
+					selected={selectedByKeyboard === i}
+					{label}
+					lang={lang == 'docker' ? 'bash' : lang}
+					on:click={() => {
+						if (lang == 'docker') {
+							if (isCloudHosted()) {
+								sendUserToast(
+									'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+									true,
+									[
+										{
+											label: 'Learn more',
+											callback: () => {
+												window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+											}
+										}
+									]
+								)
+								return
+							}
+						}
+
+						dispatch('new', {
+							kind: 'script',
+							inlineScript: {
+								language: lang == 'docker' ? 'bash' : lang,
+								kind,
+								subkind: lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
+								summary
+							}
+						})
+					}}
+				/>
+			{/each}
+		{/if}
+
+		{#if !disableAi && funcDesc?.length > 0}
+			<ul class="transition-all">
+				<li
+					><GenAiQuick
+						{funcDesc}
+						lang="TypeScript"
+						selected={selectedByKeyboard === inlineScripts?.length + 0}
+						on:click={() => {
+							lang = 'bun'
+							onGenerate()
+							close()
+						}}
+					/>
+				</li>
+				<li>
+					<GenAiQuick
+						{funcDesc}
+						lang="Python"
+						selected={selectedByKeyboard === inlineScripts?.length + 1}
+						on:click={() => {
+							lang = 'python3'
+							onGenerate()
+							close()
+						}}
+					/>
+				</li>
+			</ul>
+		{/if}
+
+		{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
+			{#if !selected && (preFilter !== 'workspace' || funcDesc?.length > 0)}
+				<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
+			{/if}
+			<WorkspaceScriptPickerQuick
+				bind:owners
+				bind:ownerFilter={selected}
+				bind:filteredItems
+				{filter}
+				{kind}
+				selected={selectedByKeyboard - inlineScripts?.length - aiLength}
+				on:pickScript
+			/>
+		{/if}
+
+		{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
+			{#if !selected && preFilter !== 'hub'}
+				<div class=" pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
+			{/if}
+			<PickHubScriptQuick
+				bind:items={hubCompletions}
+				bind:filter
+				bind:apps
+				appFilter={selected?.name}
+				{kind}
+				selected={selectedByKeyboard - inlineScripts?.length - aiLength - filteredItems?.length}
+				on:pickScript
+				bind:loading
+			/>
+		{/if}
+
+		{#if selectedKind === 'flow'}
 			<FlowInputsFlowQuick bind:owners {filter} on:pickFlow />
 		{/if}
 	</Scrollable>
