@@ -9,7 +9,6 @@
 
 <script lang="ts">
 	import gridHelp from './utils/helper'
-
 	import type { AppViewerContext, GridItem } from '../types'
 	import { twMerge } from 'tailwind-merge'
 
@@ -183,7 +182,12 @@
 
 						initialFixedStates.clear()
 
-						sortedItems = restoredItems
+						if ($overlappedStore === undefined) {
+							let { items } = moveItem(activeItem, restoredItems, getComputedCols)
+							sortedItems = items
+						} else {
+							sortedItems = restoredItems
+						}
 					} else {
 						const fixedContainer = sortedItems.map((item) => {
 							if (isContainer(item.data['type'])) {
