@@ -120,7 +120,9 @@
 
 	function handleKeyUp(event) {
 		if (event.key === 'Control' || event.key === 'Meta') {
-			isCtrlOrMetaPressed = false
+			setTimeout(() => {
+				isCtrlOrMetaPressed = false
+			}, 50)
 		}
 	}
 
