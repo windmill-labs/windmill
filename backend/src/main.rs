@@ -745,9 +745,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        let instance_name = rd_string(8);
         if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
+            schedule_stats(&db, &HTTP_CLIENT).await;
         }
 
         #[cfg(feature = "enterprise")]

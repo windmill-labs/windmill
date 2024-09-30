@@ -482,6 +482,7 @@ where
     }
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct RawFlowFailureModule {
     #[cfg(feature = "enterprise")]
