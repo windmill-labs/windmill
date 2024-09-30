@@ -6,6 +6,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import { emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor' =
 		'script'
@@ -100,7 +101,11 @@
 						dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
 					}}
 				>
-					<Code2 size={14} />
+					{#if kind == 'flow'}
+						<BarsStaggered size={14} />
+					{:else}
+						<Code2 size={14} />
+					{/if}
 					<span class="grow min-w-0 truncate text-left text-2xs text-primary font-normal">
 						{#if marked}
 							{@html marked}

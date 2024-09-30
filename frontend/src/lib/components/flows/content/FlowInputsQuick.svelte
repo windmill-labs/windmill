@@ -30,7 +30,6 @@
 	export let summary: string | undefined = undefined
 	export let filter = ''
 	export let disableAi = false
-	export let syncQuery = false
 	export let preFilter: 'all' | 'workspace' | 'hub' = 'hub'
 	export let funcDesc: string
 	export let index: number
@@ -122,7 +121,8 @@
 	function computeInlineScriptChoices(
 		funcDesc: string,
 		selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined,
-		preFilter: 'all' | 'workspace' | 'hub'
+		preFilter: 'all' | 'workspace' | 'hub',
+		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (['script', 'trigger', 'approval', 'preprocessor'].includes(selectedKind)) {
 			if (!selected && preFilter == 'all') {
@@ -141,7 +141,7 @@
 		inlineScripts = []
 	}
 
-	$: computeInlineScriptChoices(funcDesc, selected, preFilter)
+	$: computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind)
 
 	$: aiLength =
 		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
@@ -207,12 +207,7 @@
 					{#if preFilter == 'all'}
 						<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Integrations</div>
 					{/if}
-					<ListFiltersQuick
-						{syncQuery}
-						filters={apps}
-						bind:selectedFilter={selected}
-						resourceType
-					/>
+					<ListFiltersQuick filters={apps} bind:selectedFilter={selected} resourceType />
 				{/if}
 			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
@@ -315,7 +310,7 @@
 			{/each}
 		{/if}
 
-		{#if !disableAi && funcDesc?.length > 0 && kind != 'failure' && kind != 'preprocessor'}
+		{#if !disableAi && funcDesc?.length > 0 && kind != 'failure' && kind != 'preprocessor' && (selectedKind == 'script' || selectedKind == 'trigger')}
 			<ul class="transition-all">
 				<li
 					><GenAiQuick

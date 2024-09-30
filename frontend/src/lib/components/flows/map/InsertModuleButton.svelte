@@ -95,13 +95,12 @@
 		class="flex flex-col h-[400px] {small ? 'w-[450px]' : 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
 		on:wheel={(e) => {
 			e.stopPropagation()
-			console.log('scroll')
 		}}
 		role="none"
 	>
 		<div class="flex flex-row items-center gap-2">
 			<StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
-			{#if selectedKind != 'preprocessor'}
+			{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 				<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 			{/if}
 		</div>

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Folder, User, Circle } from 'lucide-svelte'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
-	import { onDestroy, onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let filters: string[]
@@ -11,50 +10,10 @@
 	$: selectedAppFilter = selectedFilter?.kind === 'integrations' ? selectedFilter?.name : undefined
 
 	export let resourceType = false
-	export let queryName = 'filter'
-	export let syncQuery = false
-
-	const queryChange: (value: URL) => void = (url: URL) => {
-		if (syncQuery) {
-			window.history.pushState(history.state, '', `?${url?.searchParams.toString()}`)
-		}
-	}
-
-	const eventListener = (e: PopStateEvent) => {
-		if (syncQuery) {
-			loadFilterFromUrl()
-		}
-	}
-
-	onMount(() => {
-		window.addEventListener('popstate', eventListener)
-	})
-
-	onDestroy(() => {
-		window.removeEventListener('popstate', (e) => eventListener(e))
-	})
-
-	loadFilterFromUrl()
-
-	function loadFilterFromUrl() {
-		let queryValue = new URL(window.location.href).searchParams.get(queryName) ?? undefined
-		selectedFilter = queryValue ? { kind: 'integrations', name: queryValue } : undefined
-	}
 
 	function getIconComponent(name: string) {
 		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 	}
-
-	export async function setQuery(url: URL, key: string, value: string | undefined): Promise<void> {
-		if (value != undefined) {
-			url.searchParams.set(key, value)
-		} else {
-			url.searchParams.delete(key)
-		}
-		queryChange(url)
-	}
-
-	let icon: any
 </script>
 
 {#if Array.isArray(filters) && filters.length > 0}
@@ -68,16 +27,12 @@
 				on:click={() => {
 					selectedFilter =
 						selectedAppFilter == filter ? undefined : { kind: 'integrations', name: filter }
-					if (selectedFilter) {
-						setQuery(new URL(window.location.href), queryName, selectedAppFilter)
-					} else {
-						setQuery(new URL(window.location.href), queryName, undefined)
-					}
 				}}
 			>
 				<div class="flex justify-center flex-row items-center gap-2">
 					{#if resourceType}
-						{#if (icon = getIconComponent(filter))}
+						{@const icon = getIconComponent(filter)}
+						{#if icon}
 							<svelte:component this={icon} height="14px" width="14px" />
 						{:else}
 							<div
