@@ -164,7 +164,7 @@
 					}
 				}
 
-				if (isCtrlOrMetaPressed && $componentDraggedParentIdStore !== $overlappedStore) {
+				if (isCtrlOrMetaPressed) {
 					const initialFixedStates = new Map()
 
 					const fixedContainer = sortedItems.map((item) => {
@@ -177,17 +177,16 @@
 							item[3].fixed = true
 							item[12].fixed = true
 						}
+
 						return item
 					})
 
 					let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
 
-					if ($overlappedStore === undefined) {
-						sortedItems = items
-					}
+					sortedItems = items
 
 					// After the move, restore the initial fixed state using the map
-					fixedContainer.forEach((item) => {
+					fixedContainer.map((item) => {
 						if (initialFixedStates.has(item)) {
 							const initialState = initialFixedStates.get(item)
 							item[3].fixed = initialState.item3Fixed
@@ -453,6 +452,7 @@
 				nativeContainer={container}
 				overlapped={$overlappedStore}
 				moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
+				type={item.data['type']}
 			>
 				{#if item[getComputedCols]}
 					<slot

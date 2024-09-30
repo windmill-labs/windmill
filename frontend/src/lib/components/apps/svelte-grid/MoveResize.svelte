@@ -3,7 +3,7 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
-	import { computePosition, findGridItemParentGrid } from '../editor/appUtils'
+	import { computePosition, findGridItemParentGrid, isContainer } from '../editor/appUtils'
 	import { throttle } from './utils/other'
 
 	const dispatch = createEventDispatcher()
@@ -31,6 +31,7 @@
 	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
 	export let overlapped: string | undefined = undefined
 	export let moveMode: 'move' | 'insert' = 'move'
+	export let type: string | undefined = undefined
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
@@ -313,7 +314,10 @@
 	function computeShadow(clientX: number, clientY: number) {
 		const elementsAtPoint = document.elementsFromPoint(clientX, clientY)
 		const intersectingElement = elementsAtPoint.find(
-			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
+			(el) =>
+				el.id !== divId &&
+				el.classList.contains('svlt-grid-item') &&
+				el.getAttribute('data-iscontainer') === 'true'
 		)
 
 		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[1] : undefined
@@ -502,6 +506,7 @@
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
 	id={divId}
 	class="svlt-grid-item"
+	data-iscontainer={type ? isContainer(type) : false}
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {xPerPx == 0 ? 0 : active ? newSize.width : width}px; height:{xPerPx == 0
 		? 0
