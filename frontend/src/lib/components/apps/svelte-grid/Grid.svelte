@@ -185,8 +185,6 @@
 
 						sortedItems = restoredItems
 					} else {
-						console.log($overlappedStore, $componentDraggedParentIdStore, sortedItems)
-
 						const fixedContainer = sortedItems.map((item) => {
 							if (isContainer(item.data['type'])) {
 								initialFixedStates.set(item.id, {
