@@ -107,6 +107,7 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop/Break</Tab>
+					<Tab value="skip">Skip</Tab>
 					<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 					<Tab value="sleep">Sleep</Tab>
 					<Tab value="mock">Mock</Tab>
