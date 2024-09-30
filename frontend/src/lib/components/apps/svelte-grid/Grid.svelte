@@ -340,7 +340,7 @@
 
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
-			{#if item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
+			{#if isCtrlOrMetaPressed && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
 				{@const columnGap = gapX}
 				<!-- gap between the columns in px -->
 				{@const containerBorder = 0.5 * 16}
