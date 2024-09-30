@@ -95,6 +95,8 @@ lazy_static::lazy_static! {
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
+    pub static ref INSTANCE_NAME: String = rd_string(5);
+
 }
 
 pub async fn shutdown_signal(
@@ -141,6 +143,7 @@ pub async fn shutdown_signal(
 use tokio::sync::RwLock;
 #[cfg(feature = "prometheus")]
 use tokio::task::JoinHandle;
+use utils::rd_string;
 
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(
