@@ -39,6 +39,7 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
 use windmill_common::{
+    add_time,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
@@ -178,6 +179,8 @@ pub async fn cancel_single_job<'c>(
                 rsmq.clone(),
                 "server",
                 false,
+                #[cfg(feature = "benchmark")]
+                &mut windmill_common::bench::BenchmarkIter::new(),
             )
             .await;
 
@@ -495,6 +498,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     rsmq: Option<R>,
     _worker_name: &str,
     flow_is_done: bool,
+    #[cfg(feature = "benchmark")] bench: &mut windmill_common::bench::BenchmarkIter,
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -532,6 +536,8 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         canceled_by,
         rsmq,
         flow_is_done,
+        #[cfg(feature = "benchmark")]
+        bench,
     )
     .await?;
     Ok(result)
@@ -555,10 +561,12 @@ pub async fn add_completed_job<
     canceled_by: Option<CanceledBy>,
     rsmq: Option<R>,
     flow_is_done: bool,
+    #[cfg(feature = "benchmark")] bench: &mut windmill_common::bench::BenchmarkIter,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
+    add_time!(bench, "add_completed_job start");
     if !result.is_valid_json() {
         return Err(Error::InternalErr(
             "Result of job is invalid json (empty)".to_string(),
@@ -566,6 +574,7 @@ pub async fn add_completed_job<
     }
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
@@ -576,6 +585,7 @@ pub async fn add_completed_job<
     );
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
+    add_time!(bench, "add_completed_job query START");
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
@@ -646,6 +656,8 @@ pub async fn add_completed_job<
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
     // tracing::error!("2 {:?}", start.elapsed());
+
+    add_time!(bench, "add_completed_job query END");
 
     if !queued_job.is_flow_step {
         if _duration > 500
@@ -1766,9 +1778,9 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     db: &Pool<Postgres>,
     rsmq: Option<R>,
     suspend_first: bool,
-) -> windmill_common::error::Result<Option<QueuedJob>> {
+) -> windmill_common::error::Result<(Option<QueuedJob>, bool)> {
     loop {
-        let job = pull_single_job_and_mark_as_running_no_concurrency_limit(
+        let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
             db,
             rsmq.clone(),
             suspend_first,
@@ -1776,7 +1788,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         .await?;
 
         if job.is_none() {
-            return Ok(None);
+            return Ok((None, suspended));
         }
 
         let has_concurent_limit = job.as_ref().unwrap().concurrent_limit.is_some();
@@ -1796,7 +1808,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok(Option::Some(pulled_job));
+            return Ok((Option::Some(pulled_job), suspended));
         }
 
         let itx = db.begin().await?;
@@ -1897,7 +1909,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
-            return Ok(Option::Some(pulled_job));
+            return Ok((Option::Some(pulled_job), suspended));
         }
         let x = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
@@ -2024,8 +2036,8 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     db: &Pool<Postgres>,
     rsmq: Option<R>,
     suspend_first: bool,
-) -> windmill_common::error::Result<Option<QueuedJob>> {
-    let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
+) -> windmill_common::error::Result<(Option<QueuedJob>, bool)> {
+    let job_and_suspended: (Option<QueuedJob>, bool) = if let Some(mut rsmq) = rsmq {
         #[cfg(feature = "benchmark")]
         let instant = Instant::now();
 
@@ -2083,9 +2095,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             #[cfg(feature = "benchmark")]
             println!("rsmq 2: {:?}", instant.elapsed());
 
-            m2r
+            (m2r, false)
         } else {
-            None
+            (None, false)
         }
     } else {
         /* Jobs can be started if they:
@@ -2099,7 +2111,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
         if query.is_empty() {
             tracing::warn!("No suspended pull queries available");
-            return Ok(None);
+            return Ok((None, false));
         }
 
         let r = if suspend_first {
@@ -2119,7 +2131,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
             if queries.is_empty() {
                 tracing::warn!("No pull queries available");
-                return Ok(None);
+                return Ok((None, false));
             }
 
             for query in queries.iter() {
@@ -2137,12 +2149,12 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
             // #[cfg(feature = "benchmark")]
             // println!("pull query: {:?}", instant.elapsed());
-            highest_priority_job
+            (highest_priority_job, false)
         } else {
-            r
+            (r, true)
         }
     };
-    Ok(job)
+    Ok(job_and_suspended)
 }
 
 pub async fn custom_concurrency_key(

@@ -80,6 +80,12 @@ mount {
     rw: true
 }
 
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
+    is_bind: true
+}
+
 exec_bin {
  	path: "/bin/sh"
  	arg: "/download_deps.sh"

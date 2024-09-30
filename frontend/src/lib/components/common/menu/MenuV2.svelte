@@ -10,7 +10,7 @@
 	export let placement: any = 'bottom-start'
 	export let justifyEnd: boolean = false
 	export let lightMode: boolean = false
-
+	export let maxHeight: number = 900
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'fixed',
 		middleware: [offset(), flip(), shift()],
@@ -38,9 +38,10 @@
 			>
 				<MenuItems
 					class={twMerge(
-						'border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
+						'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
 						lightMode ? 'bg-surface-inverse' : 'bg-surface'
 					)}
+					style="max-height: {maxHeight}px;"
 				>
 					<div class="my-1">
 						<slot />

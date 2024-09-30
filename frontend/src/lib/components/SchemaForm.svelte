@@ -184,6 +184,9 @@
 										extra={schema.properties[argName]}
 										title={schema.properties[argName].title}
 										placeholder={schema.properties[argName].placeholder}
+										disabled={disabledArgs.includes(argName) ||
+											disabled ||
+											schema.properties[argName].disabled}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
@@ -240,7 +243,9 @@
 										bind:order={schema.properties[argName].order}
 										nestedRequired={schema.properties[argName]?.required}
 										itemsType={schema.properties[argName].items}
-										disabled={disabledArgs.includes(argName) || disabled}
+										disabled={disabledArgs.includes(argName) ||
+											disabled ||
+											schema.properties[argName].disabled}
 										{compact}
 										{variableEditor}
 										{itemPicker}
