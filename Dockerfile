@@ -158,6 +158,9 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+# Install UV
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -166,8 +169,6 @@ RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean 
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
 ENV TZ=Etc/UTC
-
-RUN /usr/local/bin/python3 -m pip install pip-tools
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
