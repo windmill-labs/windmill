@@ -160,20 +160,17 @@ pub async fn uv_pip_compile(
         "-q",
         "--no-header",
         file,
-        "--resolver=backtracking",
         "--strip-extras",
         "-o",
         "requirements.txt",
     ];
-    let mut pip_args = vec![];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL
         .read()
         .await
         .clone()
         .map(handle_ephemeral_token);
     if let Some(url) = pip_extra_index_url.as_ref() {
-        args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
-        pip_args.push(format!("--extra-index-url {}", url));
+        args.extend(["--extra-index-url", url]);
     }
     let pip_index_url = PIP_INDEX_URL
         .read()
@@ -181,18 +178,13 @@ pub async fn uv_pip_compile(
         .clone()
         .map(handle_ephemeral_token);
     if let Some(url) = pip_index_url.as_ref() {
-        args.extend(["--index-url", url, "--no-emit-index-url"]);
-        pip_args.push(format!("--index-url {}", url));
+        args.extend(["--index-url", url]);
     }
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
     if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
         args.extend(["--cert", cert_path]);
-    }
-    let pip_args_str = pip_args.join(" ");
-    if pip_args.len() > 0 {
-        args.extend(["--pip-args", &pip_args_str]);
     }
     tracing::debug!("uv args: {:?}", args);
 
