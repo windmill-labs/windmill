@@ -17,6 +17,8 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
+#[cfg(feature = "benchmark")]
+pub mod bench;
 pub mod db;
 pub mod ee;
 pub mod error;
@@ -50,6 +52,17 @@ pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+
+#[macro_export]
+macro_rules! add_time {
+    ($bench:expr, $name:expr) => {
+        #[cfg(feature = "benchmark")]
+        {
+            $bench.add_timing($name);
+            // println!("{}: {:?}", $z, $y.elapsed());
+        }
+    };
+}
 
 lazy_static::lazy_static! {
     pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")

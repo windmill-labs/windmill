@@ -29,8 +29,7 @@ use windmill_queue::append_logs;
 use anyhow::Context;
 
 use crate::{
-    common::{process_status, start_child_process},
-    JobCompleted, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS,
+    common::start_child_process, JobCompleted, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS,
 };
 
 use futures::{future, Future};
@@ -77,6 +76,8 @@ pub async fn handle_dedicated_process(
     mode: &str,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
+
+    use crate::handle_child::process_status;
 
     let mut child = {
         let mut cmd = Command::new(command_path);
@@ -127,7 +128,7 @@ pub async fn handle_dedicated_process(
         if let Err(e) = process_status(status) {
             tracing::error!("child exit status was not success: {e:#}");
         } else {
-            tracing::info!("child exist status was success");
+            tracing::info!("child exit status was success");
         }
     });
 
