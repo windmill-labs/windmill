@@ -2291,8 +2291,7 @@ pub async fn get_result_by_id(
                 Some(job) => {
                     let restarted_from = windmill_common::utils::not_found_if_none(
                         job.parse_flow_status()
-                            .map(|status| status.restarted_from)
-                            .flatten(),
+                            .and_then(|status| status.restarted_from),
                         "Id not found in the result's mapping of the root job and root job had no restarted from information",
                         format!("parent: {}, root: {}, id: {}", flow_id, job.id, node_id),
                     )?;
@@ -2351,8 +2350,7 @@ pub async fn get_result_by_id_from_running_flow(
 
     let job_result = flow_job_result
         .leaf_jobs
-        .map(|x| serde_json::from_str(x.get()).ok())
-        .flatten();
+        .and_then(|x| serde_json::from_str(x.get()).ok());
 
     if job_result.is_none() && flow_job_result.parent_job.is_some() {
         let parent_job = flow_job_result.parent_job.unwrap();
@@ -2642,7 +2640,7 @@ pub struct PushArgsOwned {
     pub args: HashMap<String, Box<RawValue>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PushArgs<'c> {
     pub extra: Option<HashMap<String, Box<RawValue>>>,
     pub args: &'c HashMap<String, Box<RawValue>>,
@@ -3893,6 +3891,10 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     };
 
     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
+
+    let raw_flow = raw_flow.map(Json);
+    let args = Json(args);
+
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -3911,12 +3913,12 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         scheduled_for_o,
         script_hash,
         script_path.clone(),
-        raw_code,
+        raw_code.clone(),
         raw_lock,
-        Json(args) as Json<PushArgs>,
+        args.clone() as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        raw_flow.map(Json) as Option<Json<FlowValue>>,
+        raw_flow.clone() as Option<Json<FlowValue>>,
         flow_status.map(Json) as Option<Json<FlowStatus>>,
         is_flow_step,
         language as Option<ScriptLang>,
@@ -3936,6 +3938,20 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
+
+    // insert into args queue
+    sqlx::query!(
+        r#"
+        INSERT INTO job_params (id, args, raw_code, raw_flow)
+        VALUES ($1, $2, $3, $4)
+        "#,
+        uuid,
+        args as Json<PushArgs>,
+        raw_code,
+        raw_flow as Option<Json<FlowValue>>
+    )
+    .execute(&mut tx)
+    .await?;
 
     tracing::debug!("Pushed {job_id}");
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
