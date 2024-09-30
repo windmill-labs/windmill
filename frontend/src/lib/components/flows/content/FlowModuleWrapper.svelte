@@ -80,11 +80,11 @@
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}
-		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} />
+		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesOneWrapper {noEditor} {previousModule} bind:flowModule {enableAi} />
+		<FlowBranchesOneWrapper {noEditor} {previousModule} {parentModule} bind:flowModule {enableAi} />
 	{:else if flowModule.value.type === 'branchall'}
-		<FlowBranchesAllWrapper {noEditor} {previousModule} bind:flowModule />
+		<FlowBranchesAllWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<div class="p-4">
