@@ -25,7 +25,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
 };
@@ -72,7 +72,7 @@ async fn handle_ansible_python_deps(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(
+                uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,

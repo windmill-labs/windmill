@@ -26,7 +26,7 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
+use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -1280,7 +1280,7 @@ async fn python_dep(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
-    let req: std::result::Result<String, Error> = pip_compile(
+    let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
         mem_peak,

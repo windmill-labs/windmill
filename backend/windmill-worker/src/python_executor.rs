@@ -93,7 +93,7 @@ pub fn handle_ephemeral_token(x: String) -> String {
     x
 }
 
-pub async fn pip_compile(
+pub async fn uv_pip_compile(
     job_id: &Uuid,
     requirements: &str,
     mem_peak: &mut i32,
@@ -155,11 +155,15 @@ pub async fn pip_compile(
     write_file(job_dir, file, &requirements)?;
 
     let mut args = vec![
+        "pip",
+        "compile",
         "-q",
         "--no-header",
         file,
         "--resolver=backtracking",
         "--strip-extras",
+        "-o",
+        "requirements.txt",
     ];
     let mut pip_args = vec![];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL
@@ -190,15 +194,17 @@ pub async fn pip_compile(
     if pip_args.len() > 0 {
         args.extend(["--pip-args", &pip_args_str]);
     }
-    tracing::debug!("pip-compile args: {:?}", args);
+    tracing::debug!("uv args: {:?}", args);
 
-    let mut child_cmd = Command::new("pip-compile");
+    dbg!(&job_dir);
+
+    let mut child_cmd = Command::new("uv");
     child_cmd
         .current_dir(job_dir)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, "pip-compile").await?;
+    let child_process = start_child_process(child_cmd, "uv").await?;
     append_logs(&job_id, &w_id, logs, db).await;
     handle_child(
         job_id,
@@ -209,15 +215,19 @@ pub async fn pip_compile(
         false,
         worker_name,
         &w_id,
-        "pip-compile",
+        // TODO: Rename to uv-pip-compile?
+        "uv",
         None,
         false,
         occupancy_metrics,
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+
+    dbg!("UV ran nicely");
     let path_lock = format!("{job_dir}/requirements.txt");
     let mut file = File::open(path_lock).await?;
+    dbg!("file opened");
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
     let lockfile = req_content
@@ -788,7 +798,7 @@ async fn handle_python_deps(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(
+                uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,
