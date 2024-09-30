@@ -106,6 +106,11 @@
 
 		// Update the app state
 		$app = { ...$app }
+
+		$focusedGrid = {
+			parentComponentId,
+			subGridIndex
+		}
 	}
 </script>
 

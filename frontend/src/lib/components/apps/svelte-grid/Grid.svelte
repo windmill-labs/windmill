@@ -107,17 +107,20 @@
 
 	let isCtrlOrMetaPressed: boolean = false
 
+	let resizing: boolean = false
+
 	function handleKeyDown(event) {
 		if (event.key === 'Control' || event.key === 'Meta') {
+			if (resizing) {
+				return
+			}
 			isCtrlOrMetaPressed = true
 		}
 	}
 
 	function handleKeyUp(event) {
 		if (event.key === 'Control' || event.key === 'Meta') {
-			setTimeout(() => {
-				isCtrlOrMetaPressed = false
-			}, 50)
+			isCtrlOrMetaPressed = false
 		}
 	}
 
@@ -171,7 +174,8 @@
 						return item
 					})
 
-					moveItem(activeItem, fixedContainer, getComputedCols)
+					let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+					sortedItems = items
 
 					// After the move, restore the initial fixed state using the map
 					fixedContainer.forEach((item) => {
@@ -355,7 +359,7 @@
 				>
 					<div class="relative h-full w-full">
 						<div
-							class={twMerge('absolute transition-all duration-75 bg-blue-300')}
+							class={twMerge('absolute transition-all duration-[50ms] bg-blue-300')}
 							style={`
 								left: calc(${
 									Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX
@@ -377,6 +381,8 @@
 				bind:shadow={shadows[item.id]}
 				bind:this={moveResizes[item.id]}
 				on:repaint={handleRepaint}
+				on:resizeStart={() => (resizing = true)}
+				on:resizeEnd={() => (resizing = false)}
 				onTop={Boolean(allIdsInPath?.includes(item.id))}
 				id={item.id}
 				{xPerPx}

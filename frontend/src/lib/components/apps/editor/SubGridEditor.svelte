@@ -117,6 +117,11 @@
 
 		// Update the app state
 		$app = { ...$app }
+
+		$focusedGrid = {
+			parentComponentId,
+			subGridIndex
+		}
 	}
 
 	export function moveToRoot(componentId: string, position?: { x: number; y: number }) {

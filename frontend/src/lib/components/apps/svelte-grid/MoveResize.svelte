@@ -430,6 +430,7 @@
 
 		window.addEventListener('pointermove', resizePointerMove)
 		window.addEventListener('pointerup', resizePointerUp)
+		dispatch('resizeStart')
 	}
 
 	const resizePointerMove = ({ pageX, pageY }) => {
@@ -465,6 +466,7 @@
 
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
+		dispatch('resizeEnd')
 	}
 
 	function shouldDisplayShadow(overlapped: string | undefined) {
@@ -510,16 +512,23 @@
 		  } transform: translate(${left}px, ${top}px); `} "
 >
 	<slot />
-	<div class="svlt-grid-resizer-bottom" on:pointerdown={(e) => resizePointerDown(e, 'vertical')} />
-	<div class="svlt-grid-resizer-side" on:pointerdown={(e) => resizePointerDown(e, 'horizontal')} />
-	<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
+	{#if moveMode === 'move'}
+		<div
+			class="svlt-grid-resizer-bottom"
+			on:pointerdown={(e) => resizePointerDown(e, 'vertical')}
+		/>
+		<div
+			class="svlt-grid-resizer-side"
+			on:pointerdown={(e) => resizePointerDown(e, 'horizontal')}
+		/>
+		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
+	{/if}
 </div>
 
 {#if xPerPx > 0 && (active || trans) && shadow}
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			overlapped && moveMode === 'insert' ? 'svlte-grid-shadow-drop' : '',
 			shouldDisplayShadow(overlapped) ? '' : 'hidden'
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
@@ -603,13 +612,5 @@
 		backface-visibility: hidden;
 		-webkit-backface-visibility: hidden;
 		background: #93c4fdd0;
-	}
-
-	.svlte-grid-shadow-forbidden {
-		background: rgba(255, 99, 71, 0.2) !important;
-	}
-
-	.svlte-grid-shadow-drop {
-		background: rgba(0, 255, 0, 0.2) !important;
 	}
 </style>
