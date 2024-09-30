@@ -186,7 +186,7 @@
 					sortedItems = items
 
 					// After the move, restore the initial fixed state using the map
-					fixedContainer.map((item) => {
+					fixedContainer.forEach((item) => {
 						if (initialFixedStates.has(item)) {
 							const initialState = initialFixedStates.get(item)
 							item[3].fixed = initialState.item3Fixed
