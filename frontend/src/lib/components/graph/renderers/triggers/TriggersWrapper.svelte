@@ -12,7 +12,7 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import TriggerCount from './TriggerCount.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { canWrite } from '$lib/utils'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
@@ -25,11 +25,18 @@
 	export let isEditor: boolean
 	export let newFlow: boolean
 
+	let primaryScheduleExists: boolean = false
+
 	const dispatch = createEventDispatcher()
 
 	async function loadSchedules() {
 		if (!path) return
 		try {
+			primaryScheduleExists = await ScheduleService.existsSchedule({
+				workspace: $workspaceStore ?? '',
+				path
+			})
+
 			schedules = (
 				await ScheduleService.listSchedules({
 					workspace: $workspaceStore ?? '',
@@ -58,8 +65,10 @@
 		}
 	}
 
-	loadSchedules()
-	loadTriggers()
+	onMount(() => {
+		loadSchedules()
+		loadTriggers()
+	})
 
 	let drawer: Drawer | undefined = undefined
 	let selectedTab: 'webhooks' | 'mail' | 'routes' | 'schedules' = 'webhooks'
@@ -179,7 +188,7 @@
 								}
 							}}
 						>
-							<TriggerCount count={schedules?.length} />
+							<TriggerCount count={(schedules?.length ?? 0) + (primaryScheduleExists ? 1 : 0)} />
 							<Calendar size={12} />
 						</TriggerButton>
 					</Popover>

@@ -167,7 +167,8 @@ export default function graphBuilder(
 					path: triggerProps?.path,
 					openSchedules: triggerProps?.openSchedules,
 					triggerDetail: triggerProps?.triggerDetail,
-					isEditor: triggerProps?.isEditor
+					isEditor: triggerProps?.isEditor,
+					newFlow: extra.newFlow
 				}
 			}
 

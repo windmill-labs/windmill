@@ -16,7 +16,7 @@
 	export let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 
 	$: path && loadTriggers()
-	async function loadTriggers() {
+	export async function loadTriggers() {
 		try {
 			triggers = (
 				await HttpTriggerService.listHttpTriggers({

@@ -23,7 +23,7 @@
 	$: path && loadSchedule()
 	$: path && loadSchedules()
 
-	async function loadSchedule() {
+	export async function loadSchedule() {
 		try {
 			let exists = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
