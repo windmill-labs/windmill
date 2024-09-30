@@ -17,11 +17,13 @@
 	import type { FlowModule, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let parentModule: FlowModule | undefined
 	export let noEditor: boolean
 
 	let selected: string = 'early-stop'
@@ -121,6 +123,12 @@
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowModuleEarlyStop bind:flowModule={mod} />
+								</div>
+							</TabContent>
+
+							<TabContent value="skip" class="flex flex-col flex-1 h-full">
+								<div class="p-4 overflow-y-auto">
+									<FlowModuleSkip bind:flowModule={mod} {parentModule} {previousModule} />
 								</div>
 							</TabContent>
 

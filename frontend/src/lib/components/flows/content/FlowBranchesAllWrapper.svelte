@@ -14,10 +14,12 @@
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
 	export let noEditor: boolean
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let parentModule: FlowModule | undefined
 
 	let value = flowModule.value as BranchAll
 	$: value = flowModule.value as BranchAll
@@ -77,6 +79,7 @@
 					<Pane size={40}>
 						<Tabs bind:selected>
 							<Tab value="early-stop">Early Stop/Break</Tab>
+							<Tab value="skip">Skip</Tab>
 							<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
@@ -86,6 +89,11 @@
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleEarlyStop bind:flowModule />
+										</div>
+									</TabContent>
+									<TabContent value="skip" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
 										</div>
 									</TabContent>
 									<TabContent value="suspend" class="flex flex-col flex-1 h-full">
