@@ -130,9 +130,19 @@ impl Migrate for CustomMigrator {
                 migration.version,
                 migration.description
             );
-            let r = self.inner.apply(migration).await;
-            tracing::info!("Finished applying migration {}", migration.version);
-            r
+            if migration.version == 20221207103910 {
+                tracing::info!("Skipping migration 20221207103910 to avoid using md5");
+                self.inner
+                    .execute(include_str!(
+                        "../../custom_migrations/create_workspace_without_md5.sql"
+                    ))
+                    .await?;
+                return Ok(std::time::Duration::from_secs(0));
+            } else {
+                let r = self.inner.apply(migration).await;
+                tracing::info!("Finished applying migration {}", migration.version);
+                return r;
+            }
         }
         .boxed()
     }
