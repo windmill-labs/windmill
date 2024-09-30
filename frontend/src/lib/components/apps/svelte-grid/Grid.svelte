@@ -117,9 +117,10 @@
 				isCtrlOrMetaPressed = false
 
 				if (lastDetail) {
-					updateMatrix({ detail: lastDetail })
+					throttleMatrix({ detail: lastDetail })
 					lastDetail = undefined
 				}
+				$fakeShadowStore = undefined
 			}, 50)
 		}
 	}
@@ -161,10 +162,24 @@
 				}
 
 				if (isCtrlOrMetaPressed) {
-					if (detail.isPointerUp) {
-						// After the move, restore the initial fixed state using the map
+					if ($componentDraggedParentIdStore === $overlappedStore) {
+						const fixedContainer = sortedItems.map((item) => {
+							if (isContainer(item.data['type'])) {
+								initialFixedStates.set(item.id, {
+									item3Fixed: item[3].fixed,
+									item12Fixed: item[12].fixed
+								})
 
-						const restoredItems = sortedItems.map((item) => {
+								item[3].fixed = true
+								item[12].fixed = true
+							}
+
+							return item
+						})
+
+						let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+
+						items = items.map((item) => {
 							if (initialFixedStates.has(item.id)) {
 								const initialState = initialFixedStates.get(item.id)
 
@@ -173,42 +188,10 @@
 									item[12].fixed = initialState.item12Fixed
 								}
 							}
-
 							return item
 						})
 
-						initialFixedStates.clear()
-
-						if ($overlappedStore === undefined) {
-							let { items } = moveItem(activeItem, restoredItems, getComputedCols)
-							sortedItems = items
-						} else {
-							sortedItems = restoredItems
-						}
-					} else {
-						if ($componentDraggedParentIdStore !== $overlappedStore) {
-							if (initItems) {
-								sortedItems = initItems
-							}
-						} else {
-							const fixedContainer = sortedItems.map((item) => {
-								if (isContainer(item.data['type'])) {
-									initialFixedStates.set(item.id, {
-										item3Fixed: item[3].fixed,
-										item12Fixed: item[12].fixed
-									})
-
-									item[3].fixed = true
-									item[12].fixed = true
-								}
-
-								return item
-							})
-
-							let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
-
-							sortedItems = items
-						}
+						sortedItems = items
 					}
 				} else {
 					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
@@ -264,7 +247,7 @@
 			isCtrlOrMetaPressed = true
 
 			if (lastDetail) {
-				updateMatrix({ detail: lastDetail })
+				throttleMatrix({ detail: lastDetail })
 				lastDetail = undefined
 			}
 		}
@@ -317,6 +300,10 @@
 				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
 			} else {
 				items = $app.grid ?? []
+			}
+
+			if (!draggedItem) {
+				return
 			}
 
 			const freeSpace = gridHelp.findSpace(draggedItem, items, getComputedCols)
