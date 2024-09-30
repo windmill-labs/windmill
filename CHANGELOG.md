@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.402.3](https://github.com/windmill-labs/windmill/compare/v1.402.2...v1.402.3) (2024-09-30)
+
+
+### Bug Fixes
+
+* improve allowed domains setting for sso ([24f4a7c](https://github.com/windmill-labs/windmill/commit/24f4a7caaafa93f51669dcf44a3dca09d5b228bb))
+
 ## [1.402.2](https://github.com/windmill-labs/windmill/compare/v1.402.1...v1.402.2) (2024-09-28)
 
 
