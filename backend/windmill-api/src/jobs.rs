@@ -11,7 +11,6 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use windmill_common::error::JsonResult;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -19,6 +18,7 @@ use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use tower::ServiceBuilder;
+use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -70,7 +70,10 @@ use windmill_common::{
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin,
+        Pagination, StripPath,
+    },
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -293,11 +296,8 @@ pub fn workspace_unauthed_service() -> Router {
 
 pub fn global_root_service() -> Router {
     Router::new()
-    .route("/db_clock", get(get_db_clock))
-    .route(
-        "/completed/count_by_tag",
-        get(count_by_tag),
-    )
+        .route("/db_clock", get(get_db_clock))
+        .route("/completed/count_by_tag", get(count_by_tag))
 }
 
 #[derive(Deserialize)]
@@ -3234,7 +3234,7 @@ async fn run_wait_result(
     };
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
-    let mut accumulated_delay = 0 as u64;
+    let mut accumulated_delay = 0_u64;
 
     loop {
         if let Some(node_id_for_empty_return) = node_id_for_empty_return.as_ref() {
@@ -4344,11 +4344,8 @@ async fn add_batch_jobs(
                 tx = PushIsolationLevel::Transaction(ntx);
                 uuids.push(uuid);
             }
-            match tx {
-                PushIsolationLevel::Transaction(tx) => {
-                    tx.commit().await?;
-                }
-                _ => (),
+            if let PushIsolationLevel::Transaction(tx) = tx {
+                tx.commit().await?;
             }
             return Ok(Json(uuids));
         }
@@ -4683,8 +4680,8 @@ async fn get_job_update(
     .fetch_optional(&db)
     .await?;
 
-    let progress: Option<i32> = if get_progress == Some(true){
-         sqlx::query_scalar!(
+    let progress: Option<i32> = if get_progress == Some(true) {
+        sqlx::query_scalar!(
                 "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &w_id,
                  job_id,
@@ -5115,8 +5112,6 @@ async fn get_completed_job_result(
     Ok(Json(result).into_response())
 }
 
-
-
 #[derive(Deserialize)]
 struct CountByTagQuery {
     horizon_secs: Option<i64>,
@@ -5130,7 +5125,7 @@ struct TagCount {
 }
 
 async fn count_by_tag(
-    ApiAuthed { email, ..}: ApiAuthed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<CountByTagQuery>,
 ) -> JsonResult<Vec<TagCount>> {

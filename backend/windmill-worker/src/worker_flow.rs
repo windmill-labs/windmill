@@ -61,6 +61,37 @@ type DB = sqlx::Pool<sqlx::Postgres>;
 
 use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTransaction};
 
+macro_rules! fetch_one_with_fallback {
+    ($db:expr, $fetch_method:ident,  $row_type:ty, $query:literal, $( $param:expr ),* ) => {{
+        let primary_query = sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, "job_params"))
+            $(.bind($param))*
+            .fetch_one($db)
+            .await;
+
+        if let Err(sqlx::Error::RowNotFound) = primary_query {
+            // Fallback to the second query if the first query returns no result
+            sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, "queue"))
+                $(.bind($param))*
+                .fetch_one($db)
+                .await
+        } else {
+            primary_query
+        }
+    }};
+}
+
+async fn get_args_from_job_id(db: &DB, id: &Uuid) -> Result<RowArgs, Error> {
+    let args = fetch_one_with_fallback!(
+        db,
+        query_as,
+        RowArgs,
+        "SELECT args FROM {} WHERE id = $1",
+        id
+    );
+
+    args.map_err(|e| Error::InternalErr(format!("retrieval of args from state: {e:#}")))
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion<
     R: rsmq_async::RsmqConnection + Send + Sync + Clone,
@@ -229,10 +260,10 @@ pub async fn update_flow_status_after_job_completion_internal<
         })?;
 
         let old_status = serde_json::from_str::<FlowStatus>(old_status_json.flow_status.get())
-            .or_else(|e| {
-                Err(Error::InternalErr(format!(
+            .map_err(|e| {
+                Error::InternalErr(format!(
                     "requiring status to be parsable as FlowStatus: {e:?}"
-                )))
+                ))
             })?;
 
         let current_module = if let Some(x) = old_status_json.current_module {
@@ -289,7 +320,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
         // 0 length flows are not failure steps
         let is_failure_step =
-            old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
+            old_status.step >= old_status.modules.len() as i32 && !old_status.modules.is_empty();
 
         let (mut stop_early, mut skip_if_stop_early, continue_on_error) = if let Some(se) =
             stop_early_override
@@ -302,14 +333,9 @@ pub async fn update_flow_status_after_job_completion_internal<
             };
 
             let is_flow = if let Some(step) = step {
-                sqlx::query_scalar!(
-                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM queue WHERE id = $2",
+                fetch_one_with_fallback!(db, query_scalar, Option<bool>, "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2",
                     step as i32,
-                    &flow
-                )
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
+                    &flow).map_err(|e| {
                         Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
                     })?
                     .unwrap_or(false)
@@ -342,19 +368,9 @@ pub async fn update_flow_status_after_job_completion_internal<
                         }
                         _ => None,
                     };
-                    let args = sqlx::query_as::<_, RowArgs>(
-                        "SELECT
-                                        args
-                                    FROM queue
-                                    WHERE id = $2",
-                    )
-                    .bind(old_status.step)
-                    .bind(flow)
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
-                    })?;
+
+                    let args = get_args_from_job_id(db, &flow).await?;
+
                     compute_bool_from_expr(
                         expr.to_string(),
                         Marc::new(args.args.unwrap_or_default().0),
@@ -489,7 +505,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             None
                         };
 
-                        let nindex = if let Some(position) = position { 
+                        let nindex = if let Some(position) = position {
                             sqlx::query_scalar!(
                                 "UPDATE queue
                                 SET flow_status = JSONB_SET(
@@ -657,7 +673,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 flow_jobs_success,
                 flow_jobs,
                 ..
-            } if branch.to_owned() < len - 1 && (success || skip_branch_failure) => {
+            } if *branch < len - 1 && (success || skip_branch_failure) => {
                 if let Some(jobs) = flow_jobs {
                     set_success_in_flow_job_success(
                         flow_jobs_success,
@@ -854,19 +870,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     .as_ref()
                     .and_then(|m| m.stop_after_all_iters_if.as_ref().map(|x| x.expr.clone()))
                 {
-                    let args = sqlx::query_as::<_, RowArgs>(
-                        "SELECT
-                            args
-                        FROM queue
-                        WHERE id = $2",
-                    )
-                    .bind(old_status.step)
-                    .bind(flow)
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
-                    })?;
+                    let args = get_args_from_job_id(db, &flow).await?;
 
                     let should_stop = compute_bool_from_expr(
                         expr.to_string(),
@@ -1275,14 +1279,13 @@ async fn compute_skip_branchall_failure<'c>(
 }
 
 async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
-    sqlx::query_scalar::<_, Option<bool>>(
-        "SELECT raw_flow->'failure_module' != 'null'::jsonb
-        FROM queue
-        WHERE id = $1",
+    fetch_one_with_fallback!(
+        db,
+        query_scalar,
+        Option<bool>,
+        "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM {} WHERE id = $1",
+        flow
     )
-    .bind(flow)
-    .fetch_one(db)
-    .await
     .map_err(|e| {
         Error::InternalErr(format!(
             "error during retrieval of has_failure_module: {e:#}"
@@ -1622,6 +1625,7 @@ fn potentially_crash_for_testing() {
 lazy_static::lazy_static! {
     pub static ref EHM: HashMap<String, Box<RawValue>> = HashMap::new();
 }
+
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -1709,7 +1713,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     flow_job.workspace_id.as_str(),
                     flow_job.id
                 ).fetch_all(db).await?;
-                if overlapping.len() > 0 {
+                if !overlapping.is_empty() {
                     let overlapping_str = overlapping
                         .iter()
                         .map(|x| x.to_string())
