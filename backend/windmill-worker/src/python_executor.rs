@@ -188,8 +188,6 @@ pub async fn uv_pip_compile(
     }
     tracing::debug!("uv args: {:?}", args);
 
-    dbg!(&job_dir);
-
     let mut child_cmd = Command::new("uv");
     child_cmd
         .current_dir(job_dir)
@@ -216,10 +214,8 @@ pub async fn uv_pip_compile(
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
-    dbg!("UV ran nicely");
     let path_lock = format!("{job_dir}/requirements.txt");
     let mut file = File::open(path_lock).await?;
-    dbg!("file opened");
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
     let lockfile = req_content
