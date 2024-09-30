@@ -21,6 +21,7 @@
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -210,6 +211,7 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop/Break</Tab>
+					<Tab value="skip">Skip</Tab>
 					<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 					<Tab value="sleep">Sleep</Tab>
 					<Tab value="mock">Mock</Tab>
@@ -228,7 +230,11 @@
 									<FlowModuleEarlyStop bind:flowModule={mod} />
 								</div>
 							</TabContent>
-
+							<TabContent value="skip" class="flex flex-col flex-1 h-full">
+								<div class="p-4 overflow-y-auto">
+									<FlowModuleSkip bind:flowModule={mod} {parentModule} {previousModule} />
+								</div>
+							</TabContent>
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
