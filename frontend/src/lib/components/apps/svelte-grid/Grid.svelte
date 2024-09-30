@@ -457,6 +457,8 @@
 						return
 					}
 
+					lastDetail = undefined
+
 					dispatch('dropped', e.detail)
 				}}
 				width={xPerPx == 0
