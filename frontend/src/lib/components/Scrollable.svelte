@@ -14,7 +14,8 @@
 		const scrollableElement = event.target
 
 		isAtBottom =
-			scrollableElement.scrollTop + scrollableElement.offsetHeight >= scrollableElement.scrollHeight
+			scrollableElement.scrollTop + scrollableElement.offsetHeight >=
+			scrollableElement.scrollHeight - 2
 	}
 
 	function checkIfScrollable(el) {
@@ -48,7 +49,7 @@
 	</div>
 	{#if !isAtBottom && isScrollable}
 		<div
-			class="pointer-events-none absolute bottom-0 left-0 right-0 h-14 w-full bg-gradient-to-t from-surface to-transparent"
+			class="pointer-events-none absolute bottom-0 left-2 right-0 h-14 w-full bg-gradient-to-t from-surface to-transparent"
 		/>
 	{/if}
 </div>

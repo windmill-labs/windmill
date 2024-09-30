@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import { ScriptService } from '$lib/gen'
+	import { FlowService, ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
 
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor' =
+		'script'
 	export let isTemplate: boolean | undefined = undefined
 	export let selected: number | undefined = undefined
 
@@ -27,22 +28,23 @@
 	$: $workspaceStore && kind && loadItems()
 
 	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
-			kinds: kind,
-			isTemplate
-		})
+		items =
+			kind == 'flow'
+				? await FlowService.listFlows({ workspace: $workspaceStore! })
+				: await ScriptService.listScripts({
+						workspace: $workspaceStore!,
+						kinds: kind,
+						isTemplate
+				  })
 	}
 
 	export let ownerFilter:
 		| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
 		| undefined = undefined
+
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
 	}
-	$: prefilteredItems = ownerFilter
-		? items?.filter((x) => x.path.startsWith(ownerFilter?.name!))
-		: items
 
 	$: owners = Array.from(
 		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
@@ -65,24 +67,29 @@
 			dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
 		}
 	}
+
+	$: filteredWithOwner =
+		ownerFilter != undefined
+			? filteredItems?.filter((x) => x.path.startsWith(ownerFilter?.name!))
+			: filteredItems
 </script>
 
 <SearchItems
 	{filter}
-	items={prefilteredItems}
+	{items}
 	bind:filteredItems
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
 <svelte:window on:keydown={onKeyDown} />
 {#if filteredItems}
-	{#if filter.length > 0 && filteredItems.length == 0}
+	{#if filteredItems.length == 0}
 		<div class="text-2xs text-tertiary font-light text-center py-2 px-3 items-center">
-			No items found.
+			{kind == 'flow' ? 'No flows found.' : 'No scripts found.'}
 		</div>
 	{/if}
 	<ul>
-		{#each filteredItems as { path, hash, summary, marked }, index}
+		{#each filteredWithOwner ?? [] as { path, hash, summary, marked }, index}
 			<li class="w-full">
 				<button
 					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===

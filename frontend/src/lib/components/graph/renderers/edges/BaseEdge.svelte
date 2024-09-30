@@ -7,7 +7,6 @@
 	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStraightLinePath } from '../utils'
-	import InsertTriggerButton from '$lib/components/flows/map/InsertTriggerButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let sourceX: number
@@ -58,7 +57,7 @@
 			<InsertModuleButton
 				disableAi={data.disableAi}
 				index={data.index ?? 0}
-				trigger={data.enableTrigger}
+				allowTrigger={data.enableTrigger}
 				modules={data?.modules ?? []}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
@@ -89,7 +88,7 @@
 				class="edgeButtonContainer nodrag nopan"
 				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY + 2}px)"
 			>
-				<InsertTriggerButton
+				<InsertModuleButton
 					disableAi={data.disableAi}
 					on:new={(e) => {
 						data?.eventHandlers.insert({
@@ -106,6 +105,7 @@
 							detail: 'script'
 						})
 					}}
+					kind="trigger"
 					index={data?.index ?? 0}
 					modules={data?.modules ?? []}
 				/>

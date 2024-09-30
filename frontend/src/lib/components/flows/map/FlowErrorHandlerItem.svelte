@@ -97,7 +97,6 @@
 		<InsertModuleButton
 			disableAi={false}
 			index={0}
-			trigger={true}
 			placement={'top-center'}
 			on:new={(e) => {
 				insertNewPreprocessorModule(e.detail.inlineScript)
@@ -105,7 +104,7 @@
 			on:pickScript={(e) => {
 				insertNewPreprocessorModule(undefined, e.detail)
 			}}
-			failureModule={true}
+			kind="failure"
 		/>
 	{:else}
 		<button

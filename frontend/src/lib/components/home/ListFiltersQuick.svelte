@@ -6,7 +6,7 @@
 
 	export let filters: string[]
 	export let selectedFilter:
-		| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
+		| { kind: 'owner' | 'integrations'; name: string | undefined }
 		| undefined = undefined
 	$: selectedAppFilter = selectedFilter?.kind === 'integrations' ? selectedFilter?.name : undefined
 
@@ -54,17 +54,11 @@
 		queryChange(url)
 	}
 
-	$: filtersAndSelected = selectedAppFilter
-		? filters.includes(selectedAppFilter)
-			? filters
-			: [selectedAppFilter, ...filters]
-		: filters
-
 	let icon: any
 </script>
 
-{#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
-	{#each filtersAndSelected as filter (filter)}
+{#if Array.isArray(filters) && filters.length > 0}
+	{#each filters as filter (filter)}
 		<div>
 			<button
 				class={twMerge(

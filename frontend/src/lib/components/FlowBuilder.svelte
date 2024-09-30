@@ -561,6 +561,8 @@
 				kind: string
 				app: string
 				ask_id: number
+				id: number
+				version_id: number
 			}[]
 		} catch (err) {
 			if (err.name !== 'CancelError') throw err
@@ -890,7 +892,8 @@
 								const snakeKey = snakeCase(key)
 								if (
 									schemaProperty &&
-									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
+									(!$flowStore.schema ||
+										!(snakeKey in ($flowStore?.schema?.properties ?? ({} as any)))) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
 									if (schema?.required.includes(snakeKey)) {

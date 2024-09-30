@@ -19,19 +19,19 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowCopilotModule } from '../../copilot/flow'
+	import type { ComputeConfig } from 'svelte-floating-ui'
 
 	// import type { Writable } from 'svelte/store'
 
 	const dispatch = createEventDispatcher()
-	export let trigger = false
 	export let stop = false
 	export let index: number = 0
 	export let funcDesc = ''
 	export let modules: FlowModule[] = []
 	export let disableAi = false
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
-	export let preprocessorModule: boolean = false
-	export let failureModule: boolean = false
+	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
+	export let allowTrigger = true
 
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
@@ -39,32 +39,41 @@
 
 	export let placement: Placement = 'bottom-center'
 
+	let floatingConfig: ComputeConfig = {
+		strategy: 'absolute',
+		// @ts-ignore
+		placement
+	}
 	$: !open && (funcDesc = '')
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-	let selectedKind: 'action' | 'trigger' | 'approval' | 'flow' = 'action'
+	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' = kind
 	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 	let loading = false
 	let small = false
 
-	$: small = preprocessorModule || failureModule
+	$: small = kind === 'preprocessor' || kind === 'failure'
 </script>
 
 <!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
 
 <Popup
 	let:close
-	floatingConfig={{ strategy: 'absolute', placement }}
+	{floatingConfig}
 	floatingClasses="mt-2"
 	containerClasses="border rounded-lg shadow-lg  bg-surface"
 	noTransition
 >
 	<svelte:fragment slot="button">
 		<button
-			title="Add {failureModule
-				? ' failure module '
-				: preprocessorModule
-				? 'preprocessor step'
-				: 'step'}"
+			title={`Add ${
+				kind === 'failure'
+					? ' failure module '
+					: kind === 'preprocessor'
+					? 'preprocessor step'
+					: kind === 'trigger'
+					? 'trigger'
+					: 'step'
+			}`}
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
@@ -74,7 +83,11 @@
 				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
 		>
-			<Cross size={12} />
+			{#if kind === 'trigger'}
+				<Zap size={12} />
+			{:else}
+				<Cross size={12} />
+			{/if}
 		</button>
 	</svelte:fragment>
 	<div
@@ -88,19 +101,21 @@
 	>
 		<div class="flex flex-row items-center gap-2">
 			<StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
-			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
+			{#if selectedKind != 'preprocessor'}
+				<ToggleHubWorkspaceQuick bind:selected={preFilter} />
+			{/if}
 		</div>
 
-		<div class="flex flex-row grow min-h-0 gap-1">
-			{#if !preprocessorModule && !failureModule}
+		<div class="flex flex-row grow min-h-0">
+			{#if kind === 'script'}
 				<div class="flex-none flex flex-col text-xs text-primary">
 					<button
 						class={twMerge(
 							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-							selectedKind === 'action' ? 'bg-surface-hover' : ''
+							selectedKind === 'script' ? 'bg-surface-hover' : ''
 						)}
 						on:click={() => {
-							selectedKind = 'action'
+							selectedKind = 'script'
 						}}
 						role="menuitem"
 						tabindex="-1"
@@ -109,7 +124,7 @@
 						Action
 						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
 					</button>
-					{#if customUi?.triggers != false && trigger}
+					{#if customUi?.triggers != false && allowTrigger}
 						<button
 							class={twMerge(
 								'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
@@ -224,15 +239,17 @@
 			{/if}
 
 			<FlowInputsQuick
+				{selectedKind}
 				bind:loading
 				filter={funcDesc}
 				{modules}
 				{index}
 				{disableAi}
 				{funcDesc}
-				{selectedKind}
-				{failureModule}
-				{preprocessorModule}
+				{kind}
+				on:close={() => {
+					close(null)
+				}}
 				on:new
 				on:pickScript
 				on:pickFlow

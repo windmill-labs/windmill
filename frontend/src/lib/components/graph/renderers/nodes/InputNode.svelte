@@ -35,8 +35,8 @@
 			<InsertModuleButton
 				disableAi={data.disableAi}
 				index={data.index ?? 0}
-				trigger={false}
 				modules={data?.modules ?? []}
+				kind="preprocessor"
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						modules: data.modules,
@@ -54,7 +54,6 @@
 						detail: 'preprocessor'
 					})
 				}}
-				preprocessorModule={true}
 			/>
 		</div>
 	{/if}
