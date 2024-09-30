@@ -172,7 +172,7 @@
 	}
 
 	let dragClosure: (() => void) | undefined = undefined
-	const pointerdown = ({ clientX, clientY, pageX, pageY }) => {
+	const pointerdown = ({ clientX, clientY }) => {
 		dragClosure = () => {
 			dragClosure = undefined
 			ctx.componentActive.set(true)
@@ -233,11 +233,15 @@
 		| undefined = undefined
 	let currentIntersectingElementId: string | undefined = undefined
 
+	let moving: boolean = false
+
 	const pointermove = (event) => {
 		dragClosure && dragClosure()
 		event.preventDefault()
 		event.stopPropagation()
 		event.stopImmediatePropagation()
+
+		moving = true
 
 		const { clientX, clientY } = event
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
@@ -362,6 +366,10 @@
 			repaint(true, true)
 		} else {
 			dragClosure = undefined
+		}
+
+		if (!moving) {
+			return
 		}
 
 		const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY)

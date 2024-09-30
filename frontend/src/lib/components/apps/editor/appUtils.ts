@@ -281,6 +281,7 @@ export function createNewGridItem(
 
 		if (grid.length === 0) {
 			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+
 			newItem[column].x = position.x
 		} else {
 			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }

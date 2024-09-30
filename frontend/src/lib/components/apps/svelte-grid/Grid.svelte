@@ -175,7 +175,10 @@
 					})
 
 					let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
-					sortedItems = items
+
+					if ($overlappedStore === undefined) {
+						sortedItems = items
+					}
 
 					// After the move, restore the initial fixed state using the map
 					fixedContainer.forEach((item) => {
