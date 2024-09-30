@@ -8,7 +8,9 @@
 </script>
 
 <script lang="ts">
-	import type { AppViewerContext } from '../types'
+	import gridHelp from './utils/helper'
+
+	import type { AppViewerContext, GridItem } from '../types'
 	import { twMerge } from 'tailwind-merge'
 
 	import { getContainerHeight } from './utils/container'
@@ -19,6 +21,7 @@
 	import type { FilledItem } from './types'
 	import {
 		areShadowsTheSame,
+		findGridItem,
 		findGridItemParentGrid,
 		getDeltaXByComponent,
 		getDeltaYByComponent,
@@ -27,6 +30,7 @@
 		ROW_GAP_Y,
 		ROW_HEIGHT,
 		sortGridItemsPosition,
+		subGridIndexKey,
 		type GridShadow
 	} from '../editor/appUtils'
 
@@ -34,7 +38,7 @@
 
 	type T = $$Generic
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let items: FilledItem<T>[]
 	export let rowHeight: number = ROW_HEIGHT
@@ -160,7 +164,7 @@
 					}
 				}
 
-				if (isCtrlOrMetaPressed) {
+				if (isCtrlOrMetaPressed && $componentDraggedParentIdStore !== $overlappedStore) {
 					const initialFixedStates = new Map()
 
 					const fixedContainer = sortedItems.map((item) => {
@@ -259,9 +263,38 @@
 			// only update the fake shadow if the are different
 			!areShadowsTheSame($fakeShadowStore, detail.shadow)
 		) {
+			const draggedItem = sortedItems.find((item) => item.id === $componentDraggedIdStore)
+
+			if (draggedItem) {
+				draggedItem[getComputedCols].x = detail.shadow.x
+				draggedItem[getComputedCols].y = detail.shadow.y
+			}
+
+			let items: GridItem[] = []
+
+			if ($overlappedStore) {
+				const overlappedComponent = findGridItem($app, $overlappedStore)
+
+				if (!$app.subgrids) {
+					return
+				}
+
+				const index = subGridIndexKey(
+					overlappedComponent?.data?.type,
+					$overlappedStore,
+					$worldStore
+				)
+
+				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
+			} else {
+				items = $app.grid ?? []
+			}
+
+			const freeSpace = gridHelp.findSpace(draggedItem, items, getComputedCols)
+
 			$fakeShadowStore = {
-				x: detail.shadow.x,
-				y: detail.shadow.y,
+				x: freeSpace.x,
+				y: freeSpace.y,
 				xPerPx: detail.shadow.xPerPx,
 				yPerPx: detail.shadow.yPerPx,
 				w: detail.shadow.w,
