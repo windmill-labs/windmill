@@ -8,11 +8,7 @@ pub async fn get_disable_stats_setting(_db: &DB) -> bool {
     false
 }
 
-pub async fn schedule_stats(
-    _instance_name: String,
-    _db: &DB,
-    _http_client: &reqwest::Client,
-) -> () {
+pub async fn schedule_stats(_db: &DB, _http_client: &reqwest::Client) -> () {
     // stats details are closed source
 }
 
@@ -23,10 +19,17 @@ struct JobsUsage {
     count: i64,
 }
 
+pub enum SendStatsReason {
+    Manual,
+    Schedule,
+    OnStart,
+}
+
 pub async fn send_stats(
-    _instance_name: &String,
     _http_client: &reqwest::Client,
     _db: &DB,
+    _skip_job_usage: bool,
+    _reason: SendStatsReason,
 ) -> Result<()> {
     // stats details are closed source
     Ok(())
