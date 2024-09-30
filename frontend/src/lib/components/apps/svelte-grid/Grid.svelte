@@ -126,6 +126,7 @@
 	const initialFixedStates = new Map()
 
 	let initItems: FilledItem<T>[] | undefined = undefined
+
 	const updateMatrix = ({ detail }) => {
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
@@ -185,23 +186,29 @@
 							sortedItems = restoredItems
 						}
 					} else {
-						const fixedContainer = sortedItems.map((item) => {
-							if (isContainer(item.data['type'])) {
-								initialFixedStates.set(item.id, {
-									item3Fixed: item[3].fixed,
-									item12Fixed: item[12].fixed
-								})
-
-								item[3].fixed = true
-								item[12].fixed = true
+						if ($componentDraggedParentIdStore !== $overlappedStore) {
+							if (initItems) {
+								sortedItems = initItems
 							}
+						} else {
+							const fixedContainer = sortedItems.map((item) => {
+								if (isContainer(item.data['type'])) {
+									initialFixedStates.set(item.id, {
+										item3Fixed: item[3].fixed,
+										item12Fixed: item[12].fixed
+									})
 
-							return item
-						})
+									item[3].fixed = true
+									item[12].fixed = true
+								}
 
-						let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+								return item
+							})
 
-						sortedItems = items
+							let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+
+							sortedItems = items
+						}
 					}
 				} else {
 					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
@@ -452,12 +459,11 @@
 					$componentDraggedParentIdStore = undefined
 					$overlappedStore = undefined
 					$fakeShadowStore = undefined
+					lastDetail = undefined
 
 					if (!isCtrlOrMetaPressed) {
 						return
 					}
-
-					lastDetail = undefined
 
 					dispatch('dropped', e.detail)
 				}}

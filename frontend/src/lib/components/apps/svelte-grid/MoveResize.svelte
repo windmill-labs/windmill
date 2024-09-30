@@ -481,7 +481,7 @@
 		dispatch('resizeEnd')
 	}
 
-	function shouldDisplayShadow(overlapped: string | undefined) {
+	function shouldDisplayShadow(moveMode: 'insert' | 'move', overlapped: string | undefined) {
 		if (moveMode === 'move') {
 			return true
 		}
@@ -543,7 +543,7 @@
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			shouldDisplayShadow(overlapped) ? '' : 'hidden'
+			shouldDisplayShadow(moveMode, overlapped) ? '' : 'hidden'
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
