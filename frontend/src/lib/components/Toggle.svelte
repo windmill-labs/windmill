@@ -20,6 +20,8 @@
 
 	export let size: 'sm' | 'xs' = 'sm'
 
+	export let lightToogle = false
+
 	const dispatch = createEventDispatcher()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
 </script>
@@ -68,7 +70,9 @@
 				color == 'red'
 					? 'peer-checked:bg-red-600'
 					: 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500',
-				size === 'sm'
+				lightToogle
+					? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
+					: size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
 					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
 			)}

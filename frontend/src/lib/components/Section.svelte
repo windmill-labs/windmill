@@ -9,6 +9,8 @@
 	export let eeOnly = false
 	export let small: boolean = false
 
+	export let subsection: boolean = false
+
 	export let collapsable: boolean = false
 	let collapsed: boolean = true
 </script>
@@ -17,7 +19,9 @@
 	<div class="flex flex-row justify-between items-center mb-2">
 		<h2
 			class={twMerge(
-				'font-semibold flex flex-row items-center gap-1',
+				subsection ? 'font-normal' : 'font-semibold',
+				subsection ? 'text-secondary' : 'text-primary',
+				'flex flex-row items-center gap-1',
 				small ? 'text-sm' : 'text-base'
 			)}
 		>
