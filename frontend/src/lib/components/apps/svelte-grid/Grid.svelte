@@ -21,7 +21,6 @@
 	import type { FilledItem } from './types'
 	import {
 		areShadowsTheSame,
-		findGridItem,
 		findGridItemParentGrid,
 		getDeltaXByComponent,
 		getDeltaYByComponent,
@@ -272,17 +271,14 @@
 			let items: GridItem[] = []
 
 			if ($overlappedStore) {
-				const overlappedComponent = findGridItem($app, $overlappedStore)
+				const div = document.getElementById(`component-${$overlappedStore}`)
+				const type = div?.getAttribute('data-componenttype')
 
 				if (!$app.subgrids) {
 					return
 				}
 
-				const index = subGridIndexKey(
-					overlappedComponent?.data?.type,
-					$overlappedStore,
-					$worldStore
-				)
+				const index = type ? subGridIndexKey(type, $overlappedStore, $worldStore) : 0
 
 				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
 			} else {

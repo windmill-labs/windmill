@@ -507,6 +507,7 @@
 	id={divId}
 	class="svlt-grid-item"
 	data-iscontainer={type ? isContainer(type) : false}
+	data-componenttype={type}
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {xPerPx == 0 ? 0 : active ? newSize.width : width}px; height:{xPerPx == 0
 		? 0
