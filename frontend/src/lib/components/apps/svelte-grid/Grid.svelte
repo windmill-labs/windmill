@@ -128,6 +128,7 @@
 			}, 50)
 		}
 	}
+	const initialFixedStates = new Map()
 
 	let initItems: FilledItem<T>[] | undefined = undefined
 	const updateMatrix = ({ detail }) => {
@@ -164,36 +165,46 @@
 				}
 
 				if (isCtrlOrMetaPressed) {
-					const initialFixedStates = new Map()
+					if (detail.isPointerUp) {
+						// After the move, restore the initial fixed state using the map
 
-					const fixedContainer = sortedItems.map((item) => {
-						if (isContainer(item.data['type'])) {
-							initialFixedStates.set(item, {
-								item3Fixed: item[3].fixed,
-								item12Fixed: item[12].fixed
-							})
+						const restoredItems = sortedItems.map((item) => {
+							if (initialFixedStates.has(item.id)) {
+								const initialState = initialFixedStates.get(item.id)
 
-							item[3].fixed = true
-							item[12].fixed = true
-						}
+								if (initialState) {
+									item[3].fixed = initialState.item3Fixed
+									item[12].fixed = initialState.item12Fixed
+								}
+							}
 
-						return item
-					})
+							return item
+						})
 
-					let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+						initialFixedStates.clear()
 
-					sortedItems = items
+						sortedItems = restoredItems
+					} else {
+						console.log($overlappedStore, $componentDraggedParentIdStore, sortedItems)
 
-					// After the move, restore the initial fixed state using the map
-					fixedContainer.forEach((item) => {
-						if (initialFixedStates.has(item)) {
-							const initialState = initialFixedStates.get(item)
-							item[3].fixed = initialState.item3Fixed
-							item[12].fixed = initialState.item12Fixed
-						}
-					})
+						const fixedContainer = sortedItems.map((item) => {
+							if (isContainer(item.data['type'])) {
+								initialFixedStates.set(item.id, {
+									item3Fixed: item[3].fixed,
+									item12Fixed: item[12].fixed
+								})
 
-					sortedItems = sortedItems
+								item[3].fixed = true
+								item[12].fixed = true
+							}
+
+							return item
+						})
+
+						let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+
+						sortedItems = items
+					}
 				} else {
 					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
 
