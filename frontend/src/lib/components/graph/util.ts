@@ -12,11 +12,16 @@ export const NODE = {
 export function getStateColor(
 	state: FlowStatusModule['type'] | undefined,
 	isDark: boolean,
-	nonVirtualItem?: boolean
+	nonVirtualItem?: boolean,
+	isSkipped?: boolean
 ): string {
 	switch (state) {
 		case 'Success':
-			return isDark ? '#059669' : 'rgb(193, 255, 216)'
+			if (isSkipped) {
+				return isDark ? '#1E3A8A' : 'rgb(191, 219, 254)'
+			} else {
+				return isDark ? '#059669' : 'rgb(193, 255, 216)'
+			}
 		case 'Failure':
 			return isDark ? '#dc2626' : 'rgb(248 113 113)'
 		case 'InProgress':
