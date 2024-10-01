@@ -28,6 +28,7 @@ in pkgs.mkShell {
     watchexec # used in client's dev.nu
     poetry # for python client
     uv
+    python312Packages.pip-tools # pip-compile
   ];
 
   # buildInputs = with pkgs; [ xz lzma ];
