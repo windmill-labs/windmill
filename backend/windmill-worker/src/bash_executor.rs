@@ -346,7 +346,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         job_dir,
         "wrapper.ps1",
         &format!(
-            " param([string[]]$args)\n\
+            "param([string[]]$args)\n\
     $ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
     & \"{}\" -File ./main.ps1 @args 2>&1 | Tee-Object -FilePath $pipe\n\
