@@ -7,11 +7,6 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/build_windows_worker.yml"
-  # pull_request:
-  #   types: [opened, synchronize, reopened]
-  #   paths:
-  #     - "backend/**"
-  #     - ".github/workflows/backend-test.yml"
 
 env:
   CARGO_INCREMENTAL: 0
@@ -32,7 +27,6 @@ jobs:
           $ee_repo_ref = Get-Content .\backend\ee-repo-ref.txt
           echo "ee_repo_ref=$ee_repo_ref" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # Step 3: Checkout the windmill-ee-private repository with specific commit hash
       - name: Checkout windmill-ee-private repository
         uses: actions/checkout@v4
         with:
@@ -54,9 +48,13 @@ jobs:
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
           cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
+
+      # - name: Rename binary with corresponding architecture
+      #   run: |
+      #     mv ./backend/target/release/windmill.exe ./backend/target/release/windmill-ee.exe 
+
       # - name: Attach binary to release
       #   uses: softprops/action-gh-release@v2
       #   with:
       #     files: |
-
-
+      #       ./backend/target/release/windmill-ee.exe
