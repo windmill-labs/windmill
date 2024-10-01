@@ -27,13 +27,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL using Chocolatey
         run: |
-          choco install postgresql --params '/Password:changeme' -y
+          choco install postgresql --params '/Password:changeme' -y --params-global
       - name: Initialize PostgreSQL
         run: |
           # Initialize PostgreSQL, set the correct paths
-          $env:PGROOT = "${Env:ProgramFiles}\PostgreSQL\15\bin"
-          $env:PGDATA = "${Env:ProgramFiles}\PostgreSQL\15\data"
-          & $env:PGROOT\pg_ctl.exe initdb -D $env:PGDATA
+          $env:PGROOT = "${Env:ProgramFiles}\PostgreSQL\16\bin"
+          $env:PGDATA = "${Env:ProgramFiles}\PostgreSQL\16\data$env:PGDATA = "${Env:ProgramFiles}\PostgreSQL\16\data""
+          & $env:PGROOT\pg_ctl.exe initdb -D $env:PGDAT& $env:PGROOT\pg_ctl.exe initdb -D $env:PGDATAA
           & $env:PGROOT\pg_ctl.exe start -D $env:PGDATA -l logfile
       - name: cargo build windows
         timeout-minutes: 15
