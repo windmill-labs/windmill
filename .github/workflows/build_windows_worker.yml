@@ -25,27 +25,33 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      # - name: Install PostgreSQL using Chocolatey
-      #   run: |
-      #     choco install postgresql --params '/Password:changeme' -y --params-global
-      # - name: Initialize PostgreSQL
-      #   run: |
-      #     # Initialize PostgreSQL, set the correct paths
-      #     $env:PGROOT = "${Env:ProgramFiles}\PostgreSQL\16\bin"
-      #     $env:PGDATA = "${Env:ProgramFiles}\PostgreSQL\16\data"
-      #     # & $env:PGROOT\pg_ctl.exe initdb -D $env:PGDATA
-      #     # & $env:PGROOT\pg_ctl.exe start -D $env:PGDATA -l logfile
-      #     $Env:PGPASSWORD='changeme'; '\conninfo' | & $Env:PGROOT/psql.exe -Upostgres
-      #     curl https://raw.githubusercontent.com/windmill-labs/windmill/main/init-db-as-superuser.sql -o init-db-as-superuser.sql
-      #     & $env:PGROOT\psql.exe -f .\init-db-as-superuser.sql postgres://postgres:changeme@localhost:5432
-      - name: install openssl
+
+      - name: Read EE repo commit hash
+        shell: pwsh
+        run: |
+          $ee_repo_ref = Get-Content .\backend\ee-repo-ref.txt
+          echo "ee_repo_ref=$ee_repo_ref" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # Step 3: Checkout the windmill-ee-private repository with specific commit hash
+      - name: Checkout windmill-ee-private repository
+        uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Substitute EE code
+        run: |
+          ./backend/substitute_ee_code.ps1 -Copy -EECodeDir "./windmill-ee-private"
+
+
+      - name: Cargo build windows
+        timeout-minutes: 30
         run: |
           $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
-          $env:OPENSSL_DIR
-      - name: cargo build windows
-        timeout-minutes: 15
-        run: |
-          $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
-          ls $env:OPENSSL_DIR
-          mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
+          mkdir frontend/build && cd backend && \
+          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && \
+          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
 
