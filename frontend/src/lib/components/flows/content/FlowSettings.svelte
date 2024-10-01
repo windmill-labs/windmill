@@ -18,7 +18,7 @@
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
+	import ErrorHandlerToggleButtonV2 from '$lib/components/details/ErrorHandlerToggleButtonV2.svelte'
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 
@@ -272,11 +272,10 @@
 
 				<!-- Error Handler Section -->
 				<div class="flex flex-row items-center">
-					<ErrorHandlerToggleButton
+					<ErrorHandlerToggleButtonV2
 						kind="flow"
 						scriptOrFlowPath={$pathStore}
 						bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
-						iconOnly={false}
 					/>
 				</div>
 

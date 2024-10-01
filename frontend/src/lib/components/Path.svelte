@@ -24,7 +24,6 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-
 	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
 
 	type PathKind =
@@ -325,7 +324,7 @@
 		<div class="flex justify-start w-full grow">
 			<Badge
 				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+				class="center-center !bg-surface-secondary !text-tertiary !font-normal !w-[70px] !h-[24px] rounded-r-none border border-r-0"
 			>
 				Full path
 			</Badge>
@@ -334,7 +333,7 @@
 				readonly
 				value={path}
 				size={path?.length || 50}
-				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none grow"
+				class="font-mono !text-xs max-w-[calc(100%-70px)] !text-tertiary !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none grow"
 				on:focus={({ currentTarget }) => {
 					currentTarget.select()
 				}}
