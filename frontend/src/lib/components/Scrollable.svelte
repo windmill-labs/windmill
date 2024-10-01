@@ -6,7 +6,7 @@
 	let isScrollable = false
 
 	export let scrollableClass: string = ''
-
+	export let shiftedShadow: boolean = false
 	let mutationObserver: MutationObserver
 	let el: HTMLDivElement
 
@@ -49,7 +49,9 @@
 	</div>
 	{#if !isAtBottom && isScrollable}
 		<div
-			class="pointer-events-none absolute bottom-0 left-2 right-0 h-14 w-full bg-gradient-to-t from-surface to-transparent"
+			class="pointer-events-none absolute bottom-0 {shiftedShadow
+				? 'left-2'
+				: 'right-0'} h-14 w-full bg-gradient-to-t from-surface to-transparent"
 		/>
 	{/if}
 </div>

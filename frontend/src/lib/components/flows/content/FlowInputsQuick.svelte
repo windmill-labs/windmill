@@ -179,7 +179,7 @@
 <svelte:window on:keydown={onKeyDown} />
 <div class="flex flex-row grow min-w-0 divide-x relative {!small ? 'shadow-inset' : ''}">
 	{#if selectedKind != 'preprocessor'}
-		<Scrollable scrollableClass="w-32 grow-0 shrink-0 ">
+		<Scrollable shiftedShadow scrollableClass="w-32 grow-0 shrink-0 ">
 			{#if ['script', 'trigger', 'approval', 'preprocessor', 'failure'].includes(selectedKind)}
 				{#if (preFilter === 'all' && owners.length > 0) || preFilter === 'workspace'}
 					{#if preFilter !== 'workspace'}
