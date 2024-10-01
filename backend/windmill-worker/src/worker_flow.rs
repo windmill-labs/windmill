@@ -62,14 +62,14 @@ type DB = sqlx::Pool<sqlx::Postgres>;
 use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTransaction};
 
 macro_rules! fetch_one_with_fallback {
-    ($db:expr, $fetch_method:ident,  $row_type:ty, $query:literal, $( $param:expr ),* ) => {{
-        let primary_query = sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, "job_params"))
+    ($db:expr, $fetch_method:ident,  $row_type:ty, $query:literal, $table:literal ,$( $param:expr ),* ) => {{
+        let primary_query = sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, $table))
             $(.bind($param))*
             .fetch_one($db)
             .await;
 
         if let Err(sqlx::Error::RowNotFound) = primary_query {
-            // Fallback to the second query if the first query returns no result
+            tracing::info!("Data not found in job_params, falling back to fetching from queue");
             sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, "queue"))
                 $(.bind($param))*
                 .fetch_one($db)
@@ -86,6 +86,7 @@ async fn get_args_from_job_id(db: &DB, id: &Uuid) -> Result<RowArgs, Error> {
         query_as,
         RowArgs,
         "SELECT args FROM {} WHERE id = $1",
+        "job_args",
         id
     );
 
@@ -333,7 +334,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             };
 
             let is_flow = if let Some(step) = step {
-                fetch_one_with_fallback!(db, query_scalar, Option<bool>, "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2",
+                fetch_one_with_fallback!(db, query_scalar, Option<bool>, "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2","job_params",
                     step as i32,
                     &flow).map_err(|e| {
                         Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
@@ -1284,6 +1285,7 @@ async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
         query_scalar,
         Option<bool>,
         "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM {} WHERE id = $1",
+        "job_params",
         flow
     )
     .map_err(|e| {
@@ -2238,6 +2240,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .bind(&flow_job.workspace_id)
             .fetch_optional(db)
             .await?;
+        
             if let Some(raw_args) = row {
                 Ok(Marc::new(
                     raw_args.args.map(|x| x.0).unwrap_or_else(HashMap::new),
