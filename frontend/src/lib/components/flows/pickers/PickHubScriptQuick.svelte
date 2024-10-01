@@ -26,11 +26,8 @@
 		kind: HubScriptKind
 	}[] = []
 
-	let allApps: string[] = []
 	export let apps: string[] = []
-
-	$: apps = filter.length > 0 ? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort() : allApps
-
+	let allApps: string[] = []
 	$: applyFilter(filter, kind, appFilter)
 	$: getAllApps(kind)
 
@@ -42,9 +39,11 @@
 					kind: filterKind
 				})
 			).map((x) => x.name)
+			apps = allApps
 		} catch (err) {
 			console.error('Hub is not available')
 			allApps = []
+			apps = []
 			hubNotAvailable = true
 		}
 	}
@@ -67,14 +66,13 @@
 					? await ScriptService.queryHubScripts({
 							text: `${filter}`,
 							limit: 40,
-							kind: filterKind,
-							app: appFilter
+							kind: filterKind
 					  })
 					: (
 							await ScriptService.getTopHubScripts({
 								limit: 40,
-								app: appFilter,
-								kind: filterKind
+								kind: filterKind,
+								app: appFilter
 							})
 					  ).asks ?? []
 
@@ -95,6 +93,11 @@
 			if (ts === startTs) {
 				loading = false
 			}
+			if (filter.length > 0) {
+				apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort()
+			} else {
+				apps = allApps
+			}
 			hubNotAvailable = false
 		} catch (err) {
 			hubNotAvailable = true
@@ -104,11 +107,13 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
-		if (selected && selected < items?.length! && e.key === 'Enter') {
+		if (selected && items && selected >= 0 && selected < items?.length! && e.key === 'Enter') {
 			let item = items![selected]
 			dispatch('pickScript', item)
 		}
 	}
+
+	$: filteredItems = appFilter ? items.filter((x) => x.app === appFilter) : items
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -120,49 +125,39 @@
 	{#each Array(15).fill(0) as _}
 		<Skeleton layout={[0.1, [1.5]]} />
 	{/each}
-{:else if items.length > 0 && apps.length > 0}
-	{#if items.length == 0}
-		<div class="text-2xs text-tertiary font-extralight text-center py-2 px-3 items-center">
-			No items found.
-		</div>
-	{:else}
-		<ul>
-			{#each items as item, index (item.path)}
-				<li class="w-full">
-					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
-						selected
-							? 'bg-surface-hover'
-							: ''}"
-						on:click={() => dispatch('pickScript', item)}
-					>
-						<div class={classNames('flex justify-center items-center')}>
-							{#if item['app'] in APP_TO_ICON_COMPONENT}
-								<svelte:component
-									this={APP_TO_ICON_COMPONENT[item['app']]}
-									height={14}
-									width={14}
-								/>
-							{:else}
-								<div
-									class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
-								>
-									<Circle size="12" />
-								</div>
-							{/if}
-						</div>
-
-						<span class="grow truncate text-left text-2xs text-primary font-normal">
-							{item.summary ?? ''}
-						</span>
-						{#if index === selected}
-							<kbd class="!text-xs">&crarr;</kbd>
+{:else if filteredItems.length > 0 && apps.length > 0}
+	<ul>
+		{#each filteredItems as item, index (item.path)}
+			<li class="w-full">
+				<button
+					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
+					selected
+						? 'bg-surface-hover'
+						: ''}"
+					on:click={() => dispatch('pickScript', item)}
+				>
+					<div class={classNames('flex justify-center items-center')}>
+						{#if item['app'] in APP_TO_ICON_COMPONENT}
+							<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} height={14} width={14} />
+						{:else}
+							<div
+								class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
+							>
+								<Circle size="12" />
+							</div>
 						{/if}
-					</button>
-				</li>
-			{/each}
-		</ul>
-	{/if}
+					</div>
+
+					<span class="grow truncate text-left text-2xs text-primary font-normal">
+						{item.summary ?? ''}
+					</span>
+					{#if index === selected}
+						<kbd class="!text-xs">&crarr;</kbd>
+					{/if}
+				</button>
+			</li>
+		{/each}
+	</ul>
 	{#if items.length == 40}
 		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.

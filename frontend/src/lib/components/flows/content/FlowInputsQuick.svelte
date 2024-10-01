@@ -6,7 +6,7 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import { defaultScripts, enterpriseLicense, userStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
 	import { type Script, type FlowModule } from '$lib/gen'
@@ -48,17 +48,16 @@
 
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 
-	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, flowStateStore, insertButtonOpen } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const { modulesStore: copilotModulesStore, genFlow } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 
 	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined = undefined
 
-	let apps: string[] = []
+	let integrations: string[] = []
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-
-	let ownerShort: string = ''
 
 	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 		.map((l) => [defaultScriptLanguages[l], l])
@@ -159,6 +158,14 @@
 			e.preventDefault()
 		}
 	}
+
+	onMount(() => {
+		$insertButtonOpen = true
+	})
+
+	onDestroy(() => {
+		$insertButtonOpen = false
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -192,7 +199,7 @@
 									{:else}
 										<User class="mr-0.5" size={14} />
 									{/if}
-									{(ownerShort = owner).slice(2)}
+									{owner.slice(2)}
 								</button>
 							</div>
 						{/each}
@@ -207,7 +214,7 @@
 					{#if preFilter == 'all'}
 						<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Integrations</div>
 					{/if}
-					<ListFiltersQuick filters={apps} bind:selectedFilter={selected} resourceType />
+					<ListFiltersQuick filters={integrations} bind:selectedFilter={selected} resourceType />
 				{/if}
 			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
@@ -227,7 +234,7 @@
 								{:else}
 									<User class="mr-0.5" size={14} />
 								{/if}
-								{(ownerShort = owner).slice(2)}
+								{owner.slice(2)}
 							</button>
 						</div>
 					{/each}
@@ -360,7 +367,7 @@
 				<PickHubScriptQuick
 					bind:items={hubCompletions}
 					bind:filter
-					bind:apps
+					bind:apps={integrations}
 					appFilter={selected?.name}
 					kind={selectedKind}
 					selected={selectedByKeyboard - inlineScripts?.length - aiLength - filteredItems?.length}

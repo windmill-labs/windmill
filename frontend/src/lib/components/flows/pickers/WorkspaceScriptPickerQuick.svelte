@@ -63,8 +63,15 @@
 	let lockHash = false
 
 	function onKeyDown(e: KeyboardEvent) {
-		if (selected && selected < filteredItems?.length! && e.key === 'Enter') {
-			let item = filteredItems![selected]
+		if (
+			selected &&
+			filteredItems &&
+			selected >= 0 &&
+			selected < filteredItems.length &&
+			e.key === 'Enter'
+		) {
+			console.log('enter', filteredItems[selected])
+			let item = filteredItems[selected]
 			dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
 		}
 	}

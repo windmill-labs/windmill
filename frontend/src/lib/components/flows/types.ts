@@ -41,4 +41,5 @@ export type FlowEditorContext = {
 	initialPath: string
 	flowInputsStore: Writable<FlowInput>
 	customUi: FlowBuilderWhitelabelCustomUi
+	insertButtonOpen: Writable<boolean>
 }
