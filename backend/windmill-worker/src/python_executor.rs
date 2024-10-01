@@ -36,6 +36,9 @@ lazy_static::lazy_static! {
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
 
+    static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
+        .ok().map(|flag| flag == "true").unwrap_or(false);
+
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -157,7 +160,9 @@ pub async fn uv_pip_compile(
     write_file(job_dir, file, &requirements)?;
 
     // Fallback pip-compile. Will be removed in future
-    if no_uv {
+    if no_uv || *USE_PIP_COMPILE {
+        tracing::debug!("Fallback to pip-compile");
+
         let mut args = vec![
             "-q",
             "--no-header",
@@ -845,6 +850,7 @@ async fn handle_python_deps(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
+            let annotation = windmill_common::worker::get_annotation_python(inner_content);
             let mut already_visited = vec![];
 
             let requirements = windmill_parser_py_imports::parse_python_imports(
@@ -869,7 +875,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    false,
+                    annotation.no_uv,
                 )
                 .await
                 .map_err(|e| {
