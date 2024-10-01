@@ -51,7 +51,7 @@ jobs:
         timeout-minutes: 30
         run: |
           $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
-          mkdir frontend/build && cd backend && \
-          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && \
+          mkdir frontend/build && cd backend
+          New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
           cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
 
