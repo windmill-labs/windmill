@@ -24,6 +24,7 @@
 	import { SettingsIcon } from 'lucide-svelte'
 	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
 	import GenAiQuick from './GenAiQuick.svelte'
+	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -147,6 +148,19 @@
 		inlineScripts = []
 	}
 
+	const allToplevelNodes = ['For Loop', 'While Loop', 'Branch One', 'Branch All']
+	let topLevelNodes: string[] = []
+	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
+		if (funcDesc.length > 0 && preFilter == 'all') {
+			topLevelNodes = allToplevelNodes.filter((node) =>
+				node.toLowerCase().startsWith(funcDesc.toLowerCase())
+			)
+		} else {
+			topLevelNodes = []
+		}
+	}
+
+	$: computeToplevelNodeChoices(funcDesc, preFilter)
 	$: computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind)
 
 	$: aiLength =
@@ -155,7 +169,11 @@
 	let scrollable: Scrollable | undefined
 	function onKeyDown(e: KeyboardEvent) {
 		let length =
-			inlineScripts.length + aiLength + filteredWorkspaceItems.length + hubCompletions.length
+			topLevelNodes?.length +
+			inlineScripts.length +
+			aiLength +
+			filteredWorkspaceItems.length +
+			hubCompletions.length
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
 			scrollable?.scrollIntoView(selectedByKeyboard * 32)
@@ -251,6 +269,10 @@
 		</Scrollable>
 	{/if}
 	<Scrollable bind:this={scrollable} scrollableClass="grow min-w-0">
+		{#each topLevelNodes as label, i (label)}
+			<FlowToplevelNode {label} selected={selectedByKeyboard === i} />
+		{/each}
+
 		{#if inlineScripts?.length > 0}
 			<div class="pb-0 flex flex-row items-center gap-2">
 				<div class=" text-2xs font-light text-secondary ml-2">New {selectedKind} script</div>
@@ -286,7 +308,7 @@
 			{#each inlineScripts as [label, lang], i (lang)}
 				<FlowScriptPickerQuick
 					eeRestricted={!$enterpriseLicense && enterpriseLangs.includes(lang)}
-					selected={selectedByKeyboard === i}
+					selected={selectedByKeyboard === i + topLevelNodes.length}
 					{enterpriseLangs}
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
@@ -334,7 +356,7 @@
 					><GenAiQuick
 						{funcDesc}
 						lang="TypeScript"
-						selected={selectedByKeyboard === inlineScripts?.length + 0}
+						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length}
 						on:click={() => {
 							lang = 'bun'
 							onGenerate()
@@ -345,7 +367,7 @@
 					<GenAiQuick
 						{funcDesc}
 						lang="Python"
-						selected={selectedByKeyboard === inlineScripts?.length + 1}
+						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length + 1}
 						on:click={() => {
 							lang = 'python3'
 							onGenerate()
@@ -365,7 +387,7 @@
 				bind:filteredWithOwner={filteredWorkspaceItems}
 				{filter}
 				kind={selectedKind}
-				selected={selectedByKeyboard - inlineScripts?.length - aiLength}
+				selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
 				on:pickScript
 			/>
 		{/if}
@@ -384,7 +406,8 @@
 					selected={selectedByKeyboard -
 						inlineScripts?.length -
 						aiLength -
-						filteredWorkspaceItems?.length}
+						filteredWorkspaceItems?.length -
+						topLevelNodes.length}
 					on:pickScript
 					bind:loading
 				/>

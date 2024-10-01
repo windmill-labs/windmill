@@ -1,25 +1,16 @@
 <script lang="ts">
 	import { Popup } from '$lib/components/common'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import {
-		CheckCircle2,
-		Code,
-		Cross,
-		GitBranch,
-		Repeat,
-		Square,
-		Zap,
-		ChevronRight
-	} from 'lucide-svelte'
+	import { Cross, Zap } from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowCopilotModule } from '../../copilot/flow'
 	import type { ComputeConfig } from 'svelte-floating-ui'
+	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -108,132 +99,76 @@
 		<div class="flex flex-row grow min-h-0">
 			{#if kind === 'script'}
 				<div class="flex-none flex flex-col text-xs text-primary">
-					<button
-						class={twMerge(
-							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-							selectedKind === 'script' ? 'bg-surface-hover' : ''
-						)}
-						on:click={() => {
+					<TopLevelNode
+						label="Action"
+						selected={selectedKind === 'script'}
+						on:select={() => {
 							selectedKind = 'script'
 						}}
-						role="menuitem"
-						tabindex="-1"
-					>
-						<Code size={14} />
-						Action
-						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-					</button>
+					/>
 					{#if customUi?.triggers != false && allowTrigger}
-						<button
-							class={twMerge(
-								'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-								selectedKind === 'trigger' ? 'bg-surface-hover' : ''
-							)}
-							on:click={() => {
+						<TopLevelNode
+							label="Trigger"
+							selected={selectedKind === 'trigger'}
+							on:select={() => {
 								selectedKind = 'trigger'
 							}}
-							role="menuitem"
-							tabindex="-1"
-						>
-							<Zap size={14} />
-							Trigger
-							<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-						</button>
+						/>
 					{/if}
-					<button
-						class={twMerge(
-							'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-							selectedKind === 'approval' ? 'bg-surface-hover' : ''
-						)}
-						on:click={() => {
+					<TopLevelNode
+						label="Approval/Prompt"
+						selected={selectedKind === 'approval'}
+						on:select={() => {
 							selectedKind = 'approval'
 						}}
-						role="menuitem"
-						tabindex="-1"
-					>
-						<CheckCircle2 size={14} />
-						Approval/Prompt
-						<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-					</button>
-
+					/>
 					{#if customUi?.flowNode != false}
-						<button
-							class={twMerge(
-								'w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-								selectedKind === 'flow' ? 'bg-surface-hover' : ''
-							)}
-							on:click={() => {
+						<TopLevelNode
+							label="Flow"
+							selected={selectedKind === 'flow'}
+							on:select={() => {
 								selectedKind = 'flow'
 							}}
-							role="menuitem"
-						>
-							<BarsStaggered size={14} />
-							Flow
-							<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-						</button>
+						/>
 					{/if}
 					{#if stop}
-						<button
-							class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-							on:pointerdown={() => {
-								close(null)
-								dispatch('new', { kind: 'end' })
+						<TopLevelNode
+							label="End Flow"
+							selected={selectedKind === 'script'}
+							on:select={() => {
+								selectedKind = 'script'
 							}}
-							role="menuitem"
-						>
-							<Square size={14} />
-							End Flow
-						</button>
+						/>
 					{/if}
-					<button
-						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-						on:pointerdown={() => {
+
+					<TopLevelNode
+						label="For Loop"
+						on:select={() => {
 							close(null)
 							dispatch('new', { kind: 'forloop' })
 						}}
-						role="menuitem"
-					>
-						<Repeat size={14} />
-
-						For Loop
-					</button>
-					<button
-						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-						on:pointerdown={() => {
+					/>
+					<TopLevelNode
+						label="While Loop"
+						on:select={() => {
 							close(null)
 							dispatch('new', { kind: 'whileloop' })
 						}}
-						role="menuitem"
-					>
-						<Repeat size={14} />
-
-						While Loop
-					</button>
-
-					<button
-						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-						on:pointerdown={() => {
+					/>
+					<TopLevelNode
+						label="Branch to one"
+						on:select={() => {
 							close(null)
 							dispatch('new', { kind: 'branchone' })
 						}}
-						role="menuitem"
-					>
-						<GitBranch size={14} />
-						Branch to one
-					</button>
-
-					<button
-						class="w-full text-left py-2 px-1.5 hover:bg-surface-hover font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md"
-						on:pointerdown={() => {
+					/>
+					<TopLevelNode
+						label="Branch to all"
+						on:select={() => {
 							close(null)
 							dispatch('new', { kind: 'branchall' })
 						}}
-						role="menuitem"
-					>
-						<GitBranch size={14} />
-
-						Branch to all
-					</button>
+					/>
 				</div>
 			{/if}
 
