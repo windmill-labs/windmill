@@ -2528,6 +2528,7 @@ async fn extract_result_from_job_result(
                 Ok(to_raw_value(&result))
             }
         },
+
         JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
@@ -3959,11 +3960,24 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     // insert into args queue
     sqlx::query!(
         r#"
-        INSERT INTO job_params (id, args, raw_code, raw_flow, tag)
+        INSERT INTO job_args (id, workspace_id, args, tag)
+        VALUES ($1, $2, $3, $4)
+        "#,
+        uuid,
+        workspace_id,
+        args as Json<PushArgs>,
+        &tag
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO job_params (id, workspace_id, raw_code, raw_flow, tag)
         VALUES ($1, $2, $3, $4, $5)
         "#,
         uuid,
-        args as Json<PushArgs>,
+        workspace_id,
         raw_code,
         raw_flow as Option<Json<FlowValue>>,
         tag
