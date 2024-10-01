@@ -14,8 +14,19 @@
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		if (selected && event.key === 'Enter') {
-			dispatch('click')
+			click()
 		}
+	}
+
+	function click() {
+		if (eeRestricted) {
+			sendUserToast(
+				`The languages ${enterpriseLangs.join(', ')} are only available on the enterprise edition`,
+				true
+			)
+			return
+		}
+		dispatch('click')
 	}
 </script>
 
@@ -26,17 +37,7 @@
 		'px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md',
 		selected ? 'bg-surface-hover' : ''
 	)}
-	on:click={() => {
-		if (eeRestricted) {
-			sendUserToast(
-				`The languages ${enterpriseLangs.join(', ')} are only available on the enterprise edition`,
-				true
-			)
-			return
-		}
-
-		dispatch('click')
-	}}
+	on:click={click}
 	role="menuitem"
 >
 	{#if lang}
