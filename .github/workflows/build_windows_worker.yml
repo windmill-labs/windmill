@@ -48,10 +48,15 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Cargo build windows
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: |
           $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
           cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
+      # - name: Attach binary to release
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     files: |
+
 
