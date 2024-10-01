@@ -263,6 +263,7 @@
 							size="xs2"
 							btnClasses="!text-tertiary"
 							variant="contained"
+							title="Edit global default scripts"
 						/>
 					{:else}
 						<Button
