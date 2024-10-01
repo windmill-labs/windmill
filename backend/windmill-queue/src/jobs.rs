@@ -44,11 +44,13 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
     flow_status::{
-        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
-        Iterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusGetter, FlowStatusModule,
+        FlowStatusModuleWParent, Iterator, JobResult, ParsedFlowStatusGetter, RestartedFrom,
+        RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+        ParsedFlowValueGetter,
     },
     jobs::{
         get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
@@ -2271,6 +2273,20 @@ pub async fn get_result_by_id(
     node_id: String,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
+    #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
+    struct RunningFlowJobResult {
+        pub id: Uuid,
+        pub flow_status: Option<Json<Box<RawValue>>>,
+    }
+
+    impl FlowStatusGetter for RunningFlowJobResult {
+        fn get_raw_flow_status(
+            &self,
+        ) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+            self.flow_status.as_ref()
+        }
+    }
+
     match get_result_by_id_from_running_flow(
         &db,
         w_id.as_str(),
@@ -2282,11 +2298,12 @@ pub async fn get_result_by_id(
     {
         Ok(res) => Ok(res),
         Err(_) => {
-            let running_flow_job =sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
+            let running_flow_job =sqlx::query_as::<_, RunningFlowJobResult>(
+                "SELECT id, flow_status FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
             ).bind(flow_id)
             .bind(&w_id)
             .fetch_optional(&db).await?;
+
             match running_flow_job {
                 Some(job) => {
                     let restarted_from = windmill_common::utils::not_found_if_none(

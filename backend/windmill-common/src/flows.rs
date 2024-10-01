@@ -124,6 +124,20 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
 }
 
+pub trait FlowValueGetter {
+    fn get_raw_flow_value(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>>;
+}
+pub trait ParsedFlowValueGetter {
+    fn parse_raw_flow(&self) -> Option<FlowValue>;
+}
+
+impl<I: FlowValueGetter> ParsedFlowValueGetter for I {
+    fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.get_raw_flow_value()
+            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
