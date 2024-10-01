@@ -25,6 +25,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install PostgreSQL using Chocolatey
+        run: |
+          choco install postgresql --params '/Password:changeme' -y
+      - name: Initialize PostgreSQL
+        run: |
+          # Initialize PostgreSQL, set the correct paths
+          $env:PGROOT = "${Env:ProgramFiles}\PostgreSQL\15\bin"
+          $env:PGDATA = "${Env:ProgramFiles}\PostgreSQL\15\data"
+          & $env:PGROOT\pg_ctl.exe initdb -D $env:PGDATA
+          & $env:PGROOT\pg_ctl.exe start -D $env:PGDATA -l logfile
       - name: cargo build windows
         timeout-minutes: 15
         run: mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
