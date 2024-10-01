@@ -42,7 +42,8 @@
 
 	let scrollableDiv: HTMLDivElement | undefined = undefined
 
-	$: displayWorkerTagPicker = Boolean($flowStore.tag)
+	let displayWorkerTagPicker = false
+	$: $flowStore.tag ? (displayWorkerTagPicker = true) : null
 
 	$: activeAdvancedOptions = [
 		{
@@ -486,6 +487,9 @@
 							checked={displayWorkerTagPicker}
 							on:change={() => {
 								displayWorkerTagPicker = !displayWorkerTagPicker
+								if (!displayWorkerTagPicker) {
+									$flowStore.tag = undefined
+								}
 							}}
 							options={{
 								right: 'Worker Group Tag (Queue)',
@@ -497,7 +501,7 @@
 						/>
 
 						{#if displayWorkerTagPicker}
-							<WorkerTagPicker bind:tag={$flowStore.tag} />
+							<WorkerTagPicker bind:tag={$flowStore.tag} popupPlacement="top-end" />
 						{/if}
 					</div>
 
