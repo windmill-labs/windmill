@@ -15,7 +15,7 @@ on:
 
 env:
   CARGO_INCREMENTAL: 0
-  DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+  DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmilpostgres://postgres:changeme@localhost:5432/windmilll
   DISABLE_EMBEDDING: true
   RUST_LOG: info
 
@@ -36,6 +36,8 @@ jobs:
           # & $env:PGROOT\pg_ctl.exe initdb -D $env:PGDATA
           # & $env:PGROOT\pg_ctl.exe start -D $env:PGDATA -l logfile
           $Env:PGPASSWORD='changeme'; '\conninfo' | & $Env:PGROOT/psql.exe -Upostgres
+          curl https://raw.githubusercontent.com/windmill-labs/windmill/main/init-db-as-superuser.sql -o init-db-as-superuser.sql
+          & $env:PGROOT\psql.exe -f .\init-db-as-superuser.sql postgres://postgres:changeme@localhost:5432
       - name: cargo build windows
         timeout-minutes: 15
         run: mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
