@@ -25,6 +25,7 @@
 				small ? 'text-sm' : 'text-base'
 			)}
 		>
+			{label}
 			{#if collapsable}
 				<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
 					{#if collapsed}
@@ -32,10 +33,7 @@
 					{:else}
 						<ChevronDown size={16} />
 					{/if}
-					{label}
 				</button>
-			{:else}
-				{label}
 			{/if}
 
 			<slot name="header" />

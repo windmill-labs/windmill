@@ -12,7 +12,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { copyToClipboard } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { AlertTriangle, Clipboard } from 'lucide-svelte'
+	import { Clipboard } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
@@ -41,6 +41,21 @@
 
 	let scrollableDiv: HTMLDivElement | undefined = undefined
 
+	$: displayWorkerTagPicker = Boolean($flowStore.tag)
+
+	$: numberOfAdvancedOptionsOn = [
+		$flowStore.value.priority !== undefined && $flowStore.value.priority > 0,
+		Boolean($flowStore.ws_error_handler_muted),
+		Boolean($flowStore.visible_to_runner_only),
+		Boolean($flowStore.value.same_worker),
+		Boolean($flowStore.value.cache_ttl),
+		Boolean($flowStore.value.skip_expr),
+		Boolean($flowStore.value.early_return),
+		Boolean($flowStore.dedicated_worker),
+		Boolean($flowStore.value.concurrent_limit),
+		displayWorkerTagPicker
+	].filter(Boolean).length
+
 	beforeUpdate(() => {
 		if (scrollableDiv) {
 			const scrollableDistance = scrollableDiv.scrollHeight - scrollableDiv.offsetHeight
@@ -58,9 +73,9 @@
 
 <div class="h-full overflow-auto flex flex-col" bind:this={scrollableDiv}>
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-4">
+		<div class="grow min-h-0 p-4 h-full flex flex-col gap-8">
 			<!-- Metadata Section -->
-			<Section label="Metadata">
+			<Section label="Metadata" small={true}>
 				<div class="h-full gap-8 flex flex-col">
 					<Label label="Summary">
 						<MetadataGen
@@ -210,9 +225,23 @@
 			</Section>
 
 			<!-- Deployable Section -->
-			<Section label="Advanced" collapsable={true} class="h-full grow  min-h-0 flex flex-col gap-4">
+			<Section
+				label="Advanced"
+				collapsable={true}
+				small={true}
+				class="h-full grow  min-h-0 flex flex-col gap-4"
+			>
 				<!-- Metadata Advanced Section -->
 				<!-- TODO: Add EE-only badge when we have it -->
+
+				<svelte:fragment slot="header">
+					{#if numberOfAdvancedOptionsOn > 0}
+						<div
+							class="bg-blue-600 dark:bg-blue-500 w-4 h-4 rounded text-white flex items-center justify-center text-2xs"
+							>{numberOfAdvancedOptionsOn}
+						</div>
+					{/if}
+				</svelte:fragment>
 
 				<!-- Priority Section -->
 				<Toggle
@@ -232,11 +261,13 @@
 							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
 						}`
 					}}
+					textDisabled={true}
+					class="py-1 relative"
 				>
 					<svelte:fragment slot="right">
 						<input
 							type="number"
-							class="!w-16 ml-4"
+							class="!w-16 text-xs ml-4 absolute left-52"
 							disabled={$flowStore.value.priority === undefined}
 							bind:value={$flowStore.value.priority}
 							on:focus
@@ -268,14 +299,17 @@
 						rightTooltip:
 							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.'
 					}}
+					class="py-1"
+					textDisabled={true}
 				/>
 
 				<!-- Error Handler Section -->
-				<div class="flex flex-row items-center">
+				<div class="flex flex-row items-center py-1">
 					<ErrorHandlerToggleButtonV2
 						kind="flow"
 						scriptOrFlowPath={$pathStore}
 						bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
+						textDisabled={true}
 					/>
 				</div>
 
@@ -291,169 +325,194 @@
 								'pass them to the next step. Beware that the `./shared` folder is not ' +
 								'preserved across suspends and sleeps.'
 						}}
-						class="mt-2"
+						class="py-1"
+						textDisabled={true}
 					/>
 				{/if}
 
 				<!-- Cache Section -->
 				{#if customUi?.settingsTabs?.cache != false}
-					<Toggle
-						lightToogle={true}
-						size="sm"
-						checked={Boolean($flowStore.value.cache_ttl)}
-						on:change={() => {
-							if ($flowStore.value.cache_ttl && $flowStore.value.cache_ttl != undefined) {
-								$flowStore.value.cache_ttl = undefined
-							} else {
-								$flowStore.value.cache_ttl = 300
-							}
-						}}
-						options={{
-							right: 'Cache the results for each possible inputs'
-						}}
-					/>
-					{#if $flowStore.value.cache_ttl}
-						<div class="flex gap-x-4 flex-col gap-2">
-							<div class="text-xs">How long to keep the cache valid</div>
-							<div>
-								{#if $flowStore.value.cache_ttl}
-									<SecondsInput bind:seconds={$flowStore.value.cache_ttl} />
-								{:else}
-									<SecondsInput disabled />
-								{/if}
+					<div>
+						<Toggle
+							lightToogle={true}
+							size="sm"
+							checked={Boolean($flowStore.value.cache_ttl)}
+							on:change={() => {
+								if ($flowStore.value.cache_ttl && $flowStore.value.cache_ttl != undefined) {
+									$flowStore.value.cache_ttl = undefined
+								} else {
+									$flowStore.value.cache_ttl = 300
+								}
+							}}
+							options={{
+								right: 'Cache the results for each possible inputs'
+							}}
+							class="py-1"
+							textDisabled={true}
+						/>
+						{#if $flowStore.value.cache_ttl}
+							<div class="flex gap-x-4 flex-col gap-1">
+								<div class="text-sm text-secondary">How long to keep the cache valid</div>
+								<div>
+									{#if $flowStore.value.cache_ttl}
+										<SecondsInput bind:seconds={$flowStore.value.cache_ttl} />
+									{:else}
+										<SecondsInput disabled />
+									{/if}
+								</div>
 							</div>
-						</div>
-					{/if}
+						{/if}
+					</div>
 				{/if}
 
 				<!-- Early Stop Section -->
 				{#if customUi?.settingsTabs?.earlyStop != false}
-					<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
-					<Toggle
-						lightToogle={true}
-						checked={Boolean($flowStore.value.skip_expr)}
-						on:change={() => {
-							if (Boolean($flowStore.value.skip_expr) && $flowStore.value.skip_expr) {
-								$flowStore.value.skip_expr = undefined
-							} else {
-								$flowStore.value.skip_expr = 'flow_input.foo == undefined'
-							}
-						}}
-						options={{
-							right: 'Early stop if condition met',
-							rightTooltip:
-								'If defined, at the beginning of the step the predicate expression will be evaluated' +
-								'to decide if the flow should stop early.'
-						}}
-					/>
-					{#if $flowStore.value.skip_expr}
-						<div
-							class="w-full border mt-2 p-2 flex flex-col {$flowStore.value.skip_expr
-								? ''
-								: 'bg-surface-secondary'}"
-						>
-							<div class="border w-full">
-								<SimpleEditor
-									lang="javascript"
-									bind:code={$flowStore.value.skip_expr}
-									class="small-editor"
-									extraLib={`declare const flow_input = ${JSON.stringify(
-										schemaToObject(asSchema($flowStore.schema), $previewArgs)
-									)};
+					<div>
+						<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
+						<Toggle
+							lightToogle={true}
+							checked={Boolean($flowStore.value.skip_expr)}
+							on:change={() => {
+								if (Boolean($flowStore.value.skip_expr) && $flowStore.value.skip_expr) {
+									$flowStore.value.skip_expr = undefined
+								} else {
+									$flowStore.value.skip_expr = 'flow_input.foo == undefined'
+								}
+							}}
+							options={{
+								right: 'Early stop if condition met',
+								rightTooltip:
+									'If defined, at the beginning of the step the predicate expression will be evaluated' +
+									'to decide if the flow should stop early.'
+							}}
+							class="py-1"
+							textDisabled={true}
+						/>
+						{#if $flowStore.value.skip_expr}
+							<div
+								class="w-full border flex flex-col {$flowStore.value.skip_expr
+									? ''
+									: 'bg-surface-secondary'}"
+							>
+								<div class="border w-full">
+									<SimpleEditor
+										lang="javascript"
+										bind:code={$flowStore.value.skip_expr}
+										class="small-editor"
+										extraLib={`declare const flow_input = ${JSON.stringify(
+											schemaToObject(asSchema($flowStore.schema), $previewArgs)
+										)};
 									declare const WM_SCHEDULED_FOR: string;`}
-								/>
-								<div class="text-xs text-tertiary mt-2">
-									You can use the variable `flow_input` to access the inputs of the flow. <br />The
-									variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for which you
-									can use to stop early non fresh jobs:
-									<pre>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</pre>
+									/>
+									<div class="text-xs text-tertiary mt-2">
+										You can use the variable `flow_input` to access the inputs of the flow. <br
+										/>The variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for
+										which you can use to stop early non fresh jobs:
+										<pre>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</pre>
+									</div>
 								</div>
 							</div>
-						</div>
-					{/if}
+						{/if}
+					</div>
 				{/if}
 
 				<!-- Early Return Section -->
 				{#if customUi?.settingsTabs?.earlyReturn != false}
-					<Toggle
-						lightToogle={true}
-						checked={Boolean($flowStore.value.early_return)}
-						on:change={() => {
-							if (Boolean($flowStore.value.early_return) && $flowStore.value.early_return) {
-								$flowStore.value.early_return = undefined
-							} else {
-								$flowStore.value.early_return = $flowStore.value.modules?.[0]?.id ?? 'a'
-							}
-						}}
-						options={{
-							right: 'Early return sync endpoint at a top-level step',
-							rightTooltip:
-								'If defined, sync endpoints will return early at the node defined here while the rest of the flow continue asynchronously.'
-						}}
-					/>
-					{#if $flowStore.value.early_return}
-						<div
-							class="border max-w-[120px] mt-2 p-2 flex flex-col {$flowStore.value.early_return
-								? ''
-								: 'bg-surface-secondary'}"
-						>
-							<select name="oauth_name" id="oauth_name" bind:value={$flowStore.value.early_return}>
-								<option value={undefined}>Node's id</option>
-								{#each $flowStore.value?.modules?.map((x) => x.id) as name}
-									<option value={name}>{name}</option>
-								{/each}
-							</select>
-						</div>
-					{/if}
+					<div>
+						<Toggle
+							lightToogle={true}
+							checked={Boolean($flowStore.value.early_return)}
+							on:change={() => {
+								if (Boolean($flowStore.value.early_return) && $flowStore.value.early_return) {
+									$flowStore.value.early_return = undefined
+								} else {
+									$flowStore.value.early_return = $flowStore.value.modules?.[0]?.id ?? 'a'
+								}
+							}}
+							options={{
+								right: 'Early return sync endpoint at a top-level step',
+								rightTooltip:
+									'If defined, sync endpoints will return early at the node defined here while the rest of the flow continue asynchronously.'
+							}}
+							class="py-1"
+							textDisabled={true}
+						/>
+						{#if $flowStore.value.early_return}
+							<div
+								class="max-w-[120px] flex flex-col {$flowStore.value.early_return
+									? ''
+									: 'bg-surface-secondary'}"
+							>
+								<select
+									name="oauth_name"
+									id="oauth_name"
+									bind:value={$flowStore.value.early_return}
+									class="text-xs"
+								>
+									<option value={undefined}>Node's id</option>
+									{#each $flowStore.value?.modules?.map((x) => x.id) as name}
+										<option value={name}>{name}</option>
+									{/each}
+								</select>
+							</div>
+						{/if}
+					</div>
 				{/if}
 
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
-					<Label label="Worker Group Tag (Queue)">
-						<WorkerTagPicker bind:tag={$flowStore.tag} />
+					<div>
+						<Toggle
+							lightToogle={true}
+							disabled={!$enterpriseLicense}
+							size="sm"
+							checked={displayWorkerTagPicker}
+							on:change={() => {
+								displayWorkerTagPicker = !displayWorkerTagPicker
+							}}
+							options={{
+								right: 'Worker Group Tag (Queue)',
+								rightTooltip:
+									"When a worker group tag is defined at the flow level, any steps inside the flow will run on any worker group that listen to that tag, regardless of the steps tag. If no worker group tags is defined, the flow controls will be executed with the default tag 'flow' and the steps will be executed with their respective tag"
+							}}
+							class="py-1"
+							textDisabled={true}
+						/>
 
-						{#if !$enterpriseLicense}
-							<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
-								<AlertTriangle size={16} />
-								EE only
+						{#if displayWorkerTagPicker}
+							<WorkerTagPicker bind:tag={$flowStore.tag} />
+						{/if}
+					</div>
+
+					<div>
+						<Toggle
+							lightToogle={true}
+							disabled={!$enterpriseLicense || isCloudHosted()}
+							size="sm"
+							checked={Boolean($flowStore.dedicated_worker)}
+							on:change={() => {
+								if ($flowStore.dedicated_worker) {
+									$flowStore.dedicated_worker = undefined
+								} else {
+									$flowStore.dedicated_worker = true
+								}
+							}}
+							options={{
+								right: 'Flow is run on dedicated workers'
+							}}
+							class="py-1"
+							textDisabled={true}
+						/>
+						{#if $flowStore.dedicated_worker}
+							<div>
+								<Alert type="info" title="Require dedicated workers">
+									One worker in a worker group needs to be configured with dedicated worker set to: <pre
+										>{$workspaceStore}:flow/{$pathStore}</pre
+									>
+								</Alert>
 							</div>
 						{/if}
-
-						<svelte:fragment slot="header">
-							<Tooltip
-								>When a worker group tag is defined at the flow level, any steps inside the flow
-								will run on any worker group that listen to that tag, regardless of the steps' tag.
-								If no worker group tags is defined, the flow controls will be executed with the
-								default tag 'flow' and the steps will be executed with their respective tag</Tooltip
-							>
-						</svelte:fragment>
-					</Label>
-
-					<Toggle
-						lightToogle={true}
-						disabled={!$enterpriseLicense || isCloudHosted()}
-						size="sm"
-						checked={Boolean($flowStore.dedicated_worker)}
-						on:change={() => {
-							if ($flowStore.dedicated_worker) {
-								$flowStore.dedicated_worker = undefined
-							} else {
-								$flowStore.dedicated_worker = true
-							}
-						}}
-						options={{
-							right: 'Flow is run on dedicated workers'
-						}}
-					/>
-					{#if $flowStore.dedicated_worker}
-						<div class="py-2">
-							<Alert type="info" title="Require dedicated workers">
-								One worker in a worker group needs to be configured with dedicated worker set to: <pre
-									>{$workspaceStore}:flow/{$pathStore}</pre
-								>
-							</Alert>
-						</div>
-					{/if}
+					</div>
 
 					<!-- <Tooltip
 						>In this mode, every scripts of this flow is run on the workers dedicated to this flow
@@ -464,67 +523,71 @@
 
 				<!-- Concurrency Section -->
 				{#if customUi?.settingsTabs?.concurrency != false}
-					<Toggle
-						lightToogle={true}
-						disabled={!$enterpriseLicense}
-						size="sm"
-						checked={Boolean($flowStore.value.concurrent_limit)}
-						on:change={() => {
-							if ($flowStore.value.concurrent_limit) {
-								$flowStore.value.concurrent_limit = undefined
-							} else {
-								$flowStore.value.concurrent_limit = 1
-							}
-						}}
-						options={{
-							right: 'Concurrency Limits',
-							rightTooltip: 'Allowed concurrency within a given timeframe'
-						}}
-					/>
+					<div>
+						<Toggle
+							lightToogle={true}
+							disabled={!$enterpriseLicense}
+							size="sm"
+							checked={Boolean($flowStore.value.concurrent_limit)}
+							on:change={() => {
+								if ($flowStore.value.concurrent_limit) {
+									$flowStore.value.concurrent_limit = undefined
+								} else {
+									$flowStore.value.concurrent_limit = 1
+								}
+							}}
+							options={{
+								right: 'Concurrency Limits',
+								rightTooltip: 'Allowed concurrency within a given timeframe'
+							}}
+							class="py-1"
+							textDisabled={true}
+						/>
 
-					{#if $flowStore.value.concurrent_limit}
-						<div class="flex flex-col gap-4">
-							<Label label="Max number of executions within the time window">
-								<div class="flex flex-row gap-2 max-w-sm">
-									<input
+						{#if $flowStore.value.concurrent_limit}
+							<div class="flex flex-col gap-4">
+								<Label label="Max number of executions within the time window">
+									<div class="flex flex-row gap-2 max-w-sm">
+										<input
+											disabled={!$enterpriseLicense}
+											bind:value={$flowStore.value.concurrent_limit}
+											type="number"
+										/>
+										<Button
+											size="sm"
+											color="light"
+											on:click={() => {
+												$flowStore.value.concurrent_limit = undefined
+											}}
+											variant="border">Remove Limits</Button
+										>
+									</div>
+								</Label>
+								<Label label="Time window in seconds">
+									<SecondsInput
 										disabled={!$enterpriseLicense}
-										bind:value={$flowStore.value.concurrent_limit}
-										type="number"
+										bind:seconds={$flowStore.value.concurrency_time_window_s}
 									/>
-									<Button
-										size="sm"
-										color="light"
-										on:click={() => {
-											$flowStore.value.concurrent_limit = undefined
-										}}
-										variant="border">Remove Limits</Button
-									>
-								</div>
-							</Label>
-							<Label label="Time window in seconds">
-								<SecondsInput
-									disabled={!$enterpriseLicense}
-									bind:seconds={$flowStore.value.concurrency_time_window_s}
-								/>
-							</Label>
-							<Label label="Custom concurrency key (optional)">
-								<svelte:fragment slot="header">
-									<Tooltip>
-										Concurrency keys are global, you can have them be workspace specific using the
-										variable `$workspace`. You can also use an argument's value using
-										`$args[name_of_arg]`</Tooltip
-									>
-								</svelte:fragment>
-								<input
-									type="text"
-									autofocus
-									disabled={!$enterpriseLicense}
-									bind:value={$flowStore.value.concurrency_key}
-									placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
-								/>
-							</Label>
-						</div>
-					{/if}
+								</Label>
+								<Label label="Custom concurrency key (optional)">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											Concurrency keys are global, you can have them be workspace specific using the
+											variable `$workspace`. You can also use an argument's value using
+											`$args[name_of_arg]`</Tooltip
+										>
+									</svelte:fragment>
+									<input
+										type="text"
+										autofocus
+										disabled={!$enterpriseLicense}
+										bind:value={$flowStore.value.concurrency_key}
+										placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+									/>
+								</Label>
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</Section>
 		</div>
