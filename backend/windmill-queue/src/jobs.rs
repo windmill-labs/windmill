@@ -3944,7 +3944,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         email,
         visible_to_owner,
         root_job,
-        tag,
+        tag.clone(),
         concurrent_limit,
         if concurrent_limit.is_some() {  concurrency_time_window_s } else { None },
         custom_timeout,
@@ -3959,13 +3959,14 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     // insert into args queue
     sqlx::query!(
         r#"
-        INSERT INTO job_params (id, args, raw_code, raw_flow)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO job_params (id, args, raw_code, raw_flow, tag)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
         uuid,
         args as Json<PushArgs>,
         raw_code,
-        raw_flow as Option<Json<FlowValue>>
+        raw_flow as Option<Json<FlowValue>>,
+        tag
     )
     .execute(&mut tx)
     .await?;
