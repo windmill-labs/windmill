@@ -10432,7 +10432,7 @@ version = "1.403.1"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "deno_core",
  "dotenv",
@@ -10481,7 +10481,7 @@ dependencies = [
  "async_zip",
  "axum",
  "base32",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bytes",
  "candle-core",
  "candle-nn",
@@ -10556,7 +10556,7 @@ dependencies = [
 name = "windmill-api-client"
 version = "1.403.1"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "openapiv3",
  "prettyplease 0.1.25",
@@ -10876,7 +10876,7 @@ version = "1.403.1"
 dependencies = [
  "anyhow",
  "async-recursion",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bit-vec",
  "bytes",
  "chrono",
