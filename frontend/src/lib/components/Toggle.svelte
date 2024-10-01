@@ -14,7 +14,7 @@
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
-	export let color: 'blue' | 'red' = 'blue'
+	export let color: 'blue' | 'red' | 'nord' = 'blue'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 
@@ -71,7 +71,9 @@
 				"transition-all bg-surface-selected rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all ",
 				color == 'red'
 					? 'peer-checked:bg-red-600'
-					: 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500',
+					: color == 'blue'
+					? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
+					: 'peer-checked:bg-nord-300 dark:peer-checked:bg-frost-500',
 				lightToogle
 					? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
 					: size === 'sm'

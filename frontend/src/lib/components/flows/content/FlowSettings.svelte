@@ -21,6 +21,7 @@
 	import ErrorHandlerToggleButtonV2 from '$lib/components/details/ErrorHandlerToggleButtonV2.svelte'
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
+	import Badge from '$lib/components/Badge.svelte'
 
 	export let noEditor: boolean
 
@@ -43,18 +44,26 @@
 
 	$: displayWorkerTagPicker = Boolean($flowStore.tag)
 
-	$: numberOfAdvancedOptionsOn = [
-		$flowStore.value.priority !== undefined && $flowStore.value.priority > 0,
-		Boolean($flowStore.ws_error_handler_muted),
-		Boolean($flowStore.visible_to_runner_only),
-		Boolean($flowStore.value.same_worker),
-		Boolean($flowStore.value.cache_ttl),
-		Boolean($flowStore.value.skip_expr),
-		Boolean($flowStore.value.early_return),
-		Boolean($flowStore.dedicated_worker),
-		Boolean($flowStore.value.concurrent_limit),
-		displayWorkerTagPicker
-	].filter(Boolean).length
+	$: activeAdvancedOptions = [
+		{
+			name: 'High Priority',
+			active: $flowStore.value.priority !== undefined && $flowStore.value.priority > 0
+		},
+		{ name: 'Error Handler Muted', active: Boolean($flowStore.ws_error_handler_muted) },
+		{ name: 'Invisible to Others', active: Boolean($flowStore.visible_to_runner_only) },
+		{ name: 'Shared Directory', active: Boolean($flowStore.value.same_worker) },
+		{ name: 'Cache Results', active: Boolean($flowStore.value.cache_ttl) },
+		{ name: 'Early Stop', active: Boolean($flowStore.value.skip_expr) },
+		{ name: 'Early Return', active: Boolean($flowStore.value.early_return) },
+		{ name: 'Dedicated Worker', active: Boolean($flowStore.dedicated_worker) },
+		{ name: 'Concurrent Limit', active: Boolean($flowStore.value.concurrent_limit) },
+		{ name: 'Worker Tag', active: displayWorkerTagPicker }
+	]
+
+	$: numberOfAdvancedOptionsOn = activeAdvancedOptions.filter((option) => option.active).length
+	$: activeAdvancedOptionNames = activeAdvancedOptions
+		.filter((option) => option.active)
+		.map((option) => option.name)
 
 	beforeUpdate(() => {
 		if (scrollableDiv) {
@@ -71,7 +80,7 @@
 	})
 </script>
 
-<div class="h-full overflow-auto flex flex-col" bind:this={scrollableDiv}>
+<div class="h-full overflow-y-auto flex flex-col" bind:this={scrollableDiv}>
 	<FlowCard {noEditor} title="Settings">
 		<div class="grow min-h-0 p-4 h-full flex flex-col gap-8">
 			<!-- Metadata Section -->
@@ -233,18 +242,19 @@
 			>
 				<!-- Metadata Advanced Section -->
 				<!-- TODO: Add EE-only badge when we have it -->
-
-				<svelte:fragment slot="header">
+				<svelte:fragment slot="badge">
 					{#if numberOfAdvancedOptionsOn > 0}
-						<div
-							class="bg-blue-600 dark:bg-blue-500 w-4 h-4 rounded text-white flex items-center justify-center text-2xs"
-							>{numberOfAdvancedOptionsOn}
+						<div class="flex grow min-w-0 w-full flex-wrap gap-1">
+							{#each activeAdvancedOptionNames as optionName}
+								<Badge twBgColor="bg-nord-300" twTextColor="text-white">{optionName}</Badge>
+							{/each}
 						</div>
 					{/if}
 				</svelte:fragment>
 
 				<!-- Priority Section -->
 				<Toggle
+					color="nord"
 					lightToogle={true}
 					disabled={!$enterpriseLicense || isCloudHosted()}
 					checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
@@ -284,6 +294,7 @@
 
 				<!-- Visibility Section -->
 				<Toggle
+					color="nord"
 					lightToogle={true}
 					size="sm"
 					checked={Boolean($flowStore.visible_to_runner_only)}
@@ -306,6 +317,7 @@
 				<!-- Error Handler Section -->
 				<div class="flex flex-row items-center py-1">
 					<ErrorHandlerToggleButtonV2
+						color="nord"
 						kind="flow"
 						scriptOrFlowPath={$pathStore}
 						bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
@@ -316,6 +328,7 @@
 				<!-- Shared Directory Section -->
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
 					<Toggle
+						color="nord"
 						lightToogle={true}
 						bind:checked={$flowStore.value.same_worker}
 						options={{
@@ -334,6 +347,7 @@
 				{#if customUi?.settingsTabs?.cache != false}
 					<div>
 						<Toggle
+							color="nord"
 							lightToogle={true}
 							size="sm"
 							checked={Boolean($flowStore.value.cache_ttl)}
@@ -370,6 +384,7 @@
 					<div>
 						<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
 						<Toggle
+							color="nord"
 							lightToogle={true}
 							checked={Boolean($flowStore.value.skip_expr)}
 							on:change={() => {
@@ -420,6 +435,7 @@
 				{#if customUi?.settingsTabs?.earlyReturn != false}
 					<div>
 						<Toggle
+							color="nord"
 							lightToogle={true}
 							checked={Boolean($flowStore.value.early_return)}
 							on:change={() => {
@@ -463,6 +479,7 @@
 				{#if customUi?.settingsTabs?.workerGroup != false}
 					<div>
 						<Toggle
+							color="nord"
 							lightToogle={true}
 							disabled={!$enterpriseLicense}
 							size="sm"
@@ -486,6 +503,7 @@
 
 					<div>
 						<Toggle
+							color="nord"
 							lightToogle={true}
 							disabled={!$enterpriseLicense || isCloudHosted()}
 							size="sm"
@@ -525,6 +543,7 @@
 				{#if customUi?.settingsTabs?.concurrency != false}
 					<div>
 						<Toggle
+							color="nord"
 							lightToogle={true}
 							disabled={!$enterpriseLicense}
 							size="sm"

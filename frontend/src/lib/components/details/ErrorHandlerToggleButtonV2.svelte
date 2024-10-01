@@ -11,6 +11,8 @@
 	export let textDisabled = false
 	let toggleState = errorHandlerMuted
 
+	export let color: 'nord' | 'red' | 'blue' = 'nord'
+
 	async function toggleErrorHandler(): Promise<void> {
 		toggleState = !toggleState
 		if ($workspaceStore !== undefined) {
@@ -54,6 +56,7 @@
 </script>
 
 <Toggle
+	{color}
 	lightToogle={true}
 	size="sm"
 	checked={toggleState}
