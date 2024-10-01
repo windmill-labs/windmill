@@ -3,10 +3,9 @@
 	import { base } from '$lib/base'
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, beforeUpdate, afterUpdate } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import Slider from '$lib/components/Slider.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -37,9 +36,27 @@
 	}
 	let path: Path | undefined = undefined
 	let dirtyPath = false
+
+	let autoscroll = false
+
+	let scrollableDiv: HTMLDivElement | undefined = undefined
+
+	beforeUpdate(() => {
+		if (scrollableDiv) {
+			const scrollableDistance = scrollableDiv.scrollHeight - scrollableDiv.offsetHeight
+			autoscroll = scrollableDiv.scrollTop > scrollableDistance - 20
+			console.log('autoscroll', autoscroll)
+		}
+	})
+
+	afterUpdate(() => {
+		if (autoscroll && scrollableDiv) {
+			scrollableDiv.scrollTo(0, scrollableDiv.scrollHeight)
+		}
+	})
 </script>
 
-<div class="h-full overflow-auto flex flex-col">
+<div class="h-full overflow-auto flex flex-col" bind:this={scrollableDiv}>
 	<FlowCard {noEditor} title="Settings">
 		<div class="grow min-h-0 p-4 h-full flex flex-col gap-4">
 			<!-- Metadata Section -->
