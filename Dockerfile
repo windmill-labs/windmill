@@ -168,6 +168,8 @@ RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
+RUN /usr/local/bin/python3 -m pip install pip-tools
+
 ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend

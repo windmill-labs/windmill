@@ -82,6 +82,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
+                    false,
                 )
                 .await
                 .map_err(|e| {

@@ -103,6 +103,8 @@ pub async fn uv_pip_compile(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    // Fallback to pip-compile. Will be removed in future
+    no_uv: bool,
 ) -> error::Result<String> {
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
@@ -154,65 +156,136 @@ pub async fn uv_pip_compile(
 
     write_file(job_dir, file, &requirements)?;
 
-    let mut args = vec![
-        "pip",
-        "compile",
-        "-q",
-        "--no-header",
-        file,
-        "--strip-extras",
-        "-o",
-        "requirements.txt",
-    ];
-    let pip_extra_index_url = PIP_EXTRA_INDEX_URL
-        .read()
-        .await
-        .clone()
-        .map(handle_ephemeral_token);
-    if let Some(url) = pip_extra_index_url.as_ref() {
-        args.extend(["--extra-index-url", url]);
-    }
-    let pip_index_url = PIP_INDEX_URL
-        .read()
-        .await
-        .clone()
-        .map(handle_ephemeral_token);
-    if let Some(url) = pip_index_url.as_ref() {
-        args.extend(["--index-url", url]);
-    }
-    if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-        args.extend(["--trusted-host", host]);
-    }
-    if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-        args.extend(["--cert", cert_path]);
-    }
-    tracing::debug!("uv args: {:?}", args);
+    // Fallback pip-compile. Will be removed in future
+    if no_uv {
+        let mut args = vec![
+            "-q",
+            "--no-header",
+            file,
+            "--resolver=backtracking",
+            "--strip-extras",
+        ];
+        let mut pip_args = vec![];
+        let pip_extra_index_url = PIP_EXTRA_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+        if let Some(url) = pip_extra_index_url.as_ref() {
+            args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
+            pip_args.push(format!("--extra-index-url {}", url));
+        }
+        let pip_index_url = PIP_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+        if let Some(url) = pip_index_url.as_ref() {
+            args.extend(["--index-url", url, "--no-emit-index-url"]);
+            pip_args.push(format!("--index-url {}", url));
+        }
+        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+            args.extend(["--trusted-host", host]);
+        }
+        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+            args.extend(["--cert", cert_path]);
+        }
+        let pip_args_str = pip_args.join(" ");
+        if pip_args.len() > 0 {
+            args.extend(["--pip-args", &pip_args_str]);
+        }
+        tracing::debug!("pip-compile args: {:?}", args);
 
-    let mut child_cmd = Command::new("uv");
-    child_cmd
-        .current_dir(job_dir)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, "uv").await?;
-    append_logs(&job_id, &w_id, logs, db).await;
-    handle_child(
-        job_id,
-        db,
-        mem_peak,
-        canceled_by,
-        child_process,
-        false,
-        worker_name,
-        &w_id,
-        // TODO: Rename to uv-pip-compile?
-        "uv",
-        None,
-        false,
-        occupancy_metrics,
-    )
-    .await
-    .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+        let mut child_cmd = Command::new("pip-compile");
+        child_cmd
+            .current_dir(job_dir)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let child_process = start_child_process(child_cmd, "pip-compile").await?;
+        append_logs(&job_id, &w_id, logs, db).await;
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            &w_id,
+            "pip-compile",
+            None,
+            false,
+            occupancy_metrics,
+        )
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    } else {
+        let mut args = vec![
+            "pip",
+            "compile",
+            "-q",
+            "--no-header",
+            file,
+            "--strip-extras",
+            "-o",
+            "requirements.txt",
+            // Prefer main index over extra
+            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
+            // TODO: Use env variable that can be toggled from UI
+            "--index-strategy",
+            "unsafe-best-match",
+        ];
+        let pip_extra_index_url = PIP_EXTRA_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+        if let Some(url) = pip_extra_index_url.as_ref() {
+            args.extend(["--extra-index-url", url]);
+        }
+        let pip_index_url = PIP_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+        if let Some(url) = pip_index_url.as_ref() {
+            args.extend(["--index-url", url]);
+        }
+        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+            args.extend(["--trusted-host", host]);
+        }
+        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+            args.extend(["--cert", cert_path]);
+        }
+        tracing::debug!("uv args: {:?}", args);
+
+        let mut child_cmd = Command::new("uv");
+        child_cmd
+            .current_dir(job_dir)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let child_process = start_child_process(child_cmd, "uv").await?;
+        append_logs(&job_id, &w_id, logs, db).await;
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            &w_id,
+            // TODO: Rename to uv-pip-compile?
+            "uv",
+            None,
+            false,
+            occupancy_metrics,
+        )
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    }
 
     let path_lock = format!("{job_dir}/requirements.txt");
     let mut file = File::open(path_lock).await?;
@@ -796,6 +869,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
+                    false,
                 )
                 .await
                 .map_err(|e| {
