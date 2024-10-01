@@ -131,7 +131,7 @@
 		preFilter: 'all' | 'workspace' | 'hub',
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
-		if (['script', 'trigger', 'approval', 'preprocessor'].includes(selectedKind)) {
+		if (['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)) {
 			if (!selected && preFilter == 'all') {
 				inlineScripts = langs.filter((lang) => {
 					return (
@@ -191,7 +191,7 @@
 							<div
 								in:fade={{ duration: 50 }}
 								animate:flip={{ duration: 100 }}
-								class="w-full px-0.5"
+								class="w-full px-0.5 pb-1.5"
 							>
 								<button
 									class={twMerge(
@@ -220,7 +220,7 @@
 
 				{#if preFilter === 'hub' || preFilter === 'all'}
 					{#if preFilter == 'all'}
-						<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Integrations</div>
+						<div class="pb-0 text-2xs font-light text-secondary ml-2 pt-0.5">Integrations</div>
 					{/if}
 					<ListFiltersQuick filters={integrations} bind:selectedFilter={selected} resourceType />
 				{/if}
