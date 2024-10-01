@@ -38,6 +38,12 @@ jobs:
       #     $Env:PGPASSWORD='changeme'; '\conninfo' | & $Env:PGROOT/psql.exe -Upostgres
       #     curl https://raw.githubusercontent.com/windmill-labs/windmill/main/init-db-as-superuser.sql -o init-db-as-superuser.sql
       #     & $env:PGROOT\psql.exe -f .\init-db-as-superuser.sql postgres://postgres:changeme@localhost:5432
+      - name: install openssl
+        run: |
+          vcpkg.exe install openssl-windows:x64-windows
+          vcpkg.exe install openssl:x64-windows-static
+          vcpkg.exe integrate install
+          $env:OPENSSL_DIR="$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static"
       - name: cargo build windows
         timeout-minutes: 15
         run: mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
