@@ -35,9 +35,9 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
+    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult, ParsedFlowStatusGetter,
 };
-use windmill_common::flows::add_virtual_items_if_necessary;
+use windmill_common::flows::{add_virtual_items_if_necessary, ParsedFlowValueGetter};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
     RawCode, ENTRYPOINT_OVERRIDE,

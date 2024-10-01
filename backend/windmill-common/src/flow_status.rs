@@ -45,6 +45,20 @@ pub struct FlowStatus {
     pub restarted_from: Option<RestartedFrom>,
 }
 
+pub trait FlowStatusGetter {
+    fn get_raw_flow_status(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>>;
+}
+pub trait ParsedFlowStatusGetter {
+    fn parse_flow_status(&self) -> Option<FlowStatus>;
+}
+
+impl<I: FlowStatusGetter> ParsedFlowStatusGetter for I {
+    fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.get_raw_flow_status()
+            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct RetryStatus {

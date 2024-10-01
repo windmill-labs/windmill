@@ -15,8 +15,8 @@ pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
 
 use crate::{
     error::{self, to_anyhow, Error},
-    flow_status::{FlowStatus, RestartedFrom},
-    flows::{FlowValue, Retry},
+    flow_status::{FlowStatusGetter, RestartedFrom},
+    flows::{FlowValue, FlowValueGetter, Retry},
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
     worker::{to_raw_value, TMP_DIR},
@@ -119,10 +119,7 @@ pub struct QueuedJob {
 
 impl QueuedJob {
     pub fn script_path(&self) -> &str {
-        self.script_path
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("tmp/main")
+        self.script_path.as_deref().unwrap_or("tmp/main")
     }
     pub fn is_flow(&self) -> bool {
         matches!(
@@ -139,19 +136,17 @@ impl QueuedJob {
             self.script_path()
         )
     }
+}
 
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow.as_ref().and_then(|v| {
-            let str = (**v).get();
-            // tracing::error!("raw_flow: {}", str);
-            return serde_json::from_str::<FlowValue>(str).ok();
-        })
+impl FlowValueGetter for QueuedJob {
+    fn get_raw_flow_value(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+        self.raw_flow.as_ref()
     }
+}
 
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+impl FlowStatusGetter for QueuedJob {
+    fn get_raw_flow_status(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+        self.flow_status.as_ref()
     }
 }
 
@@ -269,17 +264,17 @@ impl CompletedJob {
             .map(|r| serde_json::from_str(r.get()).ok())
             .flatten()
     }
+}
 
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
+impl FlowValueGetter for CompletedJob {
+    fn get_raw_flow_value(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+        self.raw_flow.as_ref()
     }
+}
 
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+impl FlowStatusGetter for CompletedJob {
+    fn get_raw_flow_status(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+        self.flow_status.as_ref()
     }
 }
 

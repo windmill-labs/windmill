@@ -19,6 +19,7 @@ use tokio::{
     sync::{mpsc, RwLock},
 };
 
+use uuid::Uuid;
 #[cfg(feature = "embedding")]
 use windmill_api::embeddings::update_embeddings_db;
 use windmill_api::{
@@ -32,7 +33,7 @@ use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
     error,
-    flow_status::FlowStatusModule,
+    flow_status::{FlowStatusModule, ParsedFlowStatusGetter as _},
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
@@ -1425,7 +1426,7 @@ async fn handle_zombie_flows(
                 }
             );
             report_critical_error(reason.clone(), db.clone()).await;
-            cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
+            cancel_zombie_flow_job(db, &flow.id, &flow.workspace_id, &rsmq, reason).await?;
         }
     }
 
@@ -1441,11 +1442,17 @@ async fn handle_zombie_flows(
     .fetch_all(db)
     .await?;
 
+    #[derive(sqlx::FromRow, Debug)]
+    struct InQueueJobResult {
+        id: uuid::Uuid,
+        workspace_id: String,
+    }
+
     for flow in flows2 {
-        let in_queue = sqlx::query_as::<_, QueuedJob>(
-            "SELECT * FROM queue WHERE id = $1 AND running = true AND canceled = false",
+        let in_queue = sqlx::query_as!(InQueueJobResult,
+            "SELECT id, workspace_id FROM queue WHERE id = $1 AND running = true AND canceled = false",
+            flow.parent_flow_id
         )
-        .bind(flow.parent_flow_id)
         .fetch_optional(db)
         .await?;
         if let Some(job) = in_queue {
@@ -1455,7 +1462,7 @@ async fn handle_zombie_flows(
                 job.workspace_id,
                 flow.last_ping
             );
-            cancel_zombie_flow_job(db, job, &rsmq,
+            cancel_zombie_flow_job(db, &job.id, &job.workspace_id, &rsmq,
                 format!("Flow {} cancelled as one of the parallel branch {} was unable to make the last transition ", flow.parent_flow_id, flow.job_id))
                 .await?;
         } else {
@@ -1467,21 +1474,22 @@ async fn handle_zombie_flows(
 
 async fn cancel_zombie_flow_job(
     db: &Pool<Postgres>,
-    flow: QueuedJob,
+    job_id: &Uuid,
+    workspace_id: &str,
     rsmq: &Option<MultiplexedRsmq>,
     message: String,
 ) -> Result<(), error::Error> {
     let tx = db.begin().await.unwrap();
     tracing::error!(
         "zombie flow detected: {} in workspace {}. Cancelling it.",
-        flow.id,
-        flow.workspace_id
+        job_id,
+        workspace_id
     );
     let (ntx, _) = cancel_job(
         "monitor",
         Some(message),
-        flow.id,
-        flow.workspace_id.as_str(),
+        *job_id,
+        workspace_id,
         tx,
         db,
         rsmq.clone(),
