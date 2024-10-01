@@ -73,7 +73,7 @@
 					? 'peer-checked:bg-red-600'
 					: color == 'blue'
 					? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
-					: 'peer-checked:bg-nord-300 dark:peer-checked:bg-frost-500',
+					: 'peer-checked:bg-nord-300 dark:peer-checked:bg-nord-500',
 				lightToogle
 					? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
 					: size === 'sm'
