@@ -14,7 +14,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 
 export type FlowCopilotModule = {
 	id: string
-	type: 'trigger' | 'script' | 'preprocessor' | 'failure'
+	type: 'trigger' | 'script' 
 	description: string
 	code: string
 	source: 'hub' | 'custom' | undefined
@@ -107,66 +107,66 @@ To maintain state across runs, you can use get_state() and set_state(value) whic
 }
 
 
-const preprocessorPrompts: {
-	bun: string
-	python3: string
-} = {
-	bun: `I'm building a workflow which is a sequence of script steps. Write the preprocessor step in {codeLang} which should check for {description} and return an array.
-The preprocessor step is executed before flow begins to map trigger specific inputs to the flow inputs.
+// const preprocessorPrompts: {
+// 	bun: string
+// 	python3: string
+// } = {
+// 	bun: `I'm building a workflow which is a sequence of script steps. Write the preprocessor step in {codeLang} which should check for {description} and return an array.
+// The preprocessor step is executed before flow begins to map trigger specific inputs to the flow inputs.
 
-Here is an example of what the preprocessor step should look like:
-\`\`\`{codeLang}
-export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string>
-			query: Record<string, string>
-			headers: Record<string, string>
-		}
-	},
-	/* your other args */ 
-) {
-	return {
-		// return the args to be passed to the flow
-	}
-}
-\`\`\`
+// Here is an example of what the preprocessor step should look like:
+// \`\`\`{codeLang}
+// export async function preprocessor(
+// 	wm_trigger: {
+// 		kind: 'http' | 'email' | 'webhook',
+// 		http?: {
+// 			route: string // The route path, e.g. "/users/:id"
+// 			path: string // The actual path called, e.g. "/users/123"
+// 			method: string
+// 			params: Record<string, string>
+// 			query: Record<string, string>
+// 			headers: Record<string, string>
+// 		}
+// 	},
+// 	/* your other args */ 
+// ) {
+// 	return {
+// 		// return the args to be passed to the flow
+// 	}
+// }
+// \`\`\`
 
-{additionalInformation}`,
-	python3: `I'm building a workflow which is a sequence of script steps. Write the preprocessor step in {codeLang} which should check for {description} and return an array.
-The preprocessor step is executed before flow begins to map trigger specific inputs to the flow inputs.
+// {additionalInformation}`,
+// 	python3: `I'm building a workflow which is a sequence of script steps. Write the preprocessor step in {codeLang} which should check for {description} and return an array.
+// The preprocessor step is executed before flow begins to map trigger specific inputs to the flow inputs.
 
-Here is an example of what the preprocessor step should look like:
-\`\`\`{codeLang}
-from typing import TypedDict, Literal
+// Here is an example of what the preprocessor step should look like:
+// \`\`\`{codeLang}
+// from typing import TypedDict, Literal
 
-class Http(TypedDict):
-	route: str # The route path, e.g. "/users/:id"
-	path: str # The actual path called, e.g. "/users/123"
-	method: str
-	params: dict[str, str]
-	query: dict[str, str]
-	headers: dict[str, str]
+// class Http(TypedDict):
+// 	route: str # The route path, e.g. "/users/:id"
+// 	path: str # The actual path called, e.g. "/users/123"
+// 	method: str
+// 	params: dict[str, str]
+// 	query: dict[str, str]
+// 	headers: dict[str, str]
 
-class WmTrigger(TypedDict):
-    kind: Literal["http", "email", "webhook"]
-    http: Http | None
+// class WmTrigger(TypedDict):
+//     kind: Literal["http", "email", "webhook"]
+//     http: Http | None
 
-def preprocessor(
-	wm_trigger: WmTrigger,
-	# your other args
-):
-	return {
-		# return the args to be passed to the flow
-	}
-\`\`\`
+// def preprocessor(
+// 	wm_trigger: WmTrigger,
+// 	# your other args
+// ):
+// 	return {
+// 		# return the args to be passed to the flow
+// 	}
+// \`\`\`
 
-{additionalInformation}`
-}
+// {additionalInformation}`
+// }
 
 
 const firstActionPrompt = `I'm building a workflow which is a sequence of script steps. Write a script in {codeLang} which should {description}.
@@ -265,9 +265,9 @@ export async function stepCopilot(
 	let prompt =
 		module.type === 'trigger'
 			? triggerPrompts[lang]
-			: module.type === 'preprocessor'
-				? preprocessorPrompts[lang]
-				: pastModule === undefined
+			// : module.type === 'preprocessor'
+			// 	? preprocessorPrompts[lang]
+			: pastModule === undefined
 			? firstActionPrompt
 			: isFirstInLoop
 			? loopActionPrompt
