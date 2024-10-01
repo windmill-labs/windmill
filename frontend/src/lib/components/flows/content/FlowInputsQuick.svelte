@@ -133,15 +133,14 @@
 	) {
 		if (['script', 'trigger', 'approval', 'preprocessor'].includes(selectedKind)) {
 			if (!selected && preFilter == 'all') {
-				inlineScripts = langs.filter(
-					(lang) =>
-						((customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) &&
-							(funcDesc?.length == 0 ||
-								lang?.[0]?.toLowerCase()?.includes(funcDesc?.toLowerCase())) &&
-							displayLang(lang?.[1], selectedKind) &&
-							!enterpriseLangs.includes(lang?.[1] || '')) ||
-						!!$enterpriseLicense
-				)
+				inlineScripts = langs.filter((lang) => {
+					return (
+						(customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) &&
+						(funcDesc?.length == 0 ||
+							lang?.[0]?.toLowerCase()?.includes(funcDesc?.toLowerCase())) &&
+						displayLang(lang?.[1], selectedKind)
+					)
+				})
 				return
 			}
 		}
@@ -285,7 +284,9 @@
 			{/if}
 			{#each inlineScripts as [label, lang], i (lang)}
 				<FlowScriptPickerQuick
+					eeRestricted={!$enterpriseLicense && enterpriseLangs.includes(lang)}
 					selected={selectedByKeyboard === i}
+					{enterpriseLangs}
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
 					on:click={() => {
