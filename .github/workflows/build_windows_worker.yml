@@ -40,12 +40,12 @@ jobs:
       #     & $env:PGROOT\psql.exe -f .\init-db-as-superuser.sql postgres://postgres:changeme@localhost:5432
       - name: install openssl
         run: |
-          # vcpkg.exe install openssl-windows:x64-windows
-          # vcpkg.exe install openssl:x64-windows-static
-          # vcpkg.exe integrate install
-          ls ${Env:ProgramFiles}\OpenSSL
           $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
+          $env:OPENSSL_DIR
       - name: cargo build windows
         timeout-minutes: 15
-        run: mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
+        run: |
+          $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
+          ls $env:OPENSSL_DIR
+          mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
 
