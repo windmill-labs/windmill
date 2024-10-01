@@ -35,7 +35,7 @@ jobs:
           $env:PGDATA = "${Env:ProgramFiles}\PostgreSQL\16\data"
           # & $env:PGROOT\pg_ctl.exe initdb -D $env:PGDATA
           # & $env:PGROOT\pg_ctl.exe start -D $env:PGDATA -l logfile
-          $Env:PGPASSWORD='changme'; '\conninfo' | & $Env:PGROOT/psql.exe -Upostgres
+          $Env:PGPASSWORD='changeme'; '\conninfo' | & $Env:PGROOT/psql.exe -Upostgres
       - name: cargo build windows
         timeout-minutes: 15
         run: mkdir frontend/build && cd backend && New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force && cargo build --release
