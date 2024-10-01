@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.403.1](https://github.com/windmill-labs/windmill/compare/v1.403.0...v1.403.1) (2024-10-01)
+
+
+### Bug Fixes
+
+* fix new instance db setup ([73ab8e1](https://github.com/windmill-labs/windmill/commit/73ab8e1653d6e0c0c69fa7dcd96583f25d13ef86))
+
 ## [1.403.0](https://github.com/windmill-labs/windmill/compare/v1.402.3...v1.403.0) (2024-10-01)
 
 
