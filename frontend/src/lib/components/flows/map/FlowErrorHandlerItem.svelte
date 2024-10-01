@@ -17,7 +17,7 @@
 	const { selectedId, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	async function insertNewPreprocessorModule(
+	async function insertNewFailureModule(
 		inlineScript?: {
 			language: RawScript['language']
 			subkind: 'pgsql' | 'flow'
@@ -36,7 +36,7 @@
 		if (inlineScript) {
 			;[module, state] = await createInlineScriptModule(
 				inlineScript.language,
-				'script',
+				'failure',
 				inlineScript.subkind,
 				'failure'
 			)
@@ -99,10 +99,10 @@
 			index={0}
 			placement={'top-center'}
 			on:new={(e) => {
-				insertNewPreprocessorModule(e.detail.inlineScript)
+				insertNewFailureModule(e.detail.inlineScript)
 			}}
 			on:pickScript={(e) => {
-				insertNewPreprocessorModule(undefined, e.detail)
+				insertNewFailureModule(undefined, e.detail)
 			}}
 			kind="failure"
 		/>
