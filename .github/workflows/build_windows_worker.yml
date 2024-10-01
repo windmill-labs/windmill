@@ -43,9 +43,9 @@ jobs:
           fetch-depth: 0
 
       - name: Substitute EE code
+        shell: bash
         run: |
-          ./backend/substitute_ee_code.ps1 -Copy -EECodeDir "./windmill-ee-private"
-
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Cargo build windows
         timeout-minutes: 30
