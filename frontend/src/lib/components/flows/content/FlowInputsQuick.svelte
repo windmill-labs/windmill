@@ -44,7 +44,7 @@
 	let lang: FlowCopilotModule['lang'] = undefined
 	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
 
-	let filteredItems: (Script & { marked?: string })[] = []
+	let filteredWorkspaceItems: (Script & { marked?: string })[] = []
 
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 
@@ -113,6 +113,14 @@
 
 	let selectedByKeyboard = 0
 
+	$: onSelectedKindChange(selectedKind)
+
+	function onSelectedKindChange(
+		_selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
+	) {
+		selectedByKeyboard = 0
+	}
+
 	let inlineScripts: [string, SupportedLanguage | 'docker'][] = []
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
@@ -147,7 +155,8 @@
 
 	let scrollable: Scrollable | undefined
 	function onKeyDown(e: KeyboardEvent) {
-		let length = inlineScripts.length + aiLength + filteredItems.length + hubCompletions.length
+		let length =
+			inlineScripts.length + aiLength + filteredWorkspaceItems.length + hubCompletions.length
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
 			scrollable?.scrollIntoView(selectedByKeyboard * 32)
@@ -351,7 +360,7 @@
 			<WorkspaceScriptPickerQuick
 				bind:owners
 				bind:ownerFilter={selected}
-				bind:filteredItems
+				bind:filteredWithOwner={filteredWorkspaceItems}
 				{filter}
 				kind={selectedKind}
 				selected={selectedByKeyboard - inlineScripts?.length - aiLength}
@@ -370,7 +379,10 @@
 					bind:apps={integrations}
 					appFilter={selected?.name}
 					kind={selectedKind}
-					selected={selectedByKeyboard - inlineScripts?.length - aiLength - filteredItems?.length}
+					selected={selectedByKeyboard -
+						inlineScripts?.length -
+						aiLength -
+						filteredWorkspaceItems?.length}
 					on:pickScript
 					bind:loading
 				/>

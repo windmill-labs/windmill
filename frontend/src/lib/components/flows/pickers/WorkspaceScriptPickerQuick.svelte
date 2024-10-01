@@ -22,7 +22,9 @@
 
 	let items: Item[] | undefined = undefined
 
-	export let filteredItems: (Item & { marked?: string })[] | undefined = undefined
+	let filteredItems: (Item & { marked?: string })[] | undefined = undefined
+	export let filteredWithOwner: (Item & { marked?: string })[] | undefined = undefined
+
 	export let filter = ''
 	export let owners: string[] = []
 

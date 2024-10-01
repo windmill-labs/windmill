@@ -76,7 +76,7 @@
 							})
 					  ).asks ?? []
 
-			items = scripts.map(
+			const mappedItems = scripts.map(
 				(x: {
 					summary: string
 					version_id: number
@@ -90,14 +90,18 @@
 					summary: `${x.summary} (${x.app})`
 				})
 			)
-			if (ts === startTs) {
-				loading = false
-			}
 			if (filter.length > 0) {
-				apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort()
+				apps = Array.from(new Set(mappedItems?.map((x) => x.app) ?? [])).sort()
 			} else {
 				apps = allApps
 			}
+
+			items = appFilter ? mappedItems.filter((x) => x.app === appFilter) : mappedItems
+
+			if (ts === startTs) {
+				loading = false
+			}
+
 			hubNotAvailable = false
 		} catch (err) {
 			hubNotAvailable = true
@@ -112,8 +116,6 @@
 			dispatch('pickScript', item)
 		}
 	}
-
-	$: filteredItems = appFilter ? items.filter((x) => x.app === appFilter) : items
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -125,9 +127,9 @@
 	{#each Array(15).fill(0) as _}
 		<Skeleton layout={[0.1, [1.5]]} />
 	{/each}
-{:else if filteredItems.length > 0 && apps.length > 0}
+{:else if items.length > 0 && apps.length > 0}
 	<ul>
-		{#each filteredItems as item, index (item.path)}
+		{#each items as item, index (item.path)}
 			<li class="w-full">
 				<button
 					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
@@ -163,8 +165,4 @@
 			There are more items than being displayed. Refine your search.
 		</div>
 	{/if}
-{:else}
-	{#each Array(10).fill(0) as _}
-		<Skeleton layout={[0.5, [1.5]]} />
-	{/each}
 {/if}
