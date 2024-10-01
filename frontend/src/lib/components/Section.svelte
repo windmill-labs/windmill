@@ -16,7 +16,7 @@
 </script>
 
 <div class="w-full">
-	<div class="flex flex-row justify-between items-center mb-2">
+	<div class="flex flex-row justify-between items-start mb-2">
 		<h2
 			class={twMerge(
 				subsection ? 'font-normal' : 'font-semibold',
@@ -50,7 +50,11 @@
 			{/if}
 		</h2>
 		<slot name="action" />
+		{#if collapsable && collapsed}
+			<slot name="badge" />
+		{/if}
 	</div>
+
 	<div class={collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`}>
 		<slot />
 	</div>
