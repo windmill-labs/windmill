@@ -561,6 +561,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen: None,
                             approvers: vec![],
                             failed_retries: vec![],
+                            skipped: false,
                         }
                     } else {
                         success = false;
@@ -698,6 +699,20 @@ pub async fn update_flow_status_after_job_completion_internal<
                     }
                 }
                 if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
+                    let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
+                        sqlx::query_scalar!(
+                            "SELECT job_kind = 'identity' FROM completed_job WHERE id = $1",
+                            job_id_for_status
+                        )
+                        .fetch_one(db)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error during skip check: {e:#}"))
+                        })?
+                        .unwrap_or(false)
+                    } else {
+                        false
+                    };
                     success = true;
                     (
                         true,
@@ -709,6 +724,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen,
                             approvers: vec![],
                             failed_retries: old_status.retry.failed_jobs.clone(),
+                            skipped: is_skipped,
                         }),
                     )
                 } else {
@@ -2344,6 +2360,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 branch_chosen: None,
                 approvers: vec![],
                 failed_retries: vec![],
+                skipped: false,
             }))
             .bind(flow_job.id)
             .execute(db)
