@@ -1,6 +1,6 @@
 {
   "name": "@windmill/windmill",
-  "version": "1.402.3",
+  "version": "1.403.0",
   "exports": "./src/index.ts",
   "publish": {
     "exclude": ["!src", "./s3Types.ts", "./client.ts"]
