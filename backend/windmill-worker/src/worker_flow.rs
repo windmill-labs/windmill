@@ -29,7 +29,6 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
@@ -43,6 +42,7 @@ use windmill_common::jobs::{
     RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::worker::to_raw_value;
+use windmill_common::{add_time, fetch_one_with_fallback};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -61,32 +61,14 @@ type DB = sqlx::Pool<sqlx::Postgres>;
 
 use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTransaction};
 
-macro_rules! fetch_one_with_fallback {
-    ($db:expr, $fetch_method:ident,  $row_type:ty, $query:literal, $table:literal ,$( $param:expr ),* ) => {{
-        let primary_query = sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, $table))
-            $(.bind($param))*
-            .fetch_one($db)
-            .await;
-
-        if let Err(sqlx::Error::RowNotFound) = primary_query {
-            tracing::info!("Data not found in job_params, falling back to fetching from queue");
-            sqlx::$fetch_method::<_, $row_type>(const_format::formatcp!($query, "queue"))
-                $(.bind($param))*
-                .fetch_one($db)
-                .await
-        } else {
-            primary_query
-        }
-    }};
-}
-
 async fn get_args_from_job_id(db: &DB, id: &Uuid) -> Result<RowArgs, Error> {
     let args = fetch_one_with_fallback!(
         db,
         query_as,
+        fetch_one,
         RowArgs,
         "SELECT args FROM {} WHERE id = $1",
-        "job_args",
+        "job_args" || "queue",
         id
     );
 
@@ -334,7 +316,12 @@ pub async fn update_flow_status_after_job_completion_internal<
             };
 
             let is_flow = if let Some(step) = step {
-                fetch_one_with_fallback!(db, query_scalar, Option<bool>, "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2","job_params",
+                fetch_one_with_fallback!(db,
+                    query_scalar,
+                    fetch_one,
+                    Option<bool>,
+                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2",
+                    "job_params" || "queue",
                     step as i32,
                     &flow).map_err(|e| {
                         Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
@@ -459,7 +446,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             None
                         };
 
-                        let nindex = if let Some(position) = position { 
+                        let nindex = if let Some(position) = position {
                             sqlx::query_scalar!(
                             "UPDATE queue
                             SET flow_status = JSONB_SET(
@@ -1283,9 +1270,10 @@ async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
     fetch_one_with_fallback!(
         db,
         query_scalar,
+        fetch_one,
         Option<bool>,
         "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM {} WHERE id = $1",
-        "job_params",
+        "job_params" || "queue",
         flow
     )
     .map_err(|e| {
@@ -2233,18 +2221,19 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             );
             Ok(Marc::new(hm))
         } else if let Some(id) = get_args_from_id {
-            let row = sqlx::query_as::<_, RawArgs>(
-                "SELECT args FROM completed_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(id)
-            .bind(&flow_job.workspace_id)
-            .fetch_optional(db)
-            .await?;
-        
+            let row = fetch_one_with_fallback!(
+                db,
+                query_as,
+                fetch_optional,
+                RowArgs,
+                "SELECT args FROM {} WHERE id = $1 AND workspace_id = $2",
+                "job_args" || "completed_job",
+                id,
+                &flow_job.workspace_id
+            )?;
+
             if let Some(raw_args) = row {
-                Ok(Marc::new(
-                    raw_args.args.map(|x| x.0).unwrap_or_else(HashMap::new),
-                ))
+                Ok(Marc::new(raw_args.args.map(|x| x.0).unwrap_or_default()))
             } else {
                 Ok(Marc::new(HashMap::new()))
             }
@@ -2361,7 +2350,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let nargs = args.as_ref();
-    for i in (0..len).into_iter() {
+    for i in 0..len {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             sqlx::query!(
