@@ -24,6 +24,8 @@
 
 	const dispatch = createEventDispatcher()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
+
+	export let textDisabled = false
 </script>
 
 <label
@@ -36,7 +38,7 @@
 		<span
 			class={twMerge(
 				'mr-2 font-medium duration-50 select-none',
-				bothOptions ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
 				size === 'xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
@@ -82,7 +84,7 @@
 		<span
 			class={twMerge(
 				'ml-2 font-medium duration-50 select-none',
-				bothOptions ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
+				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
 				size === 'xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
@@ -90,7 +92,7 @@
 		>
 			{options?.right}
 			{#if options?.rightTooltip}
-				<Tooltip light={lightMode}>{options?.rightTooltip}</Tooltip>
+				<Tooltip light={lightMode} wrapperClass="text-disabled">{options?.rightTooltip}</Tooltip>
 			{/if}
 		</span>
 	{/if}

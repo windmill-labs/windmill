@@ -8,6 +8,7 @@
 	export let kind: 'script' | 'flow'
 	export let scriptOrFlowPath: string
 	export let errorHandlerMuted: boolean | undefined
+	export let textDisabled = false
 	let toggleState = errorHandlerMuted
 
 	async function toggleErrorHandler(): Promise<void> {
@@ -61,5 +62,5 @@
 		right: 'Mute',
 		rightTooltip: 'Disable workspace error handler, EE only'
 	}}
-	class="mt-2"
+	{textDisabled}
 />
