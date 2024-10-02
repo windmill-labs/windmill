@@ -17,7 +17,7 @@ use crate::{
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatusGetter, RestartedFrom},
     flows::{FlowValue, FlowValueGetter, Retry},
-    get_latest_deployed_hash_for_path,
+    get_latest_deployed_hash_for_path, impl_flow_status_getter, impl_flow_value_getter,
     scripts::{ScriptHash, ScriptLang},
     worker::{to_raw_value, TMP_DIR},
 };
@@ -138,17 +138,8 @@ impl QueuedJob {
     }
 }
 
-impl FlowValueGetter for QueuedJob {
-    fn get_raw_flow_value(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
-        self.raw_flow.as_ref()
-    }
-}
-
-impl FlowStatusGetter for QueuedJob {
-    fn get_raw_flow_status(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
-        self.flow_status.as_ref()
-    }
-}
+impl_flow_status_getter!(QueuedJob);
+impl_flow_value_getter!(QueuedJob);
 
 impl Default for QueuedJob {
     fn default() -> Self {
@@ -261,22 +252,12 @@ impl CompletedJob {
     pub fn json_result(&self) -> Option<serde_json::Value> {
         self.result
             .as_ref()
-            .map(|r| serde_json::from_str(r.get()).ok())
-            .flatten()
+            .and_then(|r| serde_json::from_str(r.get()).ok())
     }
 }
 
-impl FlowValueGetter for CompletedJob {
-    fn get_raw_flow_value(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
-        self.raw_flow.as_ref()
-    }
-}
-
-impl FlowStatusGetter for CompletedJob {
-    fn get_raw_flow_status(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
-        self.flow_status.as_ref()
-    }
-}
+impl_flow_status_getter!(CompletedJob);
+impl_flow_value_getter!(CompletedJob);
 
 #[derive(sqlx::FromRow)]
 pub struct BranchResults {
