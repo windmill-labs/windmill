@@ -314,9 +314,14 @@ async fn get_result_by_id(
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let res =
-        windmill_queue::get_result_by_id(db.clone(), w_id.clone(), flow_id, node_id, json_path)
-            .await?;
+    let res = windmill_queue::get_result_by_id(
+        db.clone(),
+        &w_id,
+        flow_id,
+        &node_id,
+        json_path.as_deref(),
+    )
+    .await?;
 
     log_job_view(&db, Some(&authed), &w_id, &flow_id).await?;
 
