@@ -234,26 +234,23 @@ pub async fn cancel_job<'c>(
     force_cancel: bool,
     require_anonymous: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
-
-    if job.is_none() {
+    let Some(mut job) = get_queued_job_tx(id, w_id, &mut tx).await? else {
         return Ok((tx, None));
-    }
+    };
 
-    if require_anonymous && job.as_ref().unwrap().created_by != "anonymous" {
+    if require_anonymous && job.created_by != "anonymous" {
         return Err(Error::BadRequest(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
 
-    let mut job = job.unwrap();
     if force_cancel {
         // if force canceling a flow step, make sure we force cancel from the highest parent
         loop {
             if job.parent_job.is_none() {
                 break;
             }
-            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
+            match get_queued_job_tx(job.parent_job.unwrap(), w_id, &mut tx).await? {
                 Some(j) => {
                     job = j;
                 }
@@ -893,10 +890,10 @@ pub async fn add_completed_job<
     tx.commit().await?;
     tracing::info!(
         %job_id,
-        root_job = ?queued_job.root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        root_job = ?queued_job.root_job.map(|x| x.to_string()).unwrap_or_default(),
         path = &queued_job.script_path(),
         job_kind = ?queued_job.job_kind,
-        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_default(),
         duration = ?_duration,
         permissioned_as = ?queued_job.permissioned_as,
         email = ?queued_job.email,
@@ -2794,7 +2791,7 @@ fn restructure_cloudevents_metadata(
         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
     let str = data.to_string();
 
-    let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+    let wrap_body = !str.is_empty() && !str.starts_with('{');
 
     if wrap_body {
         let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
@@ -2824,7 +2821,7 @@ impl PushArgsOwned {
             extra.insert("raw_string".to_string(), to_raw_value(&str));
         }
 
-        let wrap_body = force_wrap_body || str.len() > 0 && str.chars().next().unwrap() != '{';
+        let wrap_body = force_wrap_body || !str.is_empty() && !str.starts_with('{');
 
         if wrap_body {
             let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
