@@ -35,7 +35,7 @@ import {
   pushInstanceConfigs,
   type SimplifiedSettings,
 } from "./settings.ts";
-import { sleep, deepEqual } from "./utils.ts";
+import { deepEqual } from "./utils.ts";
 import { GlobalOptions } from "./types.ts";
 
 export interface Instance {
@@ -183,10 +183,13 @@ export type InstanceSyncOptions = {
   yes?: boolean;
 };
 
-export async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
+export async function pickInstance(
+  opts: InstanceSyncOptions,
+  allowNew: boolean
+) {
   const instances = await allInstances();
   if (opts.baseUrl && opts.token) {
-    log.info("Using instance fully defined by --base-url and --token")
+    log.info("Using instance fully defined by --base-url and --token");
     return {
       name: "custom",
       remote: opts.baseUrl,
@@ -284,8 +287,6 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     log.info("No instance-level changes to apply");
   }
 
-  sleep(1000);
-
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
     const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
@@ -299,7 +300,6 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     const rootDir = Deno.cwd();
     for (const remoteWorkspace of remoteWorkspaces) {
       log.info("\nPulling workspace " + remoteWorkspace.id);
-      sleep(1000);
       const workspaceName = instance.prefix + "_" + remoteWorkspace.id;
       await Deno.mkdir(path.join(rootDir, workspaceName), {
         recursive: true,
@@ -409,8 +409,6 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     log.info("No instance-level changes to apply");
   }
 
-  sleep(1000);
-
   if (opts.includeWorkspaces) {
     instances = await allInstances();
     const localPrefix = (await Select.prompt({
@@ -424,20 +422,20 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       default: instance.prefix as unknown,
     })) as unknown as string;
 
-    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
-      page: 1,
-      perPage: 1000,
-    });
-    let localWorkspaces = await allWorkspaces();
+    const rootDir = Deno.cwd();
+
+    let localWorkspaces = Deno.readDir(".");
     localWorkspaces = localWorkspaces.filter((w) =>
       w.name.startsWith(localPrefix + "_")
     );
 
-    log.info("\nPushing all workspaces");
-    const rootDir = Deno.cwd();
+    log.info(
+      `\nPushing all workspaces: ${localWorkspaces.join(
+        ", "
+      )} with prefix ${localPrefix}`
+    );
     for (const localWorkspace of localWorkspaces) {
       log.info("\nPushing workspace " + localWorkspace.workspaceId);
-      sleep(1000);
       try {
         await Deno.chdir(path.join(rootDir, localWorkspace.name));
       } catch (_) {
@@ -481,6 +479,10 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       });
     }
 
+    const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
+      page: 1,
+      perPage: 1000,
+    });
     const workspacesToDelete = remoteWorkspaces.filter(
       (w) => !localWorkspaces.find((l) => l.workspaceId === w.id)
     );
@@ -544,7 +546,9 @@ async function whoami(opts: {}) {
     log.info(colors.green.underline(`global whoami infos:`));
     log.info(JSON.stringify(whoamiInfo, null, 2));
   } catch (error) {
-    log.error(colors.red(`Failed to retrieve whoami information: ${error.message}`));
+    log.error(
+      colors.red(`Failed to retrieve whoami information: ${error.message}`)
+    );
   }
 }
 
