@@ -1245,8 +1245,7 @@ async fn compute_skip_branchall_failure<'c>(
             .map(|p| {
                 BRANCHALL_INDEX_RE
                     .captures(&p)
-                    .map(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
-                    .flatten()
+                    .and_then(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
                     .ok_or(Error::InternalErr(format!(
                         "could not parse branchall index from path: {p}"
                     )))
@@ -1587,6 +1586,7 @@ pub struct ResumeRow {
 
 #[derive(FromRow)]
 pub struct RawArgs {
+    #[allow(dead_code)]
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -1782,8 +1782,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         // else pass the last job result. Either from the function arg if it's set, or manually fetch it from the previous job
         // having last_job_result empty can happen either when the job was suspended and is being restarted, or if it's a
         // flow restart from a specific step
-        if last_job_result.is_some() {
-            last_job_result.unwrap()
+        if let Some(last_job_result) = last_job_result {
+            last_job_result
         } else {
             match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status).await? {
                 None => Arc::new(to_raw_value(&json!("{}"))),
@@ -3853,13 +3853,16 @@ async fn get_previous_job_result(
             Ok(Some(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?))
         }
         Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
-            sqlx::query_scalar::<_, Json<Box<RawValue>>>(
-                "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(job)
-            .bind(w_id)
-            .fetch_one(db)
-            .await?
+            fetch_one_with_fallback!(
+                db,
+                query_scalar,
+                fetch_one,
+                Json<Box<RawValue>>,
+                "SELECT result FROM {} WHERE id = $1 AND workspace_id = $2",
+                "completed_jobs_result" || "completed_job",
+                job,
+                w_id
+            )?
             .0,
         )),
         _ => Ok(None),
