@@ -2298,19 +2298,12 @@ pub async fn get_result_by_id(
     node_id: &str,
     json_path: Option<&str>,
 ) -> error::Result<Box<RawValue>> {
-    #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
+    #[derive(sqlx::FromRow, Debug)]
     struct RunningFlowJobResult {
         pub id: Uuid,
         pub flow_status: Option<Json<Box<RawValue>>>,
     }
-
-    impl FlowStatusGetter for RunningFlowJobResult {
-        fn get_raw_flow_status(
-            &self,
-        ) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
-            self.flow_status.as_ref()
-        }
-    }
+    impl_flow_status_getter!(RunningFlowJobResult);
 
     match get_result_by_id_from_running_flow(&db, w_id, &flow_id, node_id, json_path).await {
         Ok(res) => Ok(res),
