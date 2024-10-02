@@ -31,22 +31,20 @@ const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.co
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
-    static ref RUSTUP_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
-    static ref CARGO_PATH: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_PATH_DEFAULT.clone() });
+    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
+    static ref CARGO_PATH: String = format!("{}/bin/cargo", CARGO_HOME.as_str());
 }
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
     static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
-    static ref CARGO_PATH_DEFAULT: String = format!("{}/bin/cargo.exe", *CARGO_HOME);
 }
 
 #[cfg(unix)]
 lazy_static::lazy_static! {
     static ref CARGO_HOME_DEFAULT: String = "/usr/local/cargo".to_string();
     static ref RUSTUP_HOME_DEFAULT: String = "/usr/local/rustup".to_string();
-    static ref CARGO_PATH_DEFAULT: String = "/usr/local/cargo/bin/cargo".to_string();
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
