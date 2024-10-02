@@ -6,8 +6,10 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 
 use sqlx::{Pool, Postgres};
+#[cfg(windows)]
 use std::process::Stdio;
 use tokio::fs::File;
+#[cfg(windows)]
 use tokio::process::Command;
 use windmill_common::error::to_anyhow;
 
