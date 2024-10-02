@@ -64,7 +64,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, TZ_ENV,
+    PIP_INDEX_URL, TZ_ENV, UV_CACHE_DIR,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -252,6 +252,9 @@ pub async fn uv_pip_compile(
             // TODO: Use env variable that can be toggled from UI
             "--index-strategy",
             "unsafe-best-match",
+            // Target to /tmp/windmill/cache/uv
+            "--cache-dir",
+            UV_CACHE_DIR,
         ];
         if no_cache {
             args.extend(["--no-cache"]);
