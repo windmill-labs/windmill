@@ -137,6 +137,17 @@ impl Migrate for CustomMigrator {
                         "../../custom_migrations/create_workspace_without_md5.sql"
                     ))
                     .await?;
+                let _ = sqlx::query(
+                    r#"
+                INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
+                VALUES ( $1, $2, TRUE, $3, -1 ) ON CONFLICT DO NOTHING
+                            "#,
+                )
+                .bind(migration.version)
+                .bind(&*migration.description)
+                .bind(&*migration.checksum)
+                .execute(&mut *self.inner)
+                .await?;
                 return Ok(std::time::Duration::from_secs(0));
             } else {
                 let r = self.inner.apply(migration).await;

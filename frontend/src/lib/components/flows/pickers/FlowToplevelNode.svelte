@@ -18,4 +18,4 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<TopLevelNode {label} {selected} returnIcon on:select={click} />
+<TopLevelNode class="px-3" {label} {selected} returnIcon on:select={click} />

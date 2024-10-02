@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Popup } from '$lib/components/common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Cross, Zap } from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
@@ -11,6 +10,8 @@
 	import type { FlowCopilotModule } from '../../copilot/flow'
 	import type { ComputeConfig } from 'svelte-floating-ui'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
+	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
+	import { flip, offset } from 'svelte-floating-ui/dom'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -31,9 +32,11 @@
 	export let placement: Placement = 'bottom-center'
 
 	let floatingConfig: ComputeConfig = {
-		strategy: 'absolute',
+		strategy: 'fixed',
 		// @ts-ignore
-		placement
+		placement,
+		middleware: [offset(8), flip()],
+		autoUpdate: true
 	}
 	$: !open && (funcDesc = '')
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -41,20 +44,21 @@
 	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
 	let loading = false
 	let small = false
+	let open = false
 
 	$: small = kind === 'preprocessor' || kind === 'failure'
 </script>
 
 <!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
 
-<Popup
-	let:close
-	{floatingConfig}
-	floatingClasses="mt-2"
-	containerClasses="border rounded-lg shadow-lg  bg-surface"
-	noTransition
->
-	<svelte:fragment slot="button">
+<!-- {floatingConfig}
+floatingClasses="mt-2"
+containerClasses="border rounded-lg shadow-lg  bg-surface"
+noTransition
+shouldUsePortal={true} -->
+
+<PopupV2 {floatingConfig} bind:open let:close target="#flow-editor">
+	<svelte:fragment let:pointerdown let:pointerup slot="button">
 		<button
 			title={`Add ${
 				kind === 'failure'
@@ -73,6 +77,8 @@
 				'text-secondary',
 				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 			)}
+			on:pointerdown|preventDefault|stopPropagation={pointerdown}
+			on:pointerup={pointerup}
 		>
 			{#if kind === 'trigger'}
 				<Zap size={12} />
@@ -81,6 +87,7 @@
 			{/if}
 		</button>
 	</svelte:fragment>
+	<!-- FOO -->
 	<div
 		id="flow-editor-insert-module"
 		class="flex flex-col h-[400px] {small ? 'w-[450px]' : 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
@@ -97,7 +104,7 @@
 		</div>
 
 		<div class="flex flex-row grow min-h-0">
-			{#if kind === 'script'}
+			{#if kind === 'script' || kind == 'trigger'}
 				<div class="flex-none flex flex-col text-xs text-primary">
 					<TopLevelNode
 						label="Action"
@@ -192,4 +199,4 @@
 			/>
 		</div>
 	</div>
-</Popup>
+</PopupV2>

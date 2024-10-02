@@ -60,6 +60,7 @@ export type GraphModuleState = {
 	started_at?: number
 	suspend_count?: number
 	isListJob?: boolean
+	skipped?: boolean
 }
 
 export type NestedNodes = GraphItem[]

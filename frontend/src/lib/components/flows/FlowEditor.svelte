@@ -25,6 +25,7 @@
 </script>
 
 <div
+	id="flow-editor"
 	class={classNames(
 		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''

@@ -94,18 +94,28 @@
 				<InsertModuleButton
 					disableAi={data.disableAi}
 					on:new={(e) => {
+						// console.log('new', e)
 						data?.eventHandlers.insert({
 							modules: data.modules,
 							index: data.index,
-							detail: e.detail
+							kind: e.detail.kind,
+							inlineScript: e.detail.inlineScript
 						})
 					}}
-					on:insert={(e) => {
+					on:pickScript={(e) => {
+						// console.log('pickScript', e)
 						data?.eventHandlers.insert({
 							modules: data.modules,
 							index: data.index,
-							script: e.detail,
-							detail: 'script'
+							script: e.detail
+						})
+					}}
+					on:pickFlow={(e) => {
+						// console.log('pickFlow', e)
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							flow: e.detail
 						})
 					}}
 					kind="trigger"

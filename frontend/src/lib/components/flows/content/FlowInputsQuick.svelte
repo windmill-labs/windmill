@@ -148,12 +148,17 @@
 		inlineScripts = []
 	}
 
-	const allToplevelNodes = ['For Loop', 'While Loop', 'Branch One', 'Branch All']
-	let topLevelNodes: string[] = []
+	const allToplevelNodes: [string, string][] = [
+		['For Loop', 'forloop'],
+		['While Loop', 'whileloop'],
+		['Branch to one', 'branchone'],
+		['Branch to all', 'branchall']
+	]
+	let topLevelNodes: [string, string][] = []
 	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
-		if (funcDesc.length > 0 && preFilter == 'all') {
+		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
-				node.toLowerCase().startsWith(funcDesc.toLowerCase())
+				node[0].toLowerCase().startsWith(funcDesc.toLowerCase())
 			)
 		} else {
 			topLevelNodes = []
@@ -269,9 +274,17 @@
 		</Scrollable>
 	{/if}
 	<Scrollable bind:this={scrollable} scrollableClass="grow min-w-0">
-		{#each topLevelNodes as label, i (label)}
-			<FlowToplevelNode {label} selected={selectedByKeyboard === i} />
-		{/each}
+		{#if kind == 'script'}
+			{#each topLevelNodes as [label, kind], i (label)}
+				<FlowToplevelNode
+					on:click={() => {
+						dispatch('new', { kind })
+					}}
+					{label}
+					selected={selectedByKeyboard === i}
+				/>
+			{/each}
+		{/if}
 
 		{#if inlineScripts?.length > 0}
 			<div class="pb-0 flex flex-row items-center gap-2">
