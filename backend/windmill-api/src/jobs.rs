@@ -3359,6 +3359,16 @@ async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Er
     )
     .execute(db)
     .await?;
+
+    sqlx::query!(
+        "UPDATE job_args
+        SET args = '{}'::jsonb
+        WHERE id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+
     sqlx::query!(
         "UPDATE job_logs
         SET logs = '##DELETED##'
