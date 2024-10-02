@@ -108,6 +108,8 @@ pub async fn uv_pip_compile(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Fallback to pip-compile. Will be removed in future
     mut no_uv: bool,
+    // Debug-only flag
+    no_cache: bool,
 ) -> error::Result<String> {
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
@@ -153,15 +155,17 @@ pub async fn uv_pip_compile(
     }
 
     let req_hash = format!("py-{}", calculate_hash(&requirements));
-    if let Some(cached) = sqlx::query_scalar!(
-        "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
-        req_hash
-    )
-    .fetch_optional(db)
-    .await?
-    {
-        logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
-        return Ok(cached);
+    if !no_cache {
+        if let Some(cached) = sqlx::query_scalar!(
+            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            req_hash
+        )
+        .fetch_optional(db)
+        .await?
+        {
+            logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
+            return Ok(cached);
+        }
     }
     let file = "requirements.in";
 
@@ -249,6 +253,9 @@ pub async fn uv_pip_compile(
             "--index-strategy",
             "unsafe-best-match",
         ];
+        if no_cache {
+            args.extend(["--no-cache"]);
+        }
         let pip_extra_index_url = PIP_EXTRA_INDEX_URL
             .read()
             .await
@@ -884,6 +891,7 @@ async fn handle_python_deps(
                     w_id,
                     occupancy_metrics,
                     annotation.no_uv,
+                    annotation.no_cache,
                 )
                 .await
                 .map_err(|e| {

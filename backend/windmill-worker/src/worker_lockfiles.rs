@@ -1291,6 +1291,7 @@ async fn python_dep(
         w_id,
         occupancy_metrics,
         false,
+        false,
     )
     .await;
     // install the dependencies to pre-fill the cache

@@ -329,6 +329,7 @@ pub fn get_annotation_ts(inner_content: &str) -> TypeScriptAnnotations {
 
 pub struct PythonAnnotations {
     pub no_uv: bool,
+    pub no_cache: bool,
 }
 
 pub fn get_annotation_python(inner_content: &str) -> PythonAnnotations {
@@ -339,8 +340,9 @@ pub fn get_annotation_python(inner_content: &str) -> PythonAnnotations {
         .collect_vec();
 
     let no_uv: bool = annotations.contains(&"no_uv".to_string());
+    let no_cache: bool = annotations.contains(&"no_cache".to_string());
 
-    PythonAnnotations { no_uv }
+    PythonAnnotations { no_uv, no_cache }
 }
 
 pub struct SqlAnnotations {
