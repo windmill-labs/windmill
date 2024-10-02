@@ -1,19 +1,15 @@
-name: Build Windows Worker
+name: Build and Publish Windows Worker
 
 on:
   push:
-    branches:
-      - "alp/build_windows"
-    paths:
-      - "backend/**"
-      - ".github/workflows/build_windows_worker.yml"
+    tags:
+      - "v*"
 
 env:
   CARGO_INCREMENTAL: 0
   SQLX_OFFLINE: true
   DISABLE_EMBEDDING: true
   RUST_LOG: info
-
 
 jobs:
   cargo_build_windows:
@@ -49,12 +45,12 @@ jobs:
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
           cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
 
-      # - name: Rename binary with corresponding architecture
-      #   run: |
-      #     mv ./backend/target/release/windmill.exe ./backend/target/release/windmill-ee.exe 
+      - name: Rename binary with corresponding architecture
+        run: |
+          mv ./backend/target/release/windmill.exe ./backend/target/release/windmill-ee.exe
 
-      # - name: Attach binary to release
-      #   uses: softprops/action-gh-release@v2
-      #   with:
-      #     files: |
-      #       ./backend/target/release/windmill-ee.exe
+      - name: Attach binary to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./backend/target/release/windmill-ee.exe
