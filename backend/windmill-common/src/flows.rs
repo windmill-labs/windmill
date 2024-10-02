@@ -127,6 +127,20 @@ pub struct FlowValue {
 pub trait FlowValueGetter {
     fn get_raw_flow_value(&self) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>>;
 }
+
+#[macro_export]
+macro_rules! impl_flow_value_getter {
+    ($struct_name:ident) => {
+        impl FlowValueGetter for $struct_name {
+            fn get_raw_flow_value(
+                &self,
+            ) -> Option<&sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+                self.raw_flow.as_ref()
+            }
+        }
+    };
+}
+
 pub trait ParsedFlowValueGetter {
     fn parse_raw_flow(&self) -> Option<FlowValue>;
 }

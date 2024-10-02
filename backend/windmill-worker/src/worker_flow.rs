@@ -1220,7 +1220,7 @@ fn get_module(flow_job: &QueuedJob, module_step: &Step) -> Option<FlowModule> {
     if let Some(raw_flow) = raw_flow {
         match module_step {
             Step::PreprocessorStep => raw_flow.preprocessor_module.map(|x| *x.clone()),
-            Step::Step(i) => raw_flow.modules.get(*i).map(|x| x.clone()),
+            Step::Step(i) => raw_flow.modules.get(*i).cloned(),
             Step::FailureStep => raw_flow.failure_module.map(|x| *x.clone()),
         }
     } else {

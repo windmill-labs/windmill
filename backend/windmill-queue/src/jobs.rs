@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
-
 use anyhow::Context;
 use async_recursion::async_recursion;
 use axum::{
@@ -31,18 +29,21 @@ use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
+use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
+use windmill_common::flows::FlowValueGetter;
 
 use windmill_common::{
     add_time,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
+    fetch_one_with_fallback,
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusGetter, FlowStatusModule,
         FlowStatusModuleWParent, Iterator, JobResult, ParsedFlowStatusGetter, RestartedFrom,
@@ -52,6 +53,7 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
         ParsedFlowValueGetter,
     },
+    impl_flow_status_getter, impl_flow_value_getter,
     jobs::{
         get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
         ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT,
@@ -2502,26 +2504,28 @@ async fn extract_result_from_job_result(
     match job_result {
         JobResult::ListJob(job_ids) => match json_path {
             Some(json_path) => {
-                let mut parts = json_path.split(".");
+                let mut parts = json_path.split('.');
 
-                let Some(idx) = parts.next().and_then(|x| x.parse::<usize>().ok()) else {
+                let Some(ref idx) = parts.next().and_then(|x| x.parse::<usize>().ok()) else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
-                let Some(job_id) = job_ids.get(idx).cloned() else {
+                let Some(job_id) = job_ids.get(*idx) else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
 
-                // ici
-                Ok(sqlx::query_as::<_, ResultR>(
-                    "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-                )
-                .bind(job_id)
-                .bind(w_id)
-                .bind(
-                    parts.map(|x| x.to_string()).collect::<Vec<_>>()
-                )
-                .fetch_optional(db)
-                .await?
+                let parts = parts.map(|x| x.to_string()).collect_vec();
+
+                Ok(fetch_one_with_fallback!(
+                    db,
+                    query_as,
+                    fetch_optional,
+                    ResultR,
+                    "SELECT result #> $3 as result FROM {} WHERE id = $1 AND workspace_id = $2",
+                    "completed_jobs_result" || "completed_job",
+                    *job_id,
+                    w_id,
+                    &parts
+                )?
                 .and_then(|r| r.result.map(|x| x.0))
                 .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)))
             }
@@ -2536,6 +2540,7 @@ async fn extract_result_from_job_result(
                 .into_iter()
                 .filter_map(|x| x.result.map(|y| (x.id, y)))
                 .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
+
                 let result = job_ids
                     .into_iter()
                     .map(|id| {
@@ -2543,25 +2548,32 @@ async fn extract_result_from_job_result(
                             .map(|x| x.0.clone())
                             .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
                     })
-                    .collect::<Vec<_>>();
+                    .collect_vec();
                 Ok(to_raw_value(&result))
             }
         },
         // ici
-        JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
-            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(x)
-        .bind(w_id)
-        .bind(
-            json_path
+        JobResult::SingleJob(x) => {
+            let path = json_path
                 .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
-                .unwrap_or_default(),
-        )
-        .fetch_optional(db)
-        .await?
-        .and_then(|r| r.result.map(|x| x.0))
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
+                .unwrap_or_default();
+
+            let res = fetch_one_with_fallback!(
+                db,
+                query_as,
+                fetch_optional,
+                ResultR,
+                "SELECT result #> $3 as result FROM {} WHERE id = $1 AND workspace_id = $2",
+                "completed_jobs_result" || "completed_job",
+                x,
+                w_id,
+                &path
+            )?
+            .and_then(|r| r.result.map(|x| x.0))
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+
+            Ok(res)
+        }
     }
 }
 
@@ -4123,11 +4135,8 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
 }
 
 pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
-    let reason = job
-        .canceled_reason
-        .as_deref()
-        .unwrap_or_else(|| "no reason given");
-    let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
+    let reason = job.canceled_reason.as_deref().unwrap_or("no reason given");
+    let canceler = job.canceled_by.as_deref().unwrap_or("unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
@@ -4150,8 +4159,19 @@ async fn restarted_flows_resolution(
     ),
     Error,
 > {
-    let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, null as labels FROM completed_job WHERE id = $1 and workspace_id = $2",
+    #[derive(Debug, sqlx::FromRow)]
+    struct QueryResults {
+        pub script_path: Option<String>,
+        pub priority: Option<i16>,
+        pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
+        pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    }
+
+    impl_flow_status_getter!(QueryResults);
+    impl_flow_value_getter!(QueryResults);
+
+    let completed_job = sqlx::query_as::<_, QueryResults>(
+        "SELECT script_path, priority, raw_flow, flow_status FROM completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(completed_flow_id)
     .bind(workspace_id)
@@ -4184,10 +4204,9 @@ async fn restarted_flows_resolution(
         if flow_value_if_any
             .clone()
             .map(|fv| {
-                fv.modules
+                !fv.modules
                     .iter()
-                    .find(|flow_value_module| flow_value_module.id == module.id())
-                    .is_none()
+                    .any(|flow_value_module| flow_value_module.id == module.id())
             })
             .unwrap_or(false)
         {
@@ -4303,7 +4322,7 @@ async fn restarted_flows_resolution(
             truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
         } else {
             // else we simply "transfer" the module from the completed flow to the new one if it's a success
-            step_n = step_n + 1;
+            step_n += 1;
             match module.clone() {
                 FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
                 _ => Err(Error::InternalErr(format!(
