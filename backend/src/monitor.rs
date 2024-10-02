@@ -525,7 +525,7 @@ fn read_log_counters(ts_str: String) -> (usize, usize) {
             ok_lines = counter.non_error_count;
             err_lines = counter.error_count;
         } else {
-            println!("no counter found for {ts_str}");
+            // println!("no counter found for {ts_str}");
         }
     } else {
         println!("Error reading log counters 2");
@@ -1368,6 +1368,8 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             rsmq.clone(),
             worker_name,
             send_result_never_used,
+            #[cfg(feature = "benchmark")]
+            &mut windmill_common::bench::BenchmarkIter::new(),
         )
         .await;
     }

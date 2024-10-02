@@ -254,7 +254,7 @@
 		{/if}
 	</div>
 
-	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
+	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
 			{disableAi}
 			insertable

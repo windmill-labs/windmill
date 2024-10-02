@@ -269,6 +269,13 @@ pub struct FlowModule {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continue_on_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_if: Option<SkipIf>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct SkipIf {
+    pub expr: String,
 }
 
 #[derive(Deserialize)]
@@ -285,12 +292,39 @@ pub struct FlowModuleValueWithParallel {
     pub parallelism: Option<u16>,
 }
 
+#[derive(Deserialize)]
+pub struct FlowModuleValueWithSkipFailures {
+    pub skip_failures: Option<bool>,
+    pub parallel: Option<bool>,
+    pub parallelism: Option<u16>,
+}
+
+#[derive(Deserialize)]
+pub struct BranchWithSkipFailures {
+    pub skip_failure: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct FlowModuleWithBranches {
+    pub branches: Vec<BranchWithSkipFailures>,
+}
+
 impl FlowModule {
     pub fn id_append(&mut self, s: &str) {
         self.id = format!("{}-{}", self.id, s);
     }
     pub fn get_value(&self) -> anyhow::Result<FlowModuleValue> {
         serde_json::from_str::<FlowModuleValue>(self.value.get()).map_err(crate::error::to_anyhow)
+    }
+
+    pub fn get_value_with_skip_failures(&self) -> anyhow::Result<FlowModuleValueWithSkipFailures> {
+        serde_json::from_str::<FlowModuleValueWithSkipFailures>(self.value.get())
+            .map_err(crate::error::to_anyhow)
+    }
+
+    pub fn get_branches_skip_failures(&self) -> anyhow::Result<FlowModuleWithBranches> {
+        serde_json::from_str::<FlowModuleWithBranches>(self.value.get())
+            .map_err(crate::error::to_anyhow)
     }
 
     pub fn is_flow(&self) -> bool {
@@ -604,6 +638,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             priority: None,
             delete_after_use: None,
             continue_on_error: None,
+            skip_if: None,
         });
     }
 }

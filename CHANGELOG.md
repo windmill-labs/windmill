@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.403.1](https://github.com/windmill-labs/windmill/compare/v1.403.0...v1.403.1) (2024-10-01)
+
+
+### Bug Fixes
+
+* fix new instance db setup ([73ab8e1](https://github.com/windmill-labs/windmill/commit/73ab8e1653d6e0c0c69fa7dcd96583f25d13ef86))
+
+## [1.403.0](https://github.com/windmill-labs/windmill/compare/v1.402.3...v1.403.0) (2024-10-01)
+
+
+### Features
+
+* flow step skipping ([#4461](https://github.com/windmill-labs/windmill/issues/4461)) ([0df169e](https://github.com/windmill-labs/windmill/commit/0df169e3f996ed54b91569b13cce15d7d019a213))
+
+
+### Bug Fixes
+
+* skip one migration to avoid using md5 for azure support ([630ae5d](https://github.com/windmill-labs/windmill/commit/630ae5d425cd9957d674befd2df96e2befec52a3))
+
+## [1.402.3](https://github.com/windmill-labs/windmill/compare/v1.402.2...v1.402.3) (2024-09-30)
+
+
+### Bug Fixes
+
+* improve allowed domains setting for sso ([24f4a7c](https://github.com/windmill-labs/windmill/commit/24f4a7caaafa93f51669dcf44a3dca09d5b228bb))
+
+## [1.402.2](https://github.com/windmill-labs/windmill/compare/v1.402.1...v1.402.2) (2024-09-28)
+
+
+### Bug Fixes
+
+* make form properties disablable ([0779d47](https://github.com/windmill-labs/windmill/commit/0779d47c1d39626d11bd3769cd787cb036df0a94))
+
+## [1.402.1](https://github.com/windmill-labs/windmill/compare/v1.402.0...v1.402.1) (2024-09-28)
+
+
+### Bug Fixes
+
+* allow preprocessor to write to args.json on nsjail ([#4455](https://github.com/windmill-labs/windmill/issues/4455)) ([0b9ec83](https://github.com/windmill-labs/windmill/commit/0b9ec83036e2a1d0773b4ec5856f907b383e9323))
+* **frontend:** Fix flow graph bg in dark mode on chrome ([#4454](https://github.com/windmill-labs/windmill/issues/4454)) ([6956a3a](https://github.com/windmill-labs/windmill/commit/6956a3a2ba6d189528cb34ab05f7137fdf4f840b))
+* improve suspend_first behavior and frequency ([b5e226b](https://github.com/windmill-labs/windmill/commit/b5e226b977e6d24ebd28bc1e7c867cb4888f77b2))
+
 ## [1.402.0](https://github.com/windmill-labs/windmill/compare/v1.401.0...v1.402.0) (2024-09-26)
 
 

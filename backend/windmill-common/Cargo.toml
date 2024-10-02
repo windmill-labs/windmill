@@ -11,6 +11,7 @@ jemalloc = ["dep:tikv-jemalloc-ctl"]
 prometheus = ["dep:prometheus"]
 flamegraph = ["dep:tracing-flame"]
 loki = ["dep:tracing-loki"]
+benchmark = []
 parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts"]
 
 [lib]
@@ -55,6 +56,7 @@ mail-send.workspace = true
 futures-core.workspace = true
 async-stream.workspace = true
 const_format.workspace = true
+crc.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

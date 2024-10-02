@@ -15,7 +15,6 @@ use windmill_common::error::{self, Error};
 
 use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED};
 
-use anyhow::Result;
 use windmill_queue::{append_logs, CanceledBy};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

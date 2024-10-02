@@ -37,9 +37,9 @@ use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-#[cfg(not(feature = "enterprise"))]
-use windmill_common::worker::PriorityTags;
+
 use windmill_common::{
+    add_time,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
@@ -62,8 +62,11 @@ use windmill_common::{
         to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, NO_LOGS, WORKER_CONFIG,
         WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
-    BASE_URL, DB, METRICS_ENABLED,
+    DB, METRICS_ENABLED,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::BASE_URL;
 
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
@@ -125,10 +128,12 @@ const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
+#[cfg(feature = "enterprise")]
 const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
 const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
+#[cfg(feature = "enterprise")]
 const SCHEDULE_RECOVERY_HANDLER_USER_EMAIL: &str = "schedule_recovery_handler@windmill.dev";
 
 #[derive(Clone, Debug)]
@@ -174,6 +179,8 @@ pub async fn cancel_single_job<'c>(
                 rsmq.clone(),
                 "server",
                 false,
+                #[cfg(feature = "benchmark")]
+                &mut windmill_common::bench::BenchmarkIter::new(),
             )
             .await;
 
@@ -475,8 +482,10 @@ where
     }
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct RawFlowFailureModule {
+    #[cfg(feature = "enterprise")]
     failure_module: Option<Box<RawValue>>,
 }
 
@@ -490,6 +499,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     rsmq: Option<R>,
     _worker_name: &str,
     flow_is_done: bool,
+    #[cfg(feature = "benchmark")] bench: &mut windmill_common::bench::BenchmarkIter,
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -527,6 +537,8 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         canceled_by,
         rsmq,
         flow_is_done,
+        #[cfg(feature = "benchmark")]
+        bench,
     )
     .await?;
     Ok(result)
@@ -550,10 +562,12 @@ pub async fn add_completed_job<
     canceled_by: Option<CanceledBy>,
     rsmq: Option<R>,
     flow_is_done: bool,
+    #[cfg(feature = "benchmark")] bench: &mut windmill_common::bench::BenchmarkIter,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
+    add_time!(bench, "add_completed_job start");
     if !result.is_valid_json() {
         return Err(Error::InternalErr(
             "Result of job is invalid json (empty)".to_string(),
@@ -561,6 +575,7 @@ pub async fn add_completed_job<
     }
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
@@ -571,6 +586,7 @@ pub async fn add_completed_job<
     );
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
+    add_time!(bench, "add_completed_job query START");
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
@@ -642,6 +658,8 @@ pub async fn add_completed_job<
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
     // tracing::error!("2 {:?}", start.elapsed());
 
+    add_time!(bench, "add_completed_job query END");
+
     if !queued_job.is_flow_step {
         if _duration > 500
             && (queued_job.job_kind == JobKind::Script || queued_job.job_kind == JobKind::Preview)
@@ -671,6 +689,7 @@ pub async fn add_completed_job<
         }
     }
     // tracing::error!("Added completed job {:#?}", queued_job);
+    #[cfg(feature = "enterprise")]
     let mut skip_downstream_error_handlers = false;
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
@@ -716,7 +735,10 @@ pub async fn add_completed_job<
             .await?;
 
             if let Some(schedule) = schedule {
-                skip_downstream_error_handlers = schedule.ws_error_handler_muted;
+                #[cfg(feature = "enterprise")]
+                {
+                    skip_downstream_error_handlers = schedule.ws_error_handler_muted;
+                }
 
                 // script or flow that failed on start and might not have been rescheduled
                 let schedule_next_tick = !queued_job.is_flow()
@@ -749,6 +771,7 @@ pub async fn add_completed_job<
                     };
                 }
 
+                #[cfg(feature = "enterprise")]
                 if let Err(err) = apply_schedule_handlers(
                     rsmq.clone(),
                     db,
@@ -1324,6 +1347,8 @@ struct CompletedJobSubset {
     result: Option<sqlx::types::Json<Box<RawValue>>>,
     started_at: chrono::DateTime<chrono::Utc>,
 }
+
+#[cfg(feature = "enterprise")]
 async fn apply_schedule_handlers<
     'a,
     'c,
@@ -1342,7 +1367,6 @@ async fn apply_schedule_handlers<
     job_priority: Option<i16>,
 ) -> windmill_common::error::Result<()> {
     if !success {
-        #[cfg(feature = "enterprise")]
         if let Some(on_failure_path) = schedule.on_failure.clone() {
             let times = schedule.on_failure_times.unwrap_or(1).max(1);
             let exact = schedule.on_failure_exact.unwrap_or(false);
@@ -1392,7 +1416,6 @@ async fn apply_schedule_handlers<
             .await?;
         }
     } else {
-        #[cfg(feature = "enterprise")]
         if let Some(ref on_success_path) = schedule.on_success {
             handle_successful_schedule(
                 db,
@@ -1410,7 +1433,6 @@ async fn apply_schedule_handlers<
             .await?;
         }
 
-        #[cfg(feature = "enterprise")]
         if let Some(ref on_recovery_path) = schedule.on_recovery.clone() {
             let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
@@ -1579,6 +1601,7 @@ fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<Stri
 //     is_flow: boolean,
 //     extra_args: serde_json::Value
 // }
+#[cfg(feature = "enterprise")]
 async fn handle_recovered_schedule<
     'a,
     'c,
@@ -1671,6 +1694,7 @@ async fn handle_recovered_schedule<
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
 async fn handle_successful_schedule<
     'a,
     'c,
@@ -1755,9 +1779,9 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     db: &Pool<Postgres>,
     rsmq: Option<R>,
     suspend_first: bool,
-) -> windmill_common::error::Result<Option<QueuedJob>> {
+) -> windmill_common::error::Result<(Option<QueuedJob>, bool)> {
     loop {
-        let job = pull_single_job_and_mark_as_running_no_concurrency_limit(
+        let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
             db,
             rsmq.clone(),
             suspend_first,
@@ -1765,7 +1789,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         .await?;
 
         if job.is_none() {
-            return Ok(None);
+            return Ok((None, suspended));
         }
 
         let has_concurent_limit = job.as_ref().unwrap().concurrent_limit.is_some();
@@ -1785,7 +1809,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok(Option::Some(pulled_job));
+            return Ok((Option::Some(pulled_job), suspended));
         }
 
         let itx = db.begin().await?;
@@ -1886,7 +1910,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
-            return Ok(Option::Some(pulled_job));
+            return Ok((Option::Some(pulled_job), suspended));
         }
         let x = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
@@ -2013,8 +2037,8 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     db: &Pool<Postgres>,
     rsmq: Option<R>,
     suspend_first: bool,
-) -> windmill_common::error::Result<Option<QueuedJob>> {
-    let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
+) -> windmill_common::error::Result<(Option<QueuedJob>, bool)> {
+    let job_and_suspended: (Option<QueuedJob>, bool) = if let Some(mut rsmq) = rsmq {
         #[cfg(feature = "benchmark")]
         let instant = Instant::now();
 
@@ -2072,9 +2096,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             #[cfg(feature = "benchmark")]
             println!("rsmq 2: {:?}", instant.elapsed());
 
-            m2r
+            (m2r, false)
         } else {
-            None
+            (None, false)
         }
     } else {
         /* Jobs can be started if they:
@@ -2088,7 +2112,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
         if query.is_empty() {
             tracing::warn!("No suspended pull queries available");
-            return Ok(None);
+            return Ok((None, false));
         }
 
         let r = if suspend_first {
@@ -2108,7 +2132,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
             if queries.is_empty() {
                 tracing::warn!("No pull queries available");
-                return Ok(None);
+                return Ok((None, false));
             }
 
             for query in queries.iter() {
@@ -2126,12 +2150,12 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
             // #[cfg(feature = "benchmark")]
             // println!("pull query: {:?}", instant.elapsed());
-            highest_priority_job
+            (highest_priority_job, false)
         } else {
-            r
+            (r, true)
         }
     };
-    Ok(job)
+    Ok(job_and_suspended)
 }
 
 pub async fn custom_concurrency_key(
@@ -3512,6 +3536,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 }],
                 same_worker: false,
                 failure_module: None,

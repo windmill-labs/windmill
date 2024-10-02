@@ -128,7 +128,7 @@ pub async fn handle_dedicated_process(
         if let Err(e) = process_status(status) {
             tracing::error!("child exit status was not success: {e:#}");
         } else {
-            tracing::info!("child exist status was success");
+            tracing::info!("child exit status was success");
         }
     });
 
