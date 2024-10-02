@@ -588,6 +588,8 @@ pub async fn add_completed_job<
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     add_time!(bench, "add_completed_job query START");
+
+    // On conflict (when id already exists), update the success and result fields.
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
@@ -624,8 +626,8 @@ pub async fn add_completed_job<
             VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000, $7, $8, $9,\
                     $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11 RETURNING duration_ms",
-        queued_job.workspace_id,
-        queued_job.id,
+        &queued_job.workspace_id,
+        &queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
@@ -634,7 +636,7 @@ pub async fn add_completed_job<
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
         &queued_job.args as &Option<Json<HashMap<String, Box<RawValue>>>>,
-        result as Json<&T>,
+        &result as &Json<&T>,
         queued_job.raw_code,
         queued_job.raw_lock,
         canceled_by.is_some(),
@@ -651,15 +653,31 @@ pub async fn add_completed_job<
         queued_job.email,
         queued_job.visible_to_owner,
         if mem_peak > 0 { Some(mem_peak) } else { None },
-        queued_job.tag,
+        &queued_job.tag,
         queued_job.priority,
     )
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
-    // tracing::error!("2 {:?}", start.elapsed());
-
     add_time!(bench, "add_completed_job query END");
+
+    add_time!(bench, "completed_jobs_result query START");
+    sqlx::query!(
+        "INSERT INTO completed_jobs_result(id, result, tag, workspace_id) VALUES($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET result = $2",
+        queued_job.id,
+        &result as &Json<&T>,
+        queued_job.tag,
+        queued_job.workspace_id,
+    )
+    .execute(&mut tx)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "Could not add completed job result {job_id}: {e:#}"
+        ))
+    })?;
+
+    add_time!(bench, "completed_jobs_result query END");
 
     if !queued_job.is_flow_step {
         if _duration > 500
@@ -2486,12 +2504,14 @@ async fn extract_result_from_job_result(
             Some(json_path) => {
                 let mut parts = json_path.split(".");
 
-                let Some(idx) = parts.next().map(|x| x.parse::<usize>().ok()).flatten() else {
+                let Some(idx) = parts.next().and_then(|x| x.parse::<usize>().ok()) else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
                 let Some(job_id) = job_ids.get(idx).cloned() else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
+
+                // ici
                 Ok(sqlx::query_as::<_, ResultR>(
                     "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
                 )
@@ -2502,8 +2522,7 @@ async fn extract_result_from_job_result(
                 )
                 .fetch_optional(db)
                 .await?
-                .map(|r| r.result.map(|x| x.0))
-                .flatten()
+                .and_then(|r| r.result.map(|x| x.0))
                 .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)))
             }
             None => {
@@ -2528,7 +2547,7 @@ async fn extract_result_from_job_result(
                 Ok(to_raw_value(&result))
             }
         },
-
+        // ici
         JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
@@ -2541,8 +2560,7 @@ async fn extract_result_from_job_result(
         )
         .fetch_optional(db)
         .await?
-        .map(|r| r.result.map(|x| x.0))
-        .flatten()
+        .and_then(|r| r.result.map(|x| x.0))
         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
     }
 }

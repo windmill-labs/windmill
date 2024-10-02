@@ -1349,6 +1349,8 @@ async fn cancel_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
     let mut tx = db.begin().await?;
+
+    let result = serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}});
     let trivial_jobs =  sqlx::query!("INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -1412,9 +1414,18 @@ async fn cancel_jobs(
                    , tag
                    , priority FROM queue 
         WHERE id = any($2) AND running = false AND parent_job IS NULL AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED
-        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
+        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, &result)
         .fetch_all(&mut *tx)
         .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
+
+    sqlx::query!(
+        "INSERT INTO completed_jobs_result(id, result, tag, workspace_id) SELECT id, $1, tag, $2 FROM completed_job  WHERE id = any($3) ON CONFLICT (id) DO NOTHING",
+        result,
+        w_id,
+        &trivial_jobs,
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "DELETE FROM queue WHERE id = any($1) AND workspace_id = $2",
@@ -1423,6 +1434,7 @@ async fn cancel_jobs(
     )
     .execute(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     // sqlx::query!(
@@ -1436,18 +1448,10 @@ async fn cancel_jobs(
             continue;
         }
         let rsmq = rsmq.clone();
-        match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
+        if let Ok(result) = tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
             let (tx, _) = windmill_queue::cancel_job(
-                username,
-                None,
-                job_id.clone(),
-                w_id,
-                tx,
-                db,
-                rsmq,
-                false,
-                false,
+                username, None, job_id, w_id, tx, db, rsmq, false, false,
             )
             .await?;
             tx.commit().await?;
@@ -1455,20 +1459,19 @@ async fn cancel_jobs(
         })
         .await
         {
-            Ok(result) => match result {
+            match result {
                 Ok(_) => {
                     uuids.push(job_id);
                 }
                 Err(e) => {
                     tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
                 }
-            },
-            Err(_) => {
-                tracing::error!(
-                    "Timeout while trying to cancel job {:?} after 5 seconds",
-                    job_id
-                );
             }
+        } else {
+            tracing::error!(
+                "Timeout while trying to cancel job {:?} after 5 seconds",
+                job_id
+            );
         }
     }
 
@@ -4686,7 +4689,6 @@ async fn get_job_update(
                 &w_id,
                  job_id,
                 "progress_perc"
-                
             )
             .fetch_optional(&db)
             .await?.and_then(|inner| inner)
