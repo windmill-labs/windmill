@@ -142,7 +142,9 @@ pub async fn uv_pip_compile(
     };
 
     #[cfg(feature = "enterprise")]
-    requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+    {
+        requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+    }
 
     if no_uv || *USE_PIP_COMPILE {
         no_uv = true;
