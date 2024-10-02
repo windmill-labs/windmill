@@ -44,7 +44,7 @@ lazy_static::lazy_static! {
 
 #[cfg(unix)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = "usr/local/cargo".to_string();
+    static ref CARGO_HOME_DEFAULT: String = "/usr/local/cargo".to_string();
     static ref RUSTUP_HOME_DEFAULT: String = "/usr/local/rustup".to_string();
     static ref CARGO_PATH_DEFAULT: String = "/usr/local/cargo/bin/cargo".to_string();
 }
