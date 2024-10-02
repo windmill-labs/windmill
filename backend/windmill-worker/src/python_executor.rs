@@ -142,14 +142,13 @@ pub async fn uv_pip_compile(
     };
 
     #[cfg(feature = "enterprise")]
-    let mut requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+    requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
 
     if no_uv || *USE_PIP_COMPILE {
         no_uv = true;
         // We want to make sure that when we specify `no_uv` lockfile will be resolved again
         requirements.push_str("\n#no_uv");
     }
-
 
     let req_hash = format!("py-{}", calculate_hash(&requirements));
     if let Some(cached) = sqlx::query_scalar!(
