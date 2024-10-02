@@ -146,6 +146,14 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct CompletedSubFlow {
+    pub id: Uuid,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+}
+
+impl_flow_status_getter!(CompletedSubFlow);
+
 pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
@@ -2398,7 +2406,7 @@ pub async fn get_result_by_id_from_running_flow(
 async fn get_completed_flow_node_result_rec(
     db: &Pool<Postgres>,
     w_id: &str,
-    subflows: &[CompletedJob],
+    subflows: &[CompletedSubFlow],
     node_id: &str,
     json_path: Option<&str>,
 ) -> error::Result<Option<Box<RawValue>>> {
@@ -2436,12 +2444,12 @@ async fn get_completed_flow_node_result_rec(
                 ))),
             };
         } else {
-            /// inefficient
-            let subflows = sqlx::query_as::<_, CompletedJob>(
-                "SELECT *, null as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
+            let subflows = sqlx::query_as::<_, CompletedSubFlow>(
+                "SELECT id, flow_status as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
             ).bind(subflow.id).bind(w_id).fetch_all(db).await?;
 
-            match get_completed_flow_node_result_rec(db, w_id, &subflows, node_id, json_path).await?
+            match get_completed_flow_node_result_rec(db, w_id, &subflows, node_id, json_path)
+                .await?
             {
                 Some(res) => return Ok(Some(res)),
                 None => continue,
@@ -2459,8 +2467,8 @@ async fn get_result_by_id_from_original_flow(
     node_id: &str,
     json_path: Option<&str>,
 ) -> error::Result<Box<RawValue>> {
-    let flow_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, null as labels FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    let flow_job = sqlx::query_as::<_, CompletedSubFlow>(
+        "SELECT id, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
     .bind(completed_flow_id)
     .bind(w_id)
