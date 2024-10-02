@@ -107,12 +107,12 @@ pub async fn uv_pip_compile(
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Fallback to pip-compile. Will be removed in future
-    no_uv: bool,
+    mut no_uv: bool,
 ) -> error::Result<String> {
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
-    let requirements = if let Some(pip_local_dependencies) =
+    let mut requirements = if let Some(pip_local_dependencies) =
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
     {
         let deps = pip_local_dependencies.clone();
@@ -142,7 +142,14 @@ pub async fn uv_pip_compile(
     };
 
     #[cfg(feature = "enterprise")]
-    let requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+    let mut requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+
+    if no_uv || *USE_PIP_COMPILE {
+        no_uv = true;
+        // We want to make sure that when we specify `no_uv` lockfile will be resolved again
+        requirements.push_str("\n#no_uv");
+    }
+
 
     let req_hash = format!("py-{}", calculate_hash(&requirements));
     if let Some(cached) = sqlx::query_scalar!(
@@ -160,7 +167,7 @@ pub async fn uv_pip_compile(
     write_file(job_dir, file, &requirements)?;
 
     // Fallback pip-compile. Will be removed in future
-    if no_uv || *USE_PIP_COMPILE {
+    if no_uv {
         tracing::debug!("Fallback to pip-compile");
 
         let mut args = vec![
