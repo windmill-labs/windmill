@@ -1,18 +1,14 @@
 <script lang="ts">
-	import { BROWSER } from 'esm-env'
-	import { base } from '$lib/base'
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext, beforeUpdate, afterUpdate } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import Slider from '$lib/components/Slider.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import { copyToClipboard } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Clipboard } from 'lucide-svelte'
+	import TriggersWrapperExtended from './TriggersWrapperExtended.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
@@ -24,13 +20,10 @@
 	import Badge from '$lib/components/Badge.svelte'
 
 	export let noEditor: boolean
+	export let newFlow = false
 
-	const { flowStore, initialPath, previewArgs, pathStore, customUi } =
+	const { selectedId, flowStore, initialPath, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
-
-	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
-	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$pathStore}`
-	$: syncedUrl = `${hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$pathStore}`
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -140,96 +133,21 @@
 					</Label>
 
 					<Label label="Triggers">
-						<Slider text="Triggers">
-							<div class="text-sm text-tertiary border p-4 mb-20">
-								On-demand:
-								<ul class="pt-4">
-									<li>
-										1. <a
-											href="https://www.windmill.dev/docs/core_concepts/auto_generated_uis"
-											target="_blank">Auto-generated UIs</a
-										>
-									</li>
-									<li>
-										2. <a href="{base}/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
-									</li>
-									<li>
-										3. <a href="{base}/schedules" target="_blank">Scheduling</a>
-									</li>
-									<li>
-										4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
-											>Windmill CLI</a
-										>
-									</li>
-									<br />
-									<li class="mt-2">
-										<div class="flex flex-col gap-2">
-											<p> From external events: </p>
-										</div>
-									</li>
-									<li class="mt-2">
-										5. Send a <a
-											href="https://www.windmill.dev/docs/core_concepts/webhooks"
-											target="_blank">webhook</a
-										>
-										after each event:
-										<ul class="list-disc pl-4"
-											><li
-												>Async <Tooltip
-													>Return an uuid instantly that you can use to fetch status and result</Tooltip
-												>:
-												<a
-													on:click={(e) => {
-														e.preventDefault()
-														copyToClipboard(url)
-													}}
-													href={url}
-													class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-												>
-													{url}
-													<span class="text-secondary ml-2">
-														<Clipboard />
-													</span>
-												</a>
-											</li>
-											<li
-												>Sync <Tooltip>Wait for result within a timeout of 20s</Tooltip>:
-												<a
-													on:click={(e) => {
-														e.preventDefault()
-														copyToClipboard(syncedUrl)
-													}}
-													href={syncedUrl}
-													class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-												>
-													{syncedUrl}
-													<span class="text-secondary ml-2">
-														<Clipboard />
-													</span>
-												</a>
-											</li>
-										</ul></li
-									>
-									<br />
-									<li>
-										6. Use a <a
-											href="https://www.windmill.dev/docs/flows/flow_trigger"
-											target="_blank">trigger script</a
-										>
-										and schedule this flow to run as frequently as needed and compare a state persisted
-										in Windmill to the state of the external system. If a difference is detected, then
-										the rest of the flow is triggered. Oftentimes, the second step of a flow is a for-loop
-										that will iterate over every elements. When using a trigger, a default schedule will
-										be created.
-										<img
-											class="shadow-lg border rounded"
-											alt="static button"
-											src="{base}/trigger_button.png"
-										/>
-									</li></ul
-								>
-							</div>
-						</Slider>
+						<div class="flex flex-col gap-2">
+							<TriggersWrapperExtended
+								path={$pathStore}
+								on:openSchedules={() => ($selectedId = 'settings-schedule')}
+								on:triggerDetail
+								isEditor={true}
+								{newFlow}
+							/>
+						</div>
+						<svelte:fragment slot="header">
+							<Tooltip small wrapperClass="center-center">
+								The flow can be triggered by webhooks, emails, schedules or routes. Click on the
+								icons to see the triggers.
+							</Tooltip>
+						</svelte:fragment>
 					</Label>
 				</div>
 			</Section>

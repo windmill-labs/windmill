@@ -14,7 +14,7 @@
 
 	export let noEditor = false
 	export let enableAi = false
-
+	export let newFlow = false
 	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -55,7 +55,7 @@
 </script>
 
 {#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} />
+	<FlowSettings {noEditor} {newFlow} />
 {:else if $selectedId === 'Input'}
 	<FlowInput {noEditor} />
 {:else if $selectedId === 'Result'}

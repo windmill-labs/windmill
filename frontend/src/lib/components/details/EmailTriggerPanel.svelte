@@ -49,6 +49,10 @@
 			.toLowerCase()
 		return `${pathOrHash}+${encodedPrefix}@${emailDomain}`
 	}
+
+	export let email: string = ''
+
+	$: email = emailAddress()
 </script>
 
 <HighlightTheme />
@@ -107,7 +111,7 @@
 				{#key requestType}
 					{#key token}
 						<div class="flex flex-col gap-2">
-							<ClipboardPanel title="Email address" content={emailAddress()} />
+							<ClipboardPanel title="Email address" content={email} />
 						</div>
 					{/key}
 				{/key}

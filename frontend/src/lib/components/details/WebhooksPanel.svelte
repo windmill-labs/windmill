@@ -27,6 +27,7 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+	export let url: string = ''
 
 	let selectedTab: string = 'rest'
 
