@@ -15,16 +15,22 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "deno_core")]
 use deno_ast::ParseParams;
+#[cfg(feature = "deno_core")]
 use deno_core::{
     error::AnyError,
     op2, serde_v8, url,
     v8::{self, IsolateHandle},
     Extension, JsRuntime, OpState, PollEventLoopOptions, RuntimeOptions,
 };
+#[cfg(feature = "deno_core")]
 use deno_fetch::FetchPermissions;
+#[cfg(feature = "deno_core")]
 use deno_net::NetPermissions;
+#[cfg(feature = "deno_core")]
 use deno_tls::{rustls::RootCertStore, rustls_pemfile};
+#[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -52,10 +58,12 @@ pub struct IdContext {
     pub previous_id: String,
 }
 
+#[cfg(feature = "deno_core")]
 pub struct ContainerRootCertStoreProvider {
     root_cert_store: RootCertStore,
 }
 
+#[cfg(feature = "deno_core")]
 impl ContainerRootCertStoreProvider {
     fn new() -> ContainerRootCertStoreProvider {
         return ContainerRootCertStoreProvider {
@@ -73,14 +81,17 @@ impl ContainerRootCertStoreProvider {
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl deno_tls::RootCertStoreProvider for ContainerRootCertStoreProvider {
     fn get_or_try_init(&self) -> Result<&RootCertStore, AnyError> {
         Ok(&self.root_cert_store)
     }
 }
 
+#[cfg(feature = "deno_core")]
 pub struct PermissionsContainer;
 
+#[cfg(feature = "deno_core")]
 impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_net_url(
@@ -101,6 +112,7 @@ impl FetchPermissions for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl TimersPermission for PermissionsContainer {
     #[inline(always)]
     fn allow_hrtime(&mut self) -> bool {
@@ -108,6 +120,7 @@ impl TimersPermission for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl NetPermissions for PermissionsContainer {
     fn check_read(
         &mut self,
@@ -212,119 +225,129 @@ pub async fn eval_timeout(
         }
     }
 
-    let expr2 = expr.clone();
-    let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
-    let has_client = authed_client.is_some();
-    let authed_client = authed_client.cloned();
-    timeout(
-        std::time::Duration::from_millis(10000),
-        tokio::task::spawn_blocking(move || {
-            let mut ops = vec![op_get_context()];
+    #[cfg(not(feature = "deno_core"))]
+    {
+        return todo!();
+    }
 
-            if authed_client.is_some() {
-                ops.extend([
-                    // An op for summing an array of numbers
-                    // The op-layer automatically deserializes inputs
-                    // and serializes the returned Result & value
-                    op_variable(),
-                    op_resource(),
-                ])
-            }
+    #[cfg(feature = "deno_core")]
+    {
+        let expr2 = expr.clone();
+        let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+        let has_client = authed_client.is_some();
+        let authed_client = authed_client.cloned();
+        return timeout(
+            std::time::Duration::from_millis(10000),
+            tokio::task::spawn_blocking(move || {
+                let mut ops = vec![op_get_context()];
 
-            if by_id.is_some() && authed_client.is_some() {
-                ops.push(op_get_result());
-                ops.push(op_get_id());
-            }
-
-            let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
-            let exts = vec![ext];
-            // Use our snapshot to provision our new runtime
-            let options = RuntimeOptions {
-                extensions: exts,
-                //                startup_snapshot: Some(Snapshot::Static(buffer)),
-                ..Default::default()
-            };
-
-            let mut context_keys = transform_context
-                .keys()
-                .filter(|x| expr.contains(&x.to_string()))
-                .map(|x| x.clone())
-                .collect_vec();
-
-            if !context_keys.contains(&"previous_result".to_string())
-                && (p_ids.is_some() && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
-                || expr.contains("error")
-            {
-                // tracing::error!("PREVIOUS_RESULT");
-                context_keys.push("previous_result".to_string());
-            }
-            let has_flow_input = expr.contains("flow_input");
-            if has_flow_input {
-                context_keys.push("flow_input".to_string())
-            }
-
-            let mut js_runtime = JsRuntime::new(options);
-            {
-                let op_state = js_runtime.op_state();
-                let mut op_state = op_state.borrow_mut();
-                let mut client = authed_client.clone();
-                if let Some(client) = client.as_mut() {
-                    client.force_client = Some(
-                        reqwest::ClientBuilder::new()
-                            .user_agent("windmill/beta")
-                            .danger_accept_invalid_certs(
-                                std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
-                            )
-                            .build()
-                            .unwrap(),
-                    );
+                if authed_client.is_some() {
+                    ops.extend([
+                        // An op for summing an array of numbers
+                        // The op-layer automatically deserializes inputs
+                        // and serializes the returned Result & value
+                        op_variable(),
+                        op_resource(),
+                    ])
                 }
-                op_state.put(OptAuthedClient(client));
-                op_state.put(TransformContext {
-                    flow_input: if has_flow_input { flow_input } else { None },
-                    envs: transform_context
-                        .into_iter()
-                        .filter(|(a, _)| context_keys.contains(a))
-                        .collect(),
-                })
-            }
 
-            sender
-                .send(js_runtime.v8_isolate().thread_safe_handle())
-                .map_err(|_| Error::ExecutionErr("impossible to send v8 isolate".to_string()))?;
+                if by_id.is_some() && authed_client.is_some() {
+                    ops.push(op_get_result());
+                    ops.push(op_get_id());
+                }
 
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
+                let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
+                let exts = vec![ext];
+                // Use our snapshot to provision our new runtime
+                let options = RuntimeOptions {
+                    extensions: exts,
+                    //                startup_snapshot: Some(Snapshot::Static(buffer)),
+                    ..Default::default()
+                };
 
-            // pretty frail but this it to make the expr more user friendly and not require the user to write await
-            let expr = ["variable", "resource"]
-                .into_iter()
-                .fold(expr, replace_with_await);
+                let mut context_keys = transform_context
+                    .keys()
+                    .filter(|x| expr.contains(&x.to_string()))
+                    .map(|x| x.clone())
+                    .collect_vec();
 
-            let expr = replace_with_await_result(expr);
+                if !context_keys.contains(&"previous_result".to_string())
+                    && (p_ids.is_some() && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
+                    || expr.contains("error")
+                {
+                    // tracing::error!("PREVIOUS_RESULT");
+                    context_keys.push("previous_result".to_string());
+                }
+                let has_flow_input = expr.contains("flow_input");
+                if has_flow_input {
+                    context_keys.push("flow_input".to_string())
+                }
 
-            let r = runtime.block_on(eval(
-                &mut js_runtime,
-                &expr,
-                context_keys,
-                by_id,
-                has_client,
-                ctx,
-            ))?;
+                let mut js_runtime = JsRuntime::new(options);
+                {
+                    let op_state = js_runtime.op_state();
+                    let mut op_state = op_state.borrow_mut();
+                    let mut client = authed_client.clone();
+                    if let Some(client) = client.as_mut() {
+                        client.force_client = Some(
+                            reqwest::ClientBuilder::new()
+                                .user_agent("windmill/beta")
+                                .danger_accept_invalid_certs(
+                                    std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
+                                )
+                                .build()
+                                .unwrap(),
+                        );
+                    }
+                    op_state.put(OptAuthedClient(client));
+                    op_state.put(TransformContext {
+                        flow_input: if has_flow_input { flow_input } else { None },
+                        envs: transform_context
+                            .into_iter()
+                            .filter(|(a, _)| context_keys.contains(a))
+                            .collect(),
+                    })
+                }
 
-            Ok(r) as anyhow::Result<Box<RawValue>>
-        }),
-    )
-    .await
-    .map_err(|_| {
-        if let Ok(isolate) = receiver.try_recv() {
-            isolate.terminate_execution();
-        };
-        Error::ExecutionErr(format!(
-            "The expression of evaluation `{expr2}` took too long to execute (>10000ms)"
-        ))
-    })??
+                sender
+                    .send(js_runtime.v8_isolate().thread_safe_handle())
+                    .map_err(|_| {
+                        Error::ExecutionErr("impossible to send v8 isolate".to_string())
+                    })?;
+
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+
+                // pretty frail but this it to make the expr more user friendly and not require the user to write await
+                let expr = ["variable", "resource"]
+                    .into_iter()
+                    .fold(expr, replace_with_await);
+
+                let expr = replace_with_await_result(expr);
+
+                let r = runtime.block_on(eval(
+                    &mut js_runtime,
+                    &expr,
+                    context_keys,
+                    by_id,
+                    has_client,
+                    ctx,
+                ))?;
+
+                Ok(r) as anyhow::Result<Box<RawValue>>
+            }),
+        )
+        .await
+        .map_err(|_| {
+            if let Ok(isolate) = receiver.try_recv() {
+                isolate.terminate_execution();
+            };
+            Error::ExecutionErr(format!(
+                "The expression of evaluation `{expr2}` took too long to execute (>10000ms)"
+            ))
+        })??;
+    }
 }
 
 fn replace_with_await(expr: String, fn_name: &str) -> String {
@@ -368,6 +391,7 @@ fn add_closing_bracket(s: &str) -> String {
     s
 }
 
+#[cfg(feature = "deno_core")]
 async fn eval(
     context: &mut JsRuntime,
     expr: &str,
@@ -508,6 +532,7 @@ function get_from_env(name) {{
 // }
 
 // TODO: Can we a) share the api configuration here somehow or b) just implement this natively in deno, via the deno client?
+#[cfg(feature = "deno_core")]
 #[op2(async)]
 #[string]
 async fn op_variable(
@@ -522,6 +547,7 @@ async fn op_variable(
     }
 }
 
+#[cfg(feature = "deno_core")]
 #[op2(async)]
 #[string]
 async fn op_get_result(
@@ -540,6 +566,7 @@ async fn op_get_result(
     }
 }
 
+#[cfg(feature = "deno_core")]
 #[op2(async)]
 #[string]
 async fn op_get_id(
@@ -563,6 +590,7 @@ async fn op_get_id(
     }
 }
 
+#[cfg(feature = "deno_core")]
 #[op2(async)]
 #[string]
 async fn op_resource(
@@ -585,6 +613,7 @@ pub struct TransformContext {
     pub flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
 }
 
+#[cfg(feature = "deno_core")]
 #[op2]
 #[string]
 fn op_get_context(op_state: Rc<RefCell<OpState>>, #[string] id: &str) -> String {
@@ -605,6 +634,7 @@ fn op_get_context(op_state: Rc<RefCell<OpState>>, #[string] id: &str) -> String 
     }
 }
 
+#[cfg(feature = "deno_core")]
 pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
     let parsed = deno_ast::parse_module(ParseParams {
         specifier: url::Url::parse("file:///eval.ts")?,
@@ -621,6 +651,12 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
         .text)
 }
 
+#[cfg(not(feature = "deno_core"))]
+pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
+    Ok("require deno".to_string())
+}
+
+#[cfg(feature = "deno_core")]
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
 
 pub struct MainArgs {
@@ -675,7 +711,27 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
         )
     })
 }
+#[cfg(not(feature = "deno_core"))]
+pub async fn eval_fetch_timeout(
+    env_code: String,
+    ts_expr: String,
+    js_expr: String,
+    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    job_id: Uuid,
+    job_timeout: Option<i32>,
+    db: &DB,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
+    w_id: &str,
+    load_client: bool,
+    occupation_metrics: &mut OccupancyMetrics,
+) -> anyhow::Result<(Box<RawValue>, String)> {
+    use serde_json::value::to_raw_value;
+    Ok((to_raw_value("require deno_core").unwrap(), "".to_string()))
+}
 
+#[cfg(feature = "deno_core")]
 pub async fn eval_fetch_timeout(
     env_code: String,
     ts_expr: String,
@@ -853,6 +909,7 @@ pub async fn eval_fetch_timeout(
 
 const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
+#[cfg(feature = "deno_core")]
 async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
@@ -898,6 +955,7 @@ import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.strin
     Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
 }
 
+#[cfg(feature = "deno_core")]
 #[op2]
 #[serde]
 fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<String>> {
@@ -910,6 +968,7 @@ fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<String>> {
         .collect_vec()
 }
 
+#[cfg(feature = "deno_core")]
 #[op2(fast)]
 fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
     // tracing::error!("log: |{}|", log);
@@ -929,6 +988,7 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
+    #[cfg(feature = "deno_core")]
     #[tokio::test]
     async fn test_eval() -> anyhow::Result<()> {
         let mut env = HashMap::new();
@@ -970,6 +1030,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "deno_core")]
     #[tokio::test]
     async fn test_eval_multiline() -> anyhow::Result<()> {
         let env = vec![];
@@ -983,6 +1044,7 @@ multiline template`";
         Ok(())
     }
 
+    #[cfg(feature = "deno_core")]
     #[tokio::test]
     async fn test_eval_timeout() -> anyhow::Result<()> {
         let mut env = HashMap::new();

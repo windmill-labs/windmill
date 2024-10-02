@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, io, path::Path, process::Stdio, time::Instan
 
 use base64::Engine;
 use itertools::Itertools;
-use serde_json::value::RawValue;
+use serde_json::value::{to_raw_value, RawValue};
 use sha2::Digest;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
@@ -1207,6 +1207,14 @@ try {{
         } else {
             job.args.as_ref()
         };
+
+        #[cfg(not(feature = "deno_core"))]
+        let result = (
+            to_raw_value("").unwrap(),
+            "require deno_core feature".to_string(),
+        );
+
+        #[cfg(feature = "deno_core")]
         let result = crate::js_eval::eval_fetch_timeout(
             env_code,
             inner_content.clone(),
