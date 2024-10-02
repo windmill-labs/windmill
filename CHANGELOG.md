@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.403.1](https://github.com/windmill-labs/windmill/compare/v1.403.0...v1.403.1) (2024-10-01)
+
+
+### Bug Fixes
+
+* fix new instance db setup ([73ab8e1](https://github.com/windmill-labs/windmill/commit/73ab8e1653d6e0c0c69fa7dcd96583f25d13ef86))
+
+## [1.403.0](https://github.com/windmill-labs/windmill/compare/v1.402.3...v1.403.0) (2024-10-01)
+
+
+### Features
+
+* flow step skipping ([#4461](https://github.com/windmill-labs/windmill/issues/4461)) ([0df169e](https://github.com/windmill-labs/windmill/commit/0df169e3f996ed54b91569b13cce15d7d019a213))
+
+
+### Bug Fixes
+
+* skip one migration to avoid using md5 for azure support ([630ae5d](https://github.com/windmill-labs/windmill/commit/630ae5d425cd9957d674befd2df96e2befec52a3))
+
 ## [1.402.3](https://github.com/windmill-labs/windmill/compare/v1.402.2...v1.402.3) (2024-09-30)
 
 
