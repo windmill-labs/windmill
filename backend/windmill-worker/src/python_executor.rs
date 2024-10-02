@@ -255,6 +255,10 @@ pub async fn uv_pip_compile(
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
             UV_CACHE_DIR,
+            // We dont want UV to manage python installations
+            "--python-preference",
+            "only-system",
+            "--no-python-downloads",
         ];
         if no_cache {
             args.extend(["--no-cache"]);
