@@ -224,7 +224,7 @@
 							<div
 								in:fade={{ duration: 50 }}
 								animate:flip={{ duration: 100 }}
-								class="w-full px-0.5 pb-1.5"
+								class="w-full px-0.5"
 							>
 								<button
 									class={twMerge(
@@ -244,6 +244,7 @@
 								</button>
 							</div>
 						{/each}
+						<div class="pb-1.5" />
 					{:else}
 						<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
 							No items found.
