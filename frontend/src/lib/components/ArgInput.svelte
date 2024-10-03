@@ -209,7 +209,6 @@
 
 	let oldDefaultValue = defaultValue
 	function handleDefaultValueChange() {
-		console.log('defaultValue', defaultValue)
 		if (value == oldDefaultValue) {
 			value = defaultValue
 		}
