@@ -258,6 +258,7 @@
 					{/if}
 					<ListFiltersQuick
 						on:selected={() => {
+							filteredWorkspaceItems = []
 							selectedByKeyboard = 0
 						}}
 						filters={integrations}
@@ -431,6 +432,7 @@
 				{#if !selected && preFilter !== 'hub'}
 					<div class=" pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
 				{/if}
+
 				<PickHubScriptQuick
 					bind:items={hubCompletions}
 					bind:filter
