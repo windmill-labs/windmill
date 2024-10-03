@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.404.1](https://github.com/windmill-labs/windmill/compare/v1.404.0...v1.404.1) (2024-10-03)
+
+
+### Bug Fixes
+
+* flow picker of flows ([92f61f0](https://github.com/windmill-labs/windmill/commit/92f61f07ed6d354407d26843e3a270b95bae90bc))
+
 ## [1.404.0](https://github.com/windmill-labs/windmill/compare/v1.403.1...v1.404.0) (2024-10-03)
 
 
