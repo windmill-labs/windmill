@@ -36,14 +36,13 @@ use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::flows::FlowValueGetter;
+use windmill_common::{fetch_optional_with_fallback, flows::FlowValueGetter};
 
 use windmill_common::{
     add_time,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
-    fetch_one_with_fallback,
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusGetter, FlowStatusModule,
         FlowStatusModuleWParent, Iterator, JobResult, ParsedFlowStatusGetter, RestartedFrom,
@@ -2500,10 +2499,9 @@ async fn extract_result_from_job_result(
 
                 let parts = parts.map(|x| x.to_string()).collect_vec();
 
-                Ok(fetch_one_with_fallback!(
+                Ok(fetch_optional_with_fallback!(
                     db,
                     query_as,
-                    fetch_optional,
                     ResultR,
                     "SELECT result #> $3 as result FROM {} WHERE id = $1 AND workspace_id = $2",
                     "completed_jobs_result" || "completed_job",
@@ -2543,10 +2541,9 @@ async fn extract_result_from_job_result(
                 .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
                 .unwrap_or_default();
 
-            let res = fetch_one_with_fallback!(
+            let res = fetch_optional_with_fallback!(
                 db,
                 query_as,
-                fetch_optional,
                 ResultR,
                 "SELECT result #> $3 as result FROM {} WHERE id = $1 AND workspace_id = $2",
                 "completed_jobs_result" || "completed_job",
