@@ -42,7 +42,7 @@ use windmill_common::jobs::{
     RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::worker::to_raw_value;
-use windmill_common::{add_time, fetch_one_with_fallback};
+use windmill_common::{add_time, fetch_one_with_fallback, fetch_optional_with_fallback};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -65,7 +65,6 @@ async fn get_args_from_job_id(db: &DB, id: &Uuid) -> Result<RowArgs, Error> {
     let args = fetch_one_with_fallback!(
         db,
         query_as,
-        fetch_one,
         RowArgs,
         "SELECT args FROM {} WHERE id = $1",
         "job_args" || "queue",
@@ -318,7 +317,6 @@ pub async fn update_flow_status_after_job_completion_internal<
             let is_flow = if let Some(step) = step {
                 fetch_one_with_fallback!(db,
                     query_scalar,
-                    fetch_one,
                     Option<bool>,
                     "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2",
                     "job_params" || "queue",
@@ -1269,7 +1267,6 @@ async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
     fetch_one_with_fallback!(
         db,
         query_scalar,
-        fetch_one,
         Option<bool>,
         "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM {} WHERE id = $1",
         "job_params" || "queue",
@@ -2221,10 +2218,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             );
             Ok(Marc::new(hm))
         } else if let Some(id) = get_args_from_id {
-            let row = fetch_one_with_fallback!(
+            let row = fetch_optional_with_fallback!(
                 db,
                 query_as,
-                fetch_optional,
                 RowArgs,
                 "SELECT args FROM {} WHERE id = $1 AND workspace_id = $2",
                 "job_args" || "completed_job",
@@ -3856,7 +3852,6 @@ async fn get_previous_job_result(
             fetch_one_with_fallback!(
                 db,
                 query_scalar,
-                fetch_one,
                 Json<Box<RawValue>>,
                 "SELECT result FROM {} WHERE id = $1 AND workspace_id = $2",
                 "completed_jobs_result" || "completed_job",
