@@ -190,6 +190,12 @@ export async function pickInstance(
   const instances = await allInstances();
   if (opts.baseUrl && opts.token) {
     log.info("Using instance fully defined by --base-url and --token");
+
+    setClient(
+      opts.token,
+      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl
+    );
+
     return {
       name: "custom",
       remote: opts.baseUrl,
