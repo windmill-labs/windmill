@@ -6,14 +6,18 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(feature = "deno_core")]
 use std::{
     cell::RefCell,
-    collections::HashMap,
     env,
     io::{self, BufReader},
     rc::Rc,
-    sync::Arc,
 };
+
+use std::{collections::HashMap, sync::Arc};
+
+#[cfg(feature = "deno_core")]
+use std::time::Instant;
 
 #[cfg(feature = "deno_core")]
 use deno_ast::ParseParams;
@@ -32,28 +36,35 @@ use deno_net::NetPermissions;
 use deno_tls::{rustls::RootCertStore, rustls_pemfile};
 #[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
+#[cfg(feature = "deno_core")]
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
+
+#[cfg(feature = "deno_core")]
 use tokio::{
     sync::{mpsc, oneshot},
     time::timeout,
 };
 use uuid::Uuid;
-use windmill_common::{error::Error, flow_status::JobResult, DB};
+
+#[cfg(feature = "deno_core")]
+use windmill_common::error::Error;
+
+use windmill_common::{flow_status::JobResult, DB};
 use windmill_queue::CanceledBy;
 
-use crate::{
-    common::{unsafe_raw, OccupancyMetrics},
-    handle_child::run_future_with_polling_update_job_poller,
-    AuthedClient,
-};
+use crate::{common::OccupancyMetrics, AuthedClient};
+
+#[cfg(feature = "deno_core")]
+use crate::{common::unsafe_raw, handle_child::run_future_with_polling_update_job_poller};
 
 #[derive(Debug, Clone)]
 pub struct IdContext {
     pub flow_job: Uuid,
+    #[allow(dead_code)]
     pub steps_results: HashMap<String, JobResult>,
     pub previous_id: String,
 }
@@ -147,6 +158,7 @@ impl NetPermissions for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 pub struct OptAuthedClient(Option<AuthedClient>);
 
 pub async fn eval_timeout(
@@ -155,7 +167,7 @@ pub async fn eval_timeout(
     flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
-    ctx: Option<Vec<(String, String)>>,
+    #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
     let expr = expr.trim().to_string();
 
@@ -227,6 +239,7 @@ pub async fn eval_timeout(
 
     #[cfg(not(feature = "deno_core"))]
     {
+        #[allow(unreachable_code)]
         return todo!();
     }
 
@@ -350,6 +363,7 @@ pub async fn eval_timeout(
     }
 }
 
+#[cfg(feature = "deno_core")]
 fn replace_with_await(expr: String, fn_name: &str) -> String {
     let sep = format!("{}(", fn_name);
     let mut split = expr.split(&sep);
@@ -368,10 +382,12 @@ lazy_static! {
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
 
+#[cfg(feature = "deno_core")]
 fn replace_with_await_result(expr: String) -> String {
     RE.replace_all(&expr, "(await $r)").to_string()
 }
 
+#[cfg(feature = "deno_core")]
 fn add_closing_bracket(s: &str) -> String {
     let mut s = s.to_string();
     let mut level = 1;
@@ -608,6 +624,7 @@ async fn op_resource(
     }
 }
 
+#[cfg(feature = "deno_core")]
 pub struct TransformContext {
     pub envs: HashMap<String, Arc<Box<RawValue>>>,
     pub flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
@@ -652,26 +669,29 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
 }
 
 #[cfg(not(feature = "deno_core"))]
-pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
+pub fn transpile_ts(_expr: String) -> anyhow::Result<String> {
     Ok("require deno".to_string())
 }
 
 #[cfg(feature = "deno_core")]
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
 
+#[cfg(feature = "deno_core")]
 pub struct MainArgs {
     args: Vec<Option<Box<RawValue>>>,
 }
 
+#[cfg(feature = "deno_core")]
 pub struct LogString {
     pub s: String,
 }
 
+#[cfg(feature = "deno_core")]
 pub struct NativeAnnotation {
     pub useragent: Option<String>,
     pub proxy: Option<(String, Option<(String, String)>)>,
 }
-
+#[cfg(feature = "deno_core")]
 pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
     let mut res = NativeAnnotation { useragent: None, proxy: None };
 
@@ -691,6 +711,7 @@ pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
     res
 }
 
+#[cfg(feature = "deno_core")]
 fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
     RE_PROXY.captures(s).map(|x| {
         (
@@ -713,19 +734,19 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
 }
 #[cfg(not(feature = "deno_core"))]
 pub async fn eval_fetch_timeout(
-    env_code: String,
-    ts_expr: String,
-    js_expr: String,
-    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
-    job_id: Uuid,
-    job_timeout: Option<i32>,
-    db: &DB,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    worker_name: &str,
-    w_id: &str,
-    load_client: bool,
-    occupation_metrics: &mut OccupancyMetrics,
+    _env_code: String,
+    _ts_expr: String,
+    _js_expr: String,
+    _args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    _job_id: Uuid,
+    _job_timeout: Option<i32>,
+    _db: &DB,
+    _mem_peak: &mut i32,
+    _canceled_by: &mut Option<CanceledBy>,
+    _worker_name: &str,
+    _w_id: &str,
+    _load_client: bool,
+    _occupation_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<(Box<RawValue>, String)> {
     use serde_json::value::to_raw_value;
     Ok((to_raw_value("require deno_core").unwrap(), "".to_string()))
@@ -907,6 +928,7 @@ pub async fn eval_fetch_timeout(
     Ok((res, format!("{extra_logs}{logs}")))
 }
 
+#[cfg(feature = "deno_core")]
 const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
 #[cfg(feature = "deno_core")]
@@ -979,6 +1001,7 @@ fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
         .push_str(log);
 }
 
+#[cfg(feature = "deno_core")]
 #[cfg(test)]
 mod tests {
 
@@ -988,7 +1011,6 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
-    #[cfg(feature = "deno_core")]
     #[tokio::test]
     async fn test_eval() -> anyhow::Result<()> {
         let mut env = HashMap::new();
@@ -1030,7 +1052,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "deno_core")]
     #[tokio::test]
     async fn test_eval_multiline() -> anyhow::Result<()> {
         let env = vec![];
@@ -1044,7 +1065,6 @@ multiline template`";
         Ok(())
     }
 
-    #[cfg(feature = "deno_core")]
     #[tokio::test]
     async fn test_eval_timeout() -> anyhow::Result<()> {
         let mut env = HashMap::new();
