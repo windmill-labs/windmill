@@ -2,6 +2,7 @@
 	import { Folder, User, Circle } from 'lucide-svelte'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { twMerge } from 'tailwind-merge'
+	import { createEventDispatcher } from 'svelte'
 
 	export let filters: string[]
 	export let selectedFilter:
@@ -14,6 +15,8 @@
 	function getIconComponent(name: string) {
 		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if Array.isArray(filters) && filters.length > 0}
@@ -27,6 +30,7 @@
 				on:click={() => {
 					selectedFilter =
 						selectedAppFilter == filter ? undefined : { kind: 'integrations', name: filter }
+					dispatch('selected')
 				}}
 			>
 				<div class="flex justify-center flex-row items-center gap-2">
