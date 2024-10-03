@@ -43,6 +43,8 @@ RUN wget https://golang.org/dl/go1.21.5.linux-amd64.tar.gz && tar -C /usr/local 
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
 ENV TZ=Etc/UTC
 
 ENV PYTHON_VERSION 3.11.4
