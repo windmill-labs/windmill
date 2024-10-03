@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import type { FlowCopilotModule } from './flow'
 	import { ScriptService, type Script } from '$lib/gen'
 
 	import { Wand2, Loader2 } from 'lucide-svelte'
@@ -11,9 +10,7 @@
 	export let funcDesc: string
 	export let trigger = false
 	export let loading = false
-
-	// state
-	export let hubCompletions: FlowCopilotModule['hubCompletions'] = []
+	export let preFilter: string
 
 	let scripts: Script[] | undefined = undefined
 	export let filteredItems: (Script & { marked?: string })[] | (Item & { marked?: string })[] = []
@@ -32,6 +29,11 @@
 	$: scripts == undefined && funcDesc?.length > 1 && loadScripts()
 
 	let input: HTMLInputElement
+
+	$: preFilter &&
+		setTimeout(() => {
+			input?.focus()
+		}, 50)
 
 	onMount(() => {
 		input?.focus()

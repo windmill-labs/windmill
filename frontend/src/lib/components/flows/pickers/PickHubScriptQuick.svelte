@@ -118,6 +118,7 @@
 			selected < items?.length! &&
 			e.key === 'Enter'
 		) {
+			e.preventDefault()
 			let item = items![selected]
 			dispatch('pickScript', item)
 		}

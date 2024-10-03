@@ -7,7 +7,6 @@
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { FlowCopilotModule } from '../../copilot/flow'
 	import type { ComputeConfig } from 'svelte-floating-ui'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
@@ -21,7 +20,6 @@
 	export let funcDesc = ''
 	export let modules: FlowModule[] = []
 	export let disableAi = false
-	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
 	export let allowTrigger = true
 
@@ -97,7 +95,7 @@ shouldUsePortal={true} -->
 		role="none"
 	>
 		<div class="flex flex-row items-center gap-2">
-			<StepGenQuick on:insert bind:funcDesc bind:hubCompletions {loading} />
+			<StepGenQuick on:insert bind:funcDesc {preFilter} {loading} />
 			{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 				<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 			{/if}

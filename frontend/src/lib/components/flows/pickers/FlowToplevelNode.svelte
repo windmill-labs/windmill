@@ -7,6 +7,7 @@
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		if (selected && event.key === 'Enter') {
+			event.preventDefault()
 			click()
 		}
 	}

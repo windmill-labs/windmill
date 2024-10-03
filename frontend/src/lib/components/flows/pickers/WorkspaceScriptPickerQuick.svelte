@@ -72,7 +72,7 @@
 			selected < filteredItems.length &&
 			e.key === 'Enter'
 		) {
-			console.log('enter', filteredItems[selected])
+			e.preventDefault()
 			let item = filteredItems[selected]
 			dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
 		}
