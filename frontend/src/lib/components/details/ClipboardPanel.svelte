@@ -20,5 +20,5 @@
 	}}
 >
 	<div class="text-xs truncate whitespace-no-wrap grow">{content}</div>
-	<Clipboard size={14} />
+	<Clipboard size={12} class="flex-shrink-0" />
 </div>

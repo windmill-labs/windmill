@@ -859,6 +859,8 @@
 
 	input:focus {
 		outline: none;
+		border: none;
+		box-shadow: none;
 	}
 
 	.svelte-select.focused {

@@ -12,8 +12,8 @@ const lightTheme = {
 	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
-	border: '#ddd',
-	borderHover: '#ccc'
+	border: '#dddddd',
+	borderHover: '#cccccc'
 }
 
 const lightThemeRgb = makeRgb(lightTheme)
