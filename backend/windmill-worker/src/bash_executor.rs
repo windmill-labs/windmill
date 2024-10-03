@@ -302,7 +302,7 @@ pub async fn handle_powershell_job(
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-$env:PSModulePath = ($Env:PSModulePath -split ':')[-1]
+$env:PSModulePath = \"$PSHome/Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
