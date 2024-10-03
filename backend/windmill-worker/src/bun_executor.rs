@@ -506,7 +506,7 @@ pub async fn generate_bun_bundle(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -535,7 +535,7 @@ pub async fn generate_bun_bundle(
             "bun build",
             timeout,
             false,
-            &mut Some(occupancy_metrics),
+            occupancy_metrics,
         )
         .await?;
     } else {
@@ -650,7 +650,7 @@ pub async fn prebundle_bun_script(
     base_internal_url: &str,
     worker_name: &str,
     token: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -1190,7 +1190,7 @@ try {{
                 mem_peak,
                 canceled_by,
                 &common_bun_proc_envs,
-                occupancy_metrics,
+                &mut Some(occupancy_metrics),
             )
             .await?;
             if !local_path.is_empty() {
