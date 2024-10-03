@@ -29,6 +29,9 @@ lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
+    static ref UV_PATH: String =
+    std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+
     static ref FLOCK_PATH: String =
     std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
@@ -294,13 +297,19 @@ pub async fn uv_pip_compile(
         }
         tracing::debug!("uv args: {:?}", args);
 
-        let mut child_cmd = Command::new("uv");
+        #[cfg(windows)]
+        let uv_cmd = "uv";
+
+        #[cfg(unix)]
+        let uv_cmd = UV_PATH.as_str();
+
+        let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .current_dir(job_dir)
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let child_process = start_child_process(child_cmd, "uv").await?;
+        let child_process = start_child_process(child_cmd, "/usr/local/bin/uv").await?;
         append_logs(&job_id, &w_id, logs, db).await;
         handle_child(
             job_id,

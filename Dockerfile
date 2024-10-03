@@ -159,7 +159,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \

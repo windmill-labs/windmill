@@ -18,6 +18,7 @@
 	export let hideDownloadInGraph = false
 	export let hideNodeDefinition = false
 	export let hideJobId = false
+	export let hideDownloadLogs = false
 
 	export let isOwner = false
 	export let wideResults = false
@@ -34,6 +35,7 @@
 		hideNodeDefinition,
 		hideTimeline,
 		hideJobId
+		hideDownloadLogs
 	})
 
 	function loadOwner(path: string) {
