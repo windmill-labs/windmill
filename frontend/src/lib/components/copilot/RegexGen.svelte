@@ -19,7 +19,7 @@
 
 	const dispatch = createEventDispatcher()
 	async function onGenerate() {
-		if (funcDesc.length <= 0) {
+		if (funcDesc?.length <= 0) {
 			return
 		}
 		savePrompt()
@@ -122,7 +122,7 @@
 						bind:this={input}
 						bind:value={funcDesc}
 						on:keypress={({ key }) => {
-							if (key === 'Enter' && funcDesc.length > 0) {
+							if (key === 'Enter' && funcDesc?.length > 0) {
 								close(input || null)
 								onGenerate()
 							}
@@ -139,7 +139,7 @@
 							close(input || null)
 							onGenerate()
 						}}
-						disabled={funcDesc.length <= 0}
+						disabled={funcDesc?.length <= 0}
 						iconOnly
 						startIcon={{ icon: Wand2 }}
 					/>

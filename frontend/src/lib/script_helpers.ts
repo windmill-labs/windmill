@@ -350,6 +350,27 @@ export async function main() {
 }
 `
 
+export const BUN_INIT_CODE_TRIGGER = `import * as wmill from "windmill-client"
+
+export async function main() {
+
+  // A common trigger script would follow this pattern:
+  // 1. Get the last saved state
+  // const state = await wmill.getState()
+  // 2. Get the actual state from the external service
+  // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+  // 3. Compare the two states and update the internal state
+  // await wmill.setState(newState)
+  // 4. Return the new rows
+  // return range from (state to newState)
+
+  return [1,2,3]
+
+  // In subsequent scripts, you may refer to each row/value returned by the trigger script using
+  // 'flow_input.iter.value'
+}
+`
+
 export const GO_INIT_CODE_TRIGGER = `package inner
 
 import (
@@ -715,7 +736,9 @@ export function initialCode(
 	} else if (language == 'ansible') {
 		return ANSIBLE_PLAYBOOK_INIT_CODE
 	} else if (language == 'bun' || language == 'bunnative') {
-		if (language == 'bunnative' || subkind === 'bunnative') {
+		if (kind == 'trigger') {
+			return BUN_INIT_CODE_TRIGGER
+		} else if (language == 'bunnative' || subkind === 'bunnative') {
 			return BUNNATIVE_INIT_CODE
 		} else if (kind === 'approval') {
 			return BUN_INIT_CODE_APPROVAL
@@ -723,8 +746,7 @@ export function initialCode(
 			return BUN_FAILURE_MODULE_CODE
 		} else if (subkind === 'preprocessor') {
 			return BUN_PREPROCESSOR_MODULE_CODE
-		}
-		if (subkind === 'flow') {
+		} else if (subkind === 'flow') {
 			return BUN_INIT_CODE_CLEAR
 		}
 

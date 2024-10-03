@@ -92,9 +92,6 @@ const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 mod ee;
 mod monitor;
 
-#[cfg(feature = "pg_embed")]
-mod pg_embed;
-
 #[inline(always)]
 fn create_and_run_current_thread_inner<F, R>(future: F) -> R
 where
@@ -118,6 +115,7 @@ where
 }
 
 pub fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "deno_core")]
     deno_core::JsRuntime::init_platform(None);
     create_and_run_current_thread_inner(windmill_main())
 }
@@ -341,13 +339,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         config
     });
 
-    #[cfg(feature = "pg_embed")]
-    let _pg = {
-        let (db_url, pg) = pg_embed::start().await.expect("pg embed");
-        tracing::info!("Use embedded pg: {db_url}");
-        std::env::set_var("DATABASE_URL", db_url);
-        pg
-    };
 
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
