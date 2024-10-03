@@ -17,7 +17,7 @@ ENV TZ=Etc/UTC
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
 
 COPY --from=oven/bun:1.1.27 /usr/local/bin/bun /usr/bin/bun
 
