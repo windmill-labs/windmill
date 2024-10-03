@@ -97,7 +97,8 @@
 		saveDraft: () => {},
 		initialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
-		customUi: {}
+		customUi: {},
+		insertButtonOpen: writable(false)
 	})
 
 	type LastEdit = {
