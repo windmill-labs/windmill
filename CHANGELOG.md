@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.405.0](https://github.com/windmill-labs/windmill/compare/v1.404.1...v1.405.0) (2024-10-03)
+
+
+### Features
+
+* Replace `pip-compile` with `uv` ([#4460](https://github.com/windmill-labs/windmill/issues/4460)) ([b54c9ee](https://github.com/windmill-labs/windmill/commit/b54c9ee657cc88fabe694cae39dc0d3c1918fcbb))
+* **worker:** support workers to run natively on windows ([#4446](https://github.com/windmill-labs/windmill/issues/4446)) ([f5c4727](https://github.com/windmill-labs/windmill/commit/f5c472727465dd95f5378bc08ee9bbb983f4d259))
+
+
+### Bug Fixes
+
+* **cli:** fix set client of instance when passing token and base url ([794c4cd](https://github.com/windmill-labs/windmill/commit/794c4cde3cd47042472dccdf4b60a012014dd26d))
+
 ## [1.404.1](https://github.com/windmill-labs/windmill/compare/v1.404.0...v1.404.1) (2024-10-03)
 
 
