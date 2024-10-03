@@ -66,7 +66,7 @@
 
 	function onKeyDown(e: KeyboardEvent) {
 		if (
-			selected &&
+			selected != undefined &&
 			filteredItems &&
 			selected >= 0 &&
 			selected < filteredItems.length &&

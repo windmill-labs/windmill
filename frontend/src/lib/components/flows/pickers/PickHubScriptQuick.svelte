@@ -111,7 +111,13 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
-		if (selected && items && selected >= 0 && selected < items?.length! && e.key === 'Enter') {
+		if (
+			selected != undefined &&
+			items &&
+			selected >= 0 &&
+			selected < items?.length! &&
+			e.key === 'Enter'
+		) {
 			let item = items![selected]
 			dispatch('pickScript', item)
 		}
