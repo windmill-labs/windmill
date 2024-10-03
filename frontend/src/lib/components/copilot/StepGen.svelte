@@ -110,7 +110,7 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
-<div class="text-primary transition-all {funcDesc.length > 0 ? 'w-96' : 'w-60'}">
+<div class="text-primary transition-all {funcDesc?.length > 0 ? 'w-96' : 'w-60'}">
 	<div>
 		<div class="flex p-2 relative">
 			<input
@@ -118,7 +118,7 @@
 				bind:this={input}
 				bind:value={funcDesc}
 				on:input={() => {
-					if (funcDesc.length > 2) {
+					if (funcDesc?.length > 2) {
 						getHubCompletions(funcDesc)
 					} else {
 						hubCompletions = []
@@ -126,14 +126,14 @@
 				}}
 				placeholder="Search {trigger ? 'triggers' : 'scripts'} or AI gen"
 			/>
-			{#if funcDesc.length === 0}
+			{#if funcDesc?.length === 0}
 				<Wand2
 					size={14}
 					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70 text-violet-800 dark:text-violet-400"
 				/>
 			{/if}
 		</div>
-		{#if !disableAi && funcDesc.length > 0}
+		{#if !disableAi && funcDesc?.length > 0}
 			<ul class="transition-all divide-y">
 				<li>
 					<button
@@ -181,11 +181,11 @@
 				</li>
 			</ul>
 		{/if}
-		{#if funcDesc.length > 0 && filteredItems.length > 0}
+		{#if funcDesc?.length > 0 && filteredItems?.length > 0}
 			<div class="text-left mt-2">
 				<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
 				<ul class="transition-all divide-y">
-					{#each filteredItems.slice(0, 3) as item (item.path)}
+					{#each filteredItems?.slice(0, 3) ?? [] as item (item.path)}
 						<li>
 							<button
 								class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full"
