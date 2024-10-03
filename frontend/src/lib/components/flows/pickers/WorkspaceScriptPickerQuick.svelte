@@ -111,7 +111,11 @@
 						? 'bg-surface-hover'
 						: ''}"
 					on:click={() => {
-						dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
+						if (kind == 'flow') {
+							dispatch('pickFlow', { path: path })
+						} else {
+							dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined })
+						}
 					}}
 				>
 					{#if kind == 'flow'}
