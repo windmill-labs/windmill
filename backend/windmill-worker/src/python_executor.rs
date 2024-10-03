@@ -149,6 +149,7 @@ pub async fn uv_pip_compile(
     let mut req_hash = format!("py-{}", calculate_hash(&requirements));
 
     if no_uv || *USE_PIP_COMPILE {
+        logs.push_str(&format!("\nFallback to pip-compile (Deprecated!)"));
         // Set no_uv if not setted
         no_uv = true;
         // Make sure that if we put #no_uv (switch to pip-compile) to python code or used `USE_PIP_COMPILE=true` variable.
