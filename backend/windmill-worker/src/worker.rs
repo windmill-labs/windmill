@@ -29,8 +29,6 @@ use windmill_common::METRICS_ENABLED;
 use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
-#[cfg(feature = "benchmark")]
-use std::sync::atomic::AtomicUsize;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fs::DirBuilder,
@@ -1436,9 +1434,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
                     let arc_job = Arc::new(job);
-
                     add_time!(bench, "handle_queued_job START");
-
                     match handle_queued_job(
                         arc_job.clone(),
                         db,

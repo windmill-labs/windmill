@@ -559,6 +559,9 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         } else {
             #[cfg(unix)]
             tokio::fs::symlink(&bun_cache_path, dst).await?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
     } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
         .read()
@@ -573,6 +576,9 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         } else {
             #[cfg(unix)]
             tokio::fs::symlink(bun_cache_path, dst).await?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
 
         // extract_tar(bytes, job_dir).await?;
