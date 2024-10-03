@@ -1,6 +1,14 @@
+#[cfg(unix)]
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+#[cfg(windows)]
+use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
 };
@@ -380,6 +388,7 @@ fi
 
         let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
 
+        #[cfg(unix)]
         file.metadata()?.permissions().set_mode(0o777);
         // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

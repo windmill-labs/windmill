@@ -29,6 +29,9 @@ use crate::{
     NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
+
 use tokio::{fs::File, process::Command};
 
 use tokio::io::AsyncReadExt;
@@ -117,6 +120,9 @@ pub async fn gen_bun_lockfile(
             .args(vec!["run", "build.js"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
         let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
@@ -250,6 +256,9 @@ pub async fn install_bun_lockfile(
         .args(vec!["install"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
@@ -459,6 +468,10 @@ pub async fn generate_wrapper_mjs(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let child_process = start_child_process(child, &*BUN_PATH).await?;
     handle_child(
         job_id,
@@ -504,6 +517,10 @@ pub async fn generate_bun_bundle(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let mut child_process = start_child_process(child, &*BUN_PATH).await?;
     if let Some(db) = db {
         handle_child(
@@ -546,7 +563,11 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         if is_tar {
             extract_tar(fs::read(bun_cache_path)?.into(), job_dir).await?;
         } else {
+            #[cfg(unix)]
             tokio::fs::symlink(&bun_cache_path, dst).await?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
     } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
         .read()
@@ -559,7 +580,11 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         if is_tar {
             extract_tar(bytes, job_dir).await?;
         } else {
+            #[cfg(unix)]
             tokio::fs::symlink(bun_cache_path, dst).await?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
 
         // extract_tar(bytes, job_dir).await?;
@@ -728,6 +753,10 @@ async fn compute_bundle_local_and_remote_path(
 
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
+
+    #[cfg(windows)]
+    let local_path = local_path.replace("/tmp", r"C:\tmp").replace("/", r"\");
+
     let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
     (local_path, remote_path)
 }
@@ -821,10 +850,23 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let mut gbuntar_name = None;
+    let mut gbuntar_name: Option<String> = None;
     if has_bundle_cache {
-        let target = format!("{job_dir}/main.js");
-        std::os::unix::fs::symlink(&local_path, &target).map_err(|e| {
+        let target;
+        let symlink;
+
+        #[cfg(unix)]
+        {
+            target = format!("{job_dir}/main.js");
+            symlink = std::os::unix::fs::symlink(&local_path, &target);
+        }
+        #[cfg(windows)]
+        {
+            target = format!("{job_dir}\\main.js");
+            symlink = std::os::windows::fs::symlink_dir(&local_path, &target);
+        }
+
+        symlink.map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "could not copy cached binary from {local_path} to {job_dir}/main: {e:?}"
             ))
@@ -1339,6 +1381,10 @@ try {{
                 .args(vec!["--preserve-symlinks", &script_path])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            bun_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
             bun_cmd
         } else {
             let script_path = format!("{job_dir}/wrapper.mjs");
@@ -1365,8 +1411,13 @@ try {{
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            bun_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
             bun_cmd
         };
+
         start_child_process(
             cmd,
             if annotation.nodejs_mode {

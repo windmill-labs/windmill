@@ -467,10 +467,13 @@ pub async fn save_cache(
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::{File, Permissions};
     use std::io::Write;
+
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     let mut file = File::create(main_path)?;
     file.write_all(byts)?;
+    #[cfg(unix)]
     file.set_permissions(Permissions::from_mode(0o755))?;
     file.flush()?;
     Ok(())
