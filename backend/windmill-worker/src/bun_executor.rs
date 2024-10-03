@@ -47,7 +47,7 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     scripts::ScriptLang,
-    worker::{exists_in_cache, get_annotation, save_cache, write_file},
+    worker::{exists_in_cache, get_annotation_ts, save_cache, write_file},
     DB,
 };
 
@@ -663,7 +663,7 @@ pub async fn prebundle_bun_script(
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
-    let annotation = get_annotation(inner_content);
+    let annotation = get_annotation_ts(inner_content);
     if annotation.nobundling {
         return Ok(());
     }
@@ -800,7 +800,7 @@ pub async fn handle_bun_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let mut annotation = windmill_common::worker::get_annotation(inner_content);
+    let mut annotation = windmill_common::worker::get_annotation_ts(inner_content);
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) =
         if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
@@ -1525,7 +1525,7 @@ pub async fn start_worker(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
-    let mut annotation = windmill_common::worker::get_annotation(inner_content);
+    let mut annotation = windmill_common::worker::get_annotation_ts(inner_content);
 
     //TODO: remove this when bun dedicated workers work without issues
     annotation.nodejs_mode = true;
