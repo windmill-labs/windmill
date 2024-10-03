@@ -167,6 +167,16 @@
 
 	$: computeToplevelNodeChoices(funcDesc, preFilter)
 	$: computeInlineScriptChoices(funcDesc, selected, preFilter, selectedKind)
+	$: onPrefilterChange(preFilter)
+
+	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub') {
+		if (preFilter == 'workspace') {
+			hubCompletions = []
+		} else if (preFilter == 'hub') {
+			filteredWorkspaceItems = []
+		}
+		selectedByKeyboard = 0
+	}
 
 	$: aiLength =
 		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
