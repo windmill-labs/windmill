@@ -47,7 +47,7 @@ jobs:
 
       - name: Rename binary with corresponding architecture
         run: |
-          ren ./backend/target/release/windmill.exe ./backend/target/release/windmill-ee.exe
+          Rename-Item -Path ".\backend\target\release\windmill.exe" -NewName "windmill-ee.exe"
 
       - name: Attach binary to release
         uses: softprops/action-gh-release@v2
