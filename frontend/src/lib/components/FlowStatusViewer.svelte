@@ -34,7 +34,7 @@
 		hideDownloadInGraph,
 		hideNodeDefinition,
 		hideTimeline,
-		hideJobId
+		hideJobId,
 		hideDownloadLogs
 	})
 
