@@ -256,7 +256,14 @@
 					{#if preFilter == 'all'}
 						<div class="pb-0 text-2xs font-light text-secondary ml-2 pt-0.5">Integrations</div>
 					{/if}
-					<ListFiltersQuick filters={integrations} bind:selectedFilter={selected} resourceType />
+					<ListFiltersQuick
+						on:selected={() => {
+							selectedByKeyboard = 0
+						}}
+						filters={integrations}
+						bind:selectedFilter={selected}
+						resourceType
+					/>
 				{/if}
 			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
@@ -415,6 +422,7 @@
 				kind={selectedKind}
 				selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
 				on:pickScript
+				on:pickFlow
 			/>
 		{/if}
 

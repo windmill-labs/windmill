@@ -64,24 +64,28 @@
 	const dispatch = createEventDispatcher()
 	let lockHash = false
 
-	function onKeyDown(e: KeyboardEvent) {
-		if (
-			selected != undefined &&
-			filteredItems &&
-			selected >= 0 &&
-			selected < filteredItems.length &&
-			e.key === 'Enter'
-		) {
-			e.preventDefault()
-			let item = filteredItems[selected]
-			dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
-		}
-	}
-
 	$: filteredWithOwner =
 		ownerFilter != undefined
 			? filteredItems?.filter((x) => x.path.startsWith(ownerFilter?.name!))
 			: filteredItems
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (
+			selected != undefined &&
+			filteredWithOwner &&
+			selected >= 0 &&
+			selected < filteredWithOwner.length &&
+			e.key === 'Enter'
+		) {
+			e.preventDefault()
+			let item = filteredWithOwner[selected]
+			if (kind == 'flow') {
+				dispatch('pickFlow', { path: item.path })
+			} else {
+				dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
+			}
+		}
+	}
 </script>
 
 <SearchItems
