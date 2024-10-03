@@ -4,9 +4,13 @@ use deno_fetch::FetchPermissions;
 use deno_net::NetPermissions;
 #[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
+#[cfg(feature = "deno_core")]
 use std::env;
+#[cfg(feature = "deno_core")]
 use std::io::Write;
+#[cfg(feature = "deno_core")]
 use std::path::PathBuf;
+#[cfg(feature = "deno_core")]
 use std::sync::Arc;
 
 #[cfg(feature = "deno_core")]

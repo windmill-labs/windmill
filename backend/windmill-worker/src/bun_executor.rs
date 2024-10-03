@@ -1,8 +1,14 @@
-use std::{collections::HashMap, fs, io, path::Path, process::Stdio, time::Instant};
+#[cfg(feature = "deno_core")]
+use std::time::Instant;
+use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
 
 use base64::Engine;
 use itertools::Itertools;
-use serde_json::value::{to_raw_value, RawValue};
+
+#[cfg(not(feature = "deno_core"))]
+use serde_json::value::to_raw_value;
+use serde_json::value::RawValue;
+
 use sha2::Digest;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
@@ -1190,59 +1196,58 @@ try {{
         }
     }
     if annotation.native_mode {
-        let env_code = format!(
+        #[cfg(not(feature = "deno_core"))]
+        return Ok(to_raw_value("").unwrap());
+
+        #[cfg(feature = "deno_core")]
+        {
+            let env_code = format!(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
             reserved_variables
                 .iter()
                 .map(|(k, v)| format!("process.env['{}'] = '{}';\n", k, v))
                 .collect::<Vec<String>>()
                 .join("\n"));
-        let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
-        let started_at = Instant::now();
-        let args = crate::common::build_args_map(job, client, db)
-            .await?
-            .map(sqlx::types::Json);
-        let job_args = if args.is_some() {
-            args.as_ref()
-        } else {
-            job.args.as_ref()
-        };
+            let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
+            let started_at = Instant::now();
+            let args = crate::common::build_args_map(job, client, db)
+                .await?
+                .map(sqlx::types::Json);
+            let job_args = if args.is_some() {
+                args.as_ref()
+            } else {
+                job.args.as_ref()
+            };
 
-        #[cfg(not(feature = "deno_core"))]
-        let result = (
-            to_raw_value("").unwrap(),
-            "require deno_core feature".to_string(),
-        );
-
-        #[cfg(feature = "deno_core")]
-        let result = crate::js_eval::eval_fetch_timeout(
-            env_code,
-            inner_content.clone(),
-            js_code,
-            job_args,
-            job.id,
-            job.timeout,
-            db,
-            mem_peak,
-            canceled_by,
-            worker_name,
-            &job.workspace_id,
-            false,
-            occupancy_metrics,
-        )
-        .await?;
-        tracing::info!(
-            "Executed native code in {}ms",
-            started_at.elapsed().as_millis()
-        );
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("{}\n{}", init_logs, result.1),
-            db,
-        )
-        .await;
-        return Ok(result.0);
+            let result = crate::js_eval::eval_fetch_timeout(
+                env_code,
+                inner_content.clone(),
+                js_code,
+                job_args,
+                job.id,
+                job.timeout,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+                &job.workspace_id,
+                false,
+                occupancy_metrics,
+            )
+            .await?;
+            tracing::info!(
+                "Executed native code in {}ms",
+                started_at.elapsed().as_millis()
+            );
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("{}\n{}", init_logs, result.1),
+                db,
+            )
+            .await;
+            return Ok(result.0);
+        }
     }
     append_logs(&job.id, &job.workspace_id, init_logs, db).await;
 

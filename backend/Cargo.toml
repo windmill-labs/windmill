@@ -104,9 +104,8 @@ windmill-queue.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
-
-[target.'cfg(feature="deno_core")'.dev-dependencies]
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
+
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
