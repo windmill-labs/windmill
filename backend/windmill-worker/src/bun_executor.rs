@@ -13,14 +13,18 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
-        write_file_binary,
+        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
+        read_file, read_file_content, read_result, start_child_process, write_file_binary,
+        OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
     NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
+
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
 
 use tokio::{fs::File, process::Command};
 
@@ -69,6 +73,7 @@ pub async fn gen_bun_lockfile(
     export_pkg: bool,
     raw_deps: Option<String>,
     npm_mode: bool,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
@@ -110,6 +115,9 @@ pub async fn gen_bun_lockfile(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        #[cfg(windows)]
+        child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
         if let Some(db) = db {
@@ -125,6 +133,7 @@ pub async fn gen_bun_lockfile(
                 "bun build",
                 None,
                 false,
+                occupancy_metrics,
             )
             .await?;
         } else {
@@ -149,6 +158,7 @@ pub async fn gen_bun_lockfile(
             worker_name,
             common_bun_proc_envs,
             npm_mode,
+            occupancy_metrics,
         )
         .await?;
     } else {
@@ -230,6 +240,7 @@ pub async fn install_bun_lockfile(
     worker_name: &str,
     common_bun_proc_envs: HashMap<String, String>,
     npm_mode: bool,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
     child_cmd
@@ -239,6 +250,9 @@ pub async fn install_bun_lockfile(
         .args(vec!["install"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
@@ -296,6 +310,7 @@ pub async fn install_bun_lockfile(
             "bun install",
             None,
             false,
+            occupancy_metrics,
         )
         .await?
     } else {
@@ -436,6 +451,7 @@ pub async fn generate_wrapper_mjs(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -446,6 +462,10 @@ pub async fn generate_wrapper_mjs(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let child_process = start_child_process(child, &*BUN_PATH).await?;
     handle_child(
         job_id,
@@ -459,6 +479,7 @@ pub async fn generate_wrapper_mjs(
         "bun build",
         timeout,
         false,
+        occupancy_metrics,
     )
     .await?;
     fs::rename(
@@ -479,6 +500,7 @@ pub async fn generate_bun_bundle(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -489,6 +511,10 @@ pub async fn generate_bun_bundle(
         .args(vec!["run", "node_builder.ts"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    child.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let mut child_process = start_child_process(child, &*BUN_PATH).await?;
     if let Some(db) = db {
         handle_child(
@@ -503,6 +529,7 @@ pub async fn generate_bun_bundle(
             "bun build",
             timeout,
             false,
+            &mut Some(occupancy_metrics),
         )
         .await?;
     } else {
@@ -530,7 +557,11 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         if is_tar {
             extract_tar(fs::read(bun_cache_path)?.into(), job_dir).await?;
         } else {
+            #[cfg(unix)]
             tokio::fs::symlink(&bun_cache_path, dst).await?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
     } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
         .read()
@@ -543,7 +574,11 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         if is_tar {
             extract_tar(bytes, job_dir).await?;
         } else {
+            #[cfg(unix)]
             tokio::fs::symlink(bun_cache_path, dst).await?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
 
         // extract_tar(bytes, job_dir).await?;
@@ -609,6 +644,7 @@ pub async fn prebundle_bun_script(
     base_internal_url: &str,
     worker_name: &str,
     token: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -656,6 +692,7 @@ pub async fn prebundle_bun_script(
         &mut 0,
         &mut None,
         &common_bun_proc_envs,
+        occupancy_metrics,
     )
     .await?;
 
@@ -710,6 +747,10 @@ async fn compute_bundle_local_and_remote_path(
 
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
+
+    #[cfg(windows)]
+    let local_path = local_path.replace("/tmp", r"C:\tmp").replace("/", r"\");
+
     let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
     (local_path, remote_path)
 }
@@ -751,6 +792,7 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
@@ -802,10 +844,23 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let mut gbuntar_name = None;
+    let mut gbuntar_name: Option<String> = None;
     if has_bundle_cache {
-        let target = format!("{job_dir}/main.js");
-        std::os::unix::fs::symlink(&local_path, &target).map_err(|e| {
+        let target;
+        let symlink;
+
+        #[cfg(unix)]
+        {
+            target = format!("{job_dir}/main.js");
+            symlink = std::os::unix::fs::symlink(&local_path, &target);
+        }
+        #[cfg(windows)]
+        {
+            target = format!("{job_dir}\\main.js");
+            symlink = std::os::windows::fs::symlink_dir(&local_path, &target);
+        }
+
+        symlink.map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "could not copy cached binary from {local_path} to {job_dir}/main: {e:?}"
             ))
@@ -861,6 +916,7 @@ pub async fn handle_bun_job(
                     worker_name,
                     common_bun_proc_envs.clone(),
                     annotation.npm_mode,
+                    &mut Some(occupancy_metrics),
                 )
                 .await?;
 
@@ -888,7 +944,6 @@ pub async fn handle_bun_job(
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
-
         let _ = gen_bun_lockfile(
             mem_peak,
             canceled_by,
@@ -903,6 +958,7 @@ pub async fn handle_bun_job(
             false,
             None,
             annotation.npm_mode,
+            &mut Some(occupancy_metrics),
         )
         .await?;
 
@@ -1128,6 +1184,7 @@ try {{
                 mem_peak,
                 canceled_by,
                 &common_bun_proc_envs,
+                occupancy_metrics,
             )
             .await?;
             if !local_path.is_empty() {
@@ -1169,6 +1226,7 @@ try {{
                 mem_peak,
                 canceled_by,
                 &common_bun_proc_envs,
+                &mut Some(occupancy_metrics),
             )
             .await?;
         }
@@ -1204,6 +1262,7 @@ try {{
             worker_name,
             &job.workspace_id,
             false,
+            occupancy_metrics,
         )
         .await?;
         tracing::info!(
@@ -1309,6 +1368,10 @@ try {{
                 .args(vec!["--preserve-symlinks", &script_path])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            bun_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
             bun_cmd
         } else {
             let script_path = format!("{job_dir}/wrapper.mjs");
@@ -1335,8 +1398,13 @@ try {{
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            bun_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
             bun_cmd
         };
+
         start_child_process(
             cmd,
             if annotation.nodejs_mode {
@@ -1360,6 +1428,7 @@ try {{
         "bun run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -1501,6 +1570,7 @@ pub async fn start_worker(
                 worker_name,
                 common_bun_proc_envs.clone(),
                 annotation.npm_mode,
+                &mut None,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -1521,6 +1591,7 @@ pub async fn start_worker(
             false,
             None,
             annotation.npm_mode,
+            &mut None,
         )
         .await?;
     }
@@ -1617,6 +1688,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             &mut mem_peak,
             &mut canceled_by,
             &common_bun_proc_envs,
+            &mut None,
         )
         .await?;
     }

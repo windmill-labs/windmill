@@ -47,6 +47,7 @@
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
 	import { debounce } from '$lib/utils'
 	import { dfs } from '../dfs'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
 	const {
 		selectedId,
@@ -418,6 +419,7 @@
 										>
 											Early Stop
 										</Tab>
+										<Tab value="skip" active={Boolean(flowModule.skip_if)}>Skip</Tab>
 										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
 										<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
 										<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
@@ -581,6 +583,8 @@
 										</div>
 									{:else if advancedSelected === 'early-stop'}
 										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'skip'}
+										<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
 									{:else if advancedSelected === 'suspend'}
 										<div>
 											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />

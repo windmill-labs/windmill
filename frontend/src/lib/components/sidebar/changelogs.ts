@@ -6,6 +6,16 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Custom HTTP routes',
+		href: 'https://www.windmill.dev/changelog/http-routing',
+		date: '2024-09-23'
+	},
+	{
+		label: 'Set/Get progress from code',
+		href: 'https://www.windmill.dev/changelog/explicit-progress',
+		date: '2024-09-18'
+	},
+	{
 		label: 'Directly edit flow YAML',
 		href: 'https://www.windmill.dev/changelog/flow-yaml-editor',
 		date: '2024-09-02'

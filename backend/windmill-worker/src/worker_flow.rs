@@ -29,7 +29,10 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
+use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
+#[cfg(feature = "benchmark")]
+use windmill_common::bench::BenchmarkIter;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
@@ -50,8 +53,8 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, get_queued_job,
-    handle_maybe_scheduled_job, CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
+    add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job,
+    CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -76,6 +79,7 @@ pub async fn update_flow_status_after_job_completion<
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
     // todo!();
@@ -97,6 +101,8 @@ pub async fn update_flow_status_after_job_completion<
         rsmq.clone(),
         worker_name,
         job_completed_tx.clone(),
+        #[cfg(feature = "benchmark")]
+        bench,
     )
     .await?;
     while let Some(nrec) = rec {
@@ -117,6 +123,8 @@ pub async fn update_flow_status_after_job_completion<
             rsmq.clone(),
             worker_name,
             job_completed_tx.clone(),
+            #[cfg(feature = "benchmark")]
+            bench,
         )
         .await
         {
@@ -141,6 +149,8 @@ pub async fn update_flow_status_after_job_completion<
                     rsmq.clone(),
                     worker_name,
                     job_completed_tx.clone(),
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?
             }
@@ -158,10 +168,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
 }
 
 #[derive(FromRow)]
-pub struct SkipIfStopped {
-    pub skip_if_stopped: Option<bool>,
-    pub stop_early_expr: Option<String>,
-    pub continue_on_error: Option<bool>,
+pub struct RowArgs {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -173,6 +180,7 @@ struct RecoveryObject {
 #[derive(sqlx::FromRow, Deserialize)]
 pub struct RowFlowStatus {
     pub flow_status: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub current_module: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
 }
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal<
@@ -193,7 +201,9 @@ pub async fn update_flow_status_after_job_completion_internal<
     rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
+    add_time!(bench, "update flow status internal START");
     let (
         should_continue_flow,
         flow_job,
@@ -206,7 +216,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
         let old_status_json = sqlx::query_as::<_, RowFlowStatus>(
-            "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
+            "SELECT flow_status, raw_flow->'modules'->(flow_status->'step')::int as current_module FROM queue WHERE id = $1 AND workspace_id = $2",
         )
         .bind(flow)
         .bind(w_id)
@@ -224,6 +234,16 @@ pub async fn update_flow_status_after_job_completion_internal<
                     "requiring status to be parsable as FlowStatus: {e:?}"
                 )))
             })?;
+
+        let current_module = if let Some(x) = old_status_json.current_module {
+            Some(serde_json::from_str::<FlowModule>(x.0.get()).or_else(|e| {
+                Err(Error::InternalErr(format!(
+                    "requiring current module to be parsable as FlowModule: {e:?}"
+                )))
+            })?)
+        } else {
+            None
+        };
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
 
@@ -247,9 +267,17 @@ pub async fn update_flow_status_after_job_completion_internal<
             module_status,
             FlowStatusModule::InProgress { iterator: Some(_), .. }
         ) {
-            let (loop_failures, parallelism) =
-                compute_skip_loop_failures_and_parallelism(flow, old_status.step, db).await?;
-            (true, loop_failures.unwrap_or(false), parallelism)
+            let value = current_module
+                .as_ref()
+                .and_then(|x| x.get_value_with_skip_failures().ok());
+            (
+                true,
+                value
+                    .as_ref()
+                    .and_then(|x| x.skip_failures)
+                    .unwrap_or(false),
+                value.as_ref().and_then(|x| x.parallelism),
+            )
         } else {
             (false, false, None)
         };
@@ -267,37 +295,43 @@ pub async fn update_flow_status_after_job_completion_internal<
             stop_early_override
         {
             //do not stop early if module is a flow step
-            let flow_job = get_queued_job(&flow, w_id, db)
-                .await?
-                .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
-            let module = get_module(&flow_job, &module_step);
+            let step = match module_step {
+                Step::PreprocessorStep => None,
+                Step::FailureStep => None,
+                Step::Step(i) => Some(i),
+            };
 
-            if module.is_some_and(|x| x.is_flow()) {
+            let is_flow = if let Some(step) = step {
+                sqlx::query_scalar!(
+                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM queue WHERE id = $2",
+                    step as i32,
+                    &flow
+                )
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
+                    })?
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if is_flow {
                 (false, false, false)
             } else {
                 (true, se, false)
             }
         } else if is_failure_step || matches!(module_step, Step::PreprocessorStep) {
             (false, false, false)
-        } else {
-            let r = sqlx::query_as::<_, SkipIfStopped>(
-            "SELECT 
-                    raw_flow->'modules'->$1::int->'stop_after_if'->>'expr' as stop_early_expr,
-                    (raw_flow->'modules'->$1::int->'stop_after_if'->>'skip_if_stopped')::bool as skip_if_stopped,
-                    (raw_flow->'modules'->$1::int->'continue_on_error')::bool as continue_on_error,
-                    args 
-                FROM queue
-                WHERE id = $2"
-            )
-            .bind(old_status.step)
-            .bind(flow)
-            .fetch_one(db)
-            .await
-            .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
-
+        } else if let Some(current_module) = current_module.as_ref() {
             let stop_early = success
                 && !is_branch_all
-                && if let Some(expr) = r.stop_early_expr.clone() {
+                && if let Some(ref expr) = current_module
+                    .stop_after_if
+                    .as_ref()
+                    .map(|x| x.expr.clone())
+                {
                     let all_iters = match &module_status {
                         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. }
                             if expr.contains("all_iters") =>
@@ -308,14 +342,22 @@ pub async fn update_flow_status_after_job_completion_internal<
                         }
                         _ => None,
                     };
+                    let args = sqlx::query_as::<_, RowArgs>(
+                        "SELECT
+                                        args
+                                    FROM queue
+                                    WHERE id = $2",
+                    )
+                    .bind(old_status.step)
+                    .bind(flow)
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
+                    })?;
                     compute_bool_from_expr(
-                        expr,
-                        Marc::new(
-                            r.args
-                                .map(|x| x.0)
-                                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
-                                .to_owned(),
-                        ),
+                        expr.to_string(),
+                        Marc::new(args.args.unwrap_or_default().0),
                         result.clone(),
                         all_iters,
                         None,
@@ -329,9 +371,15 @@ pub async fn update_flow_status_after_job_completion_internal<
                 };
             (
                 stop_early,
-                r.skip_if_stopped.unwrap_or(false),
-                r.continue_on_error.unwrap_or(false),
+                current_module
+                    .stop_after_if
+                    .as_ref()
+                    .map(|x| x.skip_if_stopped)
+                    .unwrap_or(false),
+                current_module.continue_on_error.unwrap_or(false),
             )
+        } else {
+            (false, false, false)
         };
 
         let skip_branch_failure = match module_status {
@@ -340,26 +388,23 @@ pub async fn update_flow_status_after_job_completion_internal<
                 parallel,
                 ..
             } => compute_skip_branchall_failure(
-                flow,
                 job_id_for_status,
-                old_status.step,
                 *branch,
                 *parallel,
                 db,
+                current_module.as_ref(),
             )
             .await?
             .unwrap_or(false),
             _ => false,
         };
 
-        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-
         if matches!(module_step, Step::PreprocessorStep) {
             sqlx::query!(
                 "UPDATE queue SET args = (select result FROM completed_job WHERE id = $1) WHERE id = $2",
                 job_id_for_status,
                 flow
-            ).execute(&mut tx).await.map_err(|e| {
+            ).execute(db).await.map_err(|e| {
                 Error::InternalErr(format!("error while updating args in preprocessing step: {e:#}"))
             })?;
 
@@ -367,7 +412,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 r#"UPDATE completed_job SET args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb WHERE id = $1"#,
                 job_id_for_status
             )
-            .execute(&mut tx)
+            .execute(db)
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
@@ -375,6 +420,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                 ))
             })?;
         }
+
+        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
+
+        add_time!(bench, "process module status START");
 
         let (inc_step_counter, new_status) = match module_status {
             FlowStatusModule::InProgress {
@@ -387,25 +436,38 @@ pub async fn update_flow_status_after_job_completion_internal<
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
                     (Some(Iterator { itered, .. }), _) => {
-                        set_success_in_flow_job_success(
-                            flow_jobs_success,
-                            jobs,
-                            job_id_for_status,
-                            &old_status,
-                            flow,
-                            success,
-                            &mut tx,
-                        )
-                        .await?;
+                        let position = if flow_jobs_success.is_some() {
+                            find_flow_job_index(jobs, job_id_for_status)
+                        } else {
+                            None
+                        };
 
-                        let nindex = sqlx::query_scalar!(
+                        let nindex = if let Some(position) = position { 
+                            sqlx::query_scalar!(
                             "UPDATE queue
-                            SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb)
+                            SET flow_status = JSONB_SET(
+                                JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                ARRAY['modules', $1::TEXT, 'iterator', 'index'],
+                                ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
+                            ),
+                            last_ping = NULL
                             WHERE id = $2
                             RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
                             old_status.step,
-                            flow
-                        )
+                            flow,
+                            position as i32,
+                            json!(success)
+                        )} else {
+                            sqlx::query_scalar!(
+                                "UPDATE queue
+                                SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb),
+                                last_ping = NULL
+                                WHERE id = $2
+                                RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
+                                old_status.step,
+                                flow
+                            )
+                        }
                         .fetch_one(&mut tx)
                         .await.map_err(|e| {
                             Error::InternalErr(format!(
@@ -421,24 +483,35 @@ pub async fn update_flow_status_after_job_completion_internal<
                         (nindex, itered.len() as i32)
                     }
                     (_, Some(BranchAllStatus { len, .. })) => {
-                        set_success_in_flow_job_success(
-                            flow_jobs_success,
-                            jobs,
-                            job_id_for_status,
-                            &old_status,
-                            flow,
-                            success,
-                            &mut tx,
-                        )
-                        .await?;
-                        let nindex = sqlx::query_scalar!(
+                        let position = if flow_jobs_success.is_some() {
+                            find_flow_job_index(jobs, job_id_for_status)
+                        } else {
+                            None
+                        };
+
+                        let nindex = if let Some(position) = position { 
+                            sqlx::query_scalar!(
+                                "UPDATE queue
+                                SET flow_status = JSONB_SET(
+                                JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb),
+                                last_ping = NULL
+                                WHERE id = $2
+                                RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int",
+                                old_status.step,
+                                flow,
+                                position as i32,
+                                json!(success)
+                            )
+                        } else { sqlx::query_scalar!(
                             "UPDATE queue
-                            SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb)
+                            SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb),
+                            last_ping = NULL
                             WHERE id = $2
                             RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int",
                             old_status.step,
                             flow
-                        )
+                        )}
                         .fetch_one(&mut tx)
                         .await
                         .map_err(|e| {
@@ -488,6 +561,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen: None,
                             approvers: vec![],
                             failed_retries: vec![],
+                            skipped: false,
                         }
                     } else {
                         success = false;
@@ -517,9 +591,9 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tracing::info!(
                         "parallel iteration {job_id_for_status} of flow {flow} has finished",
                     );
-
                     (true, Some(new_status))
                 } else {
+                    add_time!(bench, "handle parallel flow start");
                     tx.commit().await?;
 
                     if parallelism.is_some() {
@@ -537,18 +611,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                         })?;
                     }
 
-                    sqlx::query!(
-                        "UPDATE queue
-                        SET last_ping = null
-                        WHERE id = $1",
-                        flow
-                    )
-                    .execute(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("error while setting last ping to null: {e:#}"))
-                    })?;
-
                     let r = sqlx::query_scalar!(
                         "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 and job_id = $2 RETURNING last_ping",
                         flow,
@@ -562,7 +624,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             r.unwrap()
                         );
                     }
-
+                    add_time!(bench, "non final parallel flow finished");
                     return Ok(None);
                 }
             }
@@ -637,6 +699,20 @@ pub async fn update_flow_status_after_job_completion_internal<
                     }
                 }
                 if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
+                    let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
+                        sqlx::query_scalar!(
+                            "SELECT job_kind = 'identity' FROM completed_job WHERE id = $1",
+                            job_id_for_status
+                        )
+                        .fetch_one(db)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error during skip check: {e:#}"))
+                        })?
+                        .unwrap_or(false)
+                    } else {
+                        false
+                    };
                     success = true;
                     (
                         true,
@@ -648,29 +724,17 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen,
                             approvers: vec![],
                             failed_retries: old_status.retry.failed_jobs.clone(),
+                            skipped: is_skipped,
                         }),
                     )
                 } else {
                     let inc = if continue_on_error {
-                        let retry = sqlx::query_scalar!(
-                            "SELECT raw_flow->'modules'->$2::int->'retry' FROM queue WHERE id = $1",
-                            flow,
-                            old_status.step
-                        )
-                        .fetch_optional(&mut tx)
-                        .await
-                        .map_err(|e| {
-                            Error::InternalErr(format!(
-                                "error while getting retry from step: {e:#}"
-                            ))
-                        })?
-                        .flatten();
-
-                        let retry = retry
-                            .map(|x| serde_json::from_value::<Retry>(x).ok())
-                            .flatten()
+                        let retry = current_module
+                            .as_ref()
+                            .and_then(|x| x.retry.clone())
                             .unwrap_or_default();
-                        tracing::info!("update flow status  on rety: {retry:#?} ");
+
+                        tracing::info!("update flow status on rety: {retry:#?} ");
                         next_retry(&retry, &old_status.retry).is_none()
                     } else {
                         false
@@ -802,30 +866,27 @@ pub async fn update_flow_status_after_job_completion_internal<
 
         match &new_status {
             Some(FlowStatusModule::Success { .. }) if is_loop || is_branch_all => {
-                let r_after_all_iters = sqlx::query_as::<_, SkipIfStopped>(
-                    "SELECT
-                            raw_flow->'modules'->$1::int->'stop_after_all_iters_if'->>'expr' as stop_early_expr,
-                            (raw_flow->'modules'->$1::int->'stop_after_all_iters_if'->>'skip_if_stopped')::bool as skip_if_stopped,
-                            NULL as continue_on_error,
+                if let Some(ref expr) = current_module
+                    .as_ref()
+                    .and_then(|m| m.stop_after_all_iters_if.as_ref().map(|x| x.expr.clone()))
+                {
+                    let args = sqlx::query_as::<_, RowArgs>(
+                        "SELECT
                             args
                         FROM queue
-                        WHERE id = $2"
+                        WHERE id = $2",
                     )
                     .bind(old_status.step)
                     .bind(flow)
                     .fetch_one(db)
                     .await
-                    .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
-                if let Some(expr) = r_after_all_iters.stop_early_expr {
+                    .map_err(|e| {
+                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
+                    })?;
+
                     let should_stop = compute_bool_from_expr(
-                        expr,
-                        Marc::new(
-                            r_after_all_iters
-                                .args
-                                .map(|x| x.0)
-                                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
-                                .to_owned(),
-                        ),
+                        expr.to_string(),
+                        Marc::new(args.args.unwrap_or_default().0),
                         nresult.clone(),
                         None,
                         None,
@@ -837,7 +898,14 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                     if should_stop {
                         stop_early = should_stop;
-                        skip_if_stop_early = r_after_all_iters.skip_if_stopped.unwrap_or(false);
+                        skip_if_stop_early = current_module
+                            .as_ref()
+                            .and_then(|m| {
+                                m.stop_after_all_iters_if
+                                    .as_ref()
+                                    .map(|x| x.skip_if_stopped)
+                            })
+                            .unwrap_or(false);
                     }
                 }
             }
@@ -862,6 +930,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         let flow_job = get_queued_job_tx(flow, w_id, tx.transaction_mut())
             .await?
             .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
+        tx.commit().await?;
 
         let job_root = flow_job
             .root_job
@@ -894,14 +963,13 @@ pub async fn update_flow_status_after_job_completion_internal<
             false
                 if !is_failure_step
                     && !skip_error_handler
-                    && has_failure_module(flow, tx.transaction_mut()).await? =>
+                    && has_failure_module(flow, db).await? =>
             {
                 true
             }
             false => false,
         };
 
-        tx.commit().await?;
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow status updated");
 
         (
@@ -964,6 +1032,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                 rsmq.clone(),
                 worker_name,
                 true,
+                #[cfg(feature = "benchmark")]
+                bench,
             )
             .await?;
         } else {
@@ -994,6 +1064,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             let success = success
                 && (!is_failure_step || result_has_recover_true(nresult.clone()))
                 && !skip_error_handler;
+
+            add_time!(bench, "flow status update 1");
             if success {
                 add_completed_job(
                     db,
@@ -1005,6 +1077,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?;
             } else {
@@ -1022,6 +1096,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await?;
             }
@@ -1059,6 +1135,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     rsmq.clone(),
                     worker_name,
                     true,
+                    #[cfg(feature = "benchmark")]
+                    bench,
                 )
                 .await;
                 true
@@ -1096,6 +1174,10 @@ pub async fn update_flow_status_after_job_completion_internal<
     }
 }
 
+fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Option<usize> {
+    flow_jobs.iter().position(|x| x == job_id_for_status)
+}
+
 async fn set_success_in_flow_job_success<'c, R: rsmq_async::RsmqConnection + Send>(
     flow_jobs_success: &Option<Vec<Option<bool>>>,
     flow_jobs: &Vec<Uuid>,
@@ -1105,10 +1187,8 @@ async fn set_success_in_flow_job_success<'c, R: rsmq_async::RsmqConnection + Sen
     success: bool,
     tx: &mut QueueTransaction<'c, R>,
 ) -> error::Result<()> {
-    let flow_jobs_success = flow_jobs_success.clone();
-
     if flow_jobs_success.is_some() {
-        let position = flow_jobs.iter().position(|x| x == job_id_for_status);
+        let position = find_flow_job_index(flow_jobs, job_id_for_status);
         if let Some(position) = position {
             sqlx::query!(
             "UPDATE queue SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4) WHERE id = $2",
@@ -1172,31 +1252,12 @@ fn get_module(flow_job: &QueuedJob, module_step: &Step) -> Option<FlowModule> {
     }
 }
 
-async fn compute_skip_loop_failures_and_parallelism(
-    flow: Uuid,
-    step: i32,
-    db: &DB,
-) -> Result<(Option<bool>, Option<i32>), Error> {
-    sqlx::query_as(
-        "SELECT (raw_flow->'modules'->$1->'value'->>'skip_failures')::bool, (raw_flow->'modules'->$1->'value'->>'parallelism')::int
-        FROM queue
-        WHERE id = $2",
-    )
-    .bind(step)
-    .bind(flow)
-    .fetch_one(db)
-    .await
-    .map(|(v, n)| (v,n))
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e:#}")))
-}
-
 async fn compute_skip_branchall_failure<'c>(
-    flow: Uuid,
     job: &Uuid,
-    step: i32,
     branch: usize,
     parallel: bool,
     db: &DB,
+    flow_module: Option<&FlowModule>,
 ) -> Result<Option<bool>, Error> {
     let branch = if parallel {
         sqlx::query_scalar!("SELECT script_path FROM completed_job WHERE id = $1", job)
@@ -1220,35 +1281,23 @@ async fn compute_skip_branchall_failure<'c>(
     } else {
         branch as i32
     };
-    sqlx::query_as(
-        "SELECT (raw_flow->'modules'->$1->'value'->'branches'->$2->>'skip_failure')::bool
-        FROM queue
-        WHERE id = $3",
-    )
-    .bind(step)
-    .bind(branch)
-    .bind(flow)
-    .fetch_one(db)
-    .await
-    .map(|(v,)| v)
-    .map_err(|e| {
-        Error::InternalErr(format!(
-            "error during retrieval of skip_loop_failures: {e:#}"
-        ))
-    })
+    Ok(flow_module
+        .and_then(|x| x.get_branches_skip_failures().ok())
+        .and_then(|x| {
+            x.branches
+                .get(branch as usize)
+                .map(|x| x.skip_failure.unwrap_or(false))
+        }))
 }
 
-async fn has_failure_module<'c>(
-    flow: Uuid,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> Result<bool, Error> {
+async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
     sqlx::query_scalar::<_, Option<bool>>(
         "SELECT raw_flow->'failure_module' != 'null'::jsonb
         FROM queue
         WHERE id = $1",
     )
     .bind(flow)
-    .fetch_one(&mut **tx)
+    .fetch_one(db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
@@ -2177,6 +2226,23 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     drop(resume_messages);
 
+    let is_skipped = if let Some(skip_if) = &module.skip_if {
+        let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status).await?;
+        compute_bool_from_expr(
+            skip_if.expr.to_string(),
+            arc_flow_job_args.clone(),
+            arc_last_job_result.clone(),
+            None,
+            Some(idcontext.clone()),
+            Some(client),
+            Some((resumes.clone(), resume.clone(), approvers.clone())),
+            None,
+        )
+        .await?
+    } else {
+        false
+    };
+
     let args: windmill_common::error::Result<_> =
         if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
             let mut hm = HashMap::new();
@@ -2216,7 +2282,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             );
             Ok(Marc::new(hm))
         } else {
-            match &module.get_value() {
+            let value = module.get_value();
+            match &value {
+                Ok(_) if matches!(value, Ok(FlowModuleValue::Identity)) || is_skipped => serde_json::from_str(
+                    &serde_json::to_string(&PreviousResult {
+                        previous_result: Some(&arc_last_job_result),
+                    })
+                    .unwrap(),
+                )
+                .map(Marc::new)
+                .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
                 Ok(
                     FlowModuleValue::Script { input_transforms, .. }
                     | FlowModuleValue::RawScript { input_transforms, .. }
@@ -2237,16 +2312,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     )
                     .await
                     .map(Marc::new)
-                }
-                Ok(FlowModuleValue::Identity) => serde_json::from_str(
-                    &serde_json::to_string(&PreviousResult {
-                        previous_result: Some(&arc_last_job_result),
-                    })
-                    .unwrap(),
-                )
-                .map(Marc::new)
-                .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
-
+                },
                 Ok(_) => Ok(arc_flow_job_args.clone()),
                 Err(e) => {
                     return Err(error::Error::InternalErr(format!(
@@ -2272,6 +2338,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         resumes.clone(),
         resume.clone(),
         approvers.clone(),
+        is_skipped,
     )
     .await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "next flow transform computed");
@@ -2293,6 +2360,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 branch_chosen: None,
                 approvers: vec![],
                 failed_retries: vec![],
+                skipped: false,
             }))
             .bind(flow_job.id)
             .execute(db)
@@ -2938,6 +3006,7 @@ async fn compute_next_flow_transform(
     resumes: Arc<Box<RawValue>>,
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
+    is_skipped: bool,
 ) -> error::Result<NextFlowTransform> {
     if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
         return Ok(NextFlowTransform::Continue(
@@ -2964,6 +3033,9 @@ async fn compute_next_flow_transform(
     let delete_after_use = module.delete_after_use.unwrap_or(false);
 
     tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
+    if is_skipped {
+        return trivial_next_job(JobPayload::Identity);
+    }
     match &module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
@@ -3457,6 +3529,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].retry.is_none()
         && modules[0].stop_after_if.is_none()
         && modules[0].stop_after_all_iters_if.is_none()
+        && modules[0].skip_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
         && flow.failure_module.is_none();
     is_simple

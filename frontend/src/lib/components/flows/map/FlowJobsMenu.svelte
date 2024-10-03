@@ -26,7 +26,7 @@
 	}
 </script>
 
-<Menu>
+<Menu maxHeight={300}>
 	<div slot="trigger">
 		<button
 			title="Pick an iteration"

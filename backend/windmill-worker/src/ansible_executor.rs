@@ -1,6 +1,14 @@
+#[cfg(unix)]
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+#[cfg(windows)]
+use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
 };
@@ -21,9 +29,10 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     bash_executor::BIN_BASH,
     common::{
-        get_reserved_variables, handle_child, read_and_check_result, start_child_process,
-        transform_json,
+        get_reserved_variables, read_and_check_result, start_child_process, transform_json,
+        OccupancyMetrics,
     },
+    handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
@@ -50,6 +59,7 @@ async fn handle_ansible_python_deps(
     worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
 
@@ -79,6 +89,7 @@ async fn handle_ansible_python_deps(
                     db,
                     worker_name,
                     w_id,
+                    &mut Some(occupancy_metrics),
                 )
                 .await
                 .map_err(|e| {
@@ -102,6 +113,7 @@ async fn handle_ansible_python_deps(
             worker_name,
             job_dir,
             worker_dir,
+            &mut Some(occupancy_metrics),
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -118,6 +130,7 @@ async fn install_galaxy_collections(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<()> {
     write_file(job_dir, "requirements.yml", collections_yml)?;
 
@@ -160,6 +173,7 @@ async fn install_galaxy_collections(
         "ansible galaxy install",
         None,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -198,6 +212,7 @@ pub async fn handle_ansible_job(
     shared_mount: &str,
     base_internal_url: &str,
     envs: HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     check_ansible_exists()?;
 
@@ -216,6 +231,7 @@ pub async fn handle_ansible_job(
         worker_dir,
         mem_peak,
         canceled_by,
+        occupancy_metrics,
     )
     .await?;
 
@@ -289,6 +305,7 @@ pub async fn handle_ansible_job(
                 mem_peak,
                 canceled_by,
                 db,
+                occupancy_metrics,
             )
             .await?;
         }
@@ -369,6 +386,7 @@ fi
 
         let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
 
+        #[cfg(unix)]
         file.metadata()?.permissions().set_mode(0o777);
         // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -424,6 +442,7 @@ fi
         "python run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     read_and_check_result(job_dir).await

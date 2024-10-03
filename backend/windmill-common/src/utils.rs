@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
@@ -78,6 +78,12 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
         .unwrap_or(DEFAULT_PER_PAGE)
         .max(1)
         .min(MAX_PER_PAGE);
+    let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
+    (per_page, offset)
+}
+
+pub fn paginate_without_limits(pagination: Pagination) -> (usize, usize) {
+    let per_page = pagination.per_page.unwrap_or(MAX_PER_PAGE);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
     (per_page, offset)
 }
@@ -183,7 +189,7 @@ pub fn calculate_hash(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub async fn get_uid(db: &DB) -> Result<String> {
+pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
     let mut uid = LICENSE_KEY_ID.read().await.clone();
 
     if uid == "" {
@@ -220,6 +226,13 @@ impl std::fmt::Display for Mode {
             Mode::Indexer => write!(f, "indexer"),
         }
     }
+}
+
+// inspired from rails: https://github.com/rails/rails/blob/6e49cc77ab3d16c06e12f93158eaf3e507d4120e/activerecord/lib/active_record/migration.rb#L1308
+pub fn generate_lock_id(database_name: &str) -> i64 {
+    const CRC_IEEE: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+    // 0x3d32ad9e chosen by fair dice roll
+    0x3d32ad9e * (CRC_IEEE.checksum(database_name.as_bytes()) as i64)
 }
 
 pub async fn send_email(

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { X } from 'lucide-svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -8,8 +9,6 @@
 	export let login = true
 
 	$: enabled = value != undefined
-
-	let allowed_domains = value?.['allowed_domains'] ?? ''
 
 	let tenant: string = ''
 	$: name == 'microsoft' && changeTenantId(tenant)
@@ -66,19 +65,44 @@
 				</label>
 			{:else if login}
 				<label class="block pb-2">
-					<span class="text-primary font-semibold text-sm">Allowed domain</span>
-					<input
-						type="text"
-						placeholder="windmill.dev"
-						bind:value={allowed_domains}
-						on:keyup={() => {
-							if (allowed_domains == '') {
-								value['allowed_domains'] = undefined
-							} else {
-								value['allowed_domains'] = [allowed_domains]
-							}
-						}}
-					/>
+					<span class="text-primary font-semibold text-sm">Allowed domains</span>
+					<div class="flex flex-col gap-1">
+						{#each value?.['allowed_domains'] ?? [] as domain}
+							<div class="flex gap-2">
+								<input
+									class="max-w-96 w-full"
+									type="text"
+									bind:value={domain}
+									on:keyup={(e) => {
+										if (domain == '') {
+											value['allowed_domains'] = value['allowed_domains']?.filter(
+												(d) => d != domain
+											)
+										}
+									}}
+								/>
+								<button
+									class="text-primary text-xs rounded hover:bg-surface-hover"
+									on:click={() => {
+										value['allowed_domains'] = value['allowed_domains']?.filter((d) => d != domain)
+										if (value['allowed_domains'].length == 0) {
+											value['allowed_domains'] = undefined
+										}
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						<div class="flex gap-2">
+							<button
+								class="text-primary text-sm border rounded p-1"
+								on:click={() => {
+									value['allowed_domains'] = [...(value['allowed_domains'] ?? []), 'mydomain.com']
+								}}>+ Add domain</button
+							>
+						</div>
+					</div>
 				</label>
 			{/if}
 			{#if name == 'google'}

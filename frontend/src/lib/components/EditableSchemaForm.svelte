@@ -448,6 +448,7 @@
 															{itemPicker}
 															{lightweightMode}
 															bind:nullable={schema.properties[argName].nullable}
+															bind:disabled={schema.properties[argName].disabled}
 															type={schema.properties[argName].type}
 															bind:oneOf={schema.properties[argName].oneOf}
 															bind:format={schema.properties[argName].format}

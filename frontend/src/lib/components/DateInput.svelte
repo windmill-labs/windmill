@@ -8,6 +8,7 @@
 	export let minDate: string | undefined = undefined
 	export let maxDate: string | undefined = undefined
 	export let dateFormat: string | undefined = 'dd-MM-yyyy'
+	export let disabled: boolean = false
 
 	let date: string | undefined = computeDate(value)
 
@@ -71,6 +72,7 @@
 <div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
 	<!-- svelte-ignore a11y-autofocus -->
 	<input
+		{disabled}
 		type="date"
 		bind:value={date}
 		{autofocus}

@@ -55,13 +55,17 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_file, read_result, start_child_process,
+        create_args_and_out_file, get_main_override, get_reserved_variables, read_file,
+        read_result, start_child_process, OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, TZ_ENV,
 };
+
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
 
 pub async fn create_dependencies_dir(job_dir: &str) {
     DirBuilder::new()
@@ -101,6 +105,7 @@ pub async fn pip_compile(
     db: &Pool<Postgres>,
     worker_name: &str,
     w_id: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<String> {
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
@@ -210,6 +215,7 @@ pub async fn pip_compile(
         "pip-compile",
         None,
         false,
+        occupancy_metrics,
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
@@ -247,6 +253,7 @@ pub async fn handle_python_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_python_deps(
@@ -261,6 +268,7 @@ pub async fn handle_python_job(
         worker_dir,
         mem_peak,
         canceled_by,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -394,6 +402,9 @@ except BaseException as e:
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
 
+    #[cfg(windows)]
+    let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
+
     if !*DISABLE_NSJAIL {
         let shared_deps = additional_python_paths
             .into_iter()
@@ -470,6 +481,10 @@ mount {{
             .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
     };
 
@@ -485,6 +500,7 @@ mount {{
         "python run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -753,6 +769,7 @@ async fn handle_python_deps(
     worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
 
@@ -790,6 +807,7 @@ async fn handle_python_deps(
                     db,
                     worker_name,
                     w_id,
+                    occupancy_metrics,
                 )
                 .await
                 .map_err(|e| {
@@ -813,6 +831,7 @@ async fn handle_python_deps(
             worker_name,
             job_dir,
             worker_dir,
+            occupancy_metrics,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -834,6 +853,7 @@ pub async fn handle_python_reqs(
     worker_name: &str,
     job_dir: &str,
     worker_dir: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
@@ -1006,7 +1026,12 @@ pub async fn handle_python_reqs(
             start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
         } else {
             let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
+            #[cfg(unix)]
             let req = format!("'{}'", req);
+
+            #[cfg(windows)]
+            let req = format!("{}", req);
+
             let mut command_args = vec![
                 PYTHON_PATH.as_str(),
                 "-m",
@@ -1062,19 +1087,35 @@ pub async fn handle_python_reqs(
 
             tracing::debug!("pip install command: {:?}", command_args);
 
-            let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-            flock_cmd
-                .env_clear()
-                .envs(envs)
-                .args([
-                    "-x",
-                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
-                    "--command",
-                    &command_args.join(" "),
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
+            #[cfg(unix)]
+            {
+                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+                flock_cmd
+                    .env_clear()
+                    .envs(envs)
+                    .args([
+                        "-x",
+                        &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
+                        "--command",
+                        &command_args.join(" "),
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
+            }
+
+            #[cfg(windows)]
+            {
+                let mut pip_cmd = Command::new(PYTHON_PATH.as_str());
+                pip_cmd
+                    .env_clear()
+                    .envs(envs)
+                    .env("SystemRoot", SYSTEM_ROOT.as_str())
+                    .args(&command_args[1..])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(pip_cmd, PYTHON_PATH.as_str()).await?
+            }
         };
 
         let child = handle_child(
@@ -1089,6 +1130,7 @@ pub async fn handle_python_reqs(
             &format!("pip install {req}"),
             None,
             false,
+            occupancy_metrics,
         )
         .await;
         tracing::info!(
@@ -1173,6 +1215,7 @@ pub async fn start_worker(
         job_dir,
         &mut mem_peak,
         &mut canceled_by,
+        &mut None,
     )
     .await?;
 

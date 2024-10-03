@@ -158,6 +158,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 "global",
                 "global",
                 "",
+                &mut None,
             )
             .await?;
             tokio::fs::remove_dir_all(job_dir).await?;
@@ -178,6 +179,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     "cache_init",
                     windmill_worker::get_common_bun_proc_envs(None).await,
                     false,
+                    &mut None,
                 )
                 .await?;
             } else {
@@ -371,8 +373,16 @@ async fn windmill_main() -> anyhow::Result<()> {
     let is_agent = mode == Mode::Agent;
 
     if !is_agent {
-        // migration code to avoid break
-        windmill_api::migrate_db(&db).await?;
+        let skip_migration = std::env::var("SKIP_MIGRATION")
+            .map(|val| val == "true")
+            .unwrap_or(false);
+
+        if !skip_migration {
+            // migration code to avoid break
+            windmill_api::migrate_db(&db).await?;
+        } else {
+            tracing::info!("SKIP_MIGRATION set, skipping db migration...")
+        }
     }
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -743,9 +753,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        let instance_name = rd_string(8);
         if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
+            schedule_stats(&db, &HTTP_CLIENT).await;
         }
 
         #[cfg(feature = "enterprise")]
