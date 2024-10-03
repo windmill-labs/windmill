@@ -17,9 +17,6 @@ use std::{
 use std::{collections::HashMap, sync::Arc};
 
 #[cfg(feature = "deno_core")]
-use std::time::Instant;
-
-#[cfg(feature = "deno_core")]
 use deno_ast::ParseParams;
 #[cfg(feature = "deno_core")]
 use deno_core::{
