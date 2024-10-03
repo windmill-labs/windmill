@@ -183,10 +183,13 @@ export type InstanceSyncOptions = {
   yes?: boolean;
 };
 
-export async function pickInstance(opts: InstanceSyncOptions, allowNew: boolean) {
+export async function pickInstance(
+  opts: InstanceSyncOptions,
+  allowNew: boolean
+) {
   const instances = await allInstances();
   if (opts.baseUrl && opts.token) {
-    log.info("Using instance fully defined by --base-url and --token")
+    log.info("Using instance fully defined by --base-url and --token");
     return {
       name: "custom",
       remote: opts.baseUrl,
@@ -335,12 +338,14 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     );
 
     if (localWorkspacesToDelete.length > 0) {
-      const confirmDelete = await Confirm.prompt({
-        message:
-          "Do you want to delete the local copy of workspaces that don't exist anymore on the instance?\n" +
-          localWorkspacesToDelete.map((w) => w.workspaceId).join(", "),
-        default: true,
-      });
+      const confirmDelete =
+        opts.yes ||
+        (await Confirm.prompt({
+          message:
+            "Do you want to delete the local copy of workspaces that don't exist anymore on the instance?\n" +
+            localWorkspacesToDelete.map((w) => w.workspaceId).join(", "),
+          default: true,
+        }));
 
       if (confirmDelete) {
         for (const workspace of localWorkspacesToDelete) {
@@ -485,12 +490,14 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       (w) => !localWorkspaces.find((l) => l.workspaceId === w.id)
     );
     if (workspacesToDelete.length > 0) {
-      const confirmDelete = await Confirm.prompt({
-        message:
-          "Do you want to delete the following remote workspaces that don't exist locally?\n" +
-          workspacesToDelete.map((w) => w.id).join(", "),
-        default: true,
-      });
+      const confirmDelete =
+        opts.yes ||
+        (await Confirm.prompt({
+          message:
+            "Do you want to delete the following remote workspaces that don't exist locally?\n" +
+            workspacesToDelete.map((w) => w.id).join(", "),
+          default: true,
+        }));
 
       if (confirmDelete) {
         for (const workspace of workspacesToDelete) {
@@ -544,7 +551,9 @@ async function whoami(opts: {}) {
     log.info(colors.green.underline(`global whoami infos:`));
     log.info(JSON.stringify(whoamiInfo, null, 2));
   } catch (error) {
-    log.error(colors.red(`Failed to retrieve whoami information: ${error.message}`));
+    log.error(
+      colors.red(`Failed to retrieve whoami information: ${error.message}`)
+    );
   }
 }
 

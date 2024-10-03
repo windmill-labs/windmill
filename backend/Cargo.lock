@@ -10919,6 +10919,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
+ "swc_ecma_parser 0.144.3",
  "tar",
  "tiberius",
  "tokio",
