@@ -288,7 +288,9 @@
 
 		{#if inlineScripts?.length > 0}
 			<div class="pb-0 flex flex-row items-center gap-2">
-				<div class=" text-2xs font-light text-secondary ml-2">New {selectedKind} script</div>
+				<div class=" text-2xs font-light text-secondary ml-2"
+					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
+				>
 				{#if $userStore?.is_admin || $userStore?.is_super_admin}
 					{#if !openScriptSettings}
 						<Button
