@@ -189,7 +189,7 @@ pub fn calculate_hash(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub async fn get_uid(db: &DB) -> Result<String> {
+pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
     let mut uid = LICENSE_KEY_ID.read().await.clone();
 
     if uid == "" {
@@ -226,6 +226,13 @@ impl std::fmt::Display for Mode {
             Mode::Indexer => write!(f, "indexer"),
         }
     }
+}
+
+// inspired from rails: https://github.com/rails/rails/blob/6e49cc77ab3d16c06e12f93158eaf3e507d4120e/activerecord/lib/active_record/migration.rb#L1308
+pub fn generate_lock_id(database_name: &str) -> i64 {
+    const CRC_IEEE: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+    // 0x3d32ad9e chosen by fair dice roll
+    0x3d32ad9e * (CRC_IEEE.checksum(database_name.as_bytes()) as i64)
 }
 
 pub async fn send_email(

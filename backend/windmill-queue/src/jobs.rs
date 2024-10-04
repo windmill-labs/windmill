@@ -490,6 +490,7 @@ where
     }
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct RawFlowFailureModule {
     #[cfg(feature = "enterprise")]
@@ -3563,6 +3564,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 }],
                 same_worker: false,
                 failure_module: None,
