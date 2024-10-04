@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.405.4](https://github.com/windmill-labs/windmill/compare/v1.405.3...v1.405.4) (2024-10-04)
+
+
+### Bug Fixes
+
+* **frontend:** correctly initialize step inputs on new inline script ([289ad51](https://github.com/windmill-labs/windmill/commit/289ad51374f0344582372572fc521f3b2bf12b33))
+
 ## [1.405.3](https://github.com/windmill-labs/windmill/compare/v1.405.2...v1.405.3) (2024-10-04)
 
 
