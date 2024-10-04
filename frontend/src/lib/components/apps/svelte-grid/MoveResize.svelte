@@ -3,7 +3,12 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
-	import { computePosition, findGridItemParentGrid, isContainer } from '../editor/appUtils'
+	import {
+		computePosition,
+		findGridItemParentGrid,
+		isContainer,
+		type GridShadow
+	} from '../editor/appUtils'
 	import { throttle } from './utils/other'
 
 	const dispatch = createEventDispatcher()
@@ -32,6 +37,7 @@
 	export let overlapped: string | undefined = undefined
 	export let moveMode: 'move' | 'insert' = 'move'
 	export let type: string | undefined = undefined
+	export let fakeShadow: GridShadow | undefined = undefined
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
@@ -382,42 +388,11 @@
 			return
 		}
 
-		const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY)
-
-		const intersectingElement = elementsAtPoint.find(
-			(el) => el.id !== divId && el.classList.contains('svlt-grid-item')
-		)
-
-		const container = intersectingElement?.querySelector('.svlt-grid-container')
-
-		let xPerPxComputed = container?.getAttribute('data-xperpx')
-			? Number(container?.getAttribute('data-xperpx'))
-			: xPerPx
-
-		if (!container) {
-			const root = document.getElementById('root-grid')
-
-			const rootXPerPx = root?.getAttribute('data-xperpx')
-				? Number(root?.getAttribute('data-xperpx'))
-				: xPerPx
-
-			xPerPxComputed = rootXPerPx
-		}
-
-		const position = computePosition(
-			e.clientX,
-			e.clientY,
-			xPerPxComputed,
-			yPerPx,
-			overlapped,
-			element
-		)
-
 		dispatch('dropped', {
 			id,
 			overlapped,
-			x: position?.x,
-			y: position?.y
+			x: fakeShadow?.x,
+			y: fakeShadow?.y
 		})
 	}
 

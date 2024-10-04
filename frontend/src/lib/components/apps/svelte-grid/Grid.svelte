@@ -436,6 +436,7 @@
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
+				fakeShadow={$fakeShadowStore}
 				on:dropped={(e) => {
 					$componentDraggedIdStore = undefined
 					$componentDraggedParentIdStore = undefined

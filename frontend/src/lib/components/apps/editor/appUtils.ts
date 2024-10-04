@@ -20,7 +20,6 @@ import {
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
-import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
 	StaticAppInput,
@@ -278,9 +277,6 @@ export function createNewGridItem(
 				y: initialPosition.y
 			}
 		}
-
-		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
-		newItem[column] = { ...newItem[column], ...position }
 	})
 
 	return newItem
