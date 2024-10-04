@@ -8,8 +8,8 @@ let
     "https://github.com/oxalica/rust-overlay/archive/master.tar.gz");
   pkgs = import <nixpkgs> { overlays = [ rust_overlay ]; };
   # TODO: Pin version?
-  rustVersion = "latest";
-  # rustVersion = "1.83.0";
+  # rustVersion = "latest";
+  rustVersion = "2024-09-30";
   rust = pkgs.rust-bin.nightly.${rustVersion}.default.override {
     extensions = [
       "rust-src" # for rust-analyzer
@@ -27,6 +27,7 @@ in pkgs.mkShell {
     postgresql
     watchexec # used in client's dev.nu
     poetry # for python client
+    uv
     python312Packages.pip-tools # pip-compile
   ];
 
@@ -54,6 +55,7 @@ in pkgs.mkShell {
     "-C link-arg=-fuse-ld=${pkgs.mold}/bin/mold -Zshare-generics=y -Z threads=4";
   RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
 
-  # Use mold as a linker (for faster compilation)
+  # Useful for development
+  RUST_LOG = "debug";
 
 }

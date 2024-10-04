@@ -56,7 +56,7 @@
 			  '/' +
 			  (state?.iteration_total ?? '?')
 			: ''}
-		bgColor={getStateColor(type, darkMode, true)}
+		bgColor={getStateColor(type, darkMode, true, state?.skipped)}
 		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={state?.duration_ms}

@@ -1,21 +1,24 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	import { Cross } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import type { FlowModule } from '$lib/gen'
 	import { getStateColor } from '../../util'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
-	import { twMerge } from 'tailwind-merge'
 	import FlowCopilotButton from '$lib/components/flows/map/FlowCopilotButton.svelte'
+	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 
 	export let data: {
-		insertable: boolean
-		eventHandlers: GraphEventHandlers
-		modules: FlowModule[]
-		disableAi: boolean
 		hasPreprocessor: boolean
+		insertable: boolean
+		modules: FlowModule[]
+		moving: string | undefined
+		eventHandlers: GraphEventHandlers
+		index: number
+		enableTrigger: boolean
+		disableAi: boolean
+		disableMoveIds: string[]
 	}
 
 	const { selectedId } = getContext<{
@@ -29,25 +32,29 @@
 	{/if}
 	{#if data.insertable && !data.hasPreprocessor}
 		<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 z-10">
-			<button
-				on:click={(e) => {
-					data.eventHandlers?.insert({
+			<InsertModuleButton
+				disableAi={data.disableAi}
+				index={data.index ?? 0}
+				modules={data?.modules ?? []}
+				kind="preprocessor"
+				on:new={(e) => {
+					data?.eventHandlers.insert({
 						modules: data.modules,
+						index: data.index,
+						kind: e.detail.kind,
+						inlineScript: e.detail.inlineScript,
 						detail: 'preprocessor'
 					})
 				}}
-				title="Add preprocessor step"
-				id={`flow-editor-add-preprocessor`}
-				type="button"
-				class={twMerge(
-					'w-5 h-5 flex items-center justify-center',
-					'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
-					'text-secondary',
-					'bg-surface focus:outline-none hover:bg-surface-hover   rounded '
-				)}
-			>
-				<Cross size={12} />
-			</button>
+				on:pickScript={(e) => {
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						script: e.detail,
+						detail: 'preprocessor'
+					})
+				}}
+			/>
 		</div>
 	{/if}
 	<VirtualItem
