@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.405.3](https://github.com/windmill-labs/windmill/compare/v1.405.2...v1.405.3) (2024-10-04)
+
+
+### Bug Fixes
+
+* fix id save on apps ([b034b07](https://github.com/windmill-labs/windmill/commit/b034b070c075a0fab74678bec1fd8b829d55b204))
+
+## [1.405.2](https://github.com/windmill-labs/windmill/compare/v1.405.1...v1.405.2) (2024-10-03)
+
+
+### Bug Fixes
+
+* **cli:** fix opts.yes for instance sync ([26659ce](https://github.com/windmill-labs/windmill/commit/26659ce37d2887d5b98dbdbdbba27bab85d4fe3f))
+* fix uv path ([19c62ba](https://github.com/windmill-labs/windmill/commit/19c62ba195b1df85c38c748dab7d9f137696a5c3))
+
+## [1.405.1](https://github.com/windmill-labs/windmill/compare/v1.405.0...v1.405.1) (2024-10-03)
+
+
+### Bug Fixes
+
+* flow picker of flows + precache hub scripts as bundles ([c84e6fd](https://github.com/windmill-labs/windmill/commit/c84e6fd05de2bea426cae61fa25db0323b8770f5))
+
+## [1.405.0](https://github.com/windmill-labs/windmill/compare/v1.404.1...v1.405.0) (2024-10-03)
+
+
+### Features
+
+* Replace `pip-compile` with `uv` ([#4460](https://github.com/windmill-labs/windmill/issues/4460)) ([b54c9ee](https://github.com/windmill-labs/windmill/commit/b54c9ee657cc88fabe694cae39dc0d3c1918fcbb))
+* **worker:** support workers to run natively on windows ([#4446](https://github.com/windmill-labs/windmill/issues/4446)) ([f5c4727](https://github.com/windmill-labs/windmill/commit/f5c472727465dd95f5378bc08ee9bbb983f4d259))
+
+
+### Bug Fixes
+
+* **cli:** fix set client of instance when passing token and base url ([794c4cd](https://github.com/windmill-labs/windmill/commit/794c4cde3cd47042472dccdf4b60a012014dd26d))
+
+## [1.404.1](https://github.com/windmill-labs/windmill/compare/v1.404.0...v1.404.1) (2024-10-03)
+
+
+### Bug Fixes
+
+* flow picker of flows ([92f61f0](https://github.com/windmill-labs/windmill/commit/92f61f07ed6d354407d26843e3a270b95bae90bc))
+
+## [1.404.0](https://github.com/windmill-labs/windmill/compare/v1.403.1...v1.404.0) (2024-10-03)
+
+
+### Features
+
+* **frontend:** add quick access menu in flow editor ([#4415](https://github.com/windmill-labs/windmill/issues/4415)) ([45ccd45](https://github.com/windmill-labs/windmill/commit/45ccd45e306c66931880a9b8fd48bfe684c774ac))
+
+
+### Bug Fixes
+
+* **cli:** improve schedule path handling on windows ([9ac3b6b](https://github.com/windmill-labs/windmill/commit/9ac3b6b1d5d64d7467dd80506f8a8d772c4630bd))
+* fix id editor for app ([8e58e43](https://github.com/windmill-labs/windmill/commit/8e58e4320a31d71c40a5ed352416a4c2dd3adb26))
+* **frontend:** disable runnable field on route editor from detail panel ([#4469](https://github.com/windmill-labs/windmill/issues/4469)) ([3134f79](https://github.com/windmill-labs/windmill/commit/3134f79ced80aab86912643ab7a60dcf909ab104))
+
+## [1.403.1](https://github.com/windmill-labs/windmill/compare/v1.403.0...v1.403.1) (2024-10-01)
+
+
+### Bug Fixes
+
+* fix new instance db setup ([73ab8e1](https://github.com/windmill-labs/windmill/commit/73ab8e1653d6e0c0c69fa7dcd96583f25d13ef86))
+
+## [1.403.0](https://github.com/windmill-labs/windmill/compare/v1.402.3...v1.403.0) (2024-10-01)
+
+
+### Features
+
+* flow step skipping ([#4461](https://github.com/windmill-labs/windmill/issues/4461)) ([0df169e](https://github.com/windmill-labs/windmill/commit/0df169e3f996ed54b91569b13cce15d7d019a213))
+
+
+### Bug Fixes
+
+* skip one migration to avoid using md5 for azure support ([630ae5d](https://github.com/windmill-labs/windmill/commit/630ae5d425cd9957d674befd2df96e2befec52a3))
+
 ## [1.402.3](https://github.com/windmill-labs/windmill/compare/v1.402.2...v1.402.3) (2024-09-30)
 
 

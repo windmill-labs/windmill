@@ -1,13 +1,22 @@
+#[cfg(feature = "deno_core")]
 use deno_fetch::FetchPermissions;
+#[cfg(feature = "deno_core")]
 use deno_net::NetPermissions;
+#[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
+#[cfg(feature = "deno_core")]
 use std::env;
+#[cfg(feature = "deno_core")]
 use std::io::Write;
+#[cfg(feature = "deno_core")]
 use std::path::PathBuf;
+#[cfg(feature = "deno_core")]
 use std::sync::Arc;
 
+#[cfg(feature = "deno_core")]
 pub struct PermissionsContainer;
 
+#[cfg(feature = "deno_core")]
 impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_net_url(
@@ -28,6 +37,7 @@ impl FetchPermissions for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl TimersPermission for PermissionsContainer {
     #[inline(always)]
     fn allow_hrtime(&mut self) -> bool {
@@ -35,6 +45,7 @@ impl TimersPermission for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl NetPermissions for PermissionsContainer {
     fn check_read(
         &mut self,
@@ -61,12 +72,14 @@ impl NetPermissions for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 deno_core::extension!(
     fetch,
     esm_entry_point = "ext:fetch/src/runtime.js",
     esm = ["src/runtime.js"],
 );
 
+#[cfg(feature = "deno_core")]
 fn main() {
     println!("cargo:rustc-env=TARGET={}", env::var("TARGET").unwrap());
     println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
@@ -122,3 +135,6 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 }
+
+#[cfg(not(feature = "deno_core"))]
+fn main() {}

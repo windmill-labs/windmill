@@ -504,7 +504,7 @@ function ZipFSElement(
 
       if (formatExtension) {
         const fileContent: string = parsed["value"]["content"];
-        if (typeof(fileContent) === "string") {
+        if (typeof fileContent === "string") {
           r.push({
             isDirectory: false,
             path:
@@ -948,7 +948,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes?`,
+        message: `Do you want to apply these ${changes.length} changes to your local files?`,
         default: true,
       }))
     ) {
@@ -1251,7 +1251,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes?`,
+        message: `Do you want to apply these ${changes.length} changes to the remote?`,
         default: true,
       }))
     ) {

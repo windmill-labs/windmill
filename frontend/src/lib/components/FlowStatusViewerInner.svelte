@@ -38,7 +38,8 @@
 		suspendStatus,
 		hideDownloadInGraph,
 		hideTimeline,
-		hideNodeDefinition
+		hideNodeDefinition,
+		hideDownloadLogs
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
@@ -437,7 +438,8 @@
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
 						iteration_total: mod.iterator?.itered?.length,
-						retries: mod?.failed_retries?.length
+						retries: mod?.failed_retries?.length,
+						skipped: mod.skipped
 						// retries: $flowStateStore?.raw_flow
 					},
 					force
@@ -668,6 +670,7 @@
 								result={job.result}
 								logs={job.logs}
 								durationStates={localDurationStatuses}
+								downloadLogs={!hideDownloadLogs}
 							/>
 						</div>
 					{/if}
@@ -1025,6 +1028,7 @@
 											result={job['result']}
 											logs={job.logs ?? ''}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -1054,7 +1058,11 @@
 											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
 										{/if}
 										<div class="px-2 flex gap-2 min-w-0 w-full">
-											<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
+											<ModuleStatus
+												type={node.type}
+												scheduled_for={node.scheduled_for}
+												skipped={node.skipped}
+											/>
 											{#if node.duration_ms}
 												<Badge>
 													<Hourglass class="mr-2" size={10} />
@@ -1096,6 +1104,7 @@
 											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

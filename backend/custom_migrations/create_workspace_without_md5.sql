@@ -1,8 +1,8 @@
 INSERT INTO workspace(id, name, owner) VALUES
-	('admins', 'Admins', 'admin@windmill.dev');
+	('admins', 'Admins', 'admin@windmill.dev') ON CONFLICT DO NOTHING;
 
 INSERT INTO workspace_settings (workspace_id) VALUES
-	('admins');
+	('admins') ON CONFLICT DO NOTHING;
 
 INSERT INTO workspace_key
 	(workspace_id, kind, key)
@@ -13,4 +13,4 @@ INSERT INTO workspace_key
         FROM generate_series(1, 32) -- generates 32 characters
     ),
     ''
-));
+)) ON CONFLICT DO NOTHING;

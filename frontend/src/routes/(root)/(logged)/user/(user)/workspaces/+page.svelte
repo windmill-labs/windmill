@@ -24,6 +24,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
+	import { refreshSuperadmin } from '$lib/refreshUser'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -45,6 +46,7 @@
 	}
 
 	async function loadWorkspaces() {
+		console.log('loading workspaces', $usersWorkspaceStore)
 		if (!$usersWorkspaceStore) {
 			try {
 				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -76,7 +78,7 @@
 	}
 	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
 
-	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
+	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
 	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
 	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
@@ -97,6 +99,7 @@
 		getCreateWorkspaceRequireSuperadmin()
 	}
 
+	refreshSuperadmin()
 	loadInvites()
 	loadWorkspaces()
 
