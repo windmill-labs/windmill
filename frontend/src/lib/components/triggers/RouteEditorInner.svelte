@@ -28,6 +28,7 @@
 
 	let script_path = ''
 	let initialScriptPath = ''
+	let fixedScriptPath = ''
 
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -46,7 +47,7 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, initial_script_path?: string) {
+	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -58,8 +59,9 @@
 			initialRoutePath = ''
 			route_path = ''
 			http_method = 'post'
-			initialScriptPath = initial_script_path ?? ''
-			script_path = initialScriptPath
+			initialScriptPath = ''
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
 			dirtyPath = false
@@ -282,8 +284,8 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={!can_write}
-							initialPath={initialScriptPath}
+							disabled={fixedScriptPath != '' || !can_write}
+							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
 							bind:itemKind
