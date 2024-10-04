@@ -118,9 +118,13 @@
 		// Update the app state
 		$app = { ...$app }
 
-		$focusedGrid = {
-			parentComponentId,
-			subGridIndex
+		if (parentGrid) {
+			$focusedGrid = {
+				parentComponentId,
+				subGridIndex
+			}
+		} else {
+			$focusedGrid = undefined
 		}
 	}
 

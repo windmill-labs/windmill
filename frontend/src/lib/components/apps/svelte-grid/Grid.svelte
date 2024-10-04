@@ -5,6 +5,7 @@
 	const componentDraggedParentIdStore = writable<string | undefined>(undefined)
 	const overlappedStore = writable<string | undefined>(undefined)
 	const fakeShadowStore = writable<GridShadow | undefined>(undefined)
+	const isCtrlOrMetaPressedStore = writable<boolean>(false)
 </script>
 
 <script lang="ts">
@@ -107,19 +108,13 @@
 	let sortedItems: FilledItem<T>[] = []
 	$: sortedItems = JSON.parse(JSON.stringify(items)).sort((a, b) => a.id.localeCompare(b.id))
 
-	let isCtrlOrMetaPressed: boolean = false
-
 	let resizing: boolean = false
 
 	function handleKeyUp(event) {
-		if (event.key === 'Control' || event.key === 'Meta') {
+		if ((event.key === 'Control' || event.key === 'Meta') && $isCtrlOrMetaPressedStore) {
 			setTimeout(() => {
-				isCtrlOrMetaPressed = false
+				$isCtrlOrMetaPressedStore = false
 
-				if (lastDetail) {
-					throttleMatrix({ detail: lastDetail })
-					lastDetail = undefined
-				}
 				$fakeShadowStore = undefined
 			}, 50)
 		}
@@ -161,7 +156,7 @@
 					}
 				}
 
-				if (isCtrlOrMetaPressed) {
+				if ($isCtrlOrMetaPressedStore) {
 					if ($componentDraggedParentIdStore === $overlappedStore) {
 						const fixedContainer = sortedItems.map((item) => {
 							if (isContainer(item.data['type'])) {
@@ -239,12 +234,12 @@
 	}
 
 	function handleKeyDown(event) {
-		if (event.key === 'Control' || event.key === 'Meta') {
+		if ((event.key === 'Control' || event.key === 'Meta') && !$isCtrlOrMetaPressedStore) {
 			if (resizing) {
 				return
 			}
 
-			isCtrlOrMetaPressed = true
+			$isCtrlOrMetaPressedStore = true
 
 			if (lastDetail) {
 				throttleMatrix({ detail: lastDetail })
@@ -266,7 +261,7 @@
 		lastDetail = detail
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 
-		if (!isCtrlOrMetaPressed) {
+		if (!$isCtrlOrMetaPressedStore) {
 			$overlappedStore = undefined
 			return
 		}
@@ -350,7 +345,7 @@
 	data-xperpx={xPerPx}
 >
 	<!-- ROOT SHADOW-->
-	{#if isCtrlOrMetaPressed && root && $overlappedStore !== $componentDraggedParentIdStore}
+	{#if $isCtrlOrMetaPressedStore && root && $overlappedStore !== $componentDraggedParentIdStore}
 		<div
 			class={twMerge(
 				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
@@ -391,7 +386,7 @@
 
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
-			{#if isCtrlOrMetaPressed && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
+			{#if $isCtrlOrMetaPressedStore && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
 				{@const columnGap = gapX}
 				<!-- gap between the columns in px -->
 				{@const containerBorder = 0.5 * 16}
@@ -448,7 +443,7 @@
 					$fakeShadowStore = undefined
 					lastDetail = undefined
 
-					if (!isCtrlOrMetaPressed) {
+					if (!$isCtrlOrMetaPressedStore) {
 						return
 					}
 
@@ -469,7 +464,7 @@
 				container={scroller}
 				nativeContainer={container}
 				overlapped={$overlappedStore}
-				moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
+				moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
 				type={item.data['type']}
 			>
 				{#if item[getComputedCols]}
@@ -477,7 +472,7 @@
 						dataItem={item}
 						hidden={false}
 						overlapped={$overlappedStore}
-						moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
+						moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
 						componentDraggedId={$componentDraggedIdStore}
 					/>
 				{/if}

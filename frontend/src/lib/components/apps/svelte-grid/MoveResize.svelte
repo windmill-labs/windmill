@@ -376,6 +376,12 @@
 			return
 		}
 
+		const parent = findGridItemParentGrid($app, id)
+
+		if (overlapped && (overlapped === parent || parent?.startsWith(overlapped))) {
+			return
+		}
+
 		const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY)
 
 		const intersectingElement = elementsAtPoint.find(
