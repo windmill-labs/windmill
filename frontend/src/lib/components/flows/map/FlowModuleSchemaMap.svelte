@@ -108,6 +108,7 @@
 				module.id,
 				module.summary
 			)
+			$flowStateStore[module.id] = state
 		}
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
