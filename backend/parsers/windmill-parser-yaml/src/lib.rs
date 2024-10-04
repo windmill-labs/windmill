@@ -399,15 +399,11 @@ fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {
                             if c > 0 && c <= 6 {
                                 ret.verbosity = Some("v".repeat(c.min(6)));
                             }
-
                         }
                     }
-                    _ => ()
-
+                    _ => (),
                 }
             }
-
-
         }
     }
 
@@ -422,10 +418,10 @@ fn count_consecutive_vs(s: &str) -> usize {
         if c == 'v' {
             current_count += 1;
             if current_count == 6 {
-                return 6;  // Stop early if we reach 6
+                return 6; // Stop early if we reach 6
             }
         } else {
-            current_count = 0;  // Reset count if the character is not 'v'
+            current_count = 0; // Reset count if the character is not 'v'
         }
         max_count = max_count.max(current_count);
     }

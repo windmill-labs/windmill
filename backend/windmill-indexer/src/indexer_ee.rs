@@ -1,6 +1,6 @@
+use anyhow::anyhow;
 use sqlx::{Pool, Postgres};
 use windmill_common::error::Error;
-use anyhow::anyhow;
 
 #[derive(Clone)]
 pub struct IndexReader;
