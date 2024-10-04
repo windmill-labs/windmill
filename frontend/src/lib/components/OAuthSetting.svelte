@@ -75,14 +75,19 @@
 									bind:value={domain}
 									on:keyup={(e) => {
 										if (domain == '') {
-											value['allowed_domains'] = value['allowed_domains'].filter((d) => d != domain)
+											value['allowed_domains'] = value['allowed_domains']?.filter(
+												(d) => d != domain
+											)
 										}
 									}}
 								/>
 								<button
 									class="text-primary text-xs rounded hover:bg-surface-hover"
 									on:click={() => {
-										value['allowed_domains'] = value['allowed_domains'].filter((d) => d != domain)
+										value['allowed_domains'] = value['allowed_domains']?.filter((d) => d != domain)
+										if (value['allowed_domains'].length == 0) {
+											value['allowed_domains'] = undefined
+										}
 									}}
 								>
 									<X size={14} />
