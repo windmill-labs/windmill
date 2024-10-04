@@ -6,7 +6,11 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 
 use sqlx::{Pool, Postgres};
+#[cfg(windows)]
+use std::process::Stdio;
 use tokio::fs::File;
+#[cfg(windows)]
+use tokio::process::Command;
 use windmill_common::error::to_anyhow;
 
 use windmill_common::error::{self, Error};
@@ -49,6 +53,33 @@ use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 }
+
+//  - kill windows process along with all child processes
+#[cfg(windows)]
+async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
+    let pid = match pid {
+        Some(pid) => pid,
+        None => return Err("No PID provided to kill.".to_string()),
+    };
+
+    let output = Command::new("cmd")
+        .args(&["/C", "taskkill", "/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute taskkill: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Failed to kill process tree. Error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -196,9 +227,26 @@ pub async fn handle_child(
                 }
             }
         }
-        /* send SIGKILL and reap child process */
-        let (_, kill) = future::join(set_reason, child.kill()).await;
-        kill.map(|()| Err(kill_reason))
+        #[cfg(windows)]
+        {
+            let pid_to_kill = child.id();
+            match kill_process_tree(pid_to_kill).await {
+                Ok(_) => tracing::debug!(
+                    "successfully killed process tree with PID: {:?}",
+                    pid_to_kill
+                ),
+                Err(e) => tracing::error!("failed to kill process tree: {:?}", e),
+            };
+            set_reason.await;
+            return Ok(Err(kill_reason));
+        }
+
+        #[cfg(unix)]
+        {
+            /* send SIGKILL and reap child process */
+            let (_, kill) = future::join(set_reason, child.kill()).await;
+            kill.map(|()| Err(kill_reason))
+        }
     };
 
     /* a future that reads output from the child and appends to the database */

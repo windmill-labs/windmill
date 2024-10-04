@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, Command, log, Table } from "./deps.ts";
+import { colors, Command, log, SEP, Table } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import * as wmill from "./gen/services.gen.ts";
 
@@ -42,8 +42,7 @@ export async function pushSchedule(
   schedule: Schedule | ScheduleFile | undefined,
   localSchedule: ScheduleFile
 ): Promise<void> {
-  path = removeType(path, "schedule");
-
+  path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
 
   // deleting old app if it exists in raw mode

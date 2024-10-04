@@ -7,6 +7,7 @@
 
 	export let type: FlowStatusModule['type']
 	export let scheduled_for: Date | undefined
+	export let skipped: boolean = false
 </script>
 
 {#if type == 'WaitingForEvents'}
@@ -28,6 +29,8 @@
 			Job is waiting for an executor
 		{/if}
 	</span>
+{:else if skipped}
+	<Badge color="blue">Skipped</Badge>
 {:else if type == 'Success'}
 	<Badge color="green">Success</Badge>
 {:else if type == 'Failure'}
