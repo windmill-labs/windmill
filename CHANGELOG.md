@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.405.3](https://github.com/windmill-labs/windmill/compare/v1.405.2...v1.405.3) (2024-10-04)
+
+
+### Bug Fixes
+
+* fix id save on apps ([b034b07](https://github.com/windmill-labs/windmill/commit/b034b070c075a0fab74678bec1fd8b829d55b204))
+
 ## [1.405.2](https://github.com/windmill-labs/windmill/compare/v1.405.1...v1.405.2) (2024-10-03)
 
 
