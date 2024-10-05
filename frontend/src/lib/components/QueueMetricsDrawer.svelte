@@ -57,7 +57,7 @@
 
 			response.forEach((config) => {
 				if (config.name.startsWith('worker__') && Array.isArray(config.config?.worker_tags)) {
-					config.config.worker_tags.forEach((tag) => workerTagsSet.add(tag))
+					config?.config?.worker_tags.forEach((tag) => workerTagsSet.add(tag))
 				}
 			})
 
