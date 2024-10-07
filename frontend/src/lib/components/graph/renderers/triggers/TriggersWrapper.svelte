@@ -64,10 +64,13 @@
 		if (!newFlow) {
 			loadSchedules()
 			loadTriggers()
+			console.log('triggerWrapper mounted')
 		}
 	})
 
-	const { selectedId, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = flowEditorContext?.selectedId ?? { subscribe: () => () => {} }
+	const selectedTrigger = flowEditorContext?.selectedTrigger ?? { subscribe: () => () => {} }
 </script>
 
 {#if isEditor}
@@ -103,7 +106,7 @@
 						on:click={() => {
 							if (isEditor) {
 								$selectedTrigger = 'webhooks'
-								$selectedId = 'triggers'
+								$selectedId = 'webhooks'
 							} else {
 								dispatch('triggerDetail', 'webhooks')
 							}
@@ -125,7 +128,7 @@
 						on:click={() => {
 							if (isEditor) {
 								$selectedTrigger = 'mail'
-								$selectedId = 'triggers'
+								$selectedId = 'mail'
 							} else {
 								dispatch('triggerDetail', 'mail')
 							}
@@ -147,7 +150,7 @@
 						on:click={() => {
 							if (isEditor) {
 								$selectedTrigger = 'routes'
-								$selectedId = 'triggers'
+								$selectedId = 'routes'
 							} else {
 								dispatch('triggerDetail', 'routes')
 							}
@@ -170,7 +173,7 @@
 						on:click={() => {
 							if (isEditor) {
 								$selectedTrigger = 'schedules'
-								$selectedId = 'triggers'
+								$selectedId = 'schedules'
 							} else {
 								dispatch('triggerDetail', 'schedule')
 							}

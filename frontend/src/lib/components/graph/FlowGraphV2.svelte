@@ -241,7 +241,8 @@
 		!$selectedId.startsWith('settings') &&
 		$selectedId !== 'failure' &&
 		$selectedId !== 'preprocessor' &&
-		$selectedId !== 'Result'
+		$selectedId !== 'Result' &&
+		$selectedId !== 'triggers'
 
 	const viewport = writable<Viewport>({
 		x: 0,
