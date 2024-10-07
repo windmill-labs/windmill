@@ -55,7 +55,7 @@
 </script>
 
 {#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} {newFlow} />
+	<FlowSettings {noEditor} />
 {:else if $selectedId === 'Input'}
 	<FlowInput {noEditor} />
 {:else if $selectedId === 'Result'}
