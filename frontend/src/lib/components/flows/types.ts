@@ -28,6 +28,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 
 export type FlowEditorContext = {
 	selectedId: Writable<string>
+	selectedTrigger: Writable<string>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
 	schedule: Writable<Schedule>
 	previewArgs: Writable<Record<string, any>>

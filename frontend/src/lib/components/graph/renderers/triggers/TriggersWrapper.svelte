@@ -5,18 +5,13 @@
 	import { HttpTriggerService, ScheduleService, type HttpTrigger, type Schedule } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Popover from '$lib/components/Popover.svelte'
-	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
-	import { DrawerContent, Tabs } from '$lib/components/common'
-	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import TriggerCount from './TriggerCount.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { canWrite } from '$lib/utils'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
-	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../../../flows/types'
 
 	let schedules: Schedule[] | undefined = undefined
 	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
@@ -72,56 +67,19 @@
 		}
 	})
 
-	let drawer: Drawer | undefined = undefined
-	let selectedTab: 'webhooks' | 'mail' | 'routes' | 'schedules' = 'webhooks'
+	const { selectedId, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 {#if isEditor}
-	{#if !newFlow}
-		<Drawer bind:this={drawer} size="600px">
-			<DrawerContent title="Triggers" noPadding on:close={drawer.closeDrawer}>
-				<Tabs bind:selected={selectedTab}>
-					<Tab value="webhooks" disabled={newFlow}>Webhooks</Tab>
-					<Tab value="mail" disabled={newFlow}>Mail</Tab>
-					<Tab value="routes" disabled={newFlow}>Routes</Tab>
-					<Tab value="schedules" disabled={newFlow}>Schedules</Tab>
-
-					<svelte:fragment slot="content">
-						{#if selectedTab === 'webhooks'}
-							<WebhooksPanel
-								scopes={[`run:flow/${path}`]}
-								{path}
-								isFlow={true}
-								args={{}}
-								token=""
-							/>
-						{/if}
-
-						{#if selectedTab === 'mail'}
-							<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
-						{/if}
-
-						{#if !newFlow && selectedTab === 'routes'}
-							<RoutesPanel path={path ?? ''} isFlow={true} bind:triggers />
-						{/if}
-
-						{#if !newFlow && selectedTab === 'schedules'}
-							<RunPageSchedules
-								isFlow={true}
-								path={path ?? ''}
-								can_write={canWrite(path, {}, $userStore)}
-								bind:schedules
-							/>
-						{/if}
-					</svelte:fragment>
-				</Tabs>
-			</DrawerContent>
-		</Drawer>
-	{/if}
 	<div style={`width: ${NODE.width}px; margin-top: -24px;`}>
 		<div class="flex flex-row mx-auto w-min">
-			<div
-				class="flex flex-row gap-2 px-2 border p-1 rounded-md border-surface-selected bg-surface shadow-md items-center"
+			<button
+				class="flex flex-row gap-2 px-2 border p-1 rounded-md bg-surface shadow-md items-center {$selectedId?.startsWith(
+					'triggers'
+				)
+					? 'outline outline-offset-1 outline-2  outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400'
+					: ''}"
+				on:click={() => ($selectedId = 'triggers')}
 			>
 				<div class="flex flex-col">
 					<div class="flex flex-row items-center text-2xs">
@@ -144,8 +102,8 @@
 					<TriggerButton
 						on:click={() => {
 							if (isEditor) {
-								selectedTab = 'webhooks'
-								drawer?.openDrawer()
+								$selectedTrigger = 'webhooks'
+								$selectedId = 'triggers'
 							} else {
 								dispatch('triggerDetail', 'webhooks')
 							}
@@ -166,8 +124,8 @@
 					<TriggerButton
 						on:click={() => {
 							if (isEditor) {
-								selectedTab = 'mail'
-								drawer?.openDrawer()
+								$selectedTrigger = 'mail'
+								$selectedId = 'triggers'
 							} else {
 								dispatch('triggerDetail', 'mail')
 							}
@@ -188,8 +146,8 @@
 					<TriggerButton
 						on:click={() => {
 							if (isEditor) {
-								selectedTab = 'routes'
-								drawer?.openDrawer()
+								$selectedTrigger = 'routes'
+								$selectedId = 'triggers'
 							} else {
 								dispatch('triggerDetail', 'routes')
 							}
@@ -211,8 +169,8 @@
 					<TriggerButton
 						on:click={() => {
 							if (isEditor) {
-								selectedTab = 'schedules'
-								drawer?.openDrawer()
+								$selectedTrigger = 'schedules'
+								$selectedId = 'triggers'
 							} else {
 								dispatch('triggerDetail', 'schedule')
 							}
@@ -223,7 +181,7 @@
 						<Calendar size={12} />
 					</TriggerButton>
 				</Popover>
-			</div>
+			</button>
 		</div>
 	</div>
 {/if}
