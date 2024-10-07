@@ -18,7 +18,7 @@
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 
-	export let size: 'md' | 'sm' | 'xs' = 'sm'
+	export let size: 'sm' | 'xs' = 'sm'
 
 	const dispatch = createEventDispatcher()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
@@ -72,9 +72,7 @@
 					: color == 'blue'
 					? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
 					: 'peer-checked:bg-nord-300 dark:peer-checked:bg-nord-500',
-				size === 'md'
-					? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
-					: size === 'sm'
+				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
 					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
 			)}
@@ -92,7 +90,7 @@
 		>
 			{options?.right}
 			{#if options?.rightTooltip}
-				<Tooltip light={lightMode} wrapperClass="text-disabled">{options?.rightTooltip}</Tooltip>
+				<Tooltip light={lightMode}>{options?.rightTooltip}</Tooltip>
 			{/if}
 		</span>
 	{/if}
