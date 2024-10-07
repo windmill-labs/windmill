@@ -394,6 +394,7 @@
 		selectedIdStore.set(selectedId)
 	}
 
+	let insertButtonOpen = writable<boolean>(false)
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
@@ -408,7 +409,8 @@
 		saveDraft,
 		initialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		customUi
+		customUi,
+		insertButtonOpen
 	})
 
 	async function loadSchedule() {
@@ -461,20 +463,24 @@
 				}
 				break
 			case 'ArrowDown': {
-				let ids = generateIds()
-				let idx = ids.indexOf($selectedIdStore)
-				if (idx > -1 && idx < ids.length - 1) {
-					$selectedIdStore = ids[idx + 1]
-					event.preventDefault()
+				if (!$insertButtonOpen) {
+					let ids = generateIds()
+					let idx = ids.indexOf($selectedIdStore)
+					if (idx > -1 && idx < ids.length - 1) {
+						$selectedIdStore = ids[idx + 1]
+						event.preventDefault()
+					}
 				}
 				break
 			}
 			case 'ArrowUp': {
-				let ids = generateIds()
-				let idx = ids.indexOf($selectedIdStore)
-				if (idx > 0 && idx < ids.length) {
-					$selectedIdStore = ids[idx - 1]
-					event.preventDefault()
+				if (!$insertButtonOpen) {
+					let ids = generateIds()
+					let idx = ids.indexOf($selectedIdStore)
+					if (idx > 0 && idx < ids.length) {
+						$selectedIdStore = ids[idx - 1]
+						event.preventDefault()
+					}
 				}
 				break
 			}
@@ -561,6 +567,8 @@
 				kind: string
 				app: string
 				ask_id: number
+				id: number
+				version_id: number
 			}[]
 		} catch (err) {
 			if (err.name !== 'CancelError') throw err
@@ -890,7 +898,8 @@
 								const snakeKey = snakeCase(key)
 								if (
 									schemaProperty &&
-									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
+									(!$flowStore.schema ||
+										!(snakeKey in ($flowStore?.schema?.properties ?? ({} as any)))) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
 									if (schema?.required.includes(snakeKey)) {

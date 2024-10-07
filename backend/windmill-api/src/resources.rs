@@ -58,7 +58,10 @@ pub fn workspaced_service() -> Router {
         .route("/type/exists/:name", get(exists_resource_type))
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
-        .route("/file_resource_type_to_file_ext_map", get(file_resource_ext_to_resource_type))
+        .route(
+            "/file_resource_type_to_file_ext_map",
+            get(file_resource_ext_to_resource_type),
+        )
         .route("/type/create", post(create_resource_type))
 }
 

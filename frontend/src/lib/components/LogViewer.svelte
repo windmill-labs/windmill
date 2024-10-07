@@ -28,6 +28,7 @@
 	export let drawerOpen = false
 	export let noMaxH = false
 	export let noAutoScroll = false
+	export let download = true
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -93,7 +94,7 @@
 		loadedFromObjectStore: string,
 		limit: number
 	) {
-		let content = loadedFromObjectStore + jobContent ?? ''
+		let content = loadedFromObjectStore + (jobContent ?? '')
 		if (content.length > limit) {
 			return content.substring(content.length - limit)
 		}
@@ -148,7 +149,7 @@
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			{#if jobId}
+			{#if jobId && download}
 				<Button
 					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
 					download="windmill_logs_{jobId}.txt"
@@ -196,7 +197,7 @@
 	>
 		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
-				{#if jobId}
+				{#if jobId && download}
 					<div class="flex items-center">
 						<a
 							class="text-primary pb-0.5"

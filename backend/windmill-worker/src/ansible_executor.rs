@@ -1,6 +1,14 @@
+#[cfg(unix)]
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+#[cfg(windows)]
+use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
 };
@@ -25,7 +33,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
 };
@@ -72,7 +80,7 @@ async fn handle_ansible_python_deps(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(
+                uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,
@@ -82,6 +90,8 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
+                    false,
+                    false,
                 )
                 .await
                 .map_err(|e| {
@@ -378,6 +388,7 @@ fi
 
         let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
 
+        #[cfg(unix)]
         file.metadata()?.permissions().set_mode(0o777);
         // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

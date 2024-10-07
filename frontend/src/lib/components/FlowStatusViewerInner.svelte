@@ -38,7 +38,8 @@
 		suspendStatus,
 		hideDownloadInGraph,
 		hideTimeline,
-		hideNodeDefinition
+		hideNodeDefinition,
+		hideDownloadLogs
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
@@ -669,6 +670,7 @@
 								result={job.result}
 								logs={job.logs}
 								durationStates={localDurationStatuses}
+								downloadLogs={!hideDownloadLogs}
 							/>
 						</div>
 					{/if}
@@ -1026,6 +1028,7 @@
 											result={job['result']}
 											logs={job.logs ?? ''}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -1101,6 +1104,7 @@
 											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

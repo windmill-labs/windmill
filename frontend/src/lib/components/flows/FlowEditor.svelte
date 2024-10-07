@@ -18,13 +18,14 @@
 	export let disableSettings = false
 	export let smallErrorHandler = false
 
-	let size = 40
+	let size = 50
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 </script>
 
 <div
+	id="flow-editor"
 	class={classNames(
 		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
