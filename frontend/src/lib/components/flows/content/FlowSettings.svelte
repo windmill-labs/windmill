@@ -143,7 +143,7 @@
 				<!-- TODO: Add EE-only badge when we have it -->
 				<svelte:fragment slot="badge">
 					{#if numberOfAdvancedOptionsOn > 0}
-						<div class="flex grow min-w-0 w-full flex-wrap gap-1">
+						<div class="flex grow min-w-0 w-full flex-wrap gap-1 ps-2">
 							{#each activeAdvancedOptionNames as optionName}
 								<Badge twBgColor="bg-nord-300" twTextColor="text-white">{optionName}</Badge>
 							{/each}
