@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { allItems } from '$lib/components/apps/utils'
-	import { Pencil } from 'lucide-svelte'
+	import { Pencil, ArrowRight } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { Popup } from '$lib/components/common'
@@ -37,4 +37,15 @@
 		}}
 		{reservedIds}
 	/>
+	<button
+		on:click={() => {
+			dispatch('save', id)
+			close(null)
+		}}
+		title="Save ID"
+		class="flex items-center px-1 rounded-sm bg-surface-secondary hover:text-primary text-secondary h-5"
+		aria-label="Save component ID"
+	>
+		<ArrowRight size={14} />
+	</button>
 </Popup>

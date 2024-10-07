@@ -1135,3 +1135,69 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		}
 	)
 }
+
+export function saveComponentId(app: App, oldId: string, newId: string): void {
+	const item = findGridItem(app, oldId);
+
+	if (!item) {
+		return;
+	}
+
+	item.data.id = newId;
+	item.id = newId;
+
+	const oldSubgrids = Object.keys(app.subgrids ?? {}).filter((subgrid) =>
+		subgrid.startsWith(oldId + '-')
+	);
+
+	oldSubgrids.forEach((subgrid) => {
+		if (app.subgrids) {
+			app.subgrids[subgrid.replace(oldId, newId)] = app.subgrids[subgrid];
+			delete app.subgrids[subgrid];
+		}
+	});
+
+	function propagateRename(from: string, to: string) {
+		allItems(app.grid, app.subgrids).forEach((item) => {
+			renameComponent(from, to, item.data);
+		});
+
+		app.hiddenInlineScripts?.forEach((x) => {
+			processRunnable(from, to, x);
+		});
+	}
+
+	propagateRename(oldId, newId);
+
+	if (item.data.type == 'tablecomponent') {
+		for (let c of item.data.actionButtons) {
+			let old = c.id;
+			c.id = c.id.replace(oldId + '_', newId + '_');
+			propagateRename(old, c.id);
+		}
+	}
+
+	if (
+		item.data.type == 'aggridcomponent' ||
+		item.data.type == 'aggridcomponentee' ||
+		item.data.type == 'dbexplorercomponent' ||
+		item.data.type == 'aggridinfinitecomponent' ||
+		item.data.type == 'aggridinfinitecomponentee'
+	) {
+		for (let c of item.data.actions ?? []) {
+			let old = c.id;
+			c.id = c.id.replace(oldId + '_', newId + '_');
+			propagateRename(old, c.id);
+		}
+	}
+
+	if (item.data.type === 'menucomponent') {
+		for (let c of item.data.menuItems) {
+			let old = c.id;
+			c.id = c.id.replace(oldId + '_', newId + '_');
+			propagateRename(old, c.id);
+		}
+	}
+
+	app = app;
+}

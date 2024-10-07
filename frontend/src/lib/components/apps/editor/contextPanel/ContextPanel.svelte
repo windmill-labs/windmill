@@ -19,6 +19,16 @@
 	const dispatch = createEventDispatcher()
 
 	let hasState: boolean = false
+
+	function handleSave(event) {
+		const { id, newId } = event.detail
+		const item = findGridItem($app, id)
+		if (item) {
+			item.data.id = newId
+			item.id = newId
+			$app = $app
+		}
+	}
 </script>
 
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
@@ -79,7 +89,7 @@
 				<div>
 					<span class="text-xs font-semibold text-secondary p-2">Components</span>
 					{#each $app.grid as gridItem, index (gridItem.id)}
-						<ComponentOutput {gridItem} first={index === 0} />
+						<ComponentOutput {gridItem} first={index === 0} on:save={handleSave} />
 					{/each}
 				</div>
 				<div>
