@@ -82,7 +82,7 @@
 				on:click={() => ($selectedId = 'triggers')}
 			>
 				<div class="flex flex-col">
-					<div class="flex flex-row items-center text-2xs">
+					<div class="flex flex-row items-center text-2xs font-normal">
 						Triggers
 
 						<Tooltip small wrapperClass="center-center">

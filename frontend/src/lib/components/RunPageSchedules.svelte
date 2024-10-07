@@ -7,6 +7,7 @@
 	import { Calendar } from 'lucide-svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import PrimarySchedule from './PrimarySchedule.svelte'
+	import Label from '$lib/components/Label.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let can_write: boolean
@@ -77,7 +78,7 @@
 	bind:this={scheduleEditor}
 />
 
-<div class="p-2 flex flex-col">
+<div class="flex flex-col gap-4">
 	<Button
 		on:click={() => scheduleEditor?.openNew(isFlow, path)}
 		variant="border"
@@ -87,32 +88,38 @@
 	>
 		New Schedule
 	</Button>
-</div>
 
-{#if schedule}
-	<div class="p-2">
+	{#if schedule}
 		<PrimarySchedule {schedule} {can_write} {path} {isFlow} {scheduleEditor} {setScheduleEnabled} />
-	</div>
-{:else if schedule == undefined}
-	<Skeleton layout={[[6]]} />
-{/if}
-
-<h3 class="px-2 pt-4">Other schedules</h3>
-
-{#if schedules}
-	{#if schedules.length == 0}
-		<div class="text-xs text-secondary px-2"> No other schedules </div>
-	{:else}
-		<div class="flex flex-col divide-y px-2 pt-2">
-			{#each schedules as schedule (schedule.path)}
-				<div class="grid grid-cols-6 text-2xs items-center py-2"
-					><div class="col-span-3 truncate">{schedule.path}</div><div>{schedule.schedule}</div>
-					<div>{schedule.enabled ? 'on' : 'off'}</div>
-					<button on:click={() => scheduleEditor?.openEdit(schedule.path, isFlow)}>Edit</button>
-				</div>
-			{/each}
-		</div>
+	{:else if schedule == undefined}
+		<Skeleton layout={[[6]]} />
 	{/if}
-{:else}
-	<Skeleton layout={[[8]]} />
-{/if}
+
+	<Label label="Other schedules">
+		{#if schedules}
+			{#if schedules.length == 0}
+				<div class="text-xs text-tertiary"> No other schedules </div>
+			{:else}
+				<div class="flex flex-col divide-y">
+					{#each schedules as schedule (schedule.path)}
+						<div class="grid grid-cols-6 text-xs items-center">
+							<div class="col-span-3 truncate">{schedule.path}</div>
+							<div class="col-span-2 flex flex-row gap-4 flex-nowrap">
+								<div>{schedule.schedule}</div>
+								<div>{schedule.enabled ? 'on' : 'off'}</div>
+							</div>
+							<div class="flex justify-end">
+								<button
+									on:click={() => scheduleEditor?.openEdit(schedule.path, isFlow)}
+									class="px-2">Edit</button
+								>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{:else}
+			<Skeleton layout={[[8]]} />
+		{/if}
+	</Label>
+</div>

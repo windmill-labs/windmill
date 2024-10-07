@@ -17,7 +17,6 @@
 	export let newFlow = false
 	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 	let path = ''
-	let primaryScheduleExists: boolean = false
 
 	const { pathStore, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -26,11 +25,6 @@
 	async function loadSchedules() {
 		if (!path) return
 		try {
-			primaryScheduleExists = await ScheduleService.existsSchedule({
-				workspace: $workspaceStore ?? '',
-				path
-			})
-
 			schedules = (
 				await ScheduleService.listSchedules({
 					workspace: $workspaceStore ?? '',
@@ -65,36 +59,54 @@
 			loadTriggers()
 		}
 	})
+
+	let selectedTab = $selectedTrigger ?? 'webhooks'
 </script>
 
 <FlowCard {noEditor} title="Flow Triggers">
-	<div class="pt-4 px-2">
-		<Tabs bind:selected={$selectedTrigger}>
-			<Tab value="webhooks" disabled={newFlow}>Webhooks</Tab>
-			<Tab value="mail" disabled={newFlow}>Mail</Tab>
-			<Tab value="routes" disabled={newFlow}>Routes</Tab>
-			<Tab value="schedules" disabled={newFlow}>Schedules</Tab>
+	<div class="pt-4">
+		<Tabs bind:selected={selectedTab}>
+			<Tab value="webhooks" disabled={newFlow} selectedClass="text-primary font-semibold"
+				>Webhooks</Tab
+			>
+			<Tab value="mail" disabled={newFlow} selectedClass="text-primary text-sm font-semibold"
+				>Mail</Tab
+			>
+			<Tab value="routes" disabled={newFlow} selectedClass="text-primary text-sm font-semibold"
+				>Routes</Tab
+			>
+			<Tab value="schedules" disabled={newFlow} selectedClass="text-primary text-sm font-semibold"
+				>Schedules</Tab
+			>
 
 			<svelte:fragment slot="content">
-				{#if $selectedTrigger === 'webhooks'}
-					<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
+				{#if selectedTab === 'webhooks'}
+					<div class="p-4">
+						<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
+					</div>
 				{/if}
 
-				{#if $selectedTrigger === 'mail'}
-					<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
+				{#if selectedTab === 'mail'}
+					<div class="p-4">
+						<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
+					</div>
 				{/if}
 
-				{#if !newFlow && $selectedTrigger === 'routes'}
-					<RoutesPanel path={path ?? ''} isFlow={true} bind:triggers />
+				{#if !newFlow && selectedTab === 'routes'}
+					<div class="p-4">
+						<RoutesPanel path={path ?? ''} isFlow={true} bind:triggers />
+					</div>
 				{/if}
 
-				{#if !newFlow && $selectedTrigger === 'schedules'}
-					<RunPageSchedules
-						isFlow={true}
-						path={path ?? ''}
-						can_write={canWrite(path, {}, $userStore)}
-						bind:schedules
-					/>
+				{#if !newFlow && selectedTab === 'schedules'}
+					<div class="p-4">
+						<RunPageSchedules
+							isFlow={true}
+							path={path ?? ''}
+							can_write={canWrite(path, {}, $userStore)}
+							bind:schedules
+						/>
+					</div>
 				{/if}
 			</svelte:fragment>
 		</Tabs>

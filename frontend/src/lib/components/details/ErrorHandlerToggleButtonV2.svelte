@@ -57,8 +57,8 @@
 
 <Toggle
 	{color}
-	lightToogle={true}
-	size="sm"
+	textClass="font-normal text-sm"
+	size="xs"
 	checked={toggleState}
 	on:change={toggleErrorHandler}
 	options={{

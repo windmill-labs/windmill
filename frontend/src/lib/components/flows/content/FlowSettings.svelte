@@ -153,8 +153,9 @@
 
 				<!-- Priority Section -->
 				<Toggle
+					textClass="font-normal text-sm"
 					color="nord"
-					lightToogle={true}
+					size="xs"
 					disabled={!$enterpriseLicense || isCloudHosted()}
 					checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
 					on:change={() => {
@@ -193,9 +194,9 @@
 
 				<!-- Visibility Section -->
 				<Toggle
+					textClass="font-normal text-sm"
 					color="nord"
-					lightToogle={true}
-					size="sm"
+					size="xs"
 					checked={Boolean($flowStore.visible_to_runner_only)}
 					on:change={() => {
 						if ($flowStore.visible_to_runner_only) {
@@ -227,8 +228,9 @@
 				<!-- Shared Directory Section -->
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
 					<Toggle
+						textClass="font-normal text-sm"
 						color="nord"
-						lightToogle={true}
+						size="xs"
 						bind:checked={$flowStore.value.same_worker}
 						options={{
 							right: 'Shared Directory on `./shared`',
@@ -246,9 +248,9 @@
 				{#if customUi?.settingsTabs?.cache != false}
 					<div>
 						<Toggle
+							textClass="font-normal text-sm"
 							color="nord"
-							lightToogle={true}
-							size="sm"
+							size="xs"
 							checked={Boolean($flowStore.value.cache_ttl)}
 							on:change={() => {
 								if ($flowStore.value.cache_ttl && $flowStore.value.cache_ttl != undefined) {
@@ -283,8 +285,9 @@
 					<div>
 						<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
 						<Toggle
+							textClass="font-normal text-sm"
 							color="nord"
-							lightToogle={true}
+							size="xs"
 							checked={Boolean($flowStore.value.skip_expr)}
 							on:change={() => {
 								if (Boolean($flowStore.value.skip_expr) && $flowStore.value.skip_expr) {
@@ -334,8 +337,9 @@
 				{#if customUi?.settingsTabs?.earlyReturn != false}
 					<div>
 						<Toggle
+							textClass="font-normal text-sm"
 							color="nord"
-							lightToogle={true}
+							size="xs"
 							checked={Boolean($flowStore.value.early_return)}
 							on:change={() => {
 								if (Boolean($flowStore.value.early_return) && $flowStore.value.early_return) {
@@ -378,10 +382,10 @@
 				{#if customUi?.settingsTabs?.workerGroup != false}
 					<div>
 						<Toggle
+							textClass="font-normal text-sm"
 							color="nord"
-							lightToogle={true}
+							size="xs"
 							disabled={!$enterpriseLicense}
-							size="sm"
 							checked={displayWorkerTagPicker}
 							on:change={() => {
 								displayWorkerTagPicker = !displayWorkerTagPicker
@@ -405,10 +409,10 @@
 
 					<div>
 						<Toggle
+							textClass="font-normal text-sm"
 							color="nord"
-							lightToogle={true}
+							size="xs"
 							disabled={!$enterpriseLicense || isCloudHosted()}
-							size="sm"
 							checked={Boolean($flowStore.dedicated_worker)}
 							on:change={() => {
 								if ($flowStore.dedicated_worker) {
@@ -445,10 +449,10 @@
 				{#if customUi?.settingsTabs?.concurrency != false}
 					<div>
 						<Toggle
+							textClass="font-normal text-sm"
 							color="nord"
-							lightToogle={true}
+							size="xs"
 							disabled={!$enterpriseLicense}
-							size="sm"
 							checked={Boolean($flowStore.value.concurrent_limit)}
 							on:change={() => {
 								if ($flowStore.value.concurrent_limit) {

@@ -15,6 +15,7 @@
 
 	export let noEditor = false
 	export let enableAi = false
+	export let newFlow = false
 	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -67,7 +68,7 @@
 {:else if $selectedId === 'preprocessor'}
 	<FlowPreprocessorModule {noEditor} />
 {:else if $selectedId === 'triggers'}
-	<FlowTriggers {noEditor} />
+	<FlowTriggers {noEditor} {newFlow} />
 {:else}
 	{@const dup = checkDup($flowStore.value.modules)}
 	{#if dup}
