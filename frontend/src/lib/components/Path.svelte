@@ -398,9 +398,8 @@
 						/>
 					</ToggleButtonGroup>
 				</div>
+				<div class="text-secondary text-sm">/</div>
 			{/if}
-
-			<div class="text-secondary text-sm">/</div>
 
 			{#if meta.ownerKind === 'user'}
 				<label class="block grow shrink min-w-36">
