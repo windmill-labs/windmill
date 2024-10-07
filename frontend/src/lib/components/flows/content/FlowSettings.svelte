@@ -8,7 +8,6 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import TriggersWrapperExtended from './TriggersWrapperExtended.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
@@ -20,9 +19,8 @@
 	import Badge from '$lib/components/Badge.svelte'
 
 	export let noEditor: boolean
-	export let newFlow = false
 
-	const { selectedId, flowStore, initialPath, previewArgs, pathStore, customUi } =
+	const { flowStore, initialPath, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function asSchema(x: any) {
@@ -130,24 +128,6 @@
 								placeholder: 'What this flow does and how to use it.'
 							}}
 						/>
-					</Label>
-
-					<Label label="Triggers">
-						<div class="flex flex-col gap-2">
-							<TriggersWrapperExtended
-								path={$pathStore}
-								on:openSchedules={() => ($selectedId = 'settings-schedule')}
-								on:triggerDetail
-								isEditor={true}
-								{newFlow}
-							/>
-						</div>
-						<svelte:fragment slot="header">
-							<Tooltip small wrapperClass="center-center">
-								The flow can be triggered by webhooks, emails, schedules or routes. Click on the
-								icons to see the triggers.
-							</Tooltip>
-						</svelte:fragment>
 					</Label>
 				</div>
 			</Section>
