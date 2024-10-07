@@ -24,6 +24,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
+	import Required from './Required.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
 
 	type PathKind =
@@ -290,7 +292,6 @@
 	)
 </script>
 
-<!-- Drawers -->
 <Drawer bind:this={newFolder}>
 	<DrawerContent
 		title="New Folder"
@@ -318,150 +319,121 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col gap-2">
-	<!-- full path -->
-	<div class="flex grow flex-col w-full">
-		<div class="flex justify-start w-full grow">
-			<Badge
-				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary !font-normal !w-[70px] !h-[24px] rounded-r-none border border-r-0"
-			>
-				Full path
-			</Badge>
-			<input
-				type="text"
-				readonly
-				value={path}
-				size={path?.length || 50}
-				class="font-mono !text-xs max-w-[calc(100%-70px)] !text-tertiary !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none grow"
-				on:focus={({ currentTarget }) => {
-					currentTarget.select()
-				}}
-			/>
-			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-		</div>
-		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
-	</div>
-
-	<!-- path selector-->
-	<div class="flex flex-row items-center gap-4">
-		<!-- new folder picker -->
+<div>
+	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<!-- svelte-ignore a11y-label-has-associated-control -->
-			{#if !hideUser}
-				<!-- Toggle User/Folder -->
-				<div class="block">
-					<ToggleButtonGroup
-						class="items-center"
-						bind:selected={meta.ownerKind}
-						on:selected={(e) => {
-							setDirty()
-							const kind = e.detail
-							if (meta) {
-								if (kind === 'folder') {
-									meta.owner = folders?.[0]?.name ?? ''
-								} else if (kind === 'group') {
-									meta.owner = 'all'
-								} else {
-									meta.owner = $userStore?.username?.split('@')[0] ?? ''
+			<div class="flex gap-x-4 shrink">
+				<!-- svelte-ignore a11y-label-has-associated-control -->
+				{#if !hideUser}
+					<div class="block">
+						<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
+
+						<ToggleButtonGroup
+							class="mt-0.5"
+							bind:selected={meta.ownerKind}
+							on:selected={(e) => {
+								setDirty()
+								const kind = e.detail
+								if (meta) {
+									if (kind === 'folder') {
+										meta.owner = folders?.[0]?.name ?? ''
+									} else if (kind === 'group') {
+										meta.owner = 'all'
+									} else {
+										meta.owner = $userStore?.username?.split('@')[0] ?? ''
+									}
 								}
-							}
-						}}
-					>
-						<ToggleButton
-							icon={User}
-							{disabled}
-							light
-							size="xs"
-							value="user"
-							position="left"
-							label="User"
-						/>
-						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-						<ToggleButton
-							icon={Folder}
-							{disabled}
-							light
-							size="xs"
-							value="folder"
-							position="right"
-							label="Folder"
-						/>
-					</ToggleButtonGroup>
-				</div>
-			{/if}
-
-			<div class="text-secondary text-sm">/</div>
-
-			{#if meta.ownerKind === 'user'}
-				<label class="block grow shrink min-w-36">
-					<input
-						class="w-full"
-						type="text"
-						bind:value={meta.owner}
-						placeholder={$userStore?.username ?? ''}
-						disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
-						on:keydown={setDirty}
-					/>
-				</label>
-			{:else if meta.ownerKind === 'folder'}
-				<label class="block grow min-w-48">
-					<!-- <span class="text-secondary text-sm">
-									Folder
-									<Tooltip
-										documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
-									>
-										Read and write permissions are given to groups and users at the folder level and
-										shared by all items inside the folder.
-									</Tooltip>
-								</span> -->
-
-					<div class="flex flex-row items-center gap-1 w-full">
-						<select class="grow w-full" {disabled} bind:value={meta.owner}>
-							{#if folders?.length == 0}
-								<option disabled>No folders</option>
-							{/if}
-							{#each folders as { name, write }}
-								<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
-							{/each}
-						</select>
-						<Button
-							title="View folder"
-							btnClasses="!p-1.5"
-							variant="border"
-							color="light"
-							size="xs"
-							disabled={!meta.owner || meta.owner == ''}
-							on:click={viewFolder.openDrawer}
-							iconOnly
-							startIcon={{ icon: Eye }}
-						/>
-						<Button
-							title="New folder"
-							btnClasses="!p-1.5"
-							variant="border"
-							color="light"
-							size="xs"
-							{disabled}
-							on:click={newFolder.openDrawer}
-							iconOnly
-							startIcon={{ icon: Plus }}
-						/>
+							}}
+						>
+							<ToggleButton
+								icon={User}
+								{disabled}
+								light
+								size="xs"
+								value="user"
+								position="left"
+								label="User"
+							/>
+							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
+							<ToggleButton
+								icon={Folder}
+								{disabled}
+								light
+								size="xs"
+								value="folder"
+								position="right"
+								label="Folder"
+							/>
+						</ToggleButtonGroup>
 					</div>
-				</label>
-			{/if}
+				{/if}
+				{#if meta.ownerKind === 'user'}
+					<label class="block shrink min-w-0">
+						<span class="text-secondary text-sm">User</span>
+						<input
+							class="!w-36"
+							type="text"
+							bind:value={meta.owner}
+							placeholder={$userStore?.username ?? ''}
+							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
+							on:keydown={setDirty}
+						/>
+					</label>
+				{:else if meta.ownerKind === 'folder'}
+					<label class="block grow w-48">
+						<span class="text-secondary text-sm">
+							Folder
+							<Tooltip
+								documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
+							>
+								Read and write permissions are given to groups and users at the folder level and
+								shared by all items inside the folder.
+							</Tooltip>
+						</span>
 
-			<div class="text-secondary text-sm">/</div>
-
-			<!-- The name -->
+						<div class="flex flex-row items-center gap-1 w-full">
+							<select class="grow w-full" {disabled} bind:value={meta.owner}>
+								{#if folders?.length == 0}
+									<option disabled>No folders</option>
+								{/if}
+								{#each folders as { name, write }}
+									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
+								{/each}
+							</select>
+							<Button
+								title="View folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								color="light"
+								size="xs"
+								disabled={!meta.owner || meta.owner == ''}
+								on:click={viewFolder.openDrawer}
+								iconOnly
+								startIcon={{ icon: Eye }}
+							/>
+							<Button
+								title="New folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								color="light"
+								size="xs"
+								{disabled}
+								on:click={newFolder.openDrawer}
+								iconOnly
+								startIcon={{ icon: Plus }}
+							/>
+						</div>
+					</label>
+				{/if}
+			</div>
 			<label class="block grow w-full max-w-md">
-				<!-- <div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-							<div>
-								Name
-								<Required required={true} />
-							</div>
-							<div class="text-2xs text-tertiary"> '/' for subfolders </div>
-						</div> -->
+				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+					<div>
+						Name
+						<Required required={true} />
+					</div>
+					<div class="text-2xs text-tertiary"> '/' for subfolders </div>
+				</div>
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					{disabled}
@@ -479,6 +451,29 @@
 				/>
 			</label>
 		{/if}
+	</div>
+
+	<div class="flex flex-col w-full mt-4">
+		<div class="flex justify-start w-full">
+			<Badge
+				color="gray"
+				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+			>
+				Full path
+			</Badge>
+			<input
+				type="text"
+				readonly
+				value={path}
+				size={path?.length || 50}
+				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+				on:focus={({ currentTarget }) => {
+					currentTarget.select()
+				}}
+			/>
+			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+		</div>
+		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
 
 	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
