@@ -5,7 +5,7 @@
 </script>
 
 <NodeWrapper wrapperClass="shadow-none">
-	<div style={`width: ${NODE.width}px;`}>
+	<div style="width: {NODE.width}px" class="flex flex-row justify-center">
 		<FlowCopilotButton />
 	</div>
 </NodeWrapper>
