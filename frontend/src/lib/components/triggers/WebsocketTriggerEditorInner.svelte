@@ -246,7 +246,7 @@
 						The JSON filter checks if the value at the key is equal or a superset of the filter value.
 					</p>
 					<div class="flex flex-col gap-4 mt-1">
-						{#each filters ?? [] as v, i}
+						{#each filters as v, i}
 							<div class="flex w-full gap-4 items-center">
 								<div class="w-full flex flex-col gap-2">
 									<div class="flex flex-row gap-2 w-full">

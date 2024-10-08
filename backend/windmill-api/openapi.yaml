@@ -11331,6 +11331,13 @@ components:
           type: array
           items:
             type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         
       required:
         - path
@@ -11362,6 +11369,13 @@ components:
           type: array
           items:
             type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         
       required:
         - path
@@ -11385,6 +11399,14 @@ components:
           type: array
           items:
             type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
+              
       required:
         - path
         - script_path
