@@ -34,6 +34,7 @@ import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 import { enterpriseLicense } from '$lib/stores'
+import gridHelp from '../svelte-grid/utils/helper'
 
 export function findComponentSettings(app: App, id: string | undefined) {
 	if (!id) return undefined
@@ -244,7 +245,8 @@ export function createNewGridItem(
 	columns?: Record<number, any>,
 	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
 	recOverride?: Record<number, Size>,
-	fixed?: boolean
+	fixed?: boolean,
+	shouldNotFindSpace?: boolean
 ): GridItem {
 	const newComponent = {
 		fixed: fixed ?? false,
@@ -276,6 +278,12 @@ export function createNewGridItem(
 				x: initialPosition.x,
 				y: initialPosition.y
 			}
+		}
+
+		if (!shouldNotFindSpace) {
+			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+
+			newItem[column] = { ...newItem[column], ...position }
 		}
 	})
 
@@ -392,7 +400,8 @@ export function insertNewGridItem(
 	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
 	recOverride?: Record<number, Size>,
 	keepSubgrids?: boolean,
-	fixed?: boolean
+	fixed?: boolean,
+	shouldNotFindSpace?: boolean
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
 
@@ -439,7 +448,16 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data, columns, initialPosition, recOverride, fixed)
+	const newItem = createNewGridItem(
+		grid,
+		id,
+		data,
+		columns,
+		initialPosition,
+		recOverride,
+		fixed,
+		shouldNotFindSpace
+	)
 	grid.push(newItem)
 	return id
 }

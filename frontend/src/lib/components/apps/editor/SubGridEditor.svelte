@@ -112,7 +112,11 @@
 			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id,
-			position
+			position,
+			undefined,
+			undefined,
+			undefined,
+			true
 		)
 
 		// Update the app state
@@ -123,6 +127,8 @@
 				parentComponentId,
 				subGridIndex
 			}
+
+			$selectedComponent = [parentComponentId]
 		} else {
 			$focusedGrid = undefined
 		}
@@ -155,7 +161,11 @@
 			undefined,
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id,
-			position
+			position,
+			undefined,
+			undefined,
+			undefined,
+			true
 		)
 
 		// Update the app state

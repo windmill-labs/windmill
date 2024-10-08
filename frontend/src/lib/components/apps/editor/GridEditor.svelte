@@ -101,12 +101,17 @@
 			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id,
-			position
+			position,
+			undefined,
+			undefined,
+			undefined,
+			true
 		)
 
 		// Update the app state
 		$app = { ...$app }
 
+		$selectedComponent = [parentComponentId]
 		$focusedGrid = {
 			parentComponentId,
 			subGridIndex
