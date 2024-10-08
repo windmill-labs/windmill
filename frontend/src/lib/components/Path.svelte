@@ -328,30 +328,6 @@
 </Drawer>
 
 <div class="flex flex-col gap-2">
-	<!-- full path -->
-	<div class="flex grow flex-col w-full">
-		<div class="flex justify-start w-full grow">
-			<Badge
-				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary !font-normal !w-[70px] !h-[24px] rounded-r-none border border-r-0"
-			>
-				Full path
-			</Badge>
-			<input
-				type="text"
-				readonly
-				value={path}
-				size={path?.length || 50}
-				class="font-mono !text-xs max-w-[calc(100%-70px)] !text-tertiary !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none grow"
-				on:focus={({ currentTarget }) => {
-					currentTarget.select()
-				}}
-			/>
-			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-		</div>
-		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
-	</div>
-
 	<!-- path selector-->
 	<div class="flex flex-row items-center gap-4">
 		<!-- new folder picker -->
@@ -487,6 +463,30 @@
 				/>
 			</label>
 		{/if}
+	</div>
+
+	<!-- full path -->
+	<div class="flex flex-col">
+		<div class="flex justify-start">
+			<Badge
+				color="gray"
+				class="center-center !bg-surface-secondary !text-tertiary !font-normal !w-[70px] !h-[24px] rounded-r-none border border-r-0"
+			>
+				Full path
+			</Badge>
+			<input
+				type="text"
+				readonly
+				value={path}
+				size={path?.length || 50}
+				class="font-mono !text-xs max-w-[calc(100%-70px)] !text-tertiary !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+				on:focus={({ currentTarget }) => {
+					currentTarget.select()
+				}}
+			/>
+			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+		</div>
+		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
 
 	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
