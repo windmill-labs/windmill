@@ -63,7 +63,7 @@
 {#if mod}
 	<div class="relative">
 		{#if insertable && !disableAi && mod.id === 'preprocessor'}
-			<FlowCopilotButton className="-top-10" />
+			<FlowCopilotButton className="absolute left-1/2 transform -translate-x-1/2 z-10 -top-10" />
 		{/if}
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">

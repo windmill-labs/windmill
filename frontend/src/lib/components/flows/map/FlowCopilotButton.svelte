@@ -15,7 +15,7 @@
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
-<div class={twMerge('', className)}>
+<div class={className}>
 	<Popover>
 		<div class={openNoCopilot ? 'z-10' : ''}>
 			<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
