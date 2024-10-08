@@ -6,7 +6,6 @@
 	import { copilotInfo } from '$lib/stores'
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import { base } from '$lib/base'
-	import { twMerge } from 'tailwind-merge'
 
 	let openNoCopilot = false
 	export let className = ''
