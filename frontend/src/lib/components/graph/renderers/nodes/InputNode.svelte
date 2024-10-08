@@ -8,7 +8,6 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
-	import FlowCopilotButton from '$lib/components/flows/map/FlowCopilotButton.svelte'
 
 	export let data: {
 		insertable: boolean
@@ -24,9 +23,6 @@
 </script>
 
 <NodeWrapper let:darkMode>
-	{#if data.insertable && !data.disableAi && !data.hasPreprocessor}
-		<FlowCopilotButton className="-top-[4.25rem]" />
-	{/if}
 	{#if data.insertable && !data.hasPreprocessor}
 		<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 z-10">
 			<button

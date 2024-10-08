@@ -74,7 +74,7 @@
 </script>
 
 {#if isEditor}
-	<div style={`width: ${NODE.width}px; margin-top: -24px;`}>
+	<div style={`width: ${NODE.width}px;`}>
 		<div class="flex flex-row mx-auto w-min">
 			<button
 				class="flex flex-row gap-2 px-2 border p-1 rounded-md bg-surface shadow-md items-center {$selectedId?.startsWith(

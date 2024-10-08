@@ -158,6 +158,23 @@ export default function graphBuilder(
 			}
 		}
 
+		const copilotNode: Node = {
+			id: 'Copilot',
+			position: { x: -1, y: -1 },
+			type: 'copilot',
+			data: {}
+		}
+		nodes.push(copilotNode)
+		if (!!preprocessorModule) {
+			addEdge('Copilot', preprocessorModule.id, {
+				type: 'hiddenedge'
+			})
+		} else {
+			addEdge('Copilot', 'Input', {
+				type: 'hiddenedge'
+			})
+		}
+
 		if (extra.path) {
 			const triggerNode: Node = {
 				id: 'Trigger',
@@ -173,16 +190,9 @@ export default function graphBuilder(
 			}
 
 			nodes.push(triggerNode)
-
-			if (!!preprocessorModule) {
-				addEdge('Trigger', preprocessorModule.id, {
-					type: 'hiddenedge'
-				})
-			} else {
-				addEdge('Trigger', 'Input', {
-					type: 'hiddenedge'
-				})
-			}
+			addEdge('Trigger', 'Copilot', {
+				type: 'hiddenedge'
+			})
 		}
 
 		const resultNode: Node = {
