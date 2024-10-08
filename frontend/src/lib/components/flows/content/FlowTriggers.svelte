@@ -59,13 +59,11 @@
 			loadTriggers()
 		}
 	})
-
-	let selectedTab = $selectedTrigger ?? 'webhooks'
 </script>
 
 <FlowCard {noEditor} title="Flow Triggers">
 	<div class="pt-4">
-		<Tabs bind:selected={selectedTab}>
+		<Tabs bind:selected={$selectedTrigger}>
 			<Tab value="webhooks" disabled={newFlow} selectedClass="text-primary font-semibold"
 				>Webhooks</Tab
 			>
@@ -80,25 +78,25 @@
 			>
 
 			<svelte:fragment slot="content">
-				{#if selectedTab === 'webhooks'}
+				{#if $selectedTrigger === 'webhooks'}
 					<div class="p-4">
 						<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
 					</div>
 				{/if}
 
-				{#if selectedTab === 'mail'}
+				{#if $selectedTrigger === 'mail'}
 					<div class="p-4">
 						<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
 					</div>
 				{/if}
 
-				{#if !newFlow && selectedTab === 'routes'}
+				{#if !newFlow && $selectedTrigger === 'routes'}
 					<div class="p-4">
 						<RoutesPanel path={path ?? ''} isFlow={true} bind:triggers />
 					</div>
 				{/if}
 
-				{#if !newFlow && selectedTab === 'schedules'}
+				{#if !newFlow && $selectedTrigger === 'schedules'}
 					<div class="p-4">
 						<RunPageSchedules
 							isFlow={true}
