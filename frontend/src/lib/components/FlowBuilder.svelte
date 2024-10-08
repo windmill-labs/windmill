@@ -395,6 +395,10 @@
 		selectedIdStore.set(selectedId)
 	}
 
+	function selectTrigger(selectedTrigger: string) {
+		selectedTriggerStore.set(selectedTrigger)
+	}
+
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,
@@ -1152,7 +1156,8 @@
 							color="light"
 							size="xs"
 							on:click={async () => {
-								select('settings-schedule')
+								select('triggers')
+								selectTrigger('schedules')
 							}}
 						>
 							{$scheduleStore.cron ?? ''}
