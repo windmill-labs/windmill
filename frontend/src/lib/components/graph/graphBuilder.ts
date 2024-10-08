@@ -158,21 +158,23 @@ export default function graphBuilder(
 			}
 		}
 
-		const copilotNode: Node = {
-			id: 'Copilot',
-			position: { x: -1, y: -1 },
-			type: 'copilot',
-			data: {}
-		}
-		nodes.push(copilotNode)
-		if (!!preprocessorModule) {
-			addEdge('Copilot', preprocessorModule.id, {
-				type: 'hiddenedge'
-			})
-		} else {
-			addEdge('Copilot', 'Input', {
-				type: 'hiddenedge'
-			})
+		if (extra.insertable && !extra.disableAi) {
+			const copilotNode: Node = {
+				id: 'Copilot',
+				position: { x: -1, y: -1 },
+				type: 'copilot',
+				data: {}
+			}
+			nodes.push(copilotNode)
+			if (!!preprocessorModule) {
+				addEdge('Copilot', preprocessorModule.id, {
+					type: 'hiddenedge'
+				})
+			} else {
+				addEdge('Copilot', 'Input', {
+					type: 'hiddenedge'
+				})
+			}
 		}
 
 		if (extra.path) {
@@ -190,9 +192,19 @@ export default function graphBuilder(
 			}
 
 			nodes.push(triggerNode)
-			addEdge('Trigger', 'Copilot', {
-				type: 'hiddenedge'
-			})
+			if (extra.insertable && !extra.disableAi) {
+				addEdge('Trigger', 'Copilot', {
+					type: 'hiddenedge'
+				})
+			} else if (!!preprocessorModule) {
+				addEdge('Trigger', 'Preprocessor', {
+					type: 'hiddenedge'
+				})
+			} else {
+				addEdge('Trigger', 'Input', {
+					type: 'hiddenedge'
+				})
+			}
 		}
 
 		const resultNode: Node = {
@@ -592,5 +604,4 @@ export default function graphBuilder(
 			error: e
 		}
 	}
-
 }
