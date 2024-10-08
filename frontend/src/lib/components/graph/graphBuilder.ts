@@ -197,7 +197,7 @@ export default function graphBuilder(
 					type: 'hiddenedge'
 				})
 			} else if (!!preprocessorModule) {
-				addEdge('Trigger', 'Preprocessor', {
+				addEdge('Trigger', preprocessorModule.id, {
 					type: 'hiddenedge'
 				})
 			} else {
