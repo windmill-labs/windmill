@@ -13,7 +13,8 @@
 		ScheduleService,
 		ScriptService,
 		HttpTriggerService,
-		VariableService
+		VariableService,
+		WebsocketTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -37,6 +38,7 @@
 		| 'app'
 		| 'raw_app'
 		| 'http_trigger'
+		| 'websocket_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -217,6 +219,11 @@
 			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'http_trigger') {
 			return await HttpTriggerService.existsHttpTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'websocket_trigger') {
+			return await WebsocketTriggerService.existsWebsocketTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})
@@ -476,7 +483,7 @@
 		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
 
-	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
+	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && kind != 'websocket_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables

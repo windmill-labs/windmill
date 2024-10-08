@@ -10,7 +10,8 @@
 		SettingService,
 		HttpTriggerService,
 		UserService,
-		WorkspaceService
+		WorkspaceService,
+		WebsocketTriggerService
 	} from '$lib/gen'
 	import { classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
@@ -187,8 +188,13 @@
 	}
 
 	async function loadUsedTriggerKinds() {
-		const httpUsed = await HttpTriggerService.used({ workspace: $workspaceStore ?? '' })
-		$usedTriggerKinds = httpUsed ? ['http'] : []
+		const httpUsed = await HttpTriggerService.areHttpTriggersUsed({
+			workspace: $workspaceStore ?? ''
+		})
+		const wsUsed = await WebsocketTriggerService.areWebsocketTriggersUsed({
+			workspace: $workspaceStore ?? ''
+		})
+		$usedTriggerKinds = [...(httpUsed ? ['http'] : []), ...(wsUsed ? ['ws'] : [])]
 	}
 
 	function pathInAppMode(pathname: string | undefined): boolean {

@@ -7075,7 +7075,7 @@ paths:
   /w/{workspace}/http_triggers/used:
     get:
       summary: whether http triggers are used
-      operationId: used
+      operationId: areHttpTriggersUsed
       tags:
         - http_trigger
       parameters:
@@ -7087,6 +7087,186 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/websocket_triggers/create:
+    post:
+      summary: create websocket trigger
+      operationId: createWebsocketTrigger
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new websocket trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewWebsocketTrigger"
+      responses:
+        "201":
+          description: websocket trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/websocket_triggers/update/{path}:
+    post:
+      summary: update websocket trigger
+      operationId: updateWebsocketTrigger
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditWebsocketTrigger"
+      responses:
+        "200":
+          description: websocket trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/websocket_triggers/delete/{path}:
+    delete:
+      summary: delete websocket trigger
+      operationId: deleteWebsocketTrigger
+      tags:
+        -  websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: websocket trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/websocket_triggers/get/{path}:
+    get:
+      summary: get websocket trigger
+      operationId: getWebsocketTrigger
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: websocket trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebsocketTrigger"
+
+  
+  /w/{workspace}/websocket_triggers/list:
+    get:
+      summary: list websocket triggers
+      operationId: listWebsocketTriggers
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: websocket trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebsocketTrigger"
+
+  
+  /w/{workspace}/websocket_triggers/exists/{path}:
+    get:
+      summary: does websocket trigger exists
+      operationId: existsWebsocketTrigger
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: websocket trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/websocket_triggers/used:
+    get:
+      summary: whether websocket triggers are used
+      operationId: areWebsocketTriggersUsed
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: whether websocket triggers are used
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/websocket_triggers/setenabled/{path}:
+    post:
+      summary: set enabled websocket trigger
+      operationId: setWebsocketTriggerEnabled
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated websocket trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: websocket trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /groups/list:
     get:
@@ -7915,6 +8095,7 @@ paths:
                 app,
                 raw_app,
                 http_trigger,
+                websocket_trigger,
               ]
       responses:
         "200":
@@ -7952,6 +8133,7 @@ paths:
                 app,
                 raw_app,
                 http_trigger,
+                websocket_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8000,6 +8182,7 @@ paths:
                 app,
                 raw_app,
                 http_trigger,
+                websocket_trigger,
               ]
       requestBody:
         description: acl to add
@@ -11110,6 +11293,104 @@ components:
         - is_async
         - requires_auth
         - http_method
+
+    WebsocketTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        url:
+          type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        filters:
+          type: array
+          items:
+            type: object
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - url
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+        - filters
+
+    NewWebsocketTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        url:
+          type: string
+        enabled:
+          type: boolean
+        filters:
+          type: array
+          items:
+            type: object
+        
+      required:
+        - path
+        - script_path
+        - url
+        - is_flow
+        - filters
+
+    EditWebsocketTrigger:
+      type: object
+      properties:
+        url:
+          type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        filters:
+          type: array
+          items:
+            type: object
+      required:
+        - path
+        - script_path
+        - url
+        - is_flow
+        - filters
 
     Group:
       type: object
