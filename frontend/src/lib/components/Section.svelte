@@ -28,11 +28,9 @@
 					{:else}
 						<ChevronDown size={16} />
 					{/if}
-					{label}
 				</button>
-			{:else}
-				{label}
 			{/if}
+			{label}
 
 			<slot name="header" />
 			{#if tooltip}
@@ -48,6 +46,9 @@
 			{/if}
 		</h2>
 		<slot name="action" />
+		{#if collapsable && collapsed}
+			<slot name="badge" />
+		{/if}
 	</div>
 	<div class={collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`}>
 		<slot />

@@ -40,7 +40,7 @@
 	bind:this={routeEditor}
 />
 
-<div class="p-2 flex flex-col">
+<div class="flex flex-col">
 	{#if $userStore?.is_admin || $userStore?.is_super_admin}
 		<Button
 			on:click={() => routeEditor?.openNew(isFlow, path)}
@@ -56,22 +56,24 @@
 
 {#if triggers}
 	{#if triggers.length == 0}
-		<div class="text-xs text-secondary px-2"> No http routes </div>
+		<div class="text-xs text-secondary"> No http routes </div>
 	{:else}
-		<div class="flex flex-col divide-y px-2 pt-2">
+		<div class="flex flex-col divide-y pt-2">
 			{#each triggers as trigger (trigger.path)}
 				<div class="grid grid-cols-5 text-2xs items-center py-2">
 					<div class="col-span-2 truncate">{trigger.path}</div>
 					<div class="col-span-2 truncate">
 						{trigger.http_method.toUpperCase()} /{trigger.route_path}
 					</div>
-					<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)}>
-						{#if trigger.canWrite}
-							Edit
-						{:else}
-							View
-						{/if}
-					</button>
+					<div class="flex justify-end">
+						<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)} class="px-2">
+							{#if trigger.canWrite}
+								Edit
+							{:else}
+								View
+							{/if}
+						</button>
+					</div>
 				</div>
 			{/each}
 		</div>

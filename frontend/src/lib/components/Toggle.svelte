@@ -14,7 +14,7 @@
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
-	export let color: 'blue' | 'red' = 'blue'
+	export let color: 'blue' | 'red' | 'nord' = 'blue'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 
@@ -22,6 +22,8 @@
 
 	const dispatch = createEventDispatcher()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
+
+	export let textDisabled = false
 </script>
 
 <label
@@ -34,7 +36,7 @@
 		<span
 			class={twMerge(
 				'mr-2 font-medium duration-50 select-none',
-				bothOptions ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
 				size === 'xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
@@ -67,7 +69,9 @@
 				"transition-all bg-surface-selected rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all ",
 				color == 'red'
 					? 'peer-checked:bg-red-600'
-					: 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500',
+					: color == 'blue'
+					? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
+					: 'peer-checked:bg-nord-300 dark:peer-checked:bg-nord-500',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
 					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
@@ -78,7 +82,7 @@
 		<span
 			class={twMerge(
 				'ml-2 font-medium duration-50 select-none',
-				bothOptions ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
+				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
 				size === 'xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}

@@ -7,6 +7,7 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
+	import FlowTriggers from './FlowTriggers.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
@@ -14,7 +15,7 @@
 
 	export let noEditor = false
 	export let enableAi = false
-
+	export let newFlow = false
 	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -66,6 +67,8 @@
 	<FlowFailureModule {noEditor} />
 {:else if $selectedId === 'preprocessor'}
 	<FlowPreprocessorModule {noEditor} />
+{:else if $selectedId === 'triggers'}
+	<FlowTriggers {noEditor} {newFlow} />
 {:else}
 	{@const dup = checkDup($flowStore.value.modules)}
 	{#if dup}

@@ -368,6 +368,7 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
+	const selectedTriggerStore = writable('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
@@ -396,6 +397,7 @@
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
+		selectedTrigger: selectedTriggerStore,
 		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,

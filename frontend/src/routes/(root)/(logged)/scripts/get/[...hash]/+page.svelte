@@ -695,27 +695,35 @@
 				{/if}
 			</svelte:fragment>
 			<svelte:fragment slot="webhooks">
-				<WebhooksPanel
-					bind:token
-					scopes={[`run:script/${script?.path}`]}
-					hash={script.hash}
-					path={script.path}
-					{args}
-				/>
+				<div class="p-2">
+					<WebhooksPanel
+						bind:token
+						scopes={[`run:script/${script?.path}`]}
+						hash={script.hash}
+						path={script.path}
+						{args}
+					/>
+				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="routes">
-				<RoutesPanel path={script.path ?? ''} isFlow={false} />
+				<div class="p-2">
+					<RoutesPanel path={script.path ?? ''} isFlow={false} />
+				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="email">
-				<EmailTriggerPanel
-					bind:token
-					scopes={[`run:script/${script?.path}`]}
-					hash={script.hash}
-					path={script.path}
-				/>
+				<div class="p-2">
+					<EmailTriggerPanel
+						bind:token
+						scopes={[`run:script/${script?.path}`]}
+						hash={script.hash}
+						path={script.path}
+					/>
+				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="schedule">
-				<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />
+				<div class="p-2">
+					<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />
+				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="details">
 				<div>
