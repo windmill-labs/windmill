@@ -4,12 +4,9 @@ $$
 DECLARE
     tbl_name text;
    	policy_exists boolean;
+    tbl_names text[] := ARRAY['account', 'app', 'audit', 'capture', 'completed_job', 'flow', 'folder', 'http_trigger', 'queue', 'raw_app', 'resource', 'schedule', 'script', 'usr_to_group', 'variable'];
 BEGIN
-    FOR tbl_name IN
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-          AND table_type = 'BASE TABLE'
+    FOR tbl_name IN SELECT unnest(tbl_names)
     LOOP
         SELECT EXISTS (
             SELECT 1 
