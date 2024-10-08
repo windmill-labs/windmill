@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.405.5](https://github.com/windmill-labs/windmill/compare/v1.405.4...v1.405.5) (2024-10-04)
+
+
+### Bug Fixes
+
+* windows.exe build with github workflow doesn't have openssl.dll bundled in ([#4489](https://github.com/windmill-labs/windmill/issues/4489)) ([284cb40](https://github.com/windmill-labs/windmill/commit/284cb4069c97efe59b5caf3effb68c8b30e02b73))
+
+## [1.405.4](https://github.com/windmill-labs/windmill/compare/v1.405.3...v1.405.4) (2024-10-04)
+
+
+### Bug Fixes
+
+* **frontend:** correctly initialize step inputs on new inline script ([289ad51](https://github.com/windmill-labs/windmill/commit/289ad51374f0344582372572fc521f3b2bf12b33))
+
 ## [1.405.3](https://github.com/windmill-labs/windmill/compare/v1.405.2...v1.405.3) (2024-10-04)
 
 
