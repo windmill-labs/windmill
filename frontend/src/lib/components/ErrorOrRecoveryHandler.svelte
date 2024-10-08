@@ -59,7 +59,7 @@
 			requestBody: {
 				hub_script_path: handlerPath,
 				channel: channel,
-				test_msg: `This is a notification to test the connection between Slack and Windmill workspace '${$workspaceStore!}'`
+				test_msg: `This is a notification to test the connection between Slack and Tektome workspace '${$workspaceStore!}'`
 			}
 		})
 		slackConnectionTestJob = {
@@ -227,7 +227,7 @@
 				target="_blank"
 				href="{$hubBaseUrlStore}/failures"
 			>
-				Windmill Hub</a
+				Tektome Hub</a
 			>
 		</div>
 	{/if}
@@ -321,7 +321,7 @@
 					{:else}
 						<XCircle size={14} class="text-red-700" />
 					{/if}
-					Message sent via Windmill job
+					Message sent via Tektome job
 					<a
 						target="_blank"
 						href={`${base}/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}

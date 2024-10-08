@@ -130,7 +130,7 @@
 
 		{#if !$enterpriseLicense}
 			<Alert title="Community Edition limitations" type="warning" size="xs">
-				Email triggers on Windmill Community Edition are limited to 100 emails per day.
+				Email triggers on Tektome Community Edition are limited to 100 emails per day.
 			</Alert>
 		{/if}
 	{/if}

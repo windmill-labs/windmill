@@ -987,7 +987,7 @@
 				{/if}
 				<div class="text-xs text-secondary"
 					>Share this url directly or embed it using an iframe (if requiring login, top-level domain
-					of embedding app must be the same as the one of Windmill)</div
+					of embedding app must be the same as the one of Tektome)</div
 				>
 			</div>
 			<Alert type="info" title="Only latest deployed app is publicly available">

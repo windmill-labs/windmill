@@ -81,7 +81,7 @@
 		},
 		{
 			search_id: 'switchto:log-search',
-			label: 'Search Windmill logs',
+			label: 'Search Tektome logs',
 			action: () => switchMode('logs'),
 			shortcutKey: LOGS_PREFIX,
 			icon: Search
@@ -615,7 +615,7 @@
 								<ServiceLogsInner />
 							{:else}
 								<Alert title="Not yet supported" type="info">
-									Full-text search across Windmill logs is not yet supported
+									Full-text search across Tektome logs is not yet supported
 								</Alert>
 							{/if}
 						</div>

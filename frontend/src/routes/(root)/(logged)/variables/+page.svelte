@@ -282,7 +282,7 @@
 											<Popover notClickable>
 												<RefreshCw size={16} />
 												<div slot="text">
-													This OAuth token will be kept up-to-date in the background by Windmill
+													This OAuth token will be kept up-to-date in the background by Tektome
 													using its refresh token
 												</div>
 											</Popover>

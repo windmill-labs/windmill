@@ -5,7 +5,7 @@
 	import LoginPageHeader from './LoginPageHeader.svelte'
 
 	export let subtitle: string | undefined = undefined
-	export let title = 'Windmill'
+	export let title = 'Tektome'
 	export let disableLogo = false
 	export let large = false
 
@@ -19,7 +19,7 @@
 				<div>
 					<WindmillIcon height="100px" width="100px" spin="slow" />
 				</div>
-				<h2 class="text-center pt-2 text-primary">Windmill</h2>
+				<h2 class="text-center pt-2 text-primary">Tektome</h2>
 			</div>
 		{/if}
 

@@ -619,7 +619,7 @@
 														if (lang == 'docker') {
 															if (isCloudHosted()) {
 																sendUserToast(
-																	'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+																	'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host tektome instead.',
 																	true,
 																	[
 																		{
@@ -865,7 +865,7 @@
 											using a synchronous endpoint to have the desired effect.
 											<br />
 											<br />
-											The logs, arguments and results of the job will be completely deleted from Windmill
+											The logs, arguments and results of the job will be completely deleted from Tektome
 											once it is complete and the result has been returned.
 											<br />
 											<br />
@@ -873,7 +873,7 @@
 											{#if !$enterpriseLicense}
 												<br />
 												<br />
-												This option is only available on Windmill Enterprise Edition.
+												This option is only available on Tektome Enterprise Edition.
 											{/if}
 										</Tooltip>
 									</svelte:fragment>

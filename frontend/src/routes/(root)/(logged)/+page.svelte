@@ -220,7 +220,7 @@
 
 			<Alert title="Admins workspace">
 				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-				Windmill instance, such as keeping resource types up to date.
+				Tektome instance, such as keeping resource types up to date.
 			</Alert>
 		{/if}
 		<PageHeader title="Home">

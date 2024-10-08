@@ -123,7 +123,7 @@
 							>in Slack API Console</a
 						>. Pick "From an app manifest", then YAML and paste manifest template found on
 						<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
-							>Windmill Docs</a
+							>Tektome Docs</a
 						> and then paste Client ID and Client Secret here.
 					</div>
 				</CollapseLink>

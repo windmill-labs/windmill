@@ -88,7 +88,7 @@
 	async function onGenerate() {
 		if (!selectedCompletion && !$copilotInfo.exists_openai_resource_path) {
 			sendUserToast(
-				'Windmill AI is not enabled, you can activate it in the workspace settings',
+				'Tektome AI is not enabled, you can activate it in the workspace settings',
 				true
 			)
 			return
@@ -350,7 +350,7 @@
 						if (lang == 'docker') {
 							if (isCloudHosted()) {
 								sendUserToast(
-									'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+									'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host tektome instead.',
 									true,
 									[
 										{

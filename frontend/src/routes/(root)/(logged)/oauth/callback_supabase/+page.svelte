@@ -17,7 +17,7 @@
 
 	onMount(async () => {
 		if (error) {
-			sendUserToast(`Error trying to fetch projects from windmill: ${error}`, true)
+			sendUserToast(`Error trying to fetch projects from tektome: ${error}`, true)
 			goto('/resources')
 		} else if (code && state) {
 			try {

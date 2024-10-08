@@ -12,7 +12,7 @@
 <Section label="Delete after use">
 	<svelte:fragment slot="header">
 		<Tooltip>
-			The logs, arguments and results of this flow step will be completely deleted from Windmill
+			The logs, arguments and results of this flow step will be completely deleted from Tektome
 			once the flow is complete. They might be temporarily visible in UI while the flow is running.
 			<br />
 			This also applies to a flow step that has failed: the error will not be accessible.
@@ -22,7 +22,7 @@
 			{#if disabled}
 				<br />
 				<br />
-				This option is only available on Windmill Enterprise Edition.
+				This option is only available on Tektome Enterprise Edition.
 			{/if}
 		</Tooltip>
 	</svelte:fragment>

@@ -174,7 +174,7 @@
 				loading = false
 			}}
 			variant="border"
-			>Manage Windmill on the superadmins workspace
+			>Manage Tektome on the superadmins workspace
 		</Button>
 	{/if}
 

@@ -25,7 +25,7 @@
 			src="https://snippet.meticulous.ai/v1/meticulous.js"
 		></script>
 	{/if} -->
-	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Windmill</title>
+	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Tektome</title>
 </svelte:head>
 
 <slot />

@@ -399,8 +399,8 @@ export function insertNewGridItem(
 	const data = builddata(id)
 
 	if (data.type == 'aggridcomponentee' && !get(enterpriseLicense)) {
-		sendUserToast('AgGrid Enterprise Edition require Windmill Enterprise Edition', true)
-		throw Error('AgGrid Enterprise Edition require Windmill Enterprise Edition')
+		sendUserToast('AgGrid Enterprise Edition require Tektome Enterprise Edition', true)
+		throw Error('AgGrid Enterprise Edition require Tektome Enterprise Edition')
 	}
 	if (!app.subgrids) {
 		app.subgrids = {}

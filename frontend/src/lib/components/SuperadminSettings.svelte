@@ -102,7 +102,7 @@
 			<div>
 				<div class="flex justify-between">
 					<div class="text-xs pt-1 text-tertiary flex flex-col">
-						<div>Windmill <Version /></div>
+						<div>Tektome <Version /></div>
 					</div>
 					<div><Uptodate /></div></div
 				>

@@ -84,7 +84,7 @@
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-sm text-secondary border p-2">
-					From your Admin page, setup windmill using the service flow <br />Create a new app
+					From your Admin page, setup tektome using the service flow <br />Create a new app
 					integration <br />a. For "sign-in method" select "OIDC - Open ID Connect" <br />
 					b. For "application type" select "Web Appliction" <br />
 					Select all of the following options for Grant type of "Client acting on behalf of a user":

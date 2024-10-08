@@ -119,7 +119,7 @@
 			<div>
 				{#if scopes == undefined}
 					<div class="text-xs pt-1 pb-2 text-tertiary flex-col flex">
-						Windmill <Version />
+						Tektome <Version />
 					</div>
 					<div class="font-semibold flex items-baseline">
 						Theme: <DarkModeToggle forcedDarkMode={false} />
@@ -239,7 +239,7 @@
 					</div>
 				</div>
 				<div class="text-2xs text-tertiary italic pb-6">
-					Authentify to the Windmill API with access tokens.
+					Authentify to the Tektome API with access tokens.
 				</div>
 
 				<div>

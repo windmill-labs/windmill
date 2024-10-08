@@ -17,7 +17,7 @@
 		dispatch('confirmed')
 	}}
 	on:canceled
-	title="Windmill AI wants to add the following inputs to the flow:"
+	title="Tektome AI wants to add the following inputs to the flow:"
 >
 	<ul class=" list-disc pl-5">
 		{#each inputs as input}

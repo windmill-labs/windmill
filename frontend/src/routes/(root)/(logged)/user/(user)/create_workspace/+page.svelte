@@ -192,7 +192,7 @@
 	{/if}
 	<label class="block pb-4">
 		<span class="text-secondary text-sm">
-			OpenAI key for Windmill AI
+			OpenAI key for Tektome AI
 			<Tooltip>
 				Find out how it can help you <a
 					href="https://www.windmill.dev/docs/core_concepts/ai_generation"

@@ -215,7 +215,7 @@
 											</li>
 											<li>
 												4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
-													>Windmill CLI</a
+													>Tektome CLI</a
 												>
 											</li>
 											<br />
@@ -274,7 +274,7 @@
 													target="_blank">trigger script</a
 												>
 												and schedule this flow to run as frequently as needed and compare a state persisted
-												in Windmill to the state of the external system. If a difference is detected,
+												in Tektome to the state of the external system. If a difference is detected,
 												then the rest of the flow is triggered. Oftentimes, the second step of a flow
 												is a for-loop that will iterate over every elements. When using a trigger, a
 												default schedule will be created.

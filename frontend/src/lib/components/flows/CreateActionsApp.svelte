@@ -121,7 +121,7 @@
 				>Bundle that contains an IIFE code that will mount itself to a "root" element. Any framework
 				or vanilla JS can be used to create an app and templates are provided for the major
 				frameworks: React/Vue/Svelte. In those frontend apps, it is possible to inline scripts
-				directly to be executed by windmill backend which makes it a convenient way of building apps
+				directly to be executed by tektome backend which makes it a convenient way of building apps
 				with both frontend and backend all-in-one.</Tooltip
 			></h2
 		>

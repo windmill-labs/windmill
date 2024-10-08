@@ -15,7 +15,7 @@
 	}
 </script>
 
-<CenteredModal title="Welcome to Windmill">
+<CenteredModal title="Welcome to Tektome">
 	<p class="text-center text-lg mt-4 mb-4">
 		This is a brand new instance. Setup the instance settings, then set the default superadmin user
 		and enable hub resource type sync

@@ -52,7 +52,7 @@
 			The app has {unintitializedComponents.length} uninitialized components and {subgridsErrors.length}
 			subgrid errors.
 			<br />
-			Please contact Windmill support for assistance.
+			Please contact Tektome support for assistance.
 		</Alert>
 	{/if}
 	{#if unintitializedComponents.length > 0}

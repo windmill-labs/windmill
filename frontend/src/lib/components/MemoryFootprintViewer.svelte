@@ -72,7 +72,7 @@
 <div class="relative max-h-100">
 	{#if !$enterpriseLicense}
 		<Alert type="error" title="Enterprise Edition only feature">
-			Job metrics are only available on Windmill Enterprise Edition.
+			Job metrics are only available on Tektome Enterprise Edition.
 		</Alert>
 	{:else if (jobMemoryStats?.length ?? 0) === 0}
 		<Alert type="info" title="No metric available"

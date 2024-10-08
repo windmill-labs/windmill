@@ -436,7 +436,7 @@
 							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 						>
 							<svelte:fragment slot="text">
-								The result renderer in Windmill supports rich display rendering, allowing you to
+								The result renderer in Tektome supports rich display rendering, allowing you to
 								customize the display format of your results.
 							</svelte:fragment>
 							<div class="-mt-1">
@@ -566,7 +566,7 @@
 						<Alert size="xs" type="info" title="Seeing an odd error?">
 							Bun script are bundled for performance reasons. If you see an odd error that doesn't
 							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
-							> at the top of your script to disable bundling and feel free to mention it to the Windmill's
+							> at the top of your script to disable bundling and feel free to mention it to the Tektome's
 							team.
 						</Alert>
 					{/if}

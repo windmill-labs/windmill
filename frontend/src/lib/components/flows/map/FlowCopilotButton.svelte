@@ -37,7 +37,7 @@
 				{#if !$copilotInfo.exists_openai_resource_path}
 					<div class="text-primary p-4">
 						<p class="text-sm w-80">
-							Enable Windmill AI in the
+							Enable Tektome AI in the
 							<a
 								href="{base}/workspace_settings?tab=openai"
 								target="_blank"

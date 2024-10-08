@@ -112,7 +112,7 @@
 				value="admin"
 				size="sm"
 				label="Admin"
-				tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+				tooltip="An admin has full control over a specific Tektome workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
 			/>
 		</ToggleButtonGroup>
 		<Button

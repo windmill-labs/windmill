@@ -310,7 +310,7 @@
 			return
 		} else if (noBackend) {
 			if (!noToast) {
-				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
+				sendUserToast('This app is not connected to a tektome backend, it is a static preview')
 			}
 			callbacks?.done({})
 			return

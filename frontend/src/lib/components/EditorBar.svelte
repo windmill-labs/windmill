@@ -346,7 +346,7 @@
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	tooltip="Contextual Variables are variables whose values are contextual to the Script
-	execution. They are are automatically set by Windmill."
+	execution. They are are automatically set by Tektome."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
 	itemName="Contextual Variable"
 	extraField="name"

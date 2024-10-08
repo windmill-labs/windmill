@@ -83,7 +83,7 @@
 			element: '#flow-editor-action-script',
 			popover: {
 				title: 'Supported languages',
-				description: 'Windmill support the following languages/runtimes.'
+				description: 'Tektome support the following languages/runtimes.'
 			}
 		},
 		{

@@ -136,7 +136,7 @@
 		</svelte:fragment>
 		<div class="block text-primary">
 			<p class="text-sm"
-				>Enable Windmill AI in the <a
+				>Enable Tektome AI in the <a
 					href="{base}/workspace_settings?tab=openai"
 					target="_blank"
 					class="inline-flex flex-row items-center gap-1"

@@ -145,7 +145,7 @@
 			element: '#flow-editor-action-script',
 			popover: {
 				title: 'Supported languages',
-				description: 'Windmill support the following languages/runtimes.'
+				description: 'Tektome support the following languages/runtimes.'
 			}
 		},
 		{
@@ -167,7 +167,7 @@
 			element: '#flow-editor-editor',
 			popover: {
 				title: 'Action editor',
-				description: 'Windmill provides a full code editor to write your actions'
+				description: 'Tektome provides a full code editor to write your actions'
 			}
 		},
 

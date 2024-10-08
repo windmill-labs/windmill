@@ -513,7 +513,7 @@
 									<Cell head>Last job</Cell>
 									<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
 								{/if}
-								<Cell head>Memory usage<br />(Windmill)</Cell>
+								<Cell head>Memory usage<br />(Tektome)</Cell>
 								<Cell head>Limits</Cell>
 								<Cell head>Version</Cell>
 								<Cell head last>Liveness</Cell>

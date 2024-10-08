@@ -776,7 +776,7 @@
 													<Popover>
 														<RotateCw />
 														<div slot="text">
-															The OAuth token will be kept up-to-date in the background by Windmill
+															The OAuth token will be kept up-to-date in the background by Tektome
 															using its refresh token
 														</div>
 													</Popover>

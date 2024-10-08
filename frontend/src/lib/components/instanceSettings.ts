@@ -26,7 +26,7 @@ export interface Setting {
 	defaultValue?: () => any
 }
 
-export type SettingStorage = 'setting' 
+export type SettingStorage = 'setting'
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -35,7 +35,7 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Public base url of the instance. <a href="https://www.windmill.dev/docs/advanced/instance_settings#global-users">Learn more</a>',
 			key: 'base_url',
 			fieldType: 'text',
-			placeholder: 'https://windmill.com',
+			placeholder: 'https://tektome.com',
 			storage: 'setting',
 			error: 'Base url must start with http:// or https:// and not end with / or a space',
 			isValid: (value: string | undefined) =>
@@ -53,7 +53,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'email_domain',
 			fieldType: 'text',
 			storage: 'setting',
-			placeholder: 'mail.windmill.com'
+			placeholder: 'mail.tektome.com'
 		},
 		{
 			label: 'Request size limit in MB',
@@ -132,7 +132,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Azure OpenAI base path',
-			description: 'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+			description: 'All Tektome AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',

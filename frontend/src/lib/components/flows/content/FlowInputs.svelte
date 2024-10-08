@@ -209,7 +209,7 @@
 							if (lang == 'docker') {
 								if (isCloudHosted()) {
 									sendUserToast(
-										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host tektome instead.',
 										true,
 										[
 											{

@@ -48,7 +48,7 @@
 				<Alert title="Trigger flow builder">
 					Build a flow with two scripts, one that regularly checks for changes in an external system
 					and a second that is executed for each change using a for-loop. For both steps, you can
-					either choose a script from the hub or generate one from scratch using Windmill AI. The
+					either choose a script from the hub or generate one from scratch using Tektome AI. The
 					inputs of the for-loop action are automatically filled in with the ouputs of the trigger
 					step. At the end of the process, flow inputs are inferred and you just need to fill them
 					in. <br /><br />
@@ -57,7 +57,7 @@
 				<Alert title="Sequence flow builder">
 					Build a flow with a sequence of scripts that are executed one after the other. For each
 					step, you can either choose a script from the hub or generate one from scratch using
-					Windmill AI. Each step inputs are automatically filled in with the previous step's
+					Tektome AI. Each step inputs are automatically filled in with the previous step's
 					outputs. At the end of the process, flow inputs are inferred and you just need to fill
 					them in.
 				</Alert>

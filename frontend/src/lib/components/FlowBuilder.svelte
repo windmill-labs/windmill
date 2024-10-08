@@ -881,7 +881,7 @@
 							!$copilotInfo.exists_openai_resource_path
 						) {
 							sendUserToast(
-								'For better input generation, enable Windmill AI in the workspace settings',
+								'For better input generation, enable Tektome AI in the workspace settings',
 								true
 							)
 						}

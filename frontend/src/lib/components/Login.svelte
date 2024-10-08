@@ -263,11 +263,11 @@
 
 	{#if showPassword}
 		<div>
-			{#if firstTime}
+			<!-- {#if firstTime}
 				<div class="text-lg text-center w-full pb-6"
 					>First time login: admin@windmill.dev / changeme</div
 				>
-			{/if}
+			{/if} -->
 			<div class="space-y-6">
 				{#if isCloudHosted()}
 					<p class="text-xs text-tertiary italic pb-6">

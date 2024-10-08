@@ -683,7 +683,7 @@
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
 				<Tab size="xs" value="openai">
-					<div class="flex gap-2 items-center my-1">Windmill AI</div>
+					<div class="flex gap-2 items-center my-1">Tektome AI</div>
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> Object Storage (S3)</div>
@@ -734,7 +734,7 @@
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Connect workspace to Slack </div>
 					<div class="text-tertiary text-xs">
-						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
+						Connect your Tektome workspace to your Slack workspace to trigger a script or a flow
 						with a '/windmill' command or to configure Slack error handlers.
 						<a
 							href="https://www.windmill.dev/docs/integrations/slack"
@@ -903,7 +903,7 @@
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
 					<div class="text-tertiary text-xs">
-						Connect your Windmill workspace to an external service to sync or get notified about any
+						Connect your Tektome workspace to an external service to sync or get notified about any
 						change.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
@@ -930,7 +930,7 @@
 			{#if !$enterpriseLicense}
 				<div class="pt-4" />
 				<Alert type="info" title="Workspace error handler is an EE feature">
-					Workspace error handler is a Windmill EE feature. It enables using your current Slack
+					Workspace error handler is a Tektome EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
 			{/if}
@@ -1012,12 +1012,12 @@
 		{:else if tab == 'openai'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Windmill AI</div>
+					<div class=" text-primary text-lg font-semibold"> Tektome AI</div>
 					<div class="text-tertiary text-xs">
-						Select an OpenAI resource to unlock Windmill AI features.
+						Select an OpenAI resource to unlock Tektome AI features.
 					</div>
 					<div class="text-tertiary text-xs">
-						Windmill AI uses OpenAI's GPT-4o for all AI features.
+						Tektome AI uses OpenAI's GPT-4o for all AI features.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
 							target="_blank"
@@ -1055,7 +1055,7 @@
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold">Workspace object storage (S3/Azure Blob)</div>
 					<div class="text-tertiary text-xs">
-						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
+						Connect your Tektome workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 							target="_blank"
@@ -1065,9 +1065,9 @@
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
-				<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
-					Windmill S3 bucket browser will not work for buckets containing more than 20 files and
-					uploads are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature
+				<Alert type="info" title="S3 storage is limited to 20 files in Tektome CE">
+					Tektome S3 bucket browser will not work for buckets containing more than 20 files and
+					uploads are limited to files {'<'} 50MB. Consider upgrading to Tektome EE to use this feature
 					with large buckets.
 				</Alert>
 			{:else}
@@ -1236,7 +1236,7 @@
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Git Sync </div>
 					<div class="text-tertiary text-xs">
-						Connect the Windmill workspace to a Git repository to automatically commit and push
+						Connect the Tektome workspace to a Git repository to automatically commit and push
 						scripts, flows, and apps to the repository on each deploy.
 						<a
 							href="https://www.windmill.dev/docs/advanced/git_sync"
@@ -1250,7 +1250,7 @@
 				<div class="mb-2" />
 
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
-					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
+					Automatically saving scripts to a Git repository on each deploy is a Tektome EE feature.
 				</Alert>
 				<div class="mb-2" />
 			{/if}
@@ -1446,7 +1446,7 @@
 								{:else}
 									<XCircle size={14} class="text-red-700" />
 								{/if}
-								Git sync resource checked via Windmill job
+								Git sync resource checked via Tektome job
 								<a
 									target="_blank"
 									href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
@@ -1487,7 +1487,7 @@
 									options={{
 										right: 'Create one branch per deployed object',
 										rightTooltip:
-											"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+											"If set, Tektome will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
 									}}
 								/>
 
@@ -1498,7 +1498,7 @@
 									options={{
 										right: 'Group deployed objects by folder',
 										rightTooltip:
-											'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+											'Instead of creating a branch per object, Tektome will create a branch per folder containing objects being deployed.'
 									}}
 								/>
 							{/if}
@@ -1689,8 +1689,8 @@ git push</code
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
-				<Alert type="info" title="Windmill EE only feature">
-					Default app can only be set on Windmill Enterprise Edition.
+				<Alert type="info" title="Tektome EE only feature">
+					Default app can only be set on Tektome Enterprise Edition.
 				</Alert>
 			{/if}
 			<Alert type="info" title="Default app must be accessible to all operators">
@@ -1717,7 +1717,7 @@ git push</code
 						the new key and the previous key will be replaced by the new one.
 					</div>
 					<div class="text-tertiary text-xs">
-						If you're manually updating the key to match another workspace key from another Windmill
+						If you're manually updating the key to match another workspace key from another Tektome
 						instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're
 						using it, make sure it the salt matches across both instances.
 						<a

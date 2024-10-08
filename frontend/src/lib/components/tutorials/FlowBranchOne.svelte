@@ -44,7 +44,7 @@
 				element: `#flow-editor-add-step-${index}`,
 				popover: {
 					title: 'Branch one',
-					description: 'Windmill supports branches, let us add one',
+					description: 'Tektome supports branches, let us add one',
 					onNextClick: () => {
 						triggerAddFlowStep(index)
 

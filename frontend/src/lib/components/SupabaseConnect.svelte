@@ -159,7 +159,7 @@
 			<h2 class="mt-8 mb-2">Database Password</h2>
 			<p class="text-sm text-secondary mb-1"
 				>For security reasons from supabase, the password of the database cannot be retrieved
-				automatically. In a future update, a dedicated role for windmill will be created and the
+				automatically. In a future update, a dedicated role for tektome will be created and the
 				password for it will be generated automatically. The password of the database is shown
 				during the project creation.</p
 			>

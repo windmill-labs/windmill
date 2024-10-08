@@ -154,7 +154,7 @@
 								<Tooltip
 									documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 								>
-									The result renderer in Windmill supports rich display rendering, allowing you to
+									The result renderer in Tektome supports rich display rendering, allowing you to
 									customize the display format of your results.
 								</Tooltip>
 							</div>

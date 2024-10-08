@@ -237,7 +237,7 @@ input_name2: expression2
 			</svelte:fragment>
 			<p class="text-sm">
 				{#if !$copilotInfo.exists_openai_resource_path}
-					Enable Windmill AI in the{' '}
+					Enable Tektome AI in the{' '}
 					<a
 						href="{base}/workspace_settings?tab=openai"
 						target="_blank"

@@ -72,7 +72,7 @@
 	async function onGenerate() {
 		if (!selectedCompletion && !$copilotInfo.exists_openai_resource_path) {
 			sendUserToast(
-				'Windmill AI is not enabled, you can activate it in the workspace settings',
+				'Tektome AI is not enabled, you can activate it in the workspace settings',
 				true
 			)
 			return

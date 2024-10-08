@@ -297,7 +297,7 @@
 						</div>
 					{:else if category == 'Telemetry'}
 						<div class="text-secondary pb-4 text-xs">
-							Anonymous usage data is collected to help improve Windmill.
+							Anonymous usage data is collected to help improve Tektome.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
 								<li>version of your instance</li>
@@ -342,7 +342,7 @@
 								<div class="py-1" />
 									<div class="mb-2">
 										<span class="text-primary text-sm">When at least one of the below options is set, users will be able to login to
-											Windmill via their third-party account.
+											Tektome via their third-party account.
 											<br /> To test SSO, the recommended workflow is to to save the settings and try to
 											login in an incognito window. <a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#sso">Learn more</a></span>
 									</div>
@@ -418,7 +418,7 @@
 									<Toggle
 										options={{
 											right:
-												'Require users to have been added manually to Windmill to sign in through OAuth'
+												'Require users to have been added manually to Tektome to sign in through OAuth'
 										}}
 										bind:checked={requirePreexistingUserForOauth}
 									/>
@@ -871,7 +871,7 @@
 															<input
 																type="text"
 																id="smtp_username"
-																placeholder="ruben@windmill.dev"
+																placeholder="ruben@tektome.dev"
 																bind:value={values[setting.key].smtp_username}
 															/>
 														</div>
@@ -888,7 +888,7 @@
 															<input
 																type="email"
 																id="smtp_from"
-																placeholder="noreply@windmill.dev"
+																placeholder="noreply@tektome.dev"
 																bind:value={values[setting.key].smtp_from}
 															/>
 														</div>
@@ -949,7 +949,7 @@
 					{#if category == 'SMTP'}
 						{@const smtp = values['smtp_settings']}
 						<div class="flex gap-4"
-							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
+							><input type="email" bind:value={to} placeholder="contact@tektome.dev" />
 							<Button
 								disabled={to == '' || !smtp}
 								on:click={async () => {

@@ -452,7 +452,7 @@
 						<p>
 							More info in <a
 								href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
-								target="_blank">Windmill's documentation</a
+								target="_blank">Tektome's documentation</a
 							></p
 						></Alert
 					>

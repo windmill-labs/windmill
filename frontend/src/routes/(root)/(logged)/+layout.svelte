@@ -345,7 +345,7 @@
 								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
-										Windmill
+										Tektome
 									</div>
 
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
@@ -392,7 +392,7 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 									</div>
 									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-white"> Windmill </div>
+										<div class="text-sm mt-0.5 text-white"> Tektome </div>
 									{/if}
 								</div>
 							</button>
@@ -481,7 +481,7 @@
 								class:w-40={!isCollapsed}
 							>
 								<WindmillIcon white={true} height="20px" width="20px" />
-								{#if !isCollapsed}Windmill{/if}
+								{#if !isCollapsed}Tektome{/if}
 							</div>
 
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
