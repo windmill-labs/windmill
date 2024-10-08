@@ -1,8 +1,10 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.repository ||
+  IMAGE_NAME:
+    ${{ github.event_name != 'pull_request' && github.repository ||
     'windmill-labs/windmill-test' }}
-  DEV_SHA: ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
+  DEV_SHA:
+    ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
     github.event.number) }}
 
 name: Build windmill:main
@@ -75,7 +77,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc
+            features=embedding,parquet,openidconnect,jemalloc,deno_core
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -136,7 +138,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -198,7 +200,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core
             PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
             ${{ steps.meta-ee-public-py312.outputs.tags }}

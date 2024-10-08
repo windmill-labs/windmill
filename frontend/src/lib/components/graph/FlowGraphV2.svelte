@@ -53,8 +53,8 @@
 	export let newFlow: boolean = false
 
 	export let insertable = false
-	export let moving: string | undefined = undefined
 	export let scroll = false
+	export let moving: string | undefined = undefined
 
 	// Download: display a top level button to open the graph in a new tab
 	export let download = false
@@ -287,6 +287,9 @@
 		</div>
 	{:else}
 		<SvelteFlow
+			on:paneclick={(e) => {
+				window.dispatchEvent(new Event('focus'))
+			}}
 			{nodes}
 			{edges}
 			{edgeTypes}

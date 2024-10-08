@@ -498,7 +498,8 @@
 		saveDraft: () => {},
 		initialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
-		customUi: {}
+		customUi: {},
+		insertButtonOpen: writable(false)
 	})
 
 	$: updateFlow($flowStore)

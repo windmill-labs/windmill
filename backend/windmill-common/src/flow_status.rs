@@ -128,6 +128,7 @@ struct UntaggedFlowStatusModule {
     while_loop: Option<bool>,
     approvers: Option<Vec<Approval>>,
     failed_retries: Option<Vec<Uuid>>,
+    skipped: Option<bool>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -179,6 +180,7 @@ pub enum FlowStatusModule {
         approvers: Vec<Approval>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         failed_retries: Vec<Uuid>,
+        skipped: bool,
     },
     Failure {
         id: String,
@@ -255,6 +257,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
+                skipped: untagged.skipped.unwrap_or(false),
             }),
             "Failure" => Ok(FlowStatusModule::Failure {
                 id: untagged

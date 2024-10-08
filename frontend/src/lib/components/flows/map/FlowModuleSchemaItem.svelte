@@ -13,6 +13,7 @@
 		PhoneIncoming,
 		Repeat,
 		Square,
+		SkipForward,
 		Voicemail,
 		X
 	} from 'lucide-svelte'
@@ -33,6 +34,7 @@
 	export let retry: boolean = false
 	export let cache: boolean = false
 	export let earlyStop: boolean = false
+	export let skip: boolean = false
 	export let suspend: boolean = false
 	export let sleep: boolean = false
 	export let mock: boolean = false
@@ -179,6 +181,17 @@
 					<Square size={12} />
 				</div>
 				<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+			</Popover>
+		{/if}
+		{#if skip}
+			<Popover notClickable>
+				<div
+					transition:fade|local={{ duration: 200 }}
+					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+				>
+					<SkipForward size={12} />
+				</div>
+				<svelte:fragment slot="text">Skip</svelte:fragment>
 			</Popover>
 		{/if}
 		{#if suspend}
