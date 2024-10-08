@@ -37,7 +37,6 @@
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
-	import CopilotNode from './renderers/nodes/CopilotNode.svelte'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -223,8 +222,7 @@
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchAllEndNode,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode,
-		copilot: CopilotNode
+		trigger: TriggersNode
 	} as any
 
 	const edgeTypes = {
