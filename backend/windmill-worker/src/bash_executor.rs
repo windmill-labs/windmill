@@ -326,7 +326,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let strict_termination_start = "$ErrorActionPreference = 'Stop'\n\
         Set-StrictMode -Version Latest\n\
         try {\n";
-    
+
     let strict_termination_end = "\n\
         } catch {\n\
             Write-Output \"An error occurred:\n\"\
