@@ -54,7 +54,8 @@
 		'bottom-start': 'origin-top-left left-0',
 		'bottom-end': 'origin-top-right right-0',
 		'top-start': 'origin-bottom-left left-0 bottom-0',
-		'top-end': 'origin-bottom-right right-0 bottom-0'
+		'top-end': 'origin-bottom-right right-0 bottom-0',
+		'top-center': 'origin-top-left -top-full left-1/2  transform -translate-x-1/2 -translate-y-full'
 	}
 	const dispatch = createEventDispatcher()
 </script>

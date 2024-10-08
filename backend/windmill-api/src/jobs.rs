@@ -11,7 +11,6 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use windmill_common::error::JsonResult;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -19,6 +18,7 @@ use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use tower::ServiceBuilder;
+use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -293,11 +293,8 @@ pub fn workspace_unauthed_service() -> Router {
 
 pub fn global_root_service() -> Router {
     Router::new()
-    .route("/db_clock", get(get_db_clock))
-    .route(
-        "/completed/count_by_tag",
-        get(count_by_tag),
-    )
+        .route("/db_clock", get(get_db_clock))
+        .route("/completed/count_by_tag", get(count_by_tag))
 }
 
 #[derive(Deserialize)]
@@ -4130,7 +4127,7 @@ async fn run_dependencies_job(
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
         if language == ScriptLang::Bun {
-            let annotation = windmill_common::worker::get_annotation(&raw_code);
+            let annotation = windmill_common::worker::get_annotation_ts(&raw_code);
             hm.insert(
                 "npm_mode".to_string(),
                 JsonRawValue::from_string(annotation.npm_mode.to_string()).unwrap(),
@@ -4683,8 +4680,8 @@ async fn get_job_update(
     .fetch_optional(&db)
     .await?;
 
-    let progress: Option<i32> = if get_progress == Some(true){
-         sqlx::query_scalar!(
+    let progress: Option<i32> = if get_progress == Some(true) {
+        sqlx::query_scalar!(
                 "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &w_id,
                  job_id,
@@ -5115,8 +5112,6 @@ async fn get_completed_job_result(
     Ok(Json(result).into_response())
 }
 
-
-
 #[derive(Deserialize)]
 struct CountByTagQuery {
     horizon_secs: Option<i64>,
@@ -5130,7 +5125,7 @@ struct TagCount {
 }
 
 async fn count_by_tag(
-    ApiAuthed { email, ..}: ApiAuthed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<CountByTagQuery>,
 ) -> JsonResult<Vec<TagCount>> {

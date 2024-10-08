@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{get_annotation, to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{get_annotation_ts, to_raw_value, to_raw_value_owned, write_file};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -26,7 +26,7 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
+use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -953,7 +953,7 @@ async fn lock_modules<'c>(
                 }
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
-                    let anns = get_annotation(&content);
+                    let anns = get_annotation_ts(&content);
                     if anns.native_mode && language == ScriptLang::Bun {
                         language = ScriptLang::Bunnative;
                     } else if !anns.native_mode && language == ScriptLang::Bunnative {
@@ -1003,7 +1003,7 @@ async fn lock_modules<'c>(
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
     if language == &ScriptLang::Bun || language == &ScriptLang::Bunnative {
-        let anns = get_annotation(&content);
+        let anns = get_annotation_ts(&content);
         if anns.native_mode && language == &ScriptLang::Bun {
             return false;
         } else if !anns.native_mode && language == &ScriptLang::Bunnative {
@@ -1077,7 +1077,7 @@ async fn lock_modules_app(
                             match new_lock {
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, db).await;
-                                    let anns = get_annotation(&content);
+                                    let anns = get_annotation_ts(&content);
                                     let nlang = if anns.native_mode && language == ScriptLang::Bun {
                                         Some(ScriptLang::Bunnative)
                                     } else if !anns.native_mode && language == ScriptLang::Bunnative
@@ -1280,7 +1280,7 @@ async fn python_dep(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
-    let req: std::result::Result<String, Error> = pip_compile(
+    let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
         mem_peak,
@@ -1290,6 +1290,8 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
+        false,
+        false,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1434,8 +1436,9 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
-            let npm_mode = npm_mode
-                .unwrap_or_else(|| windmill_common::worker::get_annotation(job_raw_code).npm_mode);
+            let npm_mode = npm_mode.unwrap_or_else(|| {
+                windmill_common::worker::get_annotation_ts(job_raw_code).npm_mode
+            });
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code)?;
             }
@@ -1472,7 +1475,7 @@ async fn capture_dependency_job(
                     base_internal_url,
                     worker_name,
                     &token,
-                    occupancy_metrics,
+                    &mut Some(occupancy_metrics),
                 )
                 .await?;
             }

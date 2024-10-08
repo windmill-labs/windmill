@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.403.1",
+	"version": "1.405.5",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -176,6 +176,11 @@
 			"types": "./package/components/icons/WindmillIcon.d.ts",
 			"svelte": "./package/components/icons/WindmillIcon.svelte",
 			"default": "./package/components/icons/WindmillIcon.svelte"
+		},
+		"./components/icons/WindmillIcon2.svelte": {
+			"types": "./package/components/icons/WindmillIcon2.d.ts",
+			"svelte": "./package/components/icons/WindmillIcon2.svelte",
+			"default": "./package/components/icons/WindmillIcon2.svelte"
 		},
 		"./components/IconedResourceType.svelte": {
 			"types": "./package/components/IconedResourceType.svelte.d.ts",
@@ -357,6 +362,9 @@
 			],
 			"components/icons/WindmillIcon.svelte": [
 				"./package/components/icons/WindmillIcon.svelte.d.ts"
+			],
+			"components/icons/WindmillIcon2.svelte": [
+				"./package/components/icons/WindmillIcon2.svelte.d.ts"
 			],
 			"components/scriptEditor/LogPanel.svelte": [
 				"./package/components/scriptEditor/LogPanel.svelte.d.ts"

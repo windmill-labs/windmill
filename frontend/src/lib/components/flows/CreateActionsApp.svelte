@@ -72,7 +72,7 @@
 			}
 		]}
 	>
-		<div class="flex flex-row">
+		<div class="flex flex-row items-center">
 			App <LayoutDashboard class="ml-1.5" size={18} />
 		</div>
 	</Button>
