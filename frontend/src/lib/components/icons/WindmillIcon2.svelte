@@ -4,108 +4,107 @@
 	export let color: string | undefined = undefined
 	export let spin: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined = undefined
 
-	function hslToHex(h, s, l) {
-		s /= 100
-		l /= 100
+	// function hslToHex(h, s, l) {
+	// 	s /= 100
+	// 	l /= 100
 
-		let c = (1 - Math.abs(2 * l - 1)) * s
-		let x = c * (1 - Math.abs(((h / 60) % 2) - 1))
-		let m = l - c / 2
-		let r = 0
-		let g = 0
-		let b = 0
+	// 	let c = (1 - Math.abs(2 * l - 1)) * s
+	// 	let x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+	// 	let m = l - c / 2
+	// 	let r = 0
+	// 	let g = 0
+	// 	let b = 0
 
-		if (0 <= h && h < 60) {
-			r = c
-			g = x
-			b = 0
-		} else if (60 <= h && h < 120) {
-			r = x
-			g = c
-			b = 0
-		} else if (120 <= h && h < 180) {
-			r = 0
-			g = c
-			b = x
-		} else if (180 <= h && h < 240) {
-			r = 0
-			g = x
-			b = c
-		} else if (240 <= h && h < 300) {
-			r = x
-			g = 0
-			b = c
-		} else if (300 <= h && h < 360) {
-			r = c
-			g = 0
-			b = x
-		}
+	// 	if (0 <= h && h < 60) {
+	// 		r = c
+	// 		g = x
+	// 		b = 0
+	// 	} else if (60 <= h && h < 120) {
+	// 		r = x
+	// 		g = c
+	// 		b = 0
+	// 	} else if (120 <= h && h < 180) {
+	// 		r = 0
+	// 		g = c
+	// 		b = x
+	// 	} else if (180 <= h && h < 240) {
+	// 		r = 0
+	// 		g = x
+	// 		b = c
+	// 	} else if (240 <= h && h < 300) {
+	// 		r = x
+	// 		g = 0
+	// 		b = c
+	// 	} else if (300 <= h && h < 360) {
+	// 		r = c
+	// 		g = 0
+	// 		b = x
+	// 	}
 
-		let rs = Math.round((r + m) * 255)
-			.toString(16)
-			.padStart(2, '0')
-		let gs = Math.round((g + m) * 255)
-			.toString(16)
-			.padStart(2, '0')
-		let bs = Math.round((b + m) * 255)
-			.toString(16)
-			.padStart(2, '0')
+	// 	let rs = Math.round((r + m) * 255)
+	// 		.toString(16)
+	// 		.padStart(2, '0')
+	// 	let gs = Math.round((g + m) * 255)
+	// 		.toString(16)
+	// 		.padStart(2, '0')
+	// 	let bs = Math.round((b + m) * 255)
+	// 		.toString(16)
+	// 		.padStart(2, '0')
 
-		return `#${rs}${gs}${bs}`
-	}
+	// 	return `#${rs}${gs}${bs}`
+	// }
 
-	function hexToHsl(hex) {
-		let r: number = parseInt(hex.slice(1, 3), 16) / 255
-		let g: number = parseInt(hex.slice(3, 5), 16) / 255
-		let b: number = parseInt(hex.slice(5, 7), 16) / 255
+	// function hexToHsl(hex) {
+	// 	let r: number = parseInt(hex.slice(1, 3), 16) / 255
+	// 	let g: number = parseInt(hex.slice(3, 5), 16) / 255
+	// 	let b: number = parseInt(hex.slice(5, 7), 16) / 255
 
-		const max = Math.max(r, g, b),
-			min = Math.min(r, g, b)
-		let h,
-			s,
-			l = (max + min) / 2
+	// 	const max = Math.max(r, g, b),
+	// 		min = Math.min(r, g, b)
+	// 	let h,
+	// 		s,
+	// 		l = (max + min) / 2
 
-		if (max === min) {
-			h = s = 0 // Achromatic
-		} else {
-			const d = max - min
-			s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-			switch (max) {
-				case r:
-					h = (g - b) / d + (g < b ? 6 : 0)
-					break
-				case g:
-					h = (b - r) / d + 2
-					break
-				case b:
-					h = (r - g) / d + 4
-					break
-			}
-			h /= 6
-		}
+	// 	if (max === min) {
+	// 		h = s = 0 // Achromatic
+	// 	} else {
+	// 		const d = max - min
+	// 		s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+	// 		switch (max) {
+	// 			case r:
+	// 				h = (g - b) / d + (g < b ? 6 : 0)
+	// 				break
+	// 			case g:
+	// 				h = (b - r) / d + 2
+	// 				break
+	// 			case b:
+	// 				h = (r - g) / d + 4
+	// 				break
+	// 		}
+	// 		h /= 6
+	// 	}
 
-		return [h * 360, s * 100, l * 100]
-	}
+	// 	return [h * 360, s * 100, l * 100]
+	// }
 
-	function reduceSaturation(hex: string, reductionPercent: number) {
-		// Convert HEX to HSL
+	// function reduceSaturation(hex: string, reductionPercent: number) {
+	// 	// Convert HEX to HSL
 
-		// Convert the hex to HSL
-		let [h, s, l] = hexToHsl(hex)
+	// 	// Convert the hex to HSL
+	// 	let [h, s, l] = hexToHsl(hex)
 
-		// Reduce the saturation by the specified percentage
-		l = Math.max(0, l - reductionPercent)
+	// 	// Reduce the saturation by the specified percentage
+	// 	l = Math.max(0, l - reductionPercent)
 
-		// Convert back to hex
-		return hslToHex(h, s, l)
-	}
+	// 	// Convert back to hex
+	// 	return hslToHex(h, s, l)
+	// }
 
-	let lessSaturatedColor: string | undefined
+	// let lessSaturatedColor: string | undefined
 
-	$: color ? (lessSaturatedColor = reduceSaturation(color, -16)) : (lessSaturatedColor = undefined)
+	// $: color ? (lessSaturatedColor = reduceSaturation(color, -16)) : (lessSaturatedColor = undefined)
 </script>
 
-<!-- SVG Icon with customizable color -->
 <svg
 	class={$$props.class}
 	class:animate-[spin_2s_linear_infinite]={spin === 'veryfast'}
@@ -120,35 +119,12 @@
 	y="0px"
 	width={size}
 	height={size}
-	viewBox="0 0 256 256"
-	style="enable-background:new 0 0 256 256;"
-	xml:space="preserve"
+	viewBox="0 0 43.041731 51.07332191780822"
+	style="enable-background: new 0 0 43.041731 51.07332191780822;"
 >
-	<g>
-		<!-- Use color or fallback to defaults (white or blue) -->
-		<polygon
-			fill={lessSaturatedColor || (white ? '#cccccc' : '#bcd4fc')}
-			points="134.78,14.22 114.31,48.21 101.33,69.75 158.22,69.75 177.97,36.95 191.67,14.22"
-		/>
-		<polygon
-			fill={color || (white ? '#ffffff' : '#3b82f6')}
-			points="227.55,69.75 186.61,69.75 101.33,69.75 129.78,119.02 158.16,119.02 228.61,119.02 256,119.02"
-		/>
-		<polygon
-			fill={color || (white ? '#ffffff' : '#3b82f6')}
-			points="136.93,132.47 116.46,167.93 73.82,241.78 130.71,241.78 144.9,217.2 180.13,156.18 193.82,132.46"
-		/>
-		<polygon
-			fill={color || (white ? '#ffffff' : '#3b82f6')}
-			points="121.7,131.95 101.23,96.49 58.59,22.63 30.15,71.91 44.34,96.49 79.57,157.5 93.26,181.22"
-		/>
-		<polygon
-			fill={lessSaturatedColor || (white ? '#cccccc' : '#bcd4fc')}
-			points="64.81,131.95 25.15,131.21 0,130.74 28.44,180.01 66.73,180.72 93.26,181.21"
-		/>
-		<polygon
-			fill={lessSaturatedColor || (white ? '#cccccc' : '#bcd4fc')}
-			points="165.38,181.74 184.58,216.46 196.75,238.47 225.19,189.2 206.66,155.69 193.83,132.46"
-		/>
-	</g>
+	<path fill={color || white ? '#ffffff' : '#000000'} d="M73.964 18.554h-5.829v17h-4.26v-17h-5.831v-4.06h15.92zM87.02 29.833H76.478c.256 1.887 1.8 2.629 3.4 2.629a3.306 3.306 0 003.2-1.856l3.4 1.313a6.82 6.82 0 01-6.6 4c-4.26 0-7.2-2.97-7.2-7.486s2.916-7.544 7.257-7.544 7.088 3 7.088 7.544v1.4zm-10.46-2.8h6.318a2.772 2.772 0 00-3.031-2.8 3.117 3.117 0 00-3.288 2.8zm12.887 8.519V14.119h4.088v12.4l4.914-5.2h5.086l-6.231 6.571 5.8 7.658h-4.972l-3.513-4.83-1.087 1.171v3.659h-4.085zm24.115-10.858h-2.687v10.858h-4.03V24.694h-2.713v-3.372h2.714v-4.4h4.03v4.4h2.687zm8.857-3.77a7.486 7.486 0 11-7.517 7.486 7.093 7.093 0 017.517-7.486zm0 11.344c2.028 0 3.372-1.573 3.372-3.885s-1.343-3.831-3.372-3.831-3.429 1.542-3.429 3.831 1.343 3.885 3.429 3.885zm32.317-5.66v8.944h-3.973v-8.317c0-1.887-1-2.828-2.488-2.828-1.4 0-2.687.857-2.687 3.23v7.915h-4v-8.317c0-1.856-.972-2.8-2.457-2.8s-2.714.831-2.714 3.2v7.915h-4.086V21.32h3.8l.142 1.229a4.5 4.5 0 013.915-1.688 4.893 4.893 0 014.658 2.572 4.643 4.643 0 014.543-2.572c3.142 0 5.343 2.028 5.343 5.745zm16.744 3.225h-10.544c.256 1.887 1.8 2.629 3.4 2.629a3.306 3.306 0 003.2-1.856l3.4 1.313a6.82 6.82 0 01-6.6 4c-4.26 0-7.2-2.97-7.2-7.486s2.916-7.544 7.257-7.544 7.088 3 7.088 7.544v1.4zm-10.46-2.8h6.315a2.772 2.772 0 00-3.031-2.8 3.117 3.117 0 00-3.288 2.8zm-126.555-9.96v6.036l-7.965 4.62v-6.036l2.775-1.611zm6.372-5.748l-5.136 2.974-.092.057-3.425-1.99-7.968-4.623 5.224-3.027 7.968 4.623z"/>
+	<path fill={color || white ? '#ffffff' : '#000000'} d="M32.773 16.048l-2.958 1.715-2.254 1.313-3.475-2.013-7.965-4.623-2.909-1.68-2.775 1.607-5.205 3.02h-.008L.007 12.36l5.2-3.02 2.779-1.611 5.224-3.031 2.867-1.665h.008L21.309.002l5.228 3.031-5.228 3.031-2.867 1.665 2.9 1.684 7.965 4.623zm-11.466 8.665v6.039l-5.209-3.024v-6.035zm0 19.296v6.036l-5.209-3.024v-6.039zm-5.209-3.026v6.039l-7.965-4.616v-6.039z"/>
+	<path fill={color || white ? '#ffffff' : '#000000'} d="M20.166 33.698v6.032l-4.068-2.358-7.965-4.616-2.9-1.684v9.649L.001 37.69V12.358h.008l5.217 3.027h.008v9.649l2.9 1.684 7.965 4.623z"/>
+	<path fill={color || white ? '#ffffff' : '#000000'} d="M16.098 21.693v6.039l-7.965-4.62v-6.039zm10.425 0v6.036l-5.209 3.024h-.008v-6.04h.008l5.205-3.02zm16.097-9.335v25.333l-5.228 3.031v-9.649l-2.9 1.684-7.965 4.616-4.149 2.407v-6.039l4.149-2.4 7.965-4.62 2.9-1.688v-9.649l5.22-3.027zM26.523 40.982v6.039l-5.209 3.024h-.008v-6.036h.008z"/>
+	<path fill={color || white ? '#ffffff' : '#000000'} d="M34.484 36.367v6.039l-7.961 4.616v-6.039z"/>
 </svg>
