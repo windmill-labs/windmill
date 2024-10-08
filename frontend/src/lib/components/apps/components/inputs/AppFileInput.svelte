@@ -48,6 +48,9 @@
 	$componentControl[id] = {
 		clearFiles: () => {
 			fileInput?.clearFiles()
+		},
+		downloadFile: (fileName: string) => {
+			fileInput?.downloadFile(fileName)
 		}
 	}
 

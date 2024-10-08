@@ -121,6 +121,31 @@
 		files = undefined
 		dispatchChange()
 	}
+
+	export function downloadFile(fileName: string) {
+		if (!files) {
+			console.error('Trying to download a file: No files uploaded');
+			return;
+		}
+		const file = files.find(f => f.name === fileName);
+		if (!file) {
+			console.error(`Trying to download a file: File "${fileName}" doesn't exist`);
+			return;
+		}
+
+		const url = URL.createObjectURL(file);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = fileName;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+
+		// Delay revoking the object URL to ensure the download works
+		setTimeout(() => {
+			URL.revokeObjectURL(url);
+		}, 100);
+	}
 </script>
 
 <button

@@ -281,6 +281,12 @@ declare function validateAll(id: string): void;
  */
 declare function clearFiles(id: string): void;
 
+/** Download a file from a file input component
+ * @param id component's id
+ * @param fileName name of the file to download
+ */
+declare function downloadFile(id: string, fileName: string): void;
+
 /**  Display a toast message
  * @param message message to display
  */

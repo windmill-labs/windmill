@@ -25,7 +25,7 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource) {
+return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, downloadFile, showToast, waitJob, askNewResource) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
@@ -61,6 +61,7 @@ type WmFunctor = (
 	invalidate,
 	validateAll,
 	clearFiles,
+	downloadFile,
 	showToast,
 	waitJob,
 	askNewResource
@@ -111,6 +112,7 @@ export async function eval_like(
 			invalidate?: (key: string, error: string) => void
 			validateAll?: () => void
 			clearFiles?: () => void
+			downloadFile?: (fileName: string) => void
 			showToast?: (message: string, error?: boolean) => void
 			waitJob?: (jobId: string) => void
 			askNewResource?: () => void
@@ -230,6 +232,9 @@ export async function eval_like(
 		},
 		(id) => {
 			controlComponents[id]?.clearFiles?.()
+		},
+		(id, fileName) => {
+			controlComponents[id]?.downloadFile?.(fileName)
 		},
 		(message, error) => {
 			sendUserToast(message, error)

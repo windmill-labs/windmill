@@ -31,6 +31,7 @@
 					| 'open'
 					| 'close'
 					| 'clearFiles'
+					| 'downloadFile'
 				configuration: {
 					gotoUrl: { url: (() => string) | string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -60,6 +61,10 @@
 					}
 					clearFiles?: {
 						id: string | undefined
+					}
+					downloadFile?: {
+						id: string | undefined
+						fileName: string | undefined
 					}
 				}
 		  }
@@ -233,6 +238,15 @@
 				if (!id) return
 
 				$componentControl[id].clearFiles?.()
+				break
+			}
+			case 'downloadFile': {
+				const id = sideEffect?.configuration?.downloadFile?.id
+				const fileName = sideEffect?.configuration?.downloadFile?.fileName
+
+				if (!id || !fileName) return
+
+				$componentControl[id].downloadFile?.(fileName)
 				break
 			}
 			default:
