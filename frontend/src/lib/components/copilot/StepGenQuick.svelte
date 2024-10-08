@@ -11,6 +11,7 @@
 	export let trigger = false
 	export let loading = false
 	export let preFilter: string
+	export let disableAi = false
 
 	let scripts: Script[] | undefined = undefined
 	export let filteredItems: (Script & { marked?: string })[] | (Item & { marked?: string })[] = []
@@ -53,14 +54,14 @@
 			bind:this={input}
 			type="text"
 			bind:value={funcDesc}
-			placeholder="Search {trigger ? 'triggers' : 'scripts'} or AI gen"
+			placeholder="Search {trigger ? 'triggers' : 'scripts'} {disableAi ? '' : 'or AI gen'}"
 		/>
 	</div>
 	<div class="absolute inset-y-0 right-3 flex items-center pointer-events-none">
 		{#if loading}
 			<Loader2 size={16} class="animate-spin text-gray-400" />
 		{/if}
-		{#if funcDesc?.length === 0 && !loading}
+		{#if funcDesc?.length === 0 && !loading && !disableAi}
 			<Wand2 size={14} class="fill-current opacity-70 text-violet-800 dark:text-violet-400" />
 		{/if}
 	</div>

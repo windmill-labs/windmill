@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.405.5](https://github.com/windmill-labs/windmill/compare/v1.405.4...v1.405.5) (2024-10-04)
+
+
+### Bug Fixes
+
+* windows.exe build with github workflow doesn't have openssl.dll bundled in ([#4489](https://github.com/windmill-labs/windmill/issues/4489)) ([284cb40](https://github.com/windmill-labs/windmill/commit/284cb4069c97efe59b5caf3effb68c8b30e02b73))
+
+## [1.405.4](https://github.com/windmill-labs/windmill/compare/v1.405.3...v1.405.4) (2024-10-04)
+
+
+### Bug Fixes
+
+* **frontend:** correctly initialize step inputs on new inline script ([289ad51](https://github.com/windmill-labs/windmill/commit/289ad51374f0344582372572fc521f3b2bf12b33))
+
+## [1.405.3](https://github.com/windmill-labs/windmill/compare/v1.405.2...v1.405.3) (2024-10-04)
+
+
+### Bug Fixes
+
+* fix id save on apps ([b034b07](https://github.com/windmill-labs/windmill/commit/b034b070c075a0fab74678bec1fd8b829d55b204))
+
+## [1.405.2](https://github.com/windmill-labs/windmill/compare/v1.405.1...v1.405.2) (2024-10-03)
+
+
+### Bug Fixes
+
+* **cli:** fix opts.yes for instance sync ([26659ce](https://github.com/windmill-labs/windmill/commit/26659ce37d2887d5b98dbdbdbba27bab85d4fe3f))
+* fix uv path ([19c62ba](https://github.com/windmill-labs/windmill/commit/19c62ba195b1df85c38c748dab7d9f137696a5c3))
+
+## [1.405.1](https://github.com/windmill-labs/windmill/compare/v1.405.0...v1.405.1) (2024-10-03)
+
+
+### Bug Fixes
+
+* flow picker of flows + precache hub scripts as bundles ([c84e6fd](https://github.com/windmill-labs/windmill/commit/c84e6fd05de2bea426cae61fa25db0323b8770f5))
+
 ## [1.405.0](https://github.com/windmill-labs/windmill/compare/v1.404.1...v1.405.0) (2024-10-03)
 
 

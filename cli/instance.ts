@@ -336,6 +336,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
         includeSettings: true,
         includeUsers: true,
         includeKey: true,
+        yes: opts.yes,
       });
     }
 
@@ -489,6 +490,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
         includeSettings: true,
         includeUsers: true,
         includeKey: true,
+        yes: opts.yes,
       });
     }
 

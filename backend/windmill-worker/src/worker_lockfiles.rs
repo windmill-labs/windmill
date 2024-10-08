@@ -1475,7 +1475,7 @@ async fn capture_dependency_job(
                     base_internal_url,
                     worker_name,
                     &token,
-                    occupancy_metrics,
+                    &mut Some(occupancy_metrics),
                 )
                 .await?;
             }

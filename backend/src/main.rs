@@ -135,6 +135,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     })?;
 
     create_dir_all(HUB_CACHE_DIR).await?;
+    create_dir_all(BUN_BUNDLE_CACHE_DIR).await?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -166,7 +167,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             create_dir_all(&job_dir).await?;
             if let Some(lockfile) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
-
+                let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
                     &mut None,
@@ -175,11 +176,31 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     None,
                     &job_dir,
                     "cache_init",
-                    windmill_worker::get_common_bun_proc_envs(None).await,
+                    envs.clone(),
                     false,
                     &mut None,
                 )
                 .await?;
+
+                let _ = windmill_common::worker::write_file(&job_dir, "main.js", &res.content)?;
+
+                if let Err(e) = windmill_worker::prebundle_bun_script(
+                    &res.content,
+                    Some(lockfile),
+                    &path,
+                    &job_id,
+                    "admins",
+                    None,
+                    &job_dir,
+                    "",
+                    "cache_init",
+                    "",
+                    &mut None,
+                )
+                .await
+                {
+                    panic!("Error prebundling bun script: {e:#}");
+                }
             } else {
                 tracing::warn!("No lockfile found for bun script {path}, skipping...");
             }
@@ -338,7 +359,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         config.port = url.port().unwrap_or(6379).to_string();
         config
     });
-
 
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;

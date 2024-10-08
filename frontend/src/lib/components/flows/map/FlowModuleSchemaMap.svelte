@@ -108,6 +108,7 @@
 				module.id,
 				module.summary
 			)
+			$flowStateStore[module.id] = state
 		}
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
@@ -377,7 +378,7 @@
 						if (['branchone', 'branchall'].includes(detail.detail)) {
 							await addBranch(detail.modules[detail.index ?? 0])
 						}
-
+						$flowStateStore = $flowStateStore
 						$flowStore = $flowStore
 						dispatch('change')
 					}

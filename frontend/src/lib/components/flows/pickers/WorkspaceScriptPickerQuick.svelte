@@ -111,11 +111,15 @@
 						? 'bg-surface-hover'
 						: ''}"
 					on:click={() => {
-						dispatch('pickScript', { path, hash: lockHash ? hash : undefined })
+						if (kind == 'flow') {
+							dispatch('pickFlow', { path: path })
+						} else {
+							dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined })
+						}
 					}}
 				>
 					{#if kind == 'flow'}
-						<BarsStaggered size={14} />
+						<BarsStaggered size={14} class="shrink-0" />
 					{:else}
 						<Code2 size={14} />
 					{/if}
