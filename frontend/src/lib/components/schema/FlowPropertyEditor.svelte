@@ -333,7 +333,6 @@
 					displayHeader={false}
 					{pattern}
 					{customErrorMessage}
-					noDefaultOnSelectFirst
 					{itemsType}
 					{contentEncoding}
 					{format}

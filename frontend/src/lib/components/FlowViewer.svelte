@@ -2,7 +2,6 @@
 	import type { FlowValue } from '$lib/gen'
 	import { Tab, Tabs, TabContent } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
-	import FieldHeader from './FieldHeader.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 
 	import HighlightTheme from './HighlightTheme.svelte'

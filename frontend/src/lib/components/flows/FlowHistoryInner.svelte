@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
