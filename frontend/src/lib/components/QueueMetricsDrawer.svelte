@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Pencil, Trash, Check, PlusCircle, SaveIcon } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	type Alert = {
 		name: string
@@ -194,190 +195,200 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="Queue Metrics" on:close={drawer.closeDrawer}>
 		<Section
-			label="Queue Alerts Settings"
+			label="Queue Alert Settings"
 			collapsable={true}
 			tooltip="Manage queue alerts for monitoring queue metrics. These alerts will trigger a critical alert notification if the queue metrics are met."
+			eeOnly={true}
 		>
-			{#if changesMade}
-				<div class="text-red-600 text-xs whitespace-nowrap pb-2">Non applied changes</div>
-				<div class="flex gap-2 pb-2">
-					<Button color="blue" size="xs" on:click={applyConfig}>
-						<SaveIcon size={16} /> Apply Config
-					</Button>
-					<Button color="light" size="xs" on:click={cancelChanges}>Cancel</Button>
-				</div>
-			{/if}
+			{#if $enterpriseLicense}
+				{#if changesMade}
+					<div class="text-red-600 text-xs whitespace-nowrap pb-2">Non applied changes</div>
+					<div class="flex gap-2 pb-2">
+						<Button color="blue" size="xs" on:click={applyConfig}>
+							<SaveIcon size={16} /> Apply Config
+						</Button>
+						<Button color="light" size="xs" on:click={cancelChanges}>Cancel</Button>
+					</div>
+				{/if}
 
-			{#if alerts.length > 0}
-				<div>
-					<form on:submit|preventDefault>
-						<table class="w-full border-collapse mb-2 text-xs table-auto">
-							<thead class="bg-gray-200 text-left text-xs">
-								<tr>
-									<th class="p-2 min-w-[120px]">
-										Name
-										<Tooltip
-											markdownTooltip="The name of the alert. This will be used in the crticial alert notification and help identify the alert."
-										/>
-									</th>
-									<th class="p-2 w-full">
-										Queue Tags to Monitor
-										<Tooltip markdownTooltip="Queue tags to monitor for this alert." />
-									</th>
-									<th class="p-2 min-w-[65px]">
-										Jobs
-										<Tooltip
-											markdownTooltip="Number of jobs threshold. An alert will be triggerd if more than this number of jobs are in the queue for at least the time threshold."
-										/>
-									</th>
-									<th class="p-2 min-w-[115px]">
-										Cooldown (s)
-										<Tooltip
-											markdownTooltip="Cooldown period in seconds. The cooldown period is the time after an alert is triggered that no new alerts will be triggered."
-										/>
-									</th>
-									<th class="p-2 min-w-[105px]">
-										Time (s)
-										<Tooltip
-											markdownTooltip="Time threshold in seconds. An alert will be triggered if more than 'n jobs threshold' have been in the queue for at least this amount of time."
-										/>
-									</th>
-									<th class="p-2 min-w-[100px]"> Actions </th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each alerts as alert, index}
-									<tr
-										class:staged-for-deletion={removedAlerts.includes(alert)}
-										class:non-interactable={removedAlerts.includes(alert)}
-									>
-										<td class="border p-2">
-											{#if editingIndex === index}
-												<input type="text" bind:value={alert.name} class="w-full p-1" />
-											{:else}
-												{alert.name}
-											{/if}
-										</td>
-										<td class="border p-2">
-											{#if editingIndex === index}
-												<div class="flex flex-wrap gap-1 mb-2">
-													{#each alert.tags_to_monitor as tag}
-														<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs">
-															{tag}
-															<button
-																on:click={() => removeTag(index, tag)}
-																aria-label="Remove Tag"
-																class="ml-1 text-black text-xs">x</button
-															>
-														</span>
-													{/each}
-												</div>
-												<div class="flex items-center">
-													<input
-														type="text"
-														bind:value={newTag}
-														placeholder="Add tag"
-														on:input={(e) => filterTags(e)}
-														class="p-1 flex-grow mr-1"
-													/>
-													<button on:click={() => addTag(index, newTag)} aria-label="Add Tag">
-														<PlusCircle size={16} />
-													</button>
-												</div>
-												<!-- Add the new "Add All Tags" button here -->
-												<button
-													on:click={() => addAllTags(index)}
-													class="text-xs hover:bg-gray-200 rounded px-2 py-1 mt-1"
-												>
-													Add All Tags
-												</button>
-												{#if filteredTags.length > 0}
-													<ul class="autocomplete-list">
-														{#each filteredTags as tag}
-															<li>
-																<button type="button" on:click={() => addTag(index, tag)}
-																	>{tag}</button
-																>
-															</li>
-														{/each}
-													</ul>
-												{/if}
-											{:else}
-												<div class="flex flex-wrap gap-1">
-													{#each alert.tags_to_monitor as tag}
-														<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs"
-															>{tag}</span
-														>
-													{/each}
-												</div>
-											{/if}
-										</td>
-										<td class="border p-2">
-											{#if editingIndex === index}
-												<input
-													type="number"
-													bind:value={alert.jobs_num_threshold}
-													class="w-full p-1"
-												/>
-											{:else}
-												{alert.jobs_num_threshold}
-											{/if}
-										</td>
-										<td class="border p-2">
-											{#if editingIndex === index}
-												<input
-													type="number"
-													bind:value={alert.alert_cooldown_seconds}
-													class="w-full p-1"
-												/>
-											{:else}
-												{alert.alert_cooldown_seconds}
-											{/if}
-										</td>
-										<td class="border p-2">
-											{#if editingIndex === index}
-												<input
-													type="number"
-													bind:value={alert.alert_time_threshold_seconds}
-													class="w-full p-1"
-												/>
-											{:else}
-												{alert.alert_time_threshold_seconds}
-											{/if}
-										</td>
-										<td class="border p-2">
-											<div class="flex gap-3 justify-center items-center">
-												{#if editingIndex === index}
-													<button on:click={() => saveAlert(index)} aria-label="Save">
-														<Check size={16} />
-													</button>
-												{:else}
-													<button on:click={() => startEditing(index)} aria-label="Edit">
-														<Pencil size={16} />
-													</button>
-													<button on:click={() => stageDeleteAlert(index)} aria-label="Delete">
-														<Trash size={16} />
-													</button>
-												{/if}
-											</div>
-										</td>
+				{#if alerts.length > 0}
+					<div>
+						<form on:submit|preventDefault>
+							<table class="w-full border-collapse mb-2 text-xs table-auto">
+								<thead class="bg-gray-200 text-left text-xs">
+									<tr>
+										<th class="p-2 min-w-[120px]">
+											Name
+											<Tooltip
+												markdownTooltip="The name of the alert. This will be used in the crticial alert notification and help identify the alert."
+											/>
+										</th>
+										<th class="p-2 w-full">
+											Queue Tags to Monitor
+											<Tooltip markdownTooltip="Queue tags to monitor for this alert." />
+										</th>
+										<th class="p-2 min-w-[65px]">
+											Jobs
+											<Tooltip
+												markdownTooltip="Number of jobs threshold. An alert will be triggerd if more than this number of jobs are in the queue for at least the time threshold."
+											/>
+										</th>
+										<th class="p-2 min-w-[115px]">
+											Cooldown (s)
+											<Tooltip
+												markdownTooltip="Cooldown period in seconds. The cooldown period is the time after an alert is triggered that no new alerts will be triggered."
+											/>
+										</th>
+										<th class="p-2 min-w-[105px]">
+											Time (s)
+											<Tooltip
+												markdownTooltip="Time threshold in seconds. An alert will be triggered if more than 'n jobs threshold' have been in the queue for at least this amount of time."
+											/>
+										</th>
+										<th class="p-2 min-w-[100px]"> Actions </th>
 									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</form>
-				</div>
-			{/if}
+								</thead>
+								<tbody>
+									{#each alerts as alert, index}
+										<tr
+											class:staged-for-deletion={removedAlerts.includes(alert)}
+											class:non-interactable={removedAlerts.includes(alert)}
+										>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input type="text" bind:value={alert.name} class="w-full p-1" />
+												{:else}
+													{alert.name}
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<div class="flex flex-wrap gap-1 mb-2">
+														{#each alert.tags_to_monitor as tag}
+															<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs">
+																{tag}
+																<button
+																	on:click={() => removeTag(index, tag)}
+																	aria-label="Remove Tag"
+																	class="ml-1 text-black text-xs">x</button
+																>
+															</span>
+														{/each}
+													</div>
+													<div class="flex items-center">
+														<input
+															type="text"
+															bind:value={newTag}
+															placeholder="Add tag"
+															on:input={(e) => filterTags(e)}
+															class="p-1 flex-grow mr-1"
+														/>
+														<button on:click={() => addTag(index, newTag)} aria-label="Add Tag">
+															<PlusCircle size={16} />
+														</button>
+													</div>
+													<!-- Add the new "Add All Tags" button here -->
+													<button
+														on:click={() => addAllTags(index)}
+														class="text-xs hover:bg-gray-200 rounded px-2 py-1 mt-1"
+													>
+														Add All Tags
+													</button>
+													{#if filteredTags.length > 0}
+														<ul class="autocomplete-list">
+															{#each filteredTags as tag}
+																<li>
+																	<button type="button" on:click={() => addTag(index, tag)}
+																		>{tag}</button
+																	>
+																</li>
+															{/each}
+														</ul>
+													{/if}
+												{:else}
+													<div class="flex flex-wrap gap-1">
+														{#each alert.tags_to_monitor as tag}
+															<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs"
+																>{tag}</span
+															>
+														{/each}
+													</div>
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input
+														type="number"
+														bind:value={alert.jobs_num_threshold}
+														class="w-full p-1"
+													/>
+												{:else}
+													{alert.jobs_num_threshold}
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input
+														type="number"
+														bind:value={alert.alert_cooldown_seconds}
+														class="w-full p-1"
+													/>
+												{:else}
+													{alert.alert_cooldown_seconds}
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input
+														type="number"
+														bind:value={alert.alert_time_threshold_seconds}
+														class="w-full p-1"
+													/>
+												{:else}
+													{alert.alert_time_threshold_seconds}
+												{/if}
+											</td>
+											<td class="border p-2">
+												<div class="flex gap-3 justify-center items-center">
+													{#if editingIndex === index}
+														<button on:click={() => saveAlert(index)} aria-label="Save">
+															<Check size={16} />
+														</button>
+													{:else}
+														<button on:click={() => startEditing(index)} aria-label="Edit">
+															<Pencil size={16} />
+														</button>
+														<button on:click={() => stageDeleteAlert(index)} aria-label="Delete">
+															<Trash size={16} />
+														</button>
+													{/if}
+												</div>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</form>
+					</div>
+				{/if}
 
-			<!-- Button to Add New Alert at the Bottom of the Table -->
-			<div class="flex">
-				<Button color="blue" size="xs" on:click={addNewAlert}>
-					<PlusCircle size={16} />
-					Add New Alert
-				</Button>
-			</div>
+				<!-- Button to Add New Alert at the Bottom of the Table -->
+				<div class="flex">
+					<Button color="blue" size="xs" on:click={addNewAlert}>
+						<PlusCircle size={16} />
+						Add New Alert
+					</Button>
+				</div>
+			{:else}
+				<p class="text-gray-600 text-sm">
+					Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting jobs. Please upgrade to access this functionality. 
+					<a href="https://www.windmill.dev/docs/misc/plans_details" target="_blank" class="text-blue-500 underline">Learn more about our plans.</a>
+				</p>
+			{/if}
 		</Section>
-		<QueueMetricsDrawerInner />
+		<div class="p-8">
+			<QueueMetricsDrawerInner />
+		</div>
 	</DrawerContent>
 </Drawer>
 
