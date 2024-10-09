@@ -250,7 +250,7 @@
 		>
 		<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
 			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
-				<Badge color="indigo" wrapperClass="max-w-full" baseClass="max-w-full truncate">
+				<Badge color="indigo" wrapperClass="max-w-full" baseClass="max-w-full truncate" title={id}>
 					<span class="max-w-full text-2xs truncate">{id}</span></Badge
 				>
 				{#if deletable}
