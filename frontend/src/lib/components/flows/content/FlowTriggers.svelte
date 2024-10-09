@@ -5,13 +5,11 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
-	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import FlowCard from '../common/FlowCard.svelte'
-	import { onMount, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	let schedules: Schedule[] | undefined = undefined
 
 	export let noEditor: boolean
 	export let newFlow = false
@@ -20,27 +18,6 @@
 	const { pathStore, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: path = $pathStore
-
-	async function loadSchedules() {
-		if (!path) return
-		try {
-			schedules = (
-				await ScheduleService.listSchedules({
-					workspace: $workspaceStore ?? '',
-					path: path,
-					isFlow: true
-				})
-			).filter((s) => s.path != path)
-		} catch (e) {
-			console.error('impossible to load schedules')
-		}
-	}
-
-	onMount(() => {
-		if (!newFlow) {
-			loadSchedules()
-		}
-	})
 </script>
 
 <FlowCard {noEditor} title="Flow Triggers">
@@ -90,7 +67,6 @@
 							isFlow={true}
 							path={path ?? ''}
 							can_write={canWrite(path, {}, $userStore)}
-							bind:schedules
 						/>
 					</div>
 				{/if}

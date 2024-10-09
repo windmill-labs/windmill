@@ -2,7 +2,7 @@
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import { Button } from './common'
 	import { workspaceStore } from '$lib/stores'
-	import { ScheduleService, type Schedule } from '$lib/gen'
+	import { ScheduleService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { Calendar } from 'lucide-svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -17,7 +17,6 @@
 
 	let scheduleEditor: ScheduleEditor
 
-	export let schedules: Schedule[] | undefined = undefined
 	export let newFlow: boolean = false
 
 	$: path && loadSchedule()
@@ -42,7 +41,7 @@
 
 	async function loadSchedules() {
 		try {
-			schedules = (
+			$schedules = (
 				await ScheduleService.listSchedules({
 					workspace: $workspaceStore ?? '',
 					path,
@@ -70,7 +69,7 @@
 		}
 	}
 
-	const { primarySchedule } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { primarySchedule, schedules } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <ScheduleEditor
@@ -106,13 +105,13 @@
 	{/if}
 
 	<Label label="Other schedules">
-		{#if schedules}
-			{#if schedules.length == 0}
+		{#if $schedules}
+			{#if $schedules?.length == 0 || $schedules == undefined}
 				<div class="text-xs text-tertiary"> No other schedules </div>
 			{:else}
 				<div class="flex flex-col divide-y">
-					{#each schedules as schedule (schedule.path)}
-						<div class="grid grid-cols-6 text-xs items-center">
+					{#each $schedules as schedule (schedule.path)}
+						<div class="grid grid-cols-6 text-xs items-center py-2">
 							<div class="col-span-3 truncate">{schedule.path}</div>
 							<div class="col-span-2 flex flex-row gap-4 flex-nowrap">
 								<div>{schedule.schedule}</div>
