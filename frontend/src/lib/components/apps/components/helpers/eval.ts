@@ -240,7 +240,11 @@ export async function eval_like(
 			controlComponents[id]?.askNewResource?.()
 		},
 		(urlOrBase64, filename) => {
-			console.log('downloadFile', urlOrBase64, filename)
+			const handleError = (error) => {
+				console.error('Error downloading file:', error)
+				sendUserToast(`Error downloading file: ${error.message}. Ensure it is a valid URL or a base64 encoded data URL (data:...)`, true)
+			}
+
 			if (urlOrBase64.startsWith('data:')) {
 				// Handle base64 data
 				const link = document.createElement('a')
@@ -249,10 +253,15 @@ export async function eval_like(
 				document.body.appendChild(link)
 				link.click()
 				document.body.removeChild(link)
-			} else {
-				// Fetch the file as a blob, this will prevent the browser from opening the file as a new tab
+			} else if (/^(http|https):\/\//.test(urlOrBase64)) {
+				// Ensure the URL is absolute
 				fetch(urlOrBase64)
-					.then(response => response.blob())
+					.then(response => {
+						if (!response.ok) {
+							throw new Error(`HTTP error! status: ${response.status}`)
+						}
+						return response.blob()
+					})
 					.then(blob => {
 						const link = document.createElement('a')
 						const url = URL.createObjectURL(blob)
@@ -263,7 +272,10 @@ export async function eval_like(
 						document.body.removeChild(link)
 						URL.revokeObjectURL(url)
 					})
-					.catch(error => console.error('Error downloading file:', error))
+					.catch(handleError)
+			} else {
+				// Handle invalid URL format
+				handleError(new Error('The URL must be an absolute URL.'))
 			}
 		}
 	)
