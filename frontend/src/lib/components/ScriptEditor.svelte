@@ -74,7 +74,7 @@
 	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
-	let scriptProgress = undefined;
+	let scriptProgress = undefined
 
 	// Test
 	let testIsLoading = false
@@ -106,7 +106,7 @@
 
 	function runTest() {
 		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset();
+		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
 		testJobLoader.runPreview(
 			path,
@@ -432,10 +432,15 @@
 							{diffEditor}
 							{args}
 						>
-						{#if scriptProgress}
-							<!-- Put to the slot in logpanel -->
-							<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
-						{/if}
+							{#if scriptProgress}
+								<!-- Put to the slot in logpanel -->
+								<JobProgressBar
+									job={testJob}
+									bind:scriptProgress
+									bind:reset={jobProgressReset}
+									compact={true}
+								/>
+							{/if}
 						</LogPanel>
 					</Pane>
 				</Splitpanes>

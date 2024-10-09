@@ -175,11 +175,11 @@ export default function graphBuilder(
 			nodes.push(triggerNode)
 			if (!!preprocessorModule) {
 				addEdge('Trigger', preprocessorModule.id, {
-					type: 'hiddenedge'
+					type: 'empty'
 				})
 			} else {
 				addEdge('Trigger', 'Input', {
-					type: 'hiddenedge'
+					type: 'empty'
 				})
 			}
 		}

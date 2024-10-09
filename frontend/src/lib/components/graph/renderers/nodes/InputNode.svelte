@@ -27,7 +27,7 @@
 
 <NodeWrapper let:darkMode>
 	{#if data.insertable && !data.hasPreprocessor}
-		<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 z-10">
+		<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
 			<InsertModuleButton
 				disableAi={data.disableAi}
 				index={data.index ?? 0}
