@@ -58,7 +58,8 @@ mod annotations_tests {
     // e.g. rust, TS and JS
     #[test]
     fn slashed_annotations() {
-        let cont = "// ann1, ann2";
+        let cont = "// ann1
+// ann2";
         assert_eq!(
             SlashedAnnotations { ann1: true, ann2: true },
             SlashedAnnotations::parse(cont)
@@ -68,7 +69,8 @@ mod annotations_tests {
     // e.g. Haskell, SQL
     #[test]
     fn minused_annotations() {
-        let cont = "-- ann1, ann2";
+        let cont = "-- ann1
+-- ann2";
         assert_eq!(
             MinusedAnnotations { ann1: true, ann2: true },
             MinusedAnnotations::parse(cont)
@@ -203,11 +205,7 @@ mod annotations_tests {
     #[test]
     fn bench() {
         let cont = "# ann2
-# Just comment, has nothing to do with annotations
-# Another comment: ann1 ann2 ann3 ann4
-# Actual annotation next line:
 # ann5
-# Should be ignored
 # ann3
 # ann4
 # ann5
@@ -218,7 +216,17 @@ mod annotations_tests {
 # ann10
 # ann11
 # ann12
-
+# ann19
+# ann20
+# ann21
+# ann22
+# ann25
+# ann23
+# ann24
+# ann26
+# ann27
+# ann28
+# ann29
 #
 # Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
 # Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
@@ -244,12 +252,44 @@ mod annotations_tests {
 # Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
 # Ut enim ad minim veniam, quis nostrud exercitation 
 # ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# ann30
+            ";
+        let cont2 = "# ann2 ann5 ann3 ann4 
+# ann5 ann6 ann7 ann8 ann9 ann10
+# ann11 ann12 ann19 ann20 ann21 ann22 
+# ann25 ann23 ann24 ann26 ann27 ann28 ann29
+#
+# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
+# Ut enim ad minim veniam, quis nostrud exercitation 
+# ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
+# Ut enim ad minim veniam, quis nostrud exercitation 
+# ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
+# Ut enim ad minim veniam, quis nostrud exercitation 
+# ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
+# Ut enim ad minim veniam, quis nostrud exercitation 
+# ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
+# Ut enim ad minim veniam, quis nostrud exercitation 
+# ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
+# Ut enim ad minim veniam, quis nostrud exercitation 
+# ullamco laboris nisi ut aliquip ex ea commodo consequat.
+# ann30
             ";
 
         {
             let start = Instant::now();
             for _ in 0..10000 {
-                BenchAnnotations::parse(cont);
+                BenchAnnotations::parse(cont2);
             }
             let end = Instant::now();
             let duration = end - start;

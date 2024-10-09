@@ -15,7 +15,8 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => panic!("Expected a string literal"),
     };
 
-    let mut re = format!("^(?:{})", &comm_lit);
+    let mut re = format!("^{}", &comm_lit);
+    re.push_str(r#"\W*"#);
 
     let mut len = 0;
     let mut capture_group = "".to_string();
@@ -35,26 +36,23 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Limit to 15 per line, the reason, is that it regex gets too heavy
     // Anyways it is not the problem until language has more than 15 annotations
-    // If you have more than 15 annotations on line, its prbbly better to refactor
+    // If you have more than 15 annotations on line, its probabely better to refactor
     // 15 Annotations on single line for instance:
     // ann1 ann2 ann3 ann4 ann5 ann6 ann7 ann8 ann9 ann10 ann11 ann12 ann13 ann14 ann15
     for _ in 0..len.min(15) {
-        // (?:\W*\b(ann|ann2|ann3)\b\W*)?
-        re.push_str(r#"(?:\W*\b("#);
+        // (?:(ann|ann2|ann3)\b\W*)?
+        re.push_str(r#"(?:("#);
         re.push_str(&capture_group);
         re.push_str(r#")\b\W*)?"#);
     }
 
-    // re.push_str(&format!("$|^(?:{})", &comm_lit));
-    re.push_str(&format!("$"));
+    re.push_str(&format!("$|^(?:#)"));
 
-    // Final regex will look something like this:
-
-    // ^(?:#)                     - Capture comment and make sure there is nothing before it
-    // (?:\W*\b(ann1|ann2)\b\W*)? - Optionally capture one of annotations
-    // (?:\W*\b(ann1|ann2)\b\W*)? - Repeat
-    // $                          - Make sure there is only annotations on line
-    // |^(?:#)                    - Detect if there is comment sign in right position
+    // ^#\W*                 - Capture comment and make sure there is nothing before it
+    // (?:(ann1|ann2)\b\W*)? - Optionally capture one of annotations
+    // (?:(ann1|ann2)\b\W*)? - Repeat
+    // $                     - Make sure there is only annotations on line
+    // $|^(?:#)              - Make everything but ^# optional
 
     TokenStream::from(quote! {
         #[derive(Default, Debug)]
@@ -85,9 +83,10 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #( stringify!(#fields) => res.#fields = true, )*
                                     _ => unreachable!(),
                                 };
+                            } else {
+                                break;
                             }
                         }
-
                     } else {
                         break;
                     }
