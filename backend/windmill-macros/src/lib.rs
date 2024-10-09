@@ -33,14 +33,20 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
         len += 1;
     }
 
-    for _ in 0..len {
+    // Limit to 15 per line, the reason, is that it regex gets too heavy
+    // Anyways it is not the problem until language has more than 15 annotations
+    // If you have more than 15 annotations on line, its prbbly better to refactor
+    // 15 Annotations on single line for instance:
+    // ann1 ann2 ann3 ann4 ann5 ann6 ann7 ann8 ann9 ann10 ann11 ann12 ann13 ann14 ann15
+    for _ in 0..len.min(15) {
         // (?:\W*\b(ann|ann2|ann3)\b\W*)?
         re.push_str(r#"(?:\W*\b("#);
         re.push_str(&capture_group);
         re.push_str(r#")\b\W*)?"#);
     }
 
-    re.push_str(&format!("$|^(?:{})", &comm_lit));
+    // re.push_str(&format!("$|^(?:{})", &comm_lit));
+    re.push_str(&format!("$"));
 
     // Final regex will look something like this:
 
