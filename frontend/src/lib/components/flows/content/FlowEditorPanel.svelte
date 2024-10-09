@@ -14,6 +14,7 @@
 
 	export let noEditor = false
 	export let enableAi = false
+	export let disabledFlowInputs = false
 
 	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -57,7 +58,7 @@
 {#if $selectedId?.startsWith('settings')}
 	<FlowSettings {noEditor} />
 {:else if $selectedId === 'Input'}
-	<FlowInput {noEditor} />
+	<FlowInput {noEditor} disabled={disabledFlowInputs} />
 {:else if $selectedId === 'Result'}
 	<p class="p-4 text-secondary">Nothing to show about the result node. Happy flow building!</p>
 {:else if $selectedId === 'constants'}

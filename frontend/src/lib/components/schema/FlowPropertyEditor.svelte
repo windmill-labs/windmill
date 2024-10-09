@@ -333,6 +333,7 @@
 					displayHeader={false}
 					{pattern}
 					{customErrorMessage}
+					noDefaultOnSelectFirst
 					{itemsType}
 					{contentEncoding}
 					{format}
@@ -341,6 +342,7 @@
 				/>
 			{:else}
 				<ArgInput
+					noDefaultOnSelectFirst
 					{itemPicker}
 					resourceTypes={getResourceTypesFromFormat(format)}
 					bind:value={defaultValue}

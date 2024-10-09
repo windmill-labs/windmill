@@ -25,7 +25,7 @@
 			<slot name="trigger" />
 		</MenuButton>
 	</div>
-	<Portal>
+	<Portal name="menu-v2">
 		<div use:floatingContent class="z-[6000]">
 			<Transition
 				{open}

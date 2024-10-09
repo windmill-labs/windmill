@@ -854,7 +854,7 @@
 			</DrawerContent>
 		</Drawer>
 
-		<Portal>
+		<Portal name="s3filepicker">
 			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 		</Portal>
 	{/if}

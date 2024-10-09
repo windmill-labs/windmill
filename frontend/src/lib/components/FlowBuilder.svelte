@@ -99,6 +99,7 @@
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
+	export let disabledFlowInputs = false
 
 	$: setContext('customUi', customUi)
 
@@ -1326,6 +1327,7 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
+					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
 					{loading}
