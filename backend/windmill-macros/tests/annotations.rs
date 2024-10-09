@@ -6,7 +6,9 @@ use std::time::Instant;
 mod annotations_tests {
 
     extern crate windmill_macros;
+    use std::hash::{Hash, Hasher};
 
+    use std::hash::DefaultHasher;
     use std::time::Instant;
 
     // use annotations;
@@ -139,7 +141,8 @@ mod annotations_tests {
     fn comments_inbetween_integration() {
         let cont = "# ann2
 # Just comment, has nothing to do with annotations
-# Another comment: ann1 ann2 ann3 ann4
+# Another comment: ann1 ann2 ann3
+# ann4 is not valid annotation
 # Actual annotation next line:
 # ann5
 
@@ -189,6 +192,14 @@ mod annotations_tests {
         pub ann33: bool,
         pub ann34: bool,
     }
+    #[test]
+    fn hash_collision() {
+        // TODO
+    }
+    // fn create_hash(msg: &str, mut hasher: Sha256) -> Vec<u8> {
+    //     hasher.update(msg);
+    //     hasher.finalize().as_slice().to_vec()
+    // }
     fn bench_legacy(inner_content: &str) {
         let annotations = inner_content
             .lines()
@@ -227,7 +238,7 @@ mod annotations_tests {
 # ann27
 # ann28
 # ann29
-#
+
 # Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
 # Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
 # Ut enim ad minim veniam, quis nostrud exercitation 
@@ -255,10 +266,9 @@ mod annotations_tests {
 # ann30
             ";
         let cont2 = "# ann2 ann5 ann3 ann4 
-# ann5 ann6 ann7 ann8 ann9 ann10
-# ann11 ann12 ann19 ann20 ann21 ann22 
+# ann5 ann6 ann7 ann8 ann9 ann10 ann11 ann12 ann19 ann20 ann21 ann22 
 # ann25 ann23 ann24 ann26 ann27 ann28 ann29
-#
+
 # Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
 # Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
 # Ut enim ad minim veniam, quis nostrud exercitation 
