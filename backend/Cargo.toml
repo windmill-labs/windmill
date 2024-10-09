@@ -14,6 +14,7 @@ members = [
     "./windmill-audit",
     "./windmill-git-sync",
     "./windmill-indexer",
+    "./windmill-macros",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -23,7 +24,7 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml",
+    "./parsers/windmill-parser-yaml", "windmill-macros",
 ]
 
 [workspace.package]
@@ -113,6 +114,7 @@ windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-indexer = {path = "./windmill-indexer"}
+windmill-macros = {path = "./windmill-macros"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -275,6 +277,8 @@ triomphe = "<0.1.12"
 
 tantivy = "0.22.0"
 
+# Macro-related
+proc-macro2 = "1.0"
 pulldown-cmark = "0.9"
 toml = "0.7"
 syn = { version = "2.0.74", features = ["full"] }

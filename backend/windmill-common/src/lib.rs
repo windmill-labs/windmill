@@ -34,6 +34,7 @@ pub mod more_serde;
 pub mod oauth2;
 pub mod s3_helpers;
 
+pub mod annotations;
 pub mod auth;
 pub mod schedule;
 pub mod scripts;
