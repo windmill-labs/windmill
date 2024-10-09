@@ -145,7 +145,9 @@
 					{#if numberOfAdvancedOptionsOn > 0}
 						<div class="flex grow min-w-0 w-full flex-wrap gap-1 ps-2">
 							{#each activeAdvancedOptionNames as optionName}
-								<Badge twBgColor="bg-nord-300" twTextColor="text-white">{optionName}</Badge>
+								<Badge twBgColor="bg-nord-950 dark:bg-nord-400" twTextColor="text-primary-inverse"
+									>{optionName}</Badge
+								>
 							{/each}
 						</div>
 					{/if}
