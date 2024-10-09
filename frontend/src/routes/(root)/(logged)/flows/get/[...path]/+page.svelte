@@ -31,6 +31,7 @@
 		Badge,
 		Loader2,
 		GitFork,
+		Play,
 		History,
 		Columns,
 		Pen,
@@ -182,6 +183,19 @@
 			label: `View runs`,
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: Play
+			}
+		})
+
+		buttons.push({
+			label: `History`,
+			buttonProps: {
+				onClick: () => {
+					flowHistory?.open()
+				},
+
 				size: 'xs',
 				color: 'light',
 				startIcon: History
@@ -442,7 +456,7 @@
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
 						<span class="text-sm text-tertiary">
-							Edited <TimeAgo withDate date={flow.edited_at ?? ''} /> by {flow.edited_by}
+							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 						</span>
 
 						{#if flow.archived}

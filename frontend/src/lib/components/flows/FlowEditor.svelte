@@ -16,6 +16,7 @@
 	export let disableTutorials = false
 	export let disableAi = false
 	export let disableSettings = false
+	export let disabledFlowInputs = false
 	export let smallErrorHandler = false
 	export let newFlow: boolean = false
 
@@ -63,7 +64,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel enableAi={!disableAi} {newFlow} />
+				<FlowEditorPanel {disabledFlowInputs} {newFlow} enableAi={!disableAi} />
 			{/if}
 		</Pane>
 	</Splitpanes>

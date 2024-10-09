@@ -660,8 +660,7 @@
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
 						<span class="text-sm text-tertiary">
-							Edited <TimeAgo withDate date={script.created_at || ''} /> by {script.created_by ||
-								'unknown'}
+							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="gray">
 							{truncateHash(script?.hash ?? '')}

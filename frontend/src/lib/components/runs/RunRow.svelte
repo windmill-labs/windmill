@@ -44,7 +44,7 @@
 	}
 </script>
 
-<Portal>
+<Portal name="run-row">
 	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -105,7 +105,7 @@
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
-					Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
+					Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
 					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 						(Ran in {msToReadableTime(
 							job.duration_ms
@@ -121,11 +121,7 @@
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}
 				{:else}
-					Waiting for executor (created <TimeAgo
-						withDate
-						agoOnlyIfRecent
-						date={job.created_at || ''}
-					/>)
+					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}
 			{/if}
 		</div>

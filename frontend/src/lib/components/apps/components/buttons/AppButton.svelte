@@ -244,7 +244,7 @@
 </RunnableWrapper>
 
 {#if resolvedConfig?.confirmationModal?.selected === 'confirmationModal'}
-	<Portal target="#app-editor-top-level-drawer">
+	<Portal name="app-button" target="#app-editor-top-level-drawer">
 		<ConfirmationModal
 			open={Boolean(confirmedCallback)}
 			title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}

@@ -80,7 +80,7 @@
 				</div>
 			</MultiSelect>
 		</div>
-		<Portal>
+		<Portal name="multi-select">
 			<div use:floatingContent class="z5000" hidden={!open}>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->

@@ -1,19 +1,79 @@
 import { type Script } from './gen'
 
-import PYTHON_INIT_CODE from '$lib/init_scripts/python_init_code'
-import PYTHON_INIT_CODE_CLEAR from '$lib/init_scripts/python_init_code_clear'
-import PYTHON_INIT_CODE_TRIGGER from '$lib/init_scripts/python_init_code_trigger'
-import PYTHON_FAILURE_MODULE_CODE from '$lib/init_scripts/python_failure_module'
 import type { SupportedLanguage } from './common'
 
-export {
-	PYTHON_INIT_CODE,
-	PYTHON_INIT_CODE_CLEAR,
-	PYTHON_INIT_CODE_TRIGGER,
-	PYTHON_FAILURE_MODULE_CODE
-}
+export let PYTHON_FAILURE_MODULE_CODE = `import os
 
-export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
+def main(message: str, name: str, step_id: str):
+    flow_id = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+    print("message", message)
+    print("name", name)
+    print("step_id", step_id)
+    return { "message": message, "flow_id": flow_id, "step_id": step_id, "recover": False }`
+
+export let PYTHON_INIT_CODE_CLEAR = `# import wmill
+
+
+def main(x: str):
+    return x`
+
+export let PYTHON_INIT_CODE_TRIGGER = `import wmill
+
+
+def main():
+    # A common trigger script would follow this pattern:
+    # 1. Get the last saved state
+    # state = wmill.get_state()
+    # 2. Get the actual state from the external service
+    # newState = ...
+    # 3. Compare the two states and update the internal state
+    # wmill.setState(newState)
+    # 4. Return the new rows
+    # return range from (state to newState)
+    return [1, 2, 3]`
+
+export let PYTHON_INIT_CODE = `import os
+import wmill
+
+# You can import any PyPi package. 
+# See here for more info: https://www.windmill.dev/docs/advanced/dependencies_in_python
+
+# you can use typed resources by doing a type alias to dict
+#postgresql = dict
+
+def main(
+    no_default: str,
+    #db: postgresql,
+    name="Nicolas Bourbaki",
+    age=42,
+    obj: dict = {"even": "dicts"},
+    l: list = ["or", "lists!"],
+    file_: bytes = bytes(0),
+):
+
+    print(f"Hello World and a warm welcome especially to {name}")
+    print("and its acolytes..", age, obj, l, len(file_))
+
+    # retrieve variables, resources, states using the wmill client
+    try:
+        secret = wmill.get_variable("f/examples/secret")
+    except:
+        secret = "No secret yet at f/examples/secret !"
+    print(f"The variable at \`f/examples/secret\`: {secret}")
+
+    # Get last state of this script execution by the same trigger/user
+    last_state = wmill.get_state()
+    new_state = {"foo": 42} if last_state is None else last_state
+    new_state["foo"] += 1
+    wmill.set_state(new_state)
+
+    # fetch context variables
+    user = os.environ.get("WM_USERNAME")
+
+    # return value is converted to JSON
+    return {"splitted": name.split(), "user": user, "state": new_state}`
+
+export let NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
 //import * as wmill from './windmill.ts'
 
 export async function main(example_input: number = 3) {
@@ -25,7 +85,7 @@ export async function main(example_input: number = 3) {
 }
 `
 
-export const BUNNATIVE_INIT_CODE = `//native
+export let BUNNATIVE_INIT_CODE = `//native
 //you can add proxy support using //proxy http(s)://host:port
 
 // native scripts are bun scripts that are executed on native workers and can be parallelized
@@ -42,7 +102,7 @@ export async function main(example_input: number = 3) {
 }
 `
 
-export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
+export let NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
 //import * as wmill from './windmill.ts'
 
 export async function main() {
@@ -53,7 +113,7 @@ export async function main() {
 }
 `
 
-export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
+export let DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
 // import * as wmill from "npm:windmill-client@${__pkg__.version}"
@@ -74,7 +134,7 @@ export async function main(
 }
 `
 
-export const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+export let BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
 // https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
 
 // import { toWords } from "number-to-words@1"
@@ -105,7 +165,7 @@ export async function main(
 }
 `
 
-export const GO_INIT_CODE = `package inner
+export let GO_INIT_CODE = `package inner
 
 import (
 	"fmt"
@@ -129,7 +189,7 @@ func main(x string, nested struct {
 }
 `
 
-export const GO_FAILURE_MODULE_CODE = `package inner
+export let GO_FAILURE_MODULE_CODE = `package inner
 
 import (
 	"fmt"
@@ -146,21 +206,21 @@ func main(message string, name string) (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@${__pkg__.version}"
+export let DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
   return x
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client"
+export let BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client"
 
 export async function main(x: string) {
   return x
 }
 `
 
-export const DENO_FAILURE_MODULE_CODE = `
+export let DENO_FAILURE_MODULE_CODE = `
 export async function main(message: string, name: string, step_id: string) {
   const flow_id = Deno.env.get("WM_ROOT_FLOW_JOB_ID")
   console.log("message", message)
@@ -170,7 +230,7 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-export const BUN_FAILURE_MODULE_CODE = `
+export let BUN_FAILURE_MODULE_CODE = `
 export async function main(message: string, name: string, step_id: string) {
   const flow_id = process.env.WM_ROOT_FLOW_JOB_ID
   console.log("message", message)
@@ -180,7 +240,7 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+export let POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -189,7 +249,7 @@ INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
 UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
-export const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+export let MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -197,7 +257,7 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-export const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+export let BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -206,7 +266,7 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
-export const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+export let SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -215,7 +275,7 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-export const MSSQL_INIT_CODE = `-- return_last_result
+export let MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
 -- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
@@ -224,7 +284,7 @@ INSERT INTO demo VALUES (@p1, @p2);
 UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
 `
 
-export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
+export let GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
 		name2,
@@ -233,7 +293,7 @@ export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [St
 }
 `
 
-export const PHP_INIT_CODE = `<?php
+export let PHP_INIT_CODE = `<?php
 
 // remove the first // of the following lines to specify packages to install using composer
 // // require:
@@ -253,7 +313,7 @@ function main(
 }
 `
 
-export const RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
+export let RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
 //!
 //! \`\`\`cargo
 //! [dependencies]
@@ -288,7 +348,7 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 }
 `
 
-export const FETCH_INIT_CODE = `export async function main(
+export let FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
 	body: Object = {},
@@ -319,7 +379,7 @@ export const FETCH_INIT_CODE = `export async function main(
 		})
 }`
 
-export const BASH_INIT_CODE = `# shellcheck shell=bash
+export let BASH_INIT_CODE = `# shellcheck shell=bash
 # arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 dflt="\${2:-default value}"
@@ -329,7 +389,7 @@ dflt="\${2:-default value}"
 echo "Hello $msg"
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
+export let DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main() {
 
@@ -350,7 +410,7 @@ export async function main() {
 }
 `
 
-export const BUN_INIT_CODE_TRIGGER = `import * as wmill from "windmill-client"
+export let BUN_INIT_CODE_TRIGGER = `import * as wmill from "windmill-client"
 
 export async function main() {
 
@@ -371,7 +431,7 @@ export async function main() {
 }
 `
 
-export const GO_INIT_CODE_TRIGGER = `package inner
+export let GO_INIT_CODE_TRIGGER = `package inner
 
 import (
 	wmill "github.com/windmill-labs/windmill-go-client"
@@ -395,7 +455,7 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
+export let DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
   const urls = await wmill.getResumeUrls(approver)
@@ -423,7 +483,7 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
+export let BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
   const urls = await wmill.getResumeUrls(approver)
@@ -451,7 +511,7 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_PREPROCESSOR_MODULE_CODE = `
+export let BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
 		kind: 'http' | 'email' | 'webhook',
@@ -472,7 +532,7 @@ export async function preprocessor(
 }
 `
 
-export const DENO_PREPROCESSOR_MODULE_CODE = `
+export let DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
 		kind: 'http' | 'email' | 'wehbook',
@@ -493,7 +553,7 @@ export async function preprocessor(
 }
 `
 
-export const PYTHON_INIT_CODE_APPROVAL = `import wmill
+export let PYTHON_INIT_CODE_APPROVAL = `import wmill
 
 def main():
   urls = wmill.get_resume_urls()
@@ -520,7 +580,7 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+export let PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 
 class Http(TypedDict):
 	route: str # The route path, e.g. "/users/:id"
@@ -543,7 +603,7 @@ def preprocessor(
 	}
 `
 
-export const DOCKER_INIT_CODE = `# shellcheck shell=bash
+export let DOCKER_INIT_CODE = `# shellcheck shell=bash
 # Bash script that calls docker as a client to the host daemon
 # See documentation: https://www.windmill.dev/docs/advanced/docker
 msg="\${1:-world}"
@@ -556,7 +616,7 @@ docker pull $IMAGE
 docker run --rm $IMAGE $COMMAND
 `
 
-export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
+export let POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
 
 # Import-Module MyModule
 
@@ -567,7 +627,7 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
-export const ANSIBLE_PLAYBOOK_INIT_CODE = `---
+export let ANSIBLE_PLAYBOOK_INIT_CODE = `---
 inventory:
   - resource_type: ansible_inventory
     # You can pin an inventory to this script by hardcoding the resource path:

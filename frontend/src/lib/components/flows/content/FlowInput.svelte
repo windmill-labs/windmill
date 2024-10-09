@@ -12,8 +12,10 @@
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
+	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 
 	export let noEditor: boolean
+	export let disabled: boolean
 
 	const { flowStore, flowStateStore, previewArgs, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -42,67 +44,73 @@
 <CapturePayload bind:this={capturePayload} />
 
 <FlowCard {noEditor} title="Flow Input">
-	<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
-		<div>Copy input's schema from</div>
-		<Button
-			color="dark"
-			size="xs"
-			on:click={() => {
-				capturePayload.openDrawer()
-			}}
-		>
-			A request
-		</Button>
-		<Button
-			color="dark"
-			size="xs"
-			on:click={() => {
-				jsonPayload.openDrawer()
-			}}
-		>
-			A JSON
-		</Button>
-		<Button
-			color="dark"
-			size="xs"
-			on:click={() => {
-				inputLibraryDrawer.openDrawer()
-			}}
-		>
-			Past Runs/Input library
-		</Button>
-		<Button
-			color="dark"
-			size="xs"
-			disabled={$flowStore.value.modules.length === 0 ||
-				$flowStore.value.modules[0].value.type == 'identity'}
-			on:click={() => copyFirstStepSchema($flowStateStore, flowStore)}
-		>
-			First step's inputs
-		</Button>
-	</div>
-	<div class="p-4 border-b">
-		<AddProperty
-			bind:schema={$flowStore.schema}
-			bind:this={addProperty}
-			on:change={() => {
-				$flowStore = $flowStore
-			}}
-		/>
-	</div>
+	{#if !disabled}
+		<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
+			<div>Copy input's schema from</div>
+			<Button
+				color="dark"
+				size="xs"
+				on:click={() => {
+					capturePayload.openDrawer()
+				}}
+			>
+				A request
+			</Button>
+			<Button
+				color="dark"
+				size="xs"
+				on:click={() => {
+					jsonPayload.openDrawer()
+				}}
+			>
+				A JSON
+			</Button>
+			<Button
+				color="dark"
+				size="xs"
+				on:click={() => {
+					inputLibraryDrawer.openDrawer()
+				}}
+			>
+				Past Runs/Input library
+			</Button>
+			<Button
+				color="dark"
+				size="xs"
+				disabled={$flowStore.value.modules.length === 0 ||
+					$flowStore.value.modules[0].value.type == 'identity'}
+				on:click={() => copyFirstStepSchema($flowStateStore, flowStore)}
+			>
+				First step's inputs
+			</Button>
+		</div>
+		<div class="p-4 border-b">
+			<AddProperty
+				bind:schema={$flowStore.schema}
+				bind:this={addProperty}
+				on:change={() => {
+					$flowStore = $flowStore
+				}}
+			/>
+		</div>
 
-	<EditableSchemaForm
-		bind:schema={$flowStore.schema}
-		isFlowInput
-		on:edit={(e) => {
-			addProperty?.openDrawer(e.detail)
-		}}
-		on:delete={(e) => {
-			addProperty?.handleDeleteArgument([e.detail])
-		}}
-		offset={yOffset}
-		displayWebhookWarning
-	/>
+		<EditableSchemaForm
+			bind:schema={$flowStore.schema}
+			isFlowInput
+			on:edit={(e) => {
+				addProperty?.openDrawer(e.detail)
+			}}
+			on:delete={(e) => {
+				addProperty?.handleDeleteArgument([e.detail])
+			}}
+			offset={yOffset}
+			displayWebhookWarning
+		/>
+	{:else}
+		<div class="p-4 border-b">
+			<FlowInputViewer schema={$flowStore.schema} />
+		</div>
+	{/if}
 </FlowCard>
 
 <Drawer bind:this={jsonPayload} size="800px">
