@@ -341,6 +341,7 @@
 				/>
 			{:else}
 				<ArgInput
+					noDefaultOnSelectFirst
 					{itemPicker}
 					resourceTypes={getResourceTypesFromFormat(format)}
 					bind:value={defaultValue}

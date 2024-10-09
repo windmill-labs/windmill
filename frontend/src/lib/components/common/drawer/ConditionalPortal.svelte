@@ -6,7 +6,7 @@
 </script>
 
 {#if condition}
-	<Portal {target}><slot /></Portal>
+	<Portal name="conditional-portal" {target}><slot /></Portal>
 {:else}
 	<slot />
 {/if}

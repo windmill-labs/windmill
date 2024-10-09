@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { base } from '$app/paths'
 
 	import AppConnectInner from '$lib/components/AppConnectInner.svelte'
@@ -8,7 +7,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { onMount } from 'svelte'
 
-	let resourceType = $page.url.searchParams.get('resource_type') ?? undefined
+	export let resourceType: string | undefined = undefined
+	export let workspace: string
+	export let express = false
+
 	let step = 1
 	let disabled = false
 	let isGoogleSignin = false
@@ -17,8 +19,6 @@
 	let appConnect: AppConnectInner | undefined = undefined
 
 	let darkMode: boolean = false
-	const workspace = $page.url.searchParams.get('workspace')
-	const express = $page.url.searchParams.get('express') == 'true'
 
 	if (workspace) {
 		$workspaceStore = workspace
@@ -68,11 +68,7 @@
 		bind:isGoogleSignin
 		bind:disabled
 		bind:manual
-		on:error={(e) => {
-			window?.parent?.postMessage({ type: 'error', error: e.detail }, '*')
-		}}
-		on:refresh={(e) => {
-			window?.parent?.postMessage({ type: 'refresh', detail: e.detail }, '*')
-		}}
+		on:error
+		on:refresh
 	/>
 </div>

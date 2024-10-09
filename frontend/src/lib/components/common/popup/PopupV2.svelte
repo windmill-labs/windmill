@@ -40,7 +40,7 @@
 	<slot {pointerup} {pointerdown} name="button" />
 </div>
 
-<Portal {target}>
+<Portal name="popup-v2" {target}>
 	{#if open}
 		<div
 			class="border rounded-lg shadow-lg bg-surface z5000"

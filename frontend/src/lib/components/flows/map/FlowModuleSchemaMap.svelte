@@ -256,7 +256,7 @@
 	}
 </script>
 
-<Portal>
+<Portal name="flow-module">
 	<ConfirmationModal
 		title="Confirm deleting step with dependents"
 		confirmationText="Delete step"
