@@ -1,13 +1,16 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ItemStruct, Lit};
+use syn::{parse_macro_input, Ident, ItemStruct, Lit};
 
 #[proc_macro_attribute]
 pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
     let name = input.ident.clone();
-    // TODO: Optimize/Refactor
-    let fields = input.fields.iter().map(|f| f.ident.clone().unwrap());
+    let fields = input
+        .fields
+        .iter()
+        .map(|f| f.ident.clone().unwrap())
+        .collect::<Vec<Ident>>();
 
     // Match on the literal to extract the string value
     let comm_lit = match parse_macro_input!(attr as Lit) {
@@ -15,22 +18,17 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => panic!("Expected a string literal"),
     };
 
+    // ^#\W*
     let mut re = format!("^{}", &comm_lit);
     re.push_str(r#"\W*"#);
 
     let mut len = 0;
     let mut capture_group = "".to_string();
-    for (i, field) in input.fields.iter().enumerate() {
+    for (i, field) in fields.iter().enumerate() {
         if i > 0 {
             capture_group.push_str("|")
         }
-        capture_group.push_str(
-            &(field
-                .ident
-                .clone()
-                .expect("Annotations are only supported on named structs")
-                .to_string()),
-        );
+        capture_group.push_str(&(field.to_string()));
         len += 1;
     }
 
@@ -65,6 +63,7 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                 // Avoid regex recompilation
                 lazy_static::lazy_static! {
                     static ref RE: regex::Regex = regex::Regex::new(#re).unwrap();
+                    // static ref RE: regex::Regex = regex::RegexBuilder::new(#re).unicode(false).build().unwrap();
                 }
 
                 // Create lines stream
