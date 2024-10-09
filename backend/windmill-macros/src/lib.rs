@@ -80,8 +80,6 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                 'outer: while let Some(line) = lines.next() {
                     // If comment sign(s) on the right place
                     let mut comms = false;
-                    // If there is a word which is not annotation
-                    let mut non_annotation = false;
                     // New instance
                     // We will apply it if in line only annotations
                     let mut new = Self::default();
