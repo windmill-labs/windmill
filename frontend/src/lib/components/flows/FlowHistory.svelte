@@ -24,6 +24,7 @@
 		title="Deployment History"
 	>
 		<FlowHistoryInner
+			allowFork
 			on:historyRestore={() => {
 				drawer.closeDrawer()
 				dispatch('historyRestore')
