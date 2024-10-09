@@ -60,6 +60,7 @@ export async function main(s3: S3) {
 		},
 		body: JSON.stringify({
 			type: "S3",
+			region: s3.region,
 			bucket: s3.bucket,
 			endpoint: s3.endPoint,
 			port: s3.port,

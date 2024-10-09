@@ -81,6 +81,3 @@ pub async fn create_customer_portal_session(
 
 #[cfg(feature = "enterprise")]
 pub async fn worker_groups_alerts(_db: &DB) {}
-
-#[cfg(feature = "enterprise")]
-pub async fn jobs_waiting_alerts(_db: &DB) {}
