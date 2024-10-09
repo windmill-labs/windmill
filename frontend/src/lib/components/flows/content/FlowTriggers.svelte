@@ -64,41 +64,47 @@
 <FlowCard {noEditor} title="Flow Triggers">
 	<div class="pt-4">
 		<Tabs bind:selected={$selectedTrigger}>
-			<Tab value="webhooks" disabled={newFlow} selectedClass="text-primary font-semibold"
-				>Webhooks</Tab
-			>
-			<Tab value="mail" disabled={newFlow} selectedClass="text-primary text-sm font-semibold"
-				>Mail</Tab
-			>
-			<Tab value="routes" disabled={newFlow} selectedClass="text-primary text-sm font-semibold"
-				>Routes</Tab
-			>
-			<Tab value="schedules" disabled={newFlow} selectedClass="text-primary text-sm font-semibold"
-				>Schedules</Tab
-			>
+			<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
+			<Tab value="mail" selectedClass="text-primary text-sm font-semibold">Email</Tab>
+			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
+			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 
 			<svelte:fragment slot="content">
 				{#if $selectedTrigger === 'webhooks'}
 					<div class="p-4">
-						<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
+						<WebhooksPanel
+							{newFlow}
+							scopes={[`run:flow/${path}`]}
+							{path}
+							isFlow={true}
+							args={{}}
+							token=""
+						/>
 					</div>
 				{/if}
 
 				{#if $selectedTrigger === 'mail'}
 					<div class="p-4">
-						<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
+						<EmailTriggerPanel
+							{newFlow}
+							token=""
+							scopes={[`run:flow/${path}`]}
+							{path}
+							isFlow={true}
+						/>
 					</div>
 				{/if}
 
-				{#if !newFlow && $selectedTrigger === 'routes'}
+				{#if $selectedTrigger === 'routes'}
 					<div class="p-4">
-						<RoutesPanel path={path ?? ''} isFlow={true} bind:triggers />
+						<RoutesPanel {newFlow} path={path ?? ''} isFlow={true} bind:triggers />
 					</div>
 				{/if}
 
-				{#if !newFlow && $selectedTrigger === 'schedules'}
+				{#if $selectedTrigger === 'schedules'}
 					<div class="p-4">
 						<RunPageSchedules
+							{newFlow}
 							isFlow={true}
 							path={path ?? ''}
 							can_write={canWrite(path, {}, $userStore)}

@@ -22,6 +22,7 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+	export let newFlow: boolean = false
 
 	let emailDomain: string | null = null
 
@@ -134,6 +135,12 @@
 		{#if !$enterpriseLicense}
 			<Alert title="Community Edition limitations" type="warning" size="xs">
 				Email triggers on Windmill Community Edition are limited to 100 emails per day.
+			</Alert>
+		{/if}
+
+		{#if newFlow}
+			<Alert title="Triggers disabled" type="warning" size="xs">
+				Deploy the flow to enable email triggers.
 			</Alert>
 		{/if}
 	{/if}

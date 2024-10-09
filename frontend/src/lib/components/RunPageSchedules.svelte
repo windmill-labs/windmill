@@ -8,6 +8,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import PrimarySchedule from './PrimarySchedule.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import Alert from './common/alert/Alert.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let can_write: boolean
@@ -16,6 +17,7 @@
 
 	let schedule: Schedule | false | undefined = undefined
 	export let schedules: Schedule[] | undefined = undefined
+	export let newFlow: boolean = false
 
 	$: path && loadSchedule()
 	$: path && loadSchedules()
@@ -122,4 +124,10 @@
 			<Skeleton layout={[[8]]} />
 		{/if}
 	</Label>
+
+	{#if newFlow}
+		<Alert title="Triggers disabled" type="warning" size="xs">
+			Deploy the flow to enable schedules triggers.
+		</Alert>
+	{/if}
 </div>

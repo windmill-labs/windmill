@@ -7,9 +7,11 @@
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
 	import { canWrite } from '$lib/utils'
+	import Alert from '../common/alert/Alert.svelte'
 
 	export let isFlow: boolean
 	export let path: string
+	export let newFlow: boolean = false
 
 	let routeEditor: RouteEditor
 
@@ -40,7 +42,7 @@
 	bind:this={routeEditor}
 />
 
-<div class="flex flex-col">
+<div class="flex flex-col gap-4">
 	{#if $userStore?.is_admin || $userStore?.is_super_admin}
 		<Button
 			on:click={() => routeEditor?.openNew(isFlow, path)}
@@ -52,32 +54,38 @@
 			New Route
 		</Button>
 	{/if}
-</div>
 
-{#if triggers}
-	{#if triggers.length == 0}
-		<div class="text-xs text-secondary"> No http routes </div>
+	{#if triggers}
+		{#if triggers.length == 0}
+			<div class="text-xs text-secondary"> No http routes </div>
+		{:else}
+			<div class="flex flex-col divide-y pt-2">
+				{#each triggers as trigger (trigger.path)}
+					<div class="grid grid-cols-5 text-2xs items-center py-2">
+						<div class="col-span-2 truncate">{trigger.path}</div>
+						<div class="col-span-2 truncate">
+							{trigger.http_method.toUpperCase()} /{trigger.route_path}
+						</div>
+						<div class="flex justify-end">
+							<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)} class="px-2">
+								{#if trigger.canWrite}
+									Edit
+								{:else}
+									View
+								{/if}
+							</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	{:else}
-		<div class="flex flex-col divide-y pt-2">
-			{#each triggers as trigger (trigger.path)}
-				<div class="grid grid-cols-5 text-2xs items-center py-2">
-					<div class="col-span-2 truncate">{trigger.path}</div>
-					<div class="col-span-2 truncate">
-						{trigger.http_method.toUpperCase()} /{trigger.route_path}
-					</div>
-					<div class="flex justify-end">
-						<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)} class="px-2">
-							{#if trigger.canWrite}
-								Edit
-							{:else}
-								View
-							{/if}
-						</button>
-					</div>
-				</div>
-			{/each}
-		</div>
+		<Skeleton layout={[[8]]} />
 	{/if}
-{:else}
-	<Skeleton layout={[[8]]} />
-{/if}
+
+	{#if newFlow}
+		<Alert title="Triggers disabled" type="warning" size="xs">
+			Deploy the flow to enable routes triggers.
+		</Alert>
+	{/if}
+</div>

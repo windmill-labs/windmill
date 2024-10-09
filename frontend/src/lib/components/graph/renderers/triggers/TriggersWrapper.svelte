@@ -6,7 +6,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Popover from '$lib/components/Popover.svelte'
 	import TriggerCount from './TriggerCount.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { canWrite } from '$lib/utils'
@@ -85,14 +84,7 @@
 				on:click={() => ($selectedId = 'triggers')}
 			>
 				<div class="flex flex-col">
-					<div class="flex flex-row items-center text-2xs font-normal">
-						Triggers
-
-						<Tooltip small wrapperClass="center-center">
-							The flow can be triggered by webhooks, emails, schedules or routes. Click on the icons
-							to see the triggers.
-						</Tooltip>
-					</div>
+					<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
 				</div>
 				<Popover>
 					<svelte:fragment slot="text">

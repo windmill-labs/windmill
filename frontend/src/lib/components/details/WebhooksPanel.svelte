@@ -20,6 +20,7 @@
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import { base } from '$lib/base'
 	import Label from '$lib/components/Label.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -29,6 +30,7 @@
 	export let hash: string | undefined = undefined
 	export let path: string
 	export let url: string = ''
+	export let newFlow = false
 
 	let selectedTab: string = 'rest'
 
@@ -382,4 +384,10 @@ done`
 			{/key}
 		</svelte:fragment>
 	</Tabs>
+
+	{#if newFlow}
+		<Alert title="Triggers disabled" type="warning" size="xs">
+			Deploy the flow to enable webhooks triggers.
+		</Alert>
+	{/if}
 </div>
