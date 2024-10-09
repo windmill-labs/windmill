@@ -299,6 +299,13 @@ declare async function waitJob(id: string): Promise<any>;
  */
 declare async function askNewResource(id: string): void;
 
+/**
+ * Download a file from a url or base64 encoded string
+ * @param urlOrBase64 absolute url or base64 encoded file
+ * @param fileName name of the file to download
+ */
+declare function downloadFile(urlOrBase64: string, fileName: string): void;
+
 `
 		: ''
 }
