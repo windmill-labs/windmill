@@ -10,7 +10,7 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fields = input.fields.iter().map(|f| f.ident.clone().unwrap());
 
     // Match on the literal to extract the string value
-    let comm_lit = match parse_macro_input!(attr as Lit){
+    let comm_lit = match parse_macro_input!(attr as Lit) {
         Lit::Str(lit_str) => lit_str.value(), // This will give "#" without quotes
         _ => panic!("Expected a string literal"),
     };
@@ -71,7 +71,7 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
 
                         for (i, mat) in caps.iter().skip(1).enumerate() {
                             //                      ^^^^^^
-                            // Skip matched, we are interested only in groups 
+                            // Skip matched, we are interested only in groups
                             if let Some(mat) = mat {
                                 match mat.as_str() {
                                     // Unfold fields
@@ -80,8 +80,8 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     _ => unreachable!(),
                                 };
                             }
-                        }            
-                        
+                        }
+
                     } else {
                         break;
                     }

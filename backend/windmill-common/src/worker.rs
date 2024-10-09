@@ -303,6 +303,28 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
+// use windmill_macros::annotations;
+
+// #[annotations("#")]
+// pub struct PythonAnnotations {
+//     pub no_cache: bool,
+//     pub no_uv: bool,
+// }
+
+// #[annotations("//")]
+// pub struct TypeScriptAnnotations {
+//     pub npm: bool
+//     pub nodejs: bool,
+//     pub native: bool,
+//     pub nobundling: bool
+// }
+
+// #[annotations("--")]
+// pub struct SqlAnnotations {
+//     pub no_cache: bool,
+//     pub no_uv: bool,
+// }
+
 pub struct TypeScriptAnnotations {
     pub npm_mode: bool,
     pub nodejs_mode: bool,

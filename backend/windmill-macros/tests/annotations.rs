@@ -1,57 +1,11 @@
-use windmill_macros::annotations;
-
-// #[derive(Reflect, Default)]
-// pub struct PythonAnnotations {
-//     pub no_uv: bool,
-//     pub no_cache: bool,
-// }
-
-// Rules:
-// 1. Should be first line
-// 2. Every annotation with breaking # will break detection
-// 3.
-
-/* Problems:
-
-    Code:
-        # we are not using nobundling here
-    Legacy:
-    - Will be detected as comment and not nobundling annotation
-    New:
-    - Will detect nobundling as annotation
-
-    Solution:
-        1. Make this line invalid and only count lines with all valid annotations:
-            # ann, ann2, ann3 and here we go with comments ann4
-                ann4 will be ignored and only ann, ann2 and ann3 will be detected
-        2. Drop line if anything is not valid annotation
-
-
-
-*/
-#[annotations("#")]
-pub struct PythonAnnotations {
-    pub no_cache: bool,
-    pub no_uv: bool,
-}
-
-#[annotations("//")]
-pub struct TSAnnotations {
-    pub no_cache: bool,
-    pub no_uv: bool,
-}
-
-#[annotations("--")]
-pub struct SQLAnnotations {
-    pub no_cache: bool,
-    pub no_uv: bool,
-}
-
-// TODO: Move to different module
 // TODO: Make sure these are being tested if we run cargo test in root
+// TODO: Remove next 2 lines?
 #[cfg(test)]
-mod tests {
+mod annotations{
 
+    extern crate windmill_macros;
+
+    // use annotations;
     use itertools::Itertools;
     use windmill_macros::annotations;
 
@@ -191,16 +145,16 @@ mod tests {
         assert_eq!(expected, Annotations::parse(cont));
     }
 
-    #[test]
-    fn multiline() {
-        let cont = "# ann2
-# Just comment, has nothing to do with annotations
-# Another comment that should ignore: ann1 ann2 ann3 ann4
-# Actual annotation next line:
-# ann5
-            ";
-        assert_eq!(old(cont), Annotations::parse(cont));
-    }
+//     #[test]
+//     fn multiline() {
+//         let cont = "# ann2
+// # Just comment, has nothing to do with annotations
+// # Another comment that should ignore: ann1 ann2 ann3 ann4
+// # Actual annotation next line:
+// # ann5
+//             ";
+//         assert_eq!(old(cont), Annotations::parse(cont));
+//     }
 
     #[test]
     fn non_matching_integration() {

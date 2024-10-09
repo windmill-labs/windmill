@@ -11,3 +11,10 @@ proc-macro = true
 proc-macro2.workspace = true
 quote.workspace = true
 syn.workspace = true
+
+# Dependencies for tests
+[dev-dependencies]
+# tests/annotation.rs
+lazy_static.workspace = true
+itertools.workspace = true
+regex.workspace = true
