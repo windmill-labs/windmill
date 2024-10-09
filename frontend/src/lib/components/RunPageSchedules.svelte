@@ -9,13 +9,14 @@
 	import PrimarySchedule from './PrimarySchedule.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 	export let isFlow: boolean
 	export let path: string
 	export let can_write: boolean
 
 	let scheduleEditor: ScheduleEditor
 
-	let schedule: Schedule | false | undefined = undefined
 	export let schedules: Schedule[] | undefined = undefined
 	export let newFlow: boolean = false
 
@@ -24,17 +25,15 @@
 
 	export async function loadSchedule() {
 		try {
-			let exists = await ScheduleService.existsSchedule({
+			$primarySchedule = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
 				path
 			})
-			if (exists) {
-				schedule = await ScheduleService.getSchedule({
+			if ($primarySchedule) {
+				$primarySchedule = await ScheduleService.getSchedule({
 					workspace: $workspaceStore ?? '',
 					path
 				})
-			} else {
-				schedule = false
 			}
 		} catch (e) {
 			console.log('no primary schedule')
@@ -70,6 +69,8 @@
 			loadSchedule()
 		}
 	}
+
+	const { primarySchedule } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <ScheduleEditor
@@ -91,9 +92,16 @@
 		New Schedule
 	</Button>
 
-	{#if schedule}
-		<PrimarySchedule {schedule} {can_write} {path} {isFlow} {scheduleEditor} {setScheduleEnabled} />
-	{:else if schedule == undefined}
+	{#if $primarySchedule}
+		<PrimarySchedule
+			schedule={$primarySchedule}
+			{can_write}
+			{path}
+			{isFlow}
+			{scheduleEditor}
+			{setScheduleEnabled}
+		/>
+	{:else if $primarySchedule == undefined}
 		<Skeleton layout={[[6]]} />
 	{/if}
 

@@ -15,7 +15,8 @@
 		WorkspaceService,
 		type InputTransform,
 		type RawScript,
-		type PathScript
+		type PathScript,
+		type Schedule
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
@@ -41,7 +42,7 @@
 	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 	import { pickScript } from './flows/flowStateUtils'
-	import type { Schedule } from './flows/scheduleUtils'
+	import type { Schedule as ScheduleUtils } from './flows/scheduleUtils'
 	import {
 		approximateFindPythonRelativePath,
 		isTypescriptRelativePath,
@@ -466,7 +467,7 @@
 	}
 
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable<Schedule>({
+	const scheduleStore = writable<ScheduleUtils>({
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -482,11 +483,15 @@
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable('webhooks')
 	const httpTriggersStore = writable(undefined)
+	const schedulesStore = writable<Schedule[] | undefined>(undefined)
+	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,
 		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
+		primarySchedule: primaryScheduleStore,
+		schedules: schedulesStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,

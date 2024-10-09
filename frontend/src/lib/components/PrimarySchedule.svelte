@@ -10,12 +10,14 @@
 	import { type Schedule } from '$lib/gen'
 
 	export let light = false
-	export let schedule: Schedule
+	export let schedule: any
 	export let can_write: boolean
 	export let path: string
 	export let isFlow: boolean
 	export let scheduleEditor: ScheduleEditor
 	export let setScheduleEnabled: (path: string, enabled: boolean) => void
+
+	$: schedule = typeof schedule === 'boolean' ? undefined : (schedule as Schedule | undefined)
 </script>
 
 <div class="flex flex-col gap-2 grow w-full">
@@ -38,11 +40,11 @@
 					id="cron-schedule"
 					name="cron-schedule"
 					placeholder="*/30 * * * *"
-					value={schedule.schedule}
+					value={schedule?.schedule ?? ''}
 					disabled={true}
 				/>
 				<Toggle
-					checked={schedule.enabled}
+					checked={schedule?.enabled ?? false}
 					on:change={(e) => {
 						if (can_write) {
 							setScheduleEnabled(path, e.detail)
@@ -88,7 +90,7 @@
 	{#if !light}
 		{#if Object.keys(schedule?.args ?? {}).length > 0}
 			<div class="">
-				<JobArgs args={schedule.args ?? {}} />
+				<JobArgs args={schedule?.args ?? {}} />
 			</div>
 		{:else}
 			<div class="text-xs text-tertiary"> No arguments </div>

@@ -6,7 +6,7 @@
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput } from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type FlowModule, type OpenFlow } from '$lib/gen'
+	import { OpenAPI, type FlowModule, type OpenFlow, type Schedule } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
@@ -16,7 +16,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import type { Schedule } from '$lib/components/flows/scheduleUtils'
+	import type { Schedule as ScheduleUtils } from '$lib/components/flows/scheduleUtils'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -63,7 +63,7 @@
 
 	let initialCode = JSON.stringify($flowStore, null, 4)
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable<Schedule>({
+	const scheduleStore = writable<ScheduleUtils>({
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -80,6 +80,8 @@
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable('webhooks')
 	const httpTriggersStore = writable(undefined)
+	const schedulesStore = writable<Schedule[] | undefined>(undefined)
+	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
 	// function select(selectedId: string) {
 	// 	selectedIdStore.set(selectedId)
 	// }
@@ -89,6 +91,8 @@
 		selectedTrigger: selectedTriggerStore,
 		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
+		primarySchedule: primaryScheduleStore,
+		schedules: schedulesStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,

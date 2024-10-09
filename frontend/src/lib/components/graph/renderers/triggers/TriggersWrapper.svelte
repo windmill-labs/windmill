@@ -2,7 +2,7 @@
 	import { Calendar, Mail, Webhook } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 	import { NODE } from '../../util'
-	import { HttpTriggerService, ScheduleService, type Schedule } from '$lib/gen'
+	import { HttpTriggerService, ScheduleService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Popover from '$lib/components/Popover.svelte'
 	import TriggerCount from './TriggerCount.svelte'
@@ -12,25 +12,21 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../../../flows/types'
 
-	let schedules: Schedule[] | undefined = undefined
-
 	export let path: string
 	export let isEditor: boolean
 	export let newFlow: boolean
-
-	let primaryScheduleExists: boolean = false
 
 	const dispatch = createEventDispatcher()
 
 	async function loadSchedules() {
 		if (!path) return
 		try {
-			primaryScheduleExists = await ScheduleService.existsSchedule({
+			$primarySchedule = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
 				path
 			})
 
-			schedules = (
+			$schedules = (
 				await ScheduleService.listSchedules({
 					workspace: $workspaceStore ?? '',
 					path: path,
@@ -66,10 +62,8 @@
 		}
 	})
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	const httpTriggers = flowEditorContext?.httpTriggers ?? { subscribe: () => () => {} }
-	const selectedId = flowEditorContext?.selectedId ?? { subscribe: () => () => {} }
-	const selectedTrigger = flowEditorContext?.selectedTrigger ?? { subscribe: () => () => {} }
+	const { httpTriggers, selectedId, selectedTrigger, schedules, primarySchedule } =
+		getContext<FlowEditorContext>('FlowEditorContext') ?? {}
 </script>
 
 {#if isEditor}
@@ -172,7 +166,7 @@
 						}}
 						disabled={newFlow}
 					>
-						<TriggerCount count={(schedules?.length ?? 0) + (primaryScheduleExists ? 1 : 0)} />
+						<TriggerCount count={($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)} />
 						<Calendar size={12} />
 					</TriggerButton>
 				</Popover>
