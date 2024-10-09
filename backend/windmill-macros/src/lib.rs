@@ -1,9 +1,9 @@
 use proc_macro::TokenStream;
 use proc_macro2::Literal;
-use quote::{quote, IdentFragment, ToTokens};
+use quote::quote;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use syn::{parse_macro_input, Ident, ItemStruct, Lit, LitInt};
+use syn::{parse_macro_input, Ident, ItemStruct, Lit};
 
 fn string_to_hash(s: &str) -> u64 {
     let mut h = DefaultHasher::new();
@@ -26,7 +26,6 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
         .map(|f| Literal::u64_unsuffixed(string_to_hash(&f.to_string())))
         .collect::<Vec<Literal>>();
 
-    // TODO: Hash collision
     // Match on the literal to extract the string value
     let comm_lit = match parse_macro_input!(attr as Lit) {
         Lit::Str(lit_str) => lit_str.value(), // This will give "#" without quotes
@@ -34,26 +33,22 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
     let comm_hash = Literal::u64_unsuffixed(string_to_hash(&comm_lit));
 
-    let mut capture_group = "".to_string();
-    for (i, field) in fields.iter().enumerate() {
-        if i > 0 {
-            capture_group.push_str("|")
-        } else {
-            capture_group.push_str(&format!("^{}|", &comm_lit))
-        }
-        capture_group.push_str(&(field.to_string()));
-        capture_group.push_str("\\b");
-    }
-
+    // Generate regex
     let mut reg = "".to_string();
+    {
+        let mut capture_group = format!("^{}|", &comm_lit);
 
-    reg.push_str(&capture_group);
-    reg.push_str(r#"|\w+"#);
+        for field in fields.iter() {
+            capture_group.push_str(&(field.to_string()));
+            capture_group.push_str("\\b");
+        }
 
-    // Example generated regex:
-
+        reg.push_str(&capture_group);
+        reg.push_str(r#"|\w+"#);
+    }
+    // Example of generated regex:
     // ?^#
-    // |?ann1\b|ann2\b|ann3\b
+    // |?ann1\b|ann2\b|ann3\b|ann4\b
     // |\w+
 
     TokenStream::from(quote! {
@@ -62,12 +57,13 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl std::ops::BitOrAssign for #name{
             fn bitor_assign(&mut self, rhs: Self) {
+                // Unfold fields
+                // Read more: https://docs.rs/quote/latest/quote/macro.quote.html#interpolation
                 #( self.#fields |= rhs.#fields; )*
             }
         }
 
         impl #name {
-
             fn string_to_hash(s: &str) -> u64 {
                 let mut h = DefaultHasher::new();
                 s.hash(&mut h);
@@ -81,36 +77,36 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
                 // Create lines stream
                 let mut lines = inner_content.lines();
-                while let Some(line) = lines.next() {
-                    let mut used = false;
+                'outer: while let Some(line) = lines.next() {
+                    // If comment sign(s) on the right place
+                    let mut comms = false;
+                    // If there is a word which is not annotation
                     let mut non_annotation = false;
+                    // New instance
+                    // We will apply it if in line only annotations
                     let mut new = Self::default();
-                    let mut hasher = DefaultHasher::new();
-                    for (i, mat) in RE.find_iter(line).enumerate() {
 
-                        let mt = mat.as_str();
+                    'inner: for (i, mat) in RE.find_iter(line).enumerate() {
 
-                        match Self::string_to_hash(mt){
-                            #comm_hash => {
-                                if i == 0 {
-                                    used = true;
-                                    continue;
-                                } else {
-                                    break;
-                                }
+                        match Self::string_to_hash(mat.as_str()){
+                            #comm_hash if i == 0 => {
+                                comms = true;
+                                continue 'inner;
                             },
-                            // Unfold fields
-                            // Read more: https://docs.rs/quote/latest/quote/macro.quote.html#interpolation
+
                             #( #hashes => new.#fields = true, )*
-                            _ => non_annotation = true,
+                            // Non annotations
+                            _ => continue 'outer,
                         };
                     }
 
-                    if !used {
-                        break;
-                    } else if !non_annotation {
-                        res |= new;
+                    if !comms {
+                        // We dont want to continue if line does not start with #
+                        return res;
                     }
+
+                    // Apply changes
+                    res |= new;
                 }
                 res
             }
