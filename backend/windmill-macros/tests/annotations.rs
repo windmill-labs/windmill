@@ -2,11 +2,6 @@
 mod annotations_tests {
 
     extern crate windmill_macros;
-    use std::hash::{Hash, Hasher};
-
-    use std::hash::DefaultHasher;
-
-    // use annotations;
     use itertools::Itertools;
     use windmill_macros::annotations;
 
@@ -88,10 +83,9 @@ mod annotations_tests {
 # ann3
 # ann4
 # ann5
-# ann1
             ";
         let expected = Annotations {
-            ann1: true,
+            ann1: false,
             ann2: true,
             ann3: true,
             ann4: true,

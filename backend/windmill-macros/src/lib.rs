@@ -65,6 +65,9 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl #name {
             fn string_to_hash(s: &str) -> u64 {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+
                 let mut h = DefaultHasher::new();
                 s.hash(&mut h);
                 h.finish() // This returns a u64
