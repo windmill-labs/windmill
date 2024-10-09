@@ -9,9 +9,7 @@
 		type WorkflowStatus,
 		type NewScript,
 		ConcurrencyGroupsService,
-
 		MetricsService
-
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -97,7 +95,7 @@
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
 
-	let scriptProgress: number | undefined = undefined;
+	let scriptProgress: number | undefined = undefined
 	let currentJobIsLongRunning: boolean = false
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
@@ -203,20 +201,20 @@
 	async function onJobLoaded() {
 		// We want to set up scriptProgress once job is loaded
 		// We need this to show progress bar if job has progress and is finished
-		if (job && job.type == "CompletedJob"){
+		if (job && job.type == 'CompletedJob') {
 			// If error occured and job is completed
 			// than we fetch progress from server to display on what progress did it fail
 			// Could be displayed after run or as a historical page
 			// If opening page without running job (e.g. reloading page after run) progress will be displayed instantly
 			MetricsService.getJobProgress({
-				workspace: job.workspace_id ?? "NO_WORKSPACE",
-				id: job.id,
-			}).then(progress => {
-			  // Returned progress is not always 100%, could be 65%, 33%, anything
-			  // Its ok if its a failure and we want to keep that value
-			  // But we want progress to be 100% if job has been succeeded
-				scriptProgress = progress;
-			});
+				workspace: job.workspace_id ?? 'NO_WORKSPACE',
+				id: job.id
+			}).then((progress) => {
+				// Returned progress is not always 100%, could be 65%, 33%, anything
+				// Its ok if its a failure and we want to keep that value
+				// But we want progress to be 100% if job has been succeeded
+				scriptProgress = progress
+			})
 		}
 
 		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
@@ -229,7 +227,6 @@
 		if (script.restart_unless_cancelled ?? false) {
 			persistentScriptDefinition = script
 		}
-
 	}
 
 	$: {
@@ -349,7 +346,7 @@
 
 <TestJobLoader
 	lazyLogs
-	bind:scriptProgress 
+	bind:scriptProgress
 	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
@@ -360,7 +357,7 @@
 	bind:notfound
 />
 
-<Portal>
+<Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
@@ -613,11 +610,7 @@
 						<Button
 							on:click|once={() => {
 								$initialArgsStore = job?.args
-								goto(
-									`${stem}/edit/${
-										job?.script_path
-									}${isScript ? `` : `?nodraft=true`}`
-								)
+								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
 							size="sm"
@@ -753,7 +746,7 @@
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}
 					<FlowMetadata {job} {scheduleEditor} />
-					{#if currentJobIsLongRunning && showExplicitProgressTip  && !scriptProgress && 'running' in job}
+					{#if currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
 						<Alert
 							class="mt-4 p-1 flex flex-row relative text-center"
 							size="xs"
@@ -801,7 +794,7 @@
 					/>
 				{/if}
 				{#if scriptProgress}
-					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true}/>
+					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
 				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
