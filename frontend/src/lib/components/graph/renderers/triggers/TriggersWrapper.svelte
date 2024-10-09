@@ -2,7 +2,7 @@
 	import { Calendar, Mail, Webhook } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 	import { NODE } from '../../util'
-	import { HttpTriggerService, ScheduleService, type HttpTrigger, type Schedule } from '$lib/gen'
+	import { HttpTriggerService, ScheduleService, type Schedule } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Popover from '$lib/components/Popover.svelte'
 	import TriggerCount from './TriggerCount.svelte'
@@ -13,7 +13,6 @@
 	import type { FlowEditorContext } from '../../../flows/types'
 
 	let schedules: Schedule[] | undefined = undefined
-	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 
 	export let path: string
 	export let isEditor: boolean
@@ -45,7 +44,7 @@
 
 	async function loadTriggers() {
 		try {
-			triggers = (
+			$httpTriggers = (
 				await HttpTriggerService.listHttpTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
@@ -68,6 +67,7 @@
 	})
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const httpTriggers = flowEditorContext?.httpTriggers ?? { subscribe: () => () => {} }
 	const selectedId = flowEditorContext?.selectedId ?? { subscribe: () => () => {} }
 	const selectedTrigger = flowEditorContext?.selectedTrigger ?? { subscribe: () => () => {} }
 </script>
@@ -149,7 +149,7 @@
 						}}
 						disabled={newFlow}
 					>
-						<TriggerCount count={triggers?.length} />
+						<TriggerCount count={$httpTriggers?.length} />
 						<Route size={12} />
 					</TriggerButton>
 				</Popover>

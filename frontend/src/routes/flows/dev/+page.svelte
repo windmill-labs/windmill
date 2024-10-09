@@ -79,7 +79,7 @@
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable('webhooks')
-
+	const httpTriggersStore = writable(undefined)
 	// function select(selectedId: string) {
 	// 	selectedIdStore.set(selectedId)
 	// }
@@ -87,6 +87,7 @@
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,
+		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,

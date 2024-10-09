@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
+	import { HttpTriggerService } from '$lib/gen'
 	import { RouteIcon } from 'lucide-svelte'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { getContext } from 'svelte'
 
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
@@ -15,12 +17,10 @@
 
 	let routeEditor: RouteEditor
 
-	export let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
-
 	$: path && loadTriggers()
 	export async function loadTriggers() {
 		try {
-			triggers = (
+			$httpTriggers = (
 				await HttpTriggerService.listHttpTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
@@ -33,6 +33,9 @@
 			console.error('impossible to load http routes')
 		}
 	}
+
+	const { httpTriggers } = getContext<FlowEditorContext>('FlowEditorContext')
+	$httpTriggers ?? loadTriggers()
 </script>
 
 <RouteEditor
@@ -55,20 +58,23 @@
 		</Button>
 	{/if}
 
-	{#if triggers}
-		{#if triggers.length == 0}
+	{#if $httpTriggers}
+		{#if $httpTriggers.length == 0}
 			<div class="text-xs text-secondary"> No http routes </div>
 		{:else}
 			<div class="flex flex-col divide-y pt-2">
-				{#each triggers as trigger (trigger.path)}
+				{#each $httpTriggers as $httpTriggers ($httpTriggers.path)}
 					<div class="grid grid-cols-5 text-2xs items-center py-2">
-						<div class="col-span-2 truncate">{trigger.path}</div>
+						<div class="col-span-2 truncate">{$httpTriggers.path}</div>
 						<div class="col-span-2 truncate">
-							{trigger.http_method.toUpperCase()} /{trigger.route_path}
+							{$httpTriggers.http_method.toUpperCase()} /{$httpTriggers.route_path}
 						</div>
 						<div class="flex justify-end">
-							<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)} class="px-2">
-								{#if trigger.canWrite}
+							<button
+								on:click={() => routeEditor?.openEdit($httpTriggers.path, isFlow)}
+								class="px-2"
+							>
+								{#if $httpTriggers.canWrite}
 									Edit
 								{:else}
 									View

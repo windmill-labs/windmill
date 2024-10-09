@@ -48,7 +48,6 @@
 		parseTypescriptDeps
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
-
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -482,10 +481,11 @@
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable('webhooks')
-
+	const httpTriggersStore = writable(undefined)
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,
+		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,

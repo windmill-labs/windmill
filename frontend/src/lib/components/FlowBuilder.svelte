@@ -400,10 +400,13 @@
 		selectedTriggerStore.set(selectedTrigger)
 	}
 
+	const httpTriggersStore = writable(undefined)
+
 	let insertButtonOpen = writable<boolean>(false)
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,
+		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,

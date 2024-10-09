@@ -5,7 +5,7 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
-	import { HttpTriggerService, ScheduleService, type HttpTrigger, type Schedule } from '$lib/gen'
+	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -15,7 +15,6 @@
 
 	export let noEditor: boolean
 	export let newFlow = false
-	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 	let path = ''
 
 	const { pathStore, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -37,26 +36,9 @@
 		}
 	}
 
-	async function loadTriggers() {
-		try {
-			triggers = (
-				await HttpTriggerService.listHttpTriggers({
-					workspace: $workspaceStore ?? '',
-					path,
-					isFlow: true
-				})
-			).map((x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			})
-		} catch (e) {
-			console.error('impossible to load http routes')
-		}
-	}
-
 	onMount(() => {
 		if (!newFlow) {
 			loadSchedules()
-			loadTriggers()
 		}
 	})
 </script>
@@ -97,7 +79,7 @@
 
 				{#if $selectedTrigger === 'routes'}
 					<div class="p-4">
-						<RoutesPanel {newFlow} path={path ?? ''} isFlow={true} bind:triggers />
+						<RoutesPanel {newFlow} path={path ?? ''} isFlow={true} />
 					</div>
 				{/if}
 
