@@ -280,7 +280,17 @@ export function createNewGridItem(
 			}
 		}
 
-		if (!shouldNotFindSpace) {
+		let shouldComputePosition: boolean = false
+
+		// Fallback to avoid component disapearing
+		if (initialPosition.x === undefined || initialPosition.y === undefined) {
+			newItem[column].x = 0
+			newItem[column].y = 0
+			shouldComputePosition = true
+		}
+
+		// Either the final position is controlled using initialPosition or the position is computed because the component positions are wrong
+		if (!shouldNotFindSpace || shouldComputePosition) {
 			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 
 			newItem[column] = { ...newItem[column], ...position }
