@@ -6,9 +6,9 @@
 	import { filteredContentForExport } from '../utils'
 	import YAML from 'yaml'
 
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { Loader2 } from 'lucide-svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -56,7 +56,11 @@
 		</svelte:fragment>
 
 		{#if $flowStore}
-			<SimpleEditor autoHeight bind:code lang="yaml" />
+			{#await import('../../SimpleEditor.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default autoHeight bind:code lang="yaml" />
+			{/await}
 		{/if}
 	</DrawerContent>
 </Drawer>
