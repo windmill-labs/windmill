@@ -1,7 +1,3 @@
-use std::time::Instant;
-
-// TODO: Make sure these are being tested if we run cargo test in root
-// TODO: Remove next 2 lines?
 #[cfg(test)]
 mod annotations_tests {
 
@@ -9,7 +5,6 @@ mod annotations_tests {
     use std::hash::{Hash, Hasher};
 
     use std::hash::DefaultHasher;
-    use std::time::Instant;
 
     // use annotations;
     use itertools::Itertools;
@@ -154,171 +149,10 @@ mod annotations_tests {
         assert_eq!(expected, Annotations::parse(cont));
     }
 
-    #[annotations("#")]
-    #[derive(Eq, PartialEq, Copy, Clone)]
-    pub struct BenchAnnotations {
-        pub ann1: bool,
-        pub ann2: bool,
-        pub ann3: bool,
-        pub ann4: bool,
-        pub ann5: bool,
-        pub ann6: bool,
-        pub ann7: bool,
-        pub ann8: bool,
-        pub ann9: bool,
-        pub ann10: bool,
-        pub ann11: bool,
-        pub ann12: bool,
-        pub ann13: bool,
-        pub ann14: bool,
-        pub ann15: bool,
-        pub ann16: bool,
-        pub ann17: bool,
-        pub ann18: bool,
-        pub ann19: bool,
-        pub ann20: bool,
-        pub ann21: bool,
-        pub ann22: bool,
-        pub ann23: bool,
-        pub ann24: bool,
-        pub ann25: bool,
-        pub ann26: bool,
-        pub ann27: bool,
-        pub ann28: bool,
-        pub ann29: bool,
-        pub ann30: bool,
-        pub ann31: bool,
-        pub ann32: bool,
-        pub ann33: bool,
-        pub ann34: bool,
-    }
     #[test]
     fn hash_collision() {
         // TODO
     }
-    // fn create_hash(msg: &str, mut hasher: Sha256) -> Vec<u8> {
-    //     hasher.update(msg);
-    //     hasher.finalize().as_slice().to_vec()
-    // }
-    fn bench_legacy(inner_content: &str) {
-        let annotations = inner_content
-            .lines()
-            .take_while(|x| x.starts_with("#"))
-            .map(|x| x.to_string().replace("#", "").trim().to_string())
-            .collect_vec();
-
-        for i in 1..35 {
-            let ann_name = format!("ann{}", i);
-            let _ = annotations.contains(&ann_name);
-        }
-    }
-    // TODO: Move bench somewhere else and refactor
-    #[test]
-    fn bench() {
-        let cont = "# ann2
-# ann5
-# ann3
-# ann4
-# ann5
-# ann6
-# ann7
-# ann8
-# ann9
-# ann10
-# ann11
-# ann12
-# ann19
-# ann20
-# ann21
-# ann22
-# ann25
-# ann23
-# ann24
-# ann26
-# ann27
-# ann28
-# ann29
-
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# ann30
-            ";
-        let cont2 = "# ann2 ann5 ann3 ann4 
-# ann5 ann6 ann7 ann8 ann9 ann10 ann11 ann12 ann19 ann20 ann21 ann22 
-# ann25 ann23 ann24 ann26 ann27 ann28 ann29
-
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-# Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-# Ut enim ad minim veniam, quis nostrud exercitation 
-# ullamco laboris nisi ut aliquip ex ea commodo consequat.
-# ann30
-            ";
-
-        {
-            let start = Instant::now();
-            for _ in 0..10000 {
-                BenchAnnotations::parse(cont2);
-            }
-            let end = Instant::now();
-            let duration = end - start;
-            dbg!("New:");
-            dbg!(duration);
-        }
-
-        {
-            let start = Instant::now();
-            for _ in 0..10000 {
-                bench_legacy(cont);
-            }
-            let end = Instant::now();
-            let duration = end - start;
-            dbg!("Old:");
-            dbg!(duration);
-        }
-    }
-
     #[test]
     fn non_matching_integration() {
         {
