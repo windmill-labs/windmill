@@ -27,7 +27,7 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::worker_groups_alerts;
+use windmill_common::ee::{worker_groups_alerts, jobs_waiting_alerts};
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -1061,12 +1061,20 @@ pub async fn monitor_db(
         }
     };
 
+    let jobs_waiting_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode {
+            jobs_waiting_alerts(&db).await;
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
         expose_queue_metrics_f,
         verify_license_key_f,
-        worker_groups_alerts_f
+        worker_groups_alerts_f,
+        jobs_waiting_alerts_f,
     );
 }
 
