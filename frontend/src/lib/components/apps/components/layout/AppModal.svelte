@@ -145,7 +145,7 @@
 		</AlignWrapper>
 	</div>
 {/if}
-<Portal target="#app-editor-top-level-drawer">
+<Portal target="#app-editor-top-level-drawer" name="app-modal">
 	<Disposable
 		{id}
 		let:handleClickAway

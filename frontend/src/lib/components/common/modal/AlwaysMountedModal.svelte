@@ -24,7 +24,7 @@
 	}
 </script>
 
-<Portal target="#app-editor-top-level-drawer">
+<Portal name="always-mounted" target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
 			`${

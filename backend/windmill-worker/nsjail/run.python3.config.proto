@@ -81,6 +81,7 @@ mount {
     src: "{JOB_DIR}/args.json"
     dst: "/tmp/args.json"
     is_bind: true
+    rw: true
 }
 
 mount {

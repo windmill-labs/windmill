@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
 	import { classNames, emptyString } from '$lib/utils'
 	import { ScriptService, type ScriptHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -63,70 +62,66 @@
 
 <Splitpanes class="!overflow-visible">
 	<Pane size={20}>
-		<PanelSection title="Past Versions">
-			<div class="flex flex-col gap-2 w-full">
-				{#if !loading}
-					{#if versions && versions.length > 0}
-						<div class="flex gap-2 flex-col">
-							{#each versions ?? [] as version, versionIndex}
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
-								<div
-									class={classNames(
-										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
-										selectedVersion?.script_hash == version.script_hash
-											? 'bg-surface-selected'
-											: '',
-										'hover:bg-surface-hover'
-									)}
-									on:click={() => {
-										selectedVersion = version
-										selectedVersionIndex = versionIndex
+		<div class="flex flex-col gap-2 px-2 pt-2 w-full">
+			{#if !loading}
+				{#if versions && versions.length > 0}
+					<div class="flex gap-2 flex-col">
+						{#each versions ?? [] as version, versionIndex}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class={classNames(
+									'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
+									selectedVersion?.script_hash == version.script_hash ? 'bg-surface-selected' : '',
+									'hover:bg-surface-hover'
+								)}
+								on:click={() => {
+									selectedVersion = version
+									selectedVersionIndex = versionIndex
 
-										if (showDiff && versions && selectedVersionIndex === versions.length - 1) {
-											showDiff = false
-										}
+									if (showDiff && versions && selectedVersionIndex === versions.length - 1) {
+										showDiff = false
+									}
 
-										const availableVersions = versions?.slice(selectedVersionIndex + 1)
+									const availableVersions = versions?.slice(selectedVersionIndex + 1)
 
-										if (
-											previousHash &&
-											!availableVersions?.find((v) => v.script_hash === previousHash)
-										) {
-											previousHash = availableVersions?.[0]?.script_hash
-										}
+									if (
+										previousHash &&
+										!availableVersions?.find((v) => v.script_hash === previousHash)
+									) {
+										previousHash = availableVersions?.[0]?.script_hash
+									}
 
-										deploymentMsgUpdate = undefined
-										deploymentMsgUpdateMode = false
-									}}
-								>
-									<span class="text-xs truncate">
-										{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
-									</span>
-									{#if openDetails}
-										<Button
-											on:click={() => {
-												dispatch('openDetails', { version: version.script_hash })
-											}}
-											class="ml-2 inline-flex gap-1 text-xs items-center"
-											size="xs"
-											color="light"
-											variant="border"
-										>
-											Run page<ExternalLink size={14} />
-										</Button>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{:else}
-						<div class="text-sm text-tertiary">No items</div>
-					{/if}
+									deploymentMsgUpdate = undefined
+									deploymentMsgUpdateMode = false
+								}}
+							>
+								<span class="text-xs truncate">
+									{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
+								</span>
+								{#if openDetails}
+									<Button
+										on:click={() => {
+											dispatch('openDetails', { version: version.script_hash })
+										}}
+										class="ml-2 inline-flex gap-1 text-xs items-center"
+										size="xs"
+										color="light"
+										variant="border"
+									>
+										Run page<ExternalLink size={14} />
+									</Button>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				{:else}
-					<Skeleton layout={[[40], [40], [40], [40], [40]]} />
+					<div class="text-sm text-tertiary">No items</div>
 				{/if}
-			</div>
-		</PanelSection>
+			{:else}
+				<Skeleton layout={[[40], [40], [40], [40], [40]]} />
+			{/if}
+		</div>
 	</Pane>
 	<Pane size={80}>
 		<div class="h-full w-full overflow-auto">

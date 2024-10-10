@@ -52,7 +52,8 @@
                 "trigger",
                 "failure",
                 "command",
-                "approval"
+                "approval",
+                "preprocessor"
               ]
             }
           }

@@ -242,6 +242,7 @@ pub async fn get_hub_flow_by_id(
 
 #[derive(Deserialize)]
 pub struct ToggleWorkspaceErrorHandler {
+    #[cfg(feature = "enterprise")]
     pub muted: Option<bool>,
 }
 
@@ -1175,6 +1176,7 @@ mod tests {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1204,6 +1206,7 @@ mod tests {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1231,6 +1234,7 @@ mod tests {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1257,6 +1261,7 @@ mod tests {
                 priority: None,
                 delete_after_use: None,
                 continue_on_error: None,
+                skip_if: None,
             })),
             preprocessor_module: None,
             same_worker: false,

@@ -4,8 +4,8 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	export let date: string
-	export let withDate: boolean = false
 	export let agoOnlyIfRecent: boolean = false
+	export let noDate = false
 
 	let computedTimeAgo: string | undefined = undefined
 
@@ -63,21 +63,20 @@
 			let dAgo = daysAgo(date)
 			if (dAgo == 0) {
 				return `yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-			} else if (dAgo > 7 && withDate) {
+			} else if (dAgo > 7 && !noDate) {
 				return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], {
 					hour: '2-digit',
 					minute: '2-digit'
 				})}`
 			} else {
-				return !withDate ? displayDate(dateString, false, withDate) : ''
+				return displayDate(dateString, false, !noDate)
 			}
 		}
 	}
 </script>
 
-{#if withDate}
-	{displayDate(date)}
-{/if}
 {#if computedTimeAgo && (!agoOnlyIfRecent || isRecent)}
 	{computedTimeAgo}
+{:else}
+	{displayDate(date)}
 {/if}

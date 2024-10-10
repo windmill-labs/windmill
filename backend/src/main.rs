@@ -67,7 +67,7 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -92,9 +92,6 @@ const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 mod ee;
 mod monitor;
 
-#[cfg(feature = "pg_embed")]
-mod pg_embed;
-
 #[inline(always)]
 fn create_and_run_current_thread_inner<F, R>(future: F) -> R
 where
@@ -118,7 +115,8 @@ where
 }
 
 pub fn main() -> anyhow::Result<()> {
-    deno_core::JsRuntime::init_platform(None);
+    #[cfg(feature = "deno_core")]
+    deno_core::JsRuntime::init_platform(None, false);
     create_and_run_current_thread_inner(windmill_main())
 }
 
@@ -137,6 +135,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     })?;
 
     create_dir_all(HUB_CACHE_DIR).await?;
+    create_dir_all(BUN_BUNDLE_CACHE_DIR).await?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -158,6 +157,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 "global",
                 "global",
                 "",
+                &mut None,
             )
             .await?;
             tokio::fs::remove_dir_all(job_dir).await?;
@@ -167,7 +167,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             create_dir_all(&job_dir).await?;
             if let Some(lockfile) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
-
+                let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
                     &mut None,
@@ -176,10 +176,31 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     None,
                     &job_dir,
                     "cache_init",
-                    windmill_worker::get_common_bun_proc_envs(None).await,
+                    envs.clone(),
                     false,
+                    &mut None,
                 )
                 .await?;
+
+                let _ = windmill_common::worker::write_file(&job_dir, "main.js", &res.content)?;
+
+                if let Err(e) = windmill_worker::prebundle_bun_script(
+                    &res.content,
+                    Some(lockfile),
+                    &path,
+                    &job_id,
+                    "admins",
+                    None,
+                    &job_dir,
+                    "",
+                    "cache_init",
+                    "",
+                    &mut None,
+                )
+                .await
+                {
+                    panic!("Error prebundling bun script: {e:#}");
+                }
             } else {
                 tracing::warn!("No lockfile found for bun script {path}, skipping...");
             }
@@ -339,14 +360,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         config
     });
 
-    #[cfg(feature = "pg_embed")]
-    let _pg = {
-        let (db_url, pg) = pg_embed::start().await.expect("pg embed");
-        tracing::info!("Use embedded pg: {db_url}");
-        std::env::set_var("DATABASE_URL", db_url);
-        pg
-    };
-
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
@@ -371,8 +384,16 @@ async fn windmill_main() -> anyhow::Result<()> {
     let is_agent = mode == Mode::Agent;
 
     if !is_agent {
-        // migration code to avoid break
-        windmill_api::migrate_db(&db).await?;
+        let skip_migration = std::env::var("SKIP_MIGRATION")
+            .map(|val| val == "true")
+            .unwrap_or(false);
+
+        if !skip_migration {
+            // migration code to avoid break
+            windmill_api::migrate_db(&db).await?;
+        } else {
+            tracing::info!("SKIP_MIGRATION set, skipping db migration...")
+        }
     }
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -775,9 +796,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        let instance_name = rd_string(8);
         if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
+            schedule_stats(&db, &HTTP_CLIENT).await;
         }
 
         #[cfg(feature = "enterprise")]
@@ -906,6 +926,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         PIP_CACHE_DIR,
+        UV_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,

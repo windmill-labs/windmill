@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.399.0",
+	"version": "1.407.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -177,6 +177,11 @@
 			"svelte": "./package/components/icons/WindmillIcon.svelte",
 			"default": "./package/components/icons/WindmillIcon.svelte"
 		},
+		"./components/icons/WindmillIcon2.svelte": {
+			"types": "./package/components/icons/WindmillIcon2.d.ts",
+			"svelte": "./package/components/icons/WindmillIcon2.svelte",
+			"default": "./package/components/icons/WindmillIcon2.svelte"
+		},
 		"./components/IconedResourceType.svelte": {
 			"types": "./package/components/IconedResourceType.svelte.d.ts",
 			"svelte": "./package/components/IconedResourceType.svelte",
@@ -295,6 +300,14 @@
 			"types": "./package/utils.d.ts",
 			"default": "./package/utils.js"
 		},
+		"./components/icons/store": {
+			"types": "./package/components/icons/store.d.ts",
+			"default": "./package/components/icons/store.js"
+		},
+		"./script_helpers": {
+			"types": "./package/script_helpers.d.ts",
+			"default": "./package/script_helpers.js"
+		},
 		"./infer": {
 			"types": "./package/infer.d.ts",
 			"default": "./package/infer.js"
@@ -336,6 +349,11 @@
 			"types": "./package/components/DropdownV2.svelte.d.ts",
 			"svelte": "./package/components/DropdownV2.svelte",
 			"default": "./package/components/DropdownV2.svelte"
+		},
+		"./components/flows/FlowHistoryInner.svelte": {
+			"types": "./package/components/flows/FlowHistoryInner.svelte.d.ts",
+			"svelte": "./package/components/flows/FlowHistoryInner.svelte",
+			"default": "./package/components/flows/FlowHistoryInner.svelte"
 		}
 	},
 	"files": [
@@ -357,6 +375,9 @@
 			],
 			"components/icons/WindmillIcon.svelte": [
 				"./package/components/icons/WindmillIcon.svelte.d.ts"
+			],
+			"components/icons/WindmillIcon2.svelte": [
+				"./package/components/icons/WindmillIcon2.svelte.d.ts"
 			],
 			"components/scriptEditor/LogPanel.svelte": [
 				"./package/components/scriptEditor/LogPanel.svelte.d.ts"
@@ -418,6 +439,9 @@
 			"components/EditableSchemaWrapper.svelte": [
 				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"
 			],
+			"components/flows/FlowHistoryInner.svelte": [
+				"./package/components/flows/FlowHistoryInner.svelte.d.ts"
+			],
 			"utils": [
 				"./package/utils.d.ts"
 			],
@@ -453,6 +477,12 @@
 			],
 			"components/DropdownV2.svelte": [
 				"./package/components/DropdownV2.svelte.d.ts"
+			],
+			"script_helpers": [
+				"./package/script_helpers.d.ts"
+			],
+			"components/icons/store": [
+				"./package/components/icons/store.d.ts"
 			]
 		}
 	},

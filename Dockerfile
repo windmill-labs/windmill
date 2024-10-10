@@ -158,6 +158,9 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+# Install UV
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
+
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -172,7 +175,7 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:1.46.3 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.0.0 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 COPY --from=oven/bun:1.1.27 /usr/local/bin/bun /usr/bin/bun
 

@@ -44,5 +44,5 @@ jobs:
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml &&
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info cargo test --features enterprise
-          --all -- --nocapture
+          DISABLE_EMBEDDING=true RUST_LOG=info cargo test --features
+          enterprise,deno_core --all -- --nocapture

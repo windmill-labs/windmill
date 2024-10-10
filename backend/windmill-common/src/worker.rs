@@ -303,14 +303,14 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-pub struct Annotations {
+pub struct TypeScriptAnnotations {
     pub npm_mode: bool,
     pub nodejs_mode: bool,
     pub native_mode: bool,
     pub nobundling: bool,
 }
 
-pub fn get_annotation(inner_content: &str) -> Annotations {
+pub fn get_annotation_ts(inner_content: &str) -> TypeScriptAnnotations {
     let annotations = inner_content
         .lines()
         .take_while(|x| x.starts_with("//"))
@@ -324,7 +324,41 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     let nobundling: bool =
         annotations.contains(&"nobundling".to_string()) || nodejs_mode || *DISABLE_BUNDLING;
 
-    Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
+    TypeScriptAnnotations { npm_mode, nodejs_mode, native_mode, nobundling }
+}
+
+pub struct PythonAnnotations {
+    pub no_uv: bool,
+    pub no_cache: bool,
+}
+
+pub fn get_annotation_python(inner_content: &str) -> PythonAnnotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("#"))
+        .map(|x| x.to_string().replace("#", "").trim().to_string())
+        .collect_vec();
+
+    let no_uv: bool = annotations.contains(&"no_uv".to_string());
+    let no_cache: bool = annotations.contains(&"no_cache".to_string());
+
+    PythonAnnotations { no_uv, no_cache }
+}
+
+pub struct SqlAnnotations {
+    pub return_last_result: bool,
+}
+
+pub fn get_sql_annotations(inner_content: &str) -> SqlAnnotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("--"))
+        .map(|x| x.to_string().replace("--", "").trim().to_string())
+        .collect_vec();
+
+    let return_last_result: bool = annotations.contains(&"return_last_result".to_string());
+
+    SqlAnnotations { return_last_result }
 }
 
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
@@ -433,10 +467,13 @@ pub async fn save_cache(
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::{File, Permissions};
     use std::io::Write;
+
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     let mut file = File::create(main_path)?;
     file.write_all(byts)?;
+    #[cfg(unix)]
     file.set_permissions(Permissions::from_mode(0o755))?;
     file.flush()?;
     Ok(())

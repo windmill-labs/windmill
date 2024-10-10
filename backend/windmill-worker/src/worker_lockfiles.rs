@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{get_annotation, to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{get_annotation_ts, to_raw_value, to_raw_value_owned, write_file};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -25,7 +25,8 @@ use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
+use crate::common::OccupancyMetrics;
+use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -212,6 +213,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
     base_internal_url: &str,
     token: &str,
     rsmq: Option<R>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let raw_code = match job.raw_code {
         Some(ref code) => code.to_owned(),
@@ -273,6 +275,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         script_path,
         raw_deps,
         npm_mode,
+        occupancy_metrics,
     )
     .await;
 
@@ -533,6 +536,7 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
     base_internal_url: &str,
     token: &str,
     rsmq: Option<R>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -605,6 +609,7 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         base_internal_url,
         token,
         &nodes_to_relock,
+        occupancy_metrics,
     )
     .await?;
     let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
@@ -709,6 +714,7 @@ async fn lock_modules<'c>(
     base_internal_url: &str,
     token: &str,
     locks_to_reload: &Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -754,6 +760,7 @@ async fn lock_modules<'c>(
                         base_internal_url,
                         token,
                         locks_to_reload,
+                        occupancy_metrics,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -785,6 +792,7 @@ async fn lock_modules<'c>(
                             base_internal_url,
                             token,
                             locks_to_reload,
+                            occupancy_metrics,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -809,6 +817,7 @@ async fn lock_modules<'c>(
                         base_internal_url,
                         token,
                         locks_to_reload,
+                        occupancy_metrics,
                     ))
                     .await?;
                     e.value =
@@ -835,6 +844,7 @@ async fn lock_modules<'c>(
                             base_internal_url,
                             token,
                             locks_to_reload,
+                            occupancy_metrics,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -856,6 +866,7 @@ async fn lock_modules<'c>(
                         base_internal_url,
                         token,
                         locks_to_reload,
+                        occupancy_metrics,
                     ))
                     .await?;
                     e.value = FlowModuleValue::BranchOne { branches: nbranches, default: ndefault }
@@ -904,6 +915,7 @@ async fn lock_modules<'c>(
             ),
             false,
             None,
+            occupancy_metrics,
         )
         .await;
         //
@@ -941,7 +953,7 @@ async fn lock_modules<'c>(
                 }
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
-                    let anns = get_annotation(&content);
+                    let anns = get_annotation_ts(&content);
                     if anns.native_mode && language == ScriptLang::Bun {
                         language = ScriptLang::Bunnative;
                     } else if !anns.native_mode && language == ScriptLang::Bunnative {
@@ -991,7 +1003,7 @@ async fn lock_modules<'c>(
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
     if language == &ScriptLang::Bun || language == &ScriptLang::Bunnative {
-        let anns = get_annotation(&content);
+        let anns = get_annotation_ts(&content);
         if anns.native_mode && language == &ScriptLang::Bun {
             return false;
         } else if !anns.native_mode && language == &ScriptLang::Bunnative {
@@ -1014,6 +1026,7 @@ async fn lock_modules_app(
     job_path: &str,
     base_internal_url: &str,
     token: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -1058,12 +1071,13 @@ async fn lock_modules_app(
                                 &format!("{}/app", job.script_path()),
                                 false,
                                 None,
+                                occupancy_metrics,
                             )
                             .await;
                             match new_lock {
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, db).await;
-                                    let anns = get_annotation(&content);
+                                    let anns = get_annotation_ts(&content);
                                     let nlang = if anns.native_mode && language == ScriptLang::Bun {
                                         Some(ScriptLang::Bunnative)
                                     } else if !anns.native_mode && language == ScriptLang::Bunnative
@@ -1113,6 +1127,7 @@ async fn lock_modules_app(
                         job_path,
                         base_internal_url,
                         token,
+                        occupancy_metrics,
                     )
                     .await?,
                 );
@@ -1135,6 +1150,7 @@ async fn lock_modules_app(
                         job_path,
                         base_internal_url,
                         token,
+                        occupancy_metrics,
                     )
                     .await?,
                 );
@@ -1156,6 +1172,7 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
     base_internal_url: &str,
     token: &str,
     rsmq: Option<R>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -1185,6 +1202,7 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
             &job_path,
             base_internal_url,
             token,
+            occupancy_metrics,
         )
         .await?;
 
@@ -1259,9 +1277,10 @@ async fn python_dep(
     worker_name: &str,
     w_id: &str,
     worker_dir: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
-    let req: std::result::Result<String, Error> = pip_compile(
+    let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
         mem_peak,
@@ -1270,6 +1289,9 @@ async fn python_dep(
         db,
         worker_name,
         w_id,
+        occupancy_metrics,
+        false,
+        false,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1284,6 +1306,7 @@ async fn python_dep(
             worker_name,
             job_dir,
             worker_dir,
+            occupancy_metrics,
         )
         .await;
 
@@ -1313,6 +1336,7 @@ async fn capture_dependency_job(
     script_path: &str,
     raw_deps: bool,
     npm_mode: Option<bool>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -1342,6 +1366,7 @@ async fn capture_dependency_job(
                 worker_name,
                 w_id,
                 worker_dir,
+                &mut Some(occupancy_metrics),
             )
             .await
         }
@@ -1364,6 +1389,7 @@ async fn capture_dependency_job(
                 worker_name,
                 w_id,
                 worker_dir,
+                &mut Some(occupancy_metrics),
             )
             .await
         }
@@ -1385,6 +1411,7 @@ async fn capture_dependency_job(
                 false,
                 worker_name,
                 w_id,
+                occupancy_metrics,
             )
             .await
         }
@@ -1404,12 +1431,14 @@ async fn capture_dependency_job(
                 w_id,
                 worker_name,
                 base_internal_url,
+                &mut Some(occupancy_metrics),
             )
             .await
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
-            let npm_mode = npm_mode
-                .unwrap_or_else(|| windmill_common::worker::get_annotation(job_raw_code).npm_mode);
+            let npm_mode = npm_mode.unwrap_or_else(|| {
+                windmill_common::worker::get_annotation_ts(job_raw_code).npm_mode
+            });
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code)?;
             }
@@ -1431,6 +1460,7 @@ async fn capture_dependency_job(
                     None
                 },
                 npm_mode,
+                &mut Some(occupancy_metrics),
             )
             .await?;
             if req.is_some() && !raw_deps {
@@ -1445,6 +1475,7 @@ async fn capture_dependency_job(
                     base_internal_url,
                     worker_name,
                     &token,
+                    &mut Some(occupancy_metrics),
                 )
                 .await?;
             }
@@ -1475,6 +1506,7 @@ async fn capture_dependency_job(
                 worker_name,
                 reqs,
                 None,
+                occupancy_metrics,
             )
             .await
         }
@@ -1494,6 +1526,7 @@ async fn capture_dependency_job(
                 db,
                 worker_name,
                 w_id,
+                occupancy_metrics,
             )
             .await?;
 
@@ -1507,6 +1540,7 @@ async fn capture_dependency_job(
                 w_id,
                 base_internal_url,
                 &compute_rust_hash(&job_raw_code, Some(&lockfile)),
+                occupancy_metrics,
             )
             .await?;
             Ok(lockfile)

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.399.0"
+version = "1.407.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -27,7 +27,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.399.0"
+version = "1.407.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -44,10 +44,9 @@ default = []
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
-benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
+benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
-pg_embed = ["dep:pg-embed"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
@@ -57,6 +56,7 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
 sqlx = ["windmill-worker/sqlx"]
+deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 
 [dependencies]
 anyhow.workspace = true
@@ -85,9 +85,8 @@ uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-deno_core.workspace = true
+deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
 quote.workspace = true
 
 
@@ -104,6 +103,7 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
+
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
@@ -172,20 +172,24 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.187.0"
-deno_tls = "0.150.0"
-deno_console = "0.163.0"
-deno_url = "0.163.0"
-deno_webidl = "0.163.0"
-deno_web = "0.194.0"
-deno_net = "0.155.0"
-deno_core = "0.299.0"
-deno_ast = { version = "=0.40.0", features = ["transpiling"] }
+
+deno_fetch = "0.195.0"
+deno_tls = "0.158.0"
+deno_console = "0.171.0"
+deno_url = "0.171.0"
+deno_webidl = "0.171.0"
+deno_web = "0.202.0"
+deno_net = "0.163.0"
+deno_core = "0.311.0"
+deno_ast = { version = "=0.42.2", features = ["transpiling"] }
+
+swc_common = "=0.37.5"
+swc_ecma_parser = "=0.149.1"
+swc_ecma_ast = "=0.118.2"
+swc_ecma_visit = "=0.104.8"
+
 async-recursion = "^1"
-swc_common = "=0.33.26"
-swc_ecma_parser = "=0.144.3"
-swc_ecma_ast = "=0.113.7"
-swc_ecma_visit = "=0.99.1"
+
 base64 = "0.21.0"
 base32 = "^0"
 hmac = "0.12.1"
@@ -270,8 +274,7 @@ tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
 
-# 0.1.12 broken (nested dependency of swc_common) 
-triomphe = "<0.1.12"
+triomphe = "^0"
 
 tantivy = "0.22.0"
 

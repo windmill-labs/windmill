@@ -116,7 +116,7 @@
 />
 
 <div class="flex flex-col w-full items-start">
-	<div class="flex flex-row gap-x-1 w-full items-center">
+	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select
 				{disabled}
@@ -128,9 +128,11 @@
 					valueSelect = e.detail
 				}}
 				on:clear={() => {
+					initialValue = undefined
 					value = undefined
 					valueType = undefined
 					valueSelect = undefined
+					dispatch('clear')
 				}}
 				items={collection}
 				class="text-clip grow min-w-0"
@@ -143,14 +145,15 @@
 		{:else if !loading}
 			<div class="text-2xs text-tertiary mr-2">0 found</div>
 		{/if}
-
 		{#if !loading}
+			<div class="mx-0.5" />
 			{#if value && value != ''}
 				<Button
 					{disabled}
 					color="light"
-					variant="border"
-					size="xs"
+					variant="contained"
+					size="sm"
+					btnClasses="w-8 px-0.5 py-1.5"
 					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
 					startIcon={{ icon: Pen }}
 					iconOnly
@@ -162,8 +165,9 @@
 					<Button
 						{disabled}
 						color="light"
-						variant="border"
-						size="xs"
+						variant="contained"
+						size="sm"
+						btnClasses="w-8 px-0.5 py-1.5"
 						on:click={() => appConnect?.open?.(rt)}
 						startIcon={{ icon: Plus }}>{rt}</Button
 					>
@@ -173,7 +177,7 @@
 					{disabled}
 					color="light"
 					variant="border"
-					size="xs"
+					size="sm"
 					on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}
@@ -185,9 +189,10 @@
 		{/if}
 
 		<Button
-			variant="border"
+			variant="contained"
 			color="light"
-			size="xs"
+			btnClasses="w-8 px-0.5 py-1.5"
+			size="sm"
 			on:click={() => {
 				loadResources(resourceType)
 			}}

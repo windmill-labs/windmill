@@ -145,3 +145,23 @@ svelte-virtual-list-contents > * + * {
 		rgba(255, 69, 58, 0.2) 20px
 	);
 }
+
+.bg-draggedover {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(0, 0, 128, 0.2),
+		rgba(0, 0, 192, 0.2) 10px,
+		rgba(0, 0, 128, 0.2) 10px,
+		rgba(0, 0, 192, 0.2) 20px
+	);
+}
+
+.bg-draggedover-dark {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(0, 0, 128, 0.6),
+		rgba(0, 0, 192, 0.6) 10px,
+		rgba(0, 0, 128, 0.6) 10px,
+		rgba(0, 0, 192, 0.6) 20px
+	);
+}

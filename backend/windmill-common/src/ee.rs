@@ -53,11 +53,18 @@ pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::d
 }
 
 #[cfg(feature = "enterprise")]
+pub enum RenewReason {
+    Manual,
+    Schedule,
+    OnStart,
+}
+
+#[cfg(feature = "enterprise")]
 pub async fn renew_license_key(
     _http_client: &reqwest::Client,
     _db: &crate::db::DB,
     _key: Option<String>,
-    _manual: bool,
+    _reason: RenewReason,
 ) -> String {
     // Implementation is not open source
     "".to_string()
@@ -74,3 +81,6 @@ pub async fn create_customer_portal_session(
 
 #[cfg(feature = "enterprise")]
 pub async fn worker_groups_alerts(_db: &DB) {}
+
+#[cfg(feature = "enterprise")]
+pub async fn jobs_waiting_alerts(_db: &DB) {}

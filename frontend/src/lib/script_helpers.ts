@@ -1,19 +1,79 @@
 import { type Script } from './gen'
 
-import PYTHON_INIT_CODE from '$lib/init_scripts/python_init_code'
-import PYTHON_INIT_CODE_CLEAR from '$lib/init_scripts/python_init_code_clear'
-import PYTHON_INIT_CODE_TRIGGER from '$lib/init_scripts/python_init_code_trigger'
-import PYTHON_FAILURE_MODULE_CODE from '$lib/init_scripts/python_failure_module'
 import type { SupportedLanguage } from './common'
 
-export {
-	PYTHON_INIT_CODE,
-	PYTHON_INIT_CODE_CLEAR,
-	PYTHON_INIT_CODE_TRIGGER,
-	PYTHON_FAILURE_MODULE_CODE
-}
+const PYTHON_FAILURE_MODULE_CODE = `import os
 
-export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
+def main(message: str, name: str, step_id: str):
+    flow_id = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+    print("message", message)
+    print("name", name)
+    print("step_id", step_id)
+    return { "message": message, "flow_id": flow_id, "step_id": step_id, "recover": False }`
+
+const PYTHON_INIT_CODE_CLEAR = `# import wmill
+
+
+def main(x: str):
+    return x`
+
+const PYTHON_INIT_CODE_TRIGGER = `import wmill
+
+
+def main():
+    # A common trigger script would follow this pattern:
+    # 1. Get the last saved state
+    # state = wmill.get_state()
+    # 2. Get the actual state from the external service
+    # newState = ...
+    # 3. Compare the two states and update the internal state
+    # wmill.setState(newState)
+    # 4. Return the new rows
+    # return range from (state to newState)
+    return [1, 2, 3]`
+
+const PYTHON_INIT_CODE = `import os
+import wmill
+
+# You can import any PyPi package. 
+# See here for more info: https://www.windmill.dev/docs/advanced/dependencies_in_python
+
+# you can use typed resources by doing a type alias to dict
+#postgresql = dict
+
+def main(
+    no_default: str,
+    #db: postgresql,
+    name="Nicolas Bourbaki",
+    age=42,
+    obj: dict = {"even": "dicts"},
+    l: list = ["or", "lists!"],
+    file_: bytes = bytes(0),
+):
+
+    print(f"Hello World and a warm welcome especially to {name}")
+    print("and its acolytes..", age, obj, l, len(file_))
+
+    # retrieve variables, resources, states using the wmill client
+    try:
+        secret = wmill.get_variable("f/examples/secret")
+    except:
+        secret = "No secret yet at f/examples/secret !"
+    print(f"The variable at \`f/examples/secret\`: {secret}")
+
+    # Get last state of this script execution by the same trigger/user
+    last_state = wmill.get_state()
+    new_state = {"foo": 42} if last_state is None else last_state
+    new_state["foo"] += 1
+    wmill.set_state(new_state)
+
+    # fetch context variables
+    user = os.environ.get("WM_USERNAME")
+
+    # return value is converted to JSON
+    return {"splitted": name.split(), "user": user, "state": new_state}`
+
+const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
 //import * as wmill from './windmill.ts'
 
 export async function main(example_input: number = 3) {
@@ -25,7 +85,7 @@ export async function main(example_input: number = 3) {
 }
 `
 
-export const BUNNATIVE_INIT_CODE = `//native
+const BUNNATIVE_INIT_CODE = `//native
 //you can add proxy support using //proxy http(s)://host:port
 
 // native scripts are bun scripts that are executed on native workers and can be parallelized
@@ -42,7 +102,7 @@ export async function main(example_input: number = 3) {
 }
 `
 
-export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
+const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
 //import * as wmill from './windmill.ts'
 
 export async function main() {
@@ -53,7 +113,7 @@ export async function main() {
 }
 `
 
-export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
+const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
 // import * as wmill from "npm:windmill-client@${__pkg__.version}"
@@ -74,7 +134,7 @@ export async function main(
 }
 `
 
-export const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
 // https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
 
 // import { toWords } from "number-to-words@1"
@@ -105,7 +165,7 @@ export async function main(
 }
 `
 
-export const GO_INIT_CODE = `package inner
+const GO_INIT_CODE = `package inner
 
 import (
 	"fmt"
@@ -129,7 +189,7 @@ func main(x string, nested struct {
 }
 `
 
-export const GO_FAILURE_MODULE_CODE = `package inner
+const GO_FAILURE_MODULE_CODE = `package inner
 
 import (
 	"fmt"
@@ -146,21 +206,21 @@ func main(message string, name string) (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@${__pkg__.version}"
+const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
   return x
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client"
+const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client"
 
 export async function main(x: string) {
   return x
 }
 `
 
-export const DENO_FAILURE_MODULE_CODE = `
+const DENO_FAILURE_MODULE_CODE = `
 export async function main(message: string, name: string, step_id: string) {
   const flow_id = Deno.env.get("WM_ROOT_FLOW_JOB_ID")
   console.log("message", message)
@@ -170,7 +230,7 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-export const BUN_FAILURE_MODULE_CODE = `
+const BUN_FAILURE_MODULE_CODE = `
 export async function main(message: string, name: string, step_id: string) {
   const flow_id = process.env.WM_ROOT_FLOW_JOB_ID
   console.log("message", message)
@@ -180,7 +240,7 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -189,7 +249,7 @@ INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
 UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
-export const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -197,7 +257,7 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-export const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -206,7 +266,7 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
-export const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -215,7 +275,8 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-export const MSSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const MSSQL_INIT_CODE = `-- return_last_result
+-- to pin the database use '-- database f/your/path'
 -- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
 -- @p3 name3 (int)
@@ -223,7 +284,7 @@ INSERT INTO demo VALUES (@p1, @p2);
 UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
 `
 
-export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
+const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
 		name2,
@@ -232,7 +293,7 @@ export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [St
 }
 `
 
-export const PHP_INIT_CODE = `<?php
+const PHP_INIT_CODE = `<?php
 
 // remove the first // of the following lines to specify packages to install using composer
 // // require:
@@ -252,7 +313,7 @@ function main(
 }
 `
 
-export const RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
+const RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
 //!
 //! \`\`\`cargo
 //! [dependencies]
@@ -287,7 +348,7 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 }
 `
 
-export const FETCH_INIT_CODE = `export async function main(
+const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
 	body: Object = {},
@@ -318,7 +379,7 @@ export const FETCH_INIT_CODE = `export async function main(
 		})
 }`
 
-export const BASH_INIT_CODE = `# shellcheck shell=bash
+const BASH_INIT_CODE = `# shellcheck shell=bash
 # arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 dflt="\${2:-default value}"
@@ -328,7 +389,7 @@ dflt="\${2:-default value}"
 echo "Hello $msg"
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
+const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main() {
 
@@ -349,7 +410,28 @@ export async function main() {
 }
 `
 
-export const GO_INIT_CODE_TRIGGER = `package inner
+const BUN_INIT_CODE_TRIGGER = `import * as wmill from "windmill-client"
+
+export async function main() {
+
+  // A common trigger script would follow this pattern:
+  // 1. Get the last saved state
+  // const state = await wmill.getState()
+  // 2. Get the actual state from the external service
+  // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+  // 3. Compare the two states and update the internal state
+  // await wmill.setState(newState)
+  // 4. Return the new rows
+  // return range from (state to newState)
+
+  return [1,2,3]
+
+  // In subsequent scripts, you may refer to each row/value returned by the trigger script using
+  // 'flow_input.iter.value'
+}
+`
+
+const GO_INIT_CODE_TRIGGER = `package inner
 
 import (
 	wmill "github.com/windmill-labs/windmill-go-client"
@@ -373,7 +455,7 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
+const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
   const urls = await wmill.getResumeUrls(approver)
@@ -401,7 +483,7 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
+const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
   const urls = await wmill.getResumeUrls(approver)
@@ -429,7 +511,7 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_PREPROCESSOR_MODULE_CODE = `
+const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
 		kind: 'http' | 'email' | 'webhook',
@@ -450,7 +532,7 @@ export async function preprocessor(
 }
 `
 
-export const DENO_PREPROCESSOR_MODULE_CODE = `
+const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
 		kind: 'http' | 'email' | 'wehbook',
@@ -471,7 +553,7 @@ export async function preprocessor(
 }
 `
 
-export const PYTHON_INIT_CODE_APPROVAL = `import wmill
+const PYTHON_INIT_CODE_APPROVAL = `import wmill
 
 def main():
   urls = wmill.get_resume_urls()
@@ -498,7 +580,7 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 
 class Http(TypedDict):
 	route: str # The route path, e.g. "/users/:id"
@@ -521,7 +603,7 @@ def preprocessor(
 	}
 `
 
-export const DOCKER_INIT_CODE = `# shellcheck shell=bash
+const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # Bash script that calls docker as a client to the host daemon
 # See documentation: https://www.windmill.dev/docs/advanced/docker
 msg="\${1:-world}"
@@ -534,7 +616,7 @@ docker pull $IMAGE
 docker run --rm $IMAGE $COMMAND
 `
 
-export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
+const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
 
 # Import-Module MyModule
 
@@ -545,7 +627,7 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
-export const ANSIBLE_PLAYBOOK_INIT_CODE = `---
+const ANSIBLE_PLAYBOOK_INIT_CODE = `---
 inventory:
   - resource_type: ansible_inventory
     # You can pin an inventory to this script by hardcoding the resource path:
@@ -589,43 +671,90 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
-
-const ALL_INITIAL_CODE = [
-	PYTHON_INIT_CODE,
-	PYTHON_INIT_CODE_TRIGGER,
-	DENO_INIT_CODE,
-	POSTGRES_INIT_CODE,
-	MYSQL_INIT_CODE,
-	BIGQUERY_INIT_CODE,
-	SNOWFLAKE_INIT_CODE,
-	MSSQL_INIT_CODE,
-	GRAPHQL_INIT_CODE,
-	DENO_INIT_CODE_TRIGGER,
-	DENO_INIT_CODE_CLEAR,
-	PYTHON_INIT_CODE_CLEAR,
-	PYTHON_FAILURE_MODULE_CODE,
-	PYTHON_PREPROCESSOR_MODULE_CODE,
-	DENO_INIT_CODE_APPROVAL,
-	DENO_FAILURE_MODULE_CODE,
-	DENO_PREPROCESSOR_MODULE_CODE,
-	BUN_INIT_CODE,
-	BUN_INIT_CODE_CLEAR,
-	BUN_INIT_CODE_APPROVAL,
-	BUN_FAILURE_MODULE_CODE,
-	BUN_PREPROCESSOR_MODULE_CODE,
-	BASH_INIT_CODE,
-	POWERSHELL_INIT_CODE,
-	PHP_INIT_CODE,
-	RUST_INIT_CODE,
-	ANSIBLE_PLAYBOOK_INIT_CODE
-]
+export const INITIAL_CODE = {
+	bun: {
+		script: BUN_INIT_CODE,
+		trigger: BUN_INIT_CODE_TRIGGER,
+		approval: BUN_INIT_CODE_APPROVAL,
+		failure: BUN_FAILURE_MODULE_CODE,
+		preprocessor: BUN_PREPROCESSOR_MODULE_CODE,
+		clear: BUN_INIT_CODE_CLEAR
+	},
+	python3: {
+		script: PYTHON_INIT_CODE,
+		trigger: PYTHON_INIT_CODE_TRIGGER,
+		approval: PYTHON_INIT_CODE_APPROVAL,
+		failure: PYTHON_FAILURE_MODULE_CODE,
+		preprocessor: PYTHON_PREPROCESSOR_MODULE_CODE,
+		clear: PYTHON_INIT_CODE_CLEAR
+	},
+	deno: {
+		script: DENO_INIT_CODE,
+		trigger: DENO_INIT_CODE_TRIGGER,
+		approval: DENO_INIT_CODE_APPROVAL,
+		failure: DENO_FAILURE_MODULE_CODE,
+		preprocessor: DENO_PREPROCESSOR_MODULE_CODE,
+		fetch: FETCH_INIT_CODE,
+		clear: DENO_INIT_CODE_CLEAR
+	},
+	go: {
+		script: GO_INIT_CODE,
+		trigger: GO_INIT_CODE_TRIGGER,
+		failure: GO_FAILURE_MODULE_CODE
+	},
+	bash: {
+		script: BASH_INIT_CODE
+	},
+	powershell: {
+		script: POWERSHELL_INIT_CODE
+	},
+	nativets: {
+		script: NATIVETS_INIT_CODE
+	},
+	postgresql: {
+		script: POSTGRES_INIT_CODE
+	},
+	mysql: {
+		script: MYSQL_INIT_CODE
+	},
+	bigquery: {
+		script: BIGQUERY_INIT_CODE
+	},
+	snowflake: {
+		script: SNOWFLAKE_INIT_CODE
+	},
+	mssql: {
+		script: MSSQL_INIT_CODE
+	},
+	graphql: {
+		script: GRAPHQL_INIT_CODE
+	},
+	php: {
+		script: PHP_INIT_CODE
+	},
+	rust: {
+		script: RUST_INIT_CODE
+	},
+	ansible: {
+		script: ANSIBLE_PLAYBOOK_INIT_CODE
+	},
+	docker: {
+		script: DOCKER_INIT_CODE
+	},
+	bunnative: {
+		script: BUNNATIVE_INIT_CODE
+	}
+}
 
 export function isInitialCode(content: string): boolean {
-	for (const code of ALL_INITIAL_CODE) {
-		if (content === code) {
-			return true
-		}
-	}
+	Object.values(INITIAL_CODE).forEach((lang) => {
+		Object.values(lang).forEach((code) => {
+			if (content === code) {
+				return true
+			}
+		})
+	})
+
 	return false
 }
 
@@ -649,92 +778,93 @@ export function initialCode(
 	}
 	if (language === 'deno') {
 		if (kind === 'trigger') {
-			return DENO_INIT_CODE_TRIGGER
+			return INITIAL_CODE.deno.trigger
 		} else if (kind === 'script') {
 			if (subkind === 'flow') {
-				return DENO_INIT_CODE_CLEAR
+				return INITIAL_CODE.deno.clear
 			} else if (subkind === 'pgsql') {
-				return POSTGRES_INIT_CODE
+				return INITIAL_CODE.postgresql.script
 			} else if (subkind === 'mysql') {
-				return MYSQL_INIT_CODE
+				return INITIAL_CODE.mysql.script
 			} else if (subkind === 'fetch') {
-				return FETCH_INIT_CODE
+				return INITIAL_CODE.deno.fetch
 			} else if (subkind === 'preprocessor') {
-				return DENO_PREPROCESSOR_MODULE_CODE
+				return INITIAL_CODE.deno.preprocessor
 			} else {
-				return DENO_INIT_CODE
+				return INITIAL_CODE.deno.script
 			}
 		} else if (kind === 'failure') {
-			return DENO_FAILURE_MODULE_CODE
+			return INITIAL_CODE.deno.failure
 		} else if (kind === 'approval') {
-			return DENO_INIT_CODE_APPROVAL
+			return INITIAL_CODE.deno.approval
 		} else {
-			return DENO_INIT_CODE
+			return INITIAL_CODE.deno.script
 		}
 	} else if (language === 'python3') {
 		if (kind === 'trigger') {
-			return PYTHON_INIT_CODE_TRIGGER
+			return INITIAL_CODE.python3.trigger
 		} else if (kind === 'approval') {
-			return PYTHON_INIT_CODE_APPROVAL
+			return INITIAL_CODE.python3.approval
 		} else if (kind === 'failure') {
-			return PYTHON_FAILURE_MODULE_CODE
+			return INITIAL_CODE.python3.failure
 		} else if (subkind === 'flow') {
-			return PYTHON_INIT_CODE_CLEAR
+			return INITIAL_CODE.python3.clear
 		} else if (subkind === 'preprocessor') {
-			return PYTHON_PREPROCESSOR_MODULE_CODE
+			return INITIAL_CODE.python3.preprocessor
 		} else {
-			return PYTHON_INIT_CODE
+			return INITIAL_CODE.python3.script
 		}
 	} else if (language == 'bash') {
 		if (subkind === 'docker') {
-			return DOCKER_INIT_CODE
+			return INITIAL_CODE.docker.script
 		} else {
-			return BASH_INIT_CODE
+			return INITIAL_CODE.bash.script
 		}
 	} else if (language == 'powershell') {
-		return POWERSHELL_INIT_CODE
+		return INITIAL_CODE.powershell.script
 	} else if (language == 'nativets') {
-		return NATIVETS_INIT_CODE
+		return INITIAL_CODE.nativets.script
 	} else if (language == 'postgresql') {
-		return POSTGRES_INIT_CODE
+		return INITIAL_CODE.postgresql.script
 	} else if (language == 'mysql') {
-		return MYSQL_INIT_CODE
+		return INITIAL_CODE.mysql.script
 	} else if (language == 'bigquery') {
-		return BIGQUERY_INIT_CODE
+		return INITIAL_CODE.bigquery.script
 	} else if (language == 'snowflake') {
-		return SNOWFLAKE_INIT_CODE
+		return INITIAL_CODE.snowflake.script
 	} else if (language == 'mssql') {
-		return MSSQL_INIT_CODE
+		return INITIAL_CODE.mssql.script
 	} else if (language == 'graphql') {
-		return GRAPHQL_INIT_CODE
+		return INITIAL_CODE.graphql.script
 	} else if (language == 'php') {
-		return PHP_INIT_CODE
+		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {
-		return RUST_INIT_CODE
+		return INITIAL_CODE.rust.script
 	} else if (language == 'ansible') {
-		return ANSIBLE_PLAYBOOK_INIT_CODE
+		return INITIAL_CODE.ansible.script
 	} else if (language == 'bun' || language == 'bunnative') {
-		if (language == 'bunnative' || subkind === 'bunnative') {
-			return BUNNATIVE_INIT_CODE
+		if (kind == 'trigger') {
+			return INITIAL_CODE.bun.trigger
+		} else if (language == 'bunnative' || subkind === 'bunnative') {
+			return INITIAL_CODE.bunnative.script
 		} else if (kind === 'approval') {
-			return BUN_INIT_CODE_APPROVAL
+			return INITIAL_CODE.bun.approval
 		} else if (kind === 'failure') {
-			return BUN_FAILURE_MODULE_CODE
+			return INITIAL_CODE.bun.failure
 		} else if (subkind === 'preprocessor') {
-			return BUN_PREPROCESSOR_MODULE_CODE
-		}
-		if (subkind === 'flow') {
-			return BUN_INIT_CODE_CLEAR
+			return INITIAL_CODE.bun.preprocessor
+		} else if (subkind === 'flow') {
+			return INITIAL_CODE.bun.clear
 		}
 
-		return BUN_INIT_CODE
+		return INITIAL_CODE.bun.script
 	} else {
 		if (kind === 'failure') {
-			return GO_FAILURE_MODULE_CODE
+			return INITIAL_CODE.go.failure
 		} else if (kind === 'trigger') {
-			return GO_INIT_CODE_TRIGGER
+			return INITIAL_CODE.go.trigger
 		} else {
-			return GO_INIT_CODE
+			return INITIAL_CODE.go.script
 		}
 	}
 }

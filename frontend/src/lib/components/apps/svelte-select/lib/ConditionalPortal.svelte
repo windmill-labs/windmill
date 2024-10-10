@@ -12,7 +12,7 @@
 </script>
 
 {#if condition}
-	<Portal {target}><slot /></Portal>
+	<Portal name="conditional-portal-select" {target}><slot /></Portal>
 {:else}
 	<slot />
 {/if}

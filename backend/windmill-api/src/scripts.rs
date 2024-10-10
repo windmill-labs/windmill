@@ -53,7 +53,7 @@ use windmill_common::{
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
-    worker::{get_annotation, to_raw_value},
+    worker::{get_annotation_ts, to_raw_value},
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -601,7 +601,7 @@ async fn create_script_internal<'c>(
     };
 
     let lang = if &ns.language == &ScriptLang::Bun || &ns.language == &ScriptLang::Bunnative {
-        let anns = get_annotation(&ns.content);
+        let anns = get_annotation_ts(&ns.content);
         if anns.native_mode {
             ScriptLang::Bunnative
         } else {
@@ -967,6 +967,7 @@ async fn list_paths(
 
 #[derive(Deserialize)]
 pub struct ToggleWorkspaceErrorHandler {
+    #[cfg(feature = "enterprise")]
     pub muted: Option<bool>,
 }
 

@@ -17,6 +17,8 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
+#[cfg(feature = "benchmark")]
+pub mod bench;
 pub mod db;
 pub mod ee;
 pub mod error;
@@ -51,6 +53,17 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 
+#[macro_export]
+macro_rules! add_time {
+    ($bench:expr, $name:expr) => {
+        #[cfg(feature = "benchmark")]
+        {
+            $bench.add_timing($name);
+            // println!("{}: {:?}", $z, $y.elapsed());
+        }
+    };
+}
+
 lazy_static::lazy_static! {
     pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")
     .ok()
@@ -81,6 +94,8 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+
+    pub static ref INSTANCE_NAME: String = rd_string(5);
 
 }
 
@@ -128,6 +143,7 @@ pub async fn shutdown_signal(
 use tokio::sync::RwLock;
 #[cfg(feature = "prometheus")]
 use tokio::task::JoinHandle;
+use utils::rd_string;
 
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(

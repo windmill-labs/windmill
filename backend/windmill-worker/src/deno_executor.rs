@@ -7,9 +7,10 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file, read_result, start_child_process,
+        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
+        read_file, read_result, start_child_process, OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
@@ -94,6 +95,7 @@ pub async fn generate_deno_lock(
     w_id: &str,
     worker_name: &str,
     base_internal_url: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<String> {
     let _ = write_file(job_dir, "main.ts", code)?;
 
@@ -123,7 +125,7 @@ pub async fn generate_deno_lock(
             "--unstable-worker-options",
             "--unstable-http",
             "--lock=lock.json",
-            "--lock-write",
+            "--frozen=false",
             "--import-map",
             &import_map_path,
             "main.ts",
@@ -146,6 +148,7 @@ pub async fn generate_deno_lock(
             "deno cache",
             None,
             false,
+            occupancy_metrics,
         )
         .await?;
     } else {
@@ -153,10 +156,13 @@ pub async fn generate_deno_lock(
     }
 
     let path_lock = format!("{job_dir}/lock.json");
-    let mut file = File::open(path_lock).await?;
-    let mut req_content = "".to_string();
-    file.read_to_string(&mut req_content).await?;
-    Ok(req_content)
+    if let Ok(mut file) = File::open(path_lock).await {
+        let mut req_content = "".to_string();
+        file.read_to_string(&mut req_content).await?;
+        Ok(req_content)
+    } else {
+        Ok("".to_string())
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -173,6 +179,7 @@ pub async fn handle_deno_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -362,10 +369,10 @@ try {{
         } else if !*DISABLE_NSJAIL {
             args.push("--allow-net");
             args.push("--allow-sys");
-            args.push("--allow-hrtime");
             args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");
+            args.push("--allow-import");
             args.push("--allow-run=git,/usr/bin/chromium");
         } else {
             args.push("-A");
@@ -397,6 +404,7 @@ try {{
         "deno run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());

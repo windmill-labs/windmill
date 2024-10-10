@@ -2,15 +2,17 @@
 	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
+		createInlineScriptModule,
 		createBranchAll,
 		createBranches,
 		createLoop,
 		createWhileLoop,
 		deleteFlowStateById,
 		emptyModule,
-		pickScript
+		pickScript,
+		pickFlow
 	} from '$lib/components/flows/flowStateUtils'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, RawScript, Script } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
@@ -31,8 +33,6 @@
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore'
-	import { emptySchema } from '$lib/utils'
-	import { NEVER_TESTED_THIS_FAR } from '../models'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -61,12 +61,22 @@
 			| 'trigger'
 			| 'approval'
 			| 'end',
-		wsScript?: { path: string; summary: string; hash: string | undefined }
+		wsScript?: { path: string; summary: string; hash: string | undefined },
+		wsFlow?: { path: string; summary: string },
+		inlineScript?: {
+			language: RawScript['language']
+			kind: Script['kind']
+			subkind: 'pgsql' | 'flow'
+			id: string
+			summary?: string
+		}
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()
-		if (wsScript) {
+		if (wsFlow) {
+			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
+		} else if (wsScript) {
 			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(
@@ -81,17 +91,64 @@
 			;[module, state] = await createBranchAll(module.id)
 		}
 		$flowStateStore[module.id] = state
-		if (kind == 'trigger') {
-			module.summary = 'Trigger'
-		} else if (kind == 'approval') {
-			module.summary = 'Approval'
-		} else if (kind == 'end') {
-			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
+
+		if (inlineScript) {
+			const { language, kind, subkind } = inlineScript
+			;[module, state] = await createInlineScriptModule(
+				language,
+				kind,
+				subkind,
+				module.id,
+				module.summary
+			)
+			$flowStateStore[module.id] = state
+			if (kind == 'trigger') {
+				module.summary = 'Trigger'
+			} else if (kind == 'approval') {
+				module.summary = 'Approval'
+			}
 		}
+
+		if (kind == 'approval') {
+			module.suspend = { required_events: 1 }
+		} else if (kind == 'trigger') {
+			module.stop_after_if = {
+				expr: '!result || (Array.isArray(result) && result.length == 0)',
+				skip_if_stopped: true
+			}
+		}
+
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
 		return modules
+	}
+
+	async function insertNewPreprocessorModule(
+		inlineScript?: {
+			language: RawScript['language']
+			subkind: 'pgsql' | 'flow'
+		},
+		wsScript?: { path: string; summary: string; hash: string | undefined }
+	) {
+		var module: FlowModule = {
+			id: 'preprocessor',
+			value: { type: 'identity' }
+		}
+		var state = emptyFlowModuleState()
+
+		if (inlineScript) {
+			;[module, state] = await createInlineScriptModule(
+				inlineScript.language,
+				'script',
+				inlineScript.subkind,
+				'preprocessor'
+			)
+		} else if (wsScript) {
+			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		}
+
+		$flowStore.value.preprocessor_module = module
+		$flowStateStore[module.id] = state
 	}
 
 	function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -205,9 +262,16 @@
 			}
 		}
 	}
+
+	function setExpr(module: FlowModule, expr: string) {
+		if (module.value.type == 'forloopflow') {
+			module.value.iterator = { type: 'javascript', expr }
+			module.value.parallel = true
+		}
+	}
 </script>
 
-<Portal>
+<Portal name="flow-module">
 	<ConfirmationModal
 		title="Confirm deleting step with dependents"
 		confirmationText="Delete step"
@@ -254,7 +318,7 @@
 		{/if}
 	</div>
 
-	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
+	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
 			{disableAi}
 			insertable
@@ -300,7 +364,7 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					if (detail.modules) {
+					if (detail.modules && Array.isArray(detail.modules)) {
 						await tick()
 						if ($moving) {
 							push(history, $flowStore)
@@ -311,31 +375,39 @@
 							$moving = undefined
 						} else {
 							if (detail.detail === 'preprocessor') {
-								const preprocessorModule = {
-									schema: emptySchema(),
-									previewResult: NEVER_TESTED_THIS_FAR
-								}
-								$flowStore.value.preprocessor_module = {
-									id: 'preprocessor',
-									value: { type: 'identity' }
-								}
-								$flowStateStore['preprocessor'] = preprocessorModule
+								insertNewPreprocessorModule(detail.inlineScript, detail.script)
 								$selectedId = 'preprocessor'
 							} else {
+								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
 									detail.modules,
-									detail.index ?? 0,
-									detail.detail,
-									detail.script
+									index,
+									detail.kind,
+									detail.script,
+									detail.flow,
+									detail.inlineScript
 								)
-								$selectedId = detail.modules[detail.index ?? 0].id
+								const id = detail.modules[detail.index ?? 0].id
+								$selectedId = id
+
+								if (detail.kind == 'trigger') {
+									await insertNewModuleAtIndex(
+										detail.modules,
+										index + 1,
+										'forloop',
+										undefined,
+										undefined,
+										undefined
+									)
+									setExpr(detail.modules[index + 1], `results.${id}`)
+								}
 							}
 						}
 
-						if (['branchone', 'branchall'].includes(detail.detail)) {
+						if (['branchone', 'branchall'].includes(detail.kind)) {
 							await addBranch(detail.modules[detail.index ?? 0])
 						}
-
+						$flowStateStore = $flowStateStore
 						$flowStore = $flowStore
 						dispatch('change')
 					}

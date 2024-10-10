@@ -15,19 +15,36 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        start_child_process,
+        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
+        OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     RUST_CACHE_DIR, TZ_ENV,
 };
 
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
+
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
 
 lazy_static::lazy_static! {
-    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| "/usr/local/cargo".to_string());
-    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| "/usr/local/rustup".to_string());
-    static ref CARGO_PATH: String = format!("{}/bin/cargo", std::env::var("CARGO_HOME").unwrap_or("/usr/local/cargo/bin/cargo".to_string()));
+    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
+    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
+    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
+    static ref CARGO_PATH: String = format!("{}/bin/cargo", CARGO_HOME.as_str());
+}
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
+}
+
+#[cfg(unix)]
+lazy_static::lazy_static! {
+    static ref CARGO_HOME_DEFAULT: String = "/usr/local/cargo".to_string();
+    static ref RUSTUP_HOME_DEFAULT: String = "/usr/local/rustup".to_string();
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -113,6 +130,7 @@ pub async fn generate_cargo_lockfile(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_cargo_exists()?;
 
@@ -124,6 +142,14 @@ pub async fn generate_cargo_lockfile(
         .args(vec!["generate-lockfile"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        gen_lockfile_cmd.env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        );
+    }
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -137,6 +163,7 @@ pub async fn generate_cargo_lockfile(
         "cargo generate-lockfile",
         None,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -157,6 +184,7 @@ pub async fn build_rust_crate(
     w_id: &str,
     base_internal_url: &str,
     hash: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
@@ -172,6 +200,16 @@ pub async fn build_rust_crate(
         .args(vec!["build", "--release"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        build_rust_cmd.env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        );
+    }
+
     let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -185,6 +223,7 @@ pub async fn build_rust_crate(
         "rust build",
         None,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -262,6 +301,7 @@ pub async fn handle_rust_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     check_cargo_exists()?;
 
@@ -273,7 +313,13 @@ pub async fn handle_rust_job(
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
-        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
+
+        #[cfg(unix)]
+        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
+        #[cfg(windows)]
+        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+
+        symlink.map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))
@@ -305,6 +351,7 @@ pub async fn handle_rust_job(
             &job.workspace_id,
             base_internal_url,
             &hash,
+            occupancy_metrics,
         )
         .await?
     };
@@ -353,6 +400,9 @@ pub async fn handle_rust_job(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        #[cfg(windows)]
+        run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         start_child_process(run_rust, compiled_executable_name).await?
     };
     handle_child(
@@ -367,6 +417,7 @@ pub async fn handle_rust_job(
         "rust run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

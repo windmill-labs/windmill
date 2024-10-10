@@ -12,12 +12,13 @@ path = "src/lib.rs"
 default = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:gcp_auth", "dep:pem", "dep:tiberius", "dep:tokio-util", "dep:openidconnect"]
-benchmark = ["windmill-queue/benchmark"]
+benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 flamegraph = []
 parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
 sqlx = []
+deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core", "dep:deno_ast", "dep:deno_tls"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -59,15 +60,15 @@ once_cell.workspace = true
 rsmq_async.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
-deno_fetch.workspace = true
-deno_webidl.workspace = true
-deno_web.workspace = true
-deno_net.workspace = true
-deno_console.workspace = true
-deno_url.workspace = true
-deno_core.workspace = true
-deno_ast.workspace = true
-deno_tls.workspace = true
+deno_fetch = { workspace = true, optional = true }
+deno_webidl = { workspace = true, optional = true }
+deno_web = { workspace = true, optional = true }
+deno_net = { workspace = true, optional = true }
+deno_console = { workspace = true, optional = true }
+deno_url = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+deno_ast = { workspace = true, optional = true }
+deno_tls = { workspace = true, optional = true }
 postgres-native-tls.workspace = true
 native-tls.workspace = true
 mysql_async.workspace = true
@@ -89,13 +90,17 @@ tar.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
+swc_ecma_parser.workspace = true
+
 
 [build-dependencies]
-deno_fetch.workspace = true
-deno_webidl.workspace = true
-deno_web.workspace = true
-deno_console.workspace = true
-deno_url.workspace = true
-deno_core.workspace = true
-deno_net.workspace = true
+deno_fetch = { workspace = true, optional = true }
+deno_webidl = { workspace = true, optional = true }
+deno_web = { workspace = true, optional = true }
+deno_net = { workspace = true, optional = true }
+deno_console = { workspace = true, optional = true }
+deno_url = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+deno_ast = { workspace = true, optional = true }
+deno_tls = { workspace = true, optional = true }
 zstd.workspace = true

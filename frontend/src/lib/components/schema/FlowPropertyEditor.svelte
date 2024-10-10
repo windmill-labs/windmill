@@ -30,6 +30,7 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let nullable: boolean = false
+	export let disabled: boolean = false
 	export let defaultValue: any = undefined
 	export let propsNames: any = []
 	export let showExpr: string | undefined = undefined
@@ -336,9 +337,11 @@
 					{contentEncoding}
 					{format}
 					{extra}
+					{disabled}
 				/>
 			{:else}
 				<ArgInput
+					noDefaultOnSelectFirst
 					{itemPicker}
 					resourceTypes={getResourceTypesFromFormat(format)}
 					bind:value={defaultValue}
@@ -350,6 +353,7 @@
 					{contentEncoding}
 					{format}
 					{extra}
+					{disabled}
 					{nullable}
 					{variableEditor}
 					compact
@@ -386,6 +390,15 @@
 				disabled={required}
 			/>
 		{/if}
+		<Toggle
+			options={{
+				right: 'Disabled',
+				rightTooltip: 'Do not let user modify this field'
+			}}
+			lightMode
+			size="xs"
+			bind:checked={disabled}
+		/>
 	</div>
 
 	{#if displayWebhookWarning && !(type === 'object' && oneOf && oneOf.length >= 2)}
