@@ -61,7 +61,6 @@
 		moving={data.moving}
 		duration_ms={state?.duration_ms}
 		retries={data.retries}
-		disableAi={data.disableAi}
 		{flowJobs}
 		on:delete={(e) => {
 			data.eventHandlers.delete(e.detail, '')

@@ -3,8 +3,10 @@ import type { History } from '$lib/history'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
-import type { Schedule } from './scheduleUtils'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
+import { type HttpTrigger } from '$lib/gen'
+import type { Schedule } from '$lib/gen'
+import type { ScheduleTrigger } from '../triggers'
 
 export type FlowInput = Record<
 	string,
@@ -28,8 +30,12 @@ export type ExtendedOpenFlow = OpenFlow & {
 
 export type FlowEditorContext = {
 	selectedId: Writable<string>
+	selectedTrigger: Writable<string>
+	httpTriggers: Writable<(HttpTrigger & { canWrite: boolean })[] | undefined>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
-	schedule: Writable<Schedule>
+	schedule: Writable<ScheduleTrigger>
+	primarySchedule: Writable<Schedule | undefined | boolean>
+	schedules: Writable<Schedule[] | undefined>
 	previewArgs: Writable<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>

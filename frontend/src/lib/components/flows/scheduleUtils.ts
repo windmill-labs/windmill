@@ -1,15 +1,8 @@
 import { ScheduleService } from '$lib/gen'
-
-export type Schedule = {
-	summary: string | undefined
-	args: Record<string, any>
-	cron: string
-	timezone: string
-	enabled: boolean
-}
+import type { ScheduleTrigger } from '../triggers'
 
 // Load the schedule of a flow given its path and the workspace
-export async function loadFlowSchedule(path: string, workspace: string): Promise<Schedule> {
+export async function loadFlowSchedule(path: string, workspace: string): Promise<ScheduleTrigger> {
 	const existsSchedule = await ScheduleService.existsSchedule({
 		workspace,
 		path

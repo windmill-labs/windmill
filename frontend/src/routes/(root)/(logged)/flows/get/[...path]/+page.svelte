@@ -328,7 +328,7 @@
 	let token = 'TOKEN_TO_CREATE'
 	let detailSelected = 'saved_inputs'
 
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	let triggerSelected: 'webhooks' | 'schedule' | 'cli' | 'email' = 'webhooks'
 
 	let flowHistory: FlowHistory | undefined = undefined
 </script>
@@ -478,6 +478,10 @@
 								stepDetail = undefined
 							}
 						}}
+						on:triggerDetail={(e) => {
+							detailSelected = 'details'
+							triggerSelected = e.detail === 'mail' ? 'email' : e.detail
+						}}
 					/>
 				</div>
 			</div>
@@ -500,27 +504,35 @@
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
-			<WebhooksPanel
-				bind:token
-				scopes={[`run:flow/${flow?.path}`]}
-				path={flow?.path}
-				isFlow={true}
-				{args}
-			/>
+			<div class="p-2">
+				<WebhooksPanel
+					bind:token
+					scopes={[`run:flow/${flow?.path}`]}
+					path={flow?.path}
+					isFlow={true}
+					{args}
+				/>
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="routes">
-			<RoutesPanel path={flow.path ?? ''} isFlow />
+			<div class="p-2">
+				<RoutesPanel path={flow.path ?? ''} isFlow />
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="email">
-			<EmailTriggerPanel
-				bind:token
-				scopes={[`run:flow/${flow?.path}`]}
-				path={flow?.path}
-				isFlow={true}
-			/>
+			<div class="p-2">
+				<EmailTriggerPanel
+					bind:token
+					scopes={[`run:flow/${flow?.path}`]}
+					path={flow?.path}
+					isFlow={true}
+				/>
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
-			<RunPageSchedules isFlow={true} path={flow.path ?? ''} {can_write} />
+			<div class="p-2">
+				<RunPageSchedules isFlow={true} path={flow.path ?? ''} {can_write} />
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="cli">
 			<div class="p-2">

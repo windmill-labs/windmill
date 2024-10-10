@@ -1,24 +1,26 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
+	import { HttpTriggerService } from '$lib/gen'
 	import { RouteIcon } from 'lucide-svelte'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { getContext } from 'svelte'
 
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
 	import { canWrite } from '$lib/utils'
+	import Alert from '../common/alert/Alert.svelte'
 
 	export let isFlow: boolean
 	export let path: string
+	export let newFlow: boolean = false
 
 	let routeEditor: RouteEditor
 
-	let triggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
-
 	$: path && loadTriggers()
-	async function loadTriggers() {
+	export async function loadTriggers() {
 		try {
-			triggers = (
+			$httpTriggers = (
 				await HttpTriggerService.listHttpTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
@@ -31,6 +33,9 @@
 			console.error('impossible to load http routes')
 		}
 	}
+
+	const { httpTriggers } = getContext<FlowEditorContext>('FlowEditorContext')
+	$httpTriggers ?? loadTriggers()
 </script>
 
 <RouteEditor
@@ -40,7 +45,7 @@
 	bind:this={routeEditor}
 />
 
-<div class="p-2 flex flex-col">
+<div class="flex flex-col gap-4">
 	{#if $userStore?.is_admin || $userStore?.is_super_admin}
 		<Button
 			on:click={() => routeEditor?.openNew(isFlow, path)}
@@ -52,30 +57,41 @@
 			New Route
 		</Button>
 	{/if}
-</div>
 
-{#if triggers}
-	{#if triggers.length == 0}
-		<div class="text-xs text-secondary px-2"> No http routes </div>
-	{:else}
-		<div class="flex flex-col divide-y px-2 pt-2">
-			{#each triggers as trigger (trigger.path)}
-				<div class="grid grid-cols-5 text-2xs items-center py-2">
-					<div class="col-span-2 truncate">{trigger.path}</div>
-					<div class="col-span-2 truncate">
-						{trigger.http_method.toUpperCase()} /{trigger.route_path}
+	{#if $httpTriggers}
+		{#if $httpTriggers.length == 0}
+			<div class="text-xs text-secondary"> No http routes </div>
+		{:else}
+			<div class="flex flex-col divide-y pt-2">
+				{#each $httpTriggers as $httpTriggers ($httpTriggers.path)}
+					<div class="grid grid-cols-5 text-2xs items-center py-2">
+						<div class="col-span-2 truncate">{$httpTriggers.path}</div>
+						<div class="col-span-2 truncate">
+							{$httpTriggers.http_method.toUpperCase()} /{$httpTriggers.route_path}
+						</div>
+						<div class="flex justify-end">
+							<button
+								on:click={() => routeEditor?.openEdit($httpTriggers.path, isFlow)}
+								class="px-2"
+							>
+								{#if $httpTriggers.canWrite}
+									Edit
+								{:else}
+									View
+								{/if}
+							</button>
+						</div>
 					</div>
-					<button on:click={() => routeEditor?.openEdit(trigger.path, isFlow)}>
-						{#if trigger.canWrite}
-							Edit
-						{:else}
-							View
-						{/if}
-					</button>
-				</div>
-			{/each}
-		</div>
+				{/each}
+			</div>
+		{/if}
+	{:else}
+		<Skeleton layout={[[8]]} />
 	{/if}
-{:else}
-	<Skeleton layout={[[8]]} />
-{/if}
+
+	{#if newFlow}
+		<Alert title="Triggers disabled" type="warning" size="xs">
+			Deploy the flow to enable routes triggers.
+		</Alert>
+	{/if}
+</div>

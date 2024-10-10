@@ -9,7 +9,8 @@
 		ScriptService,
 		type OpenFlow,
 		type RawScript,
-		type InputTransform
+		type InputTransform,
+		type Schedule
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -40,7 +41,7 @@
 	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
+	import { loadFlowSchedule, type Schedule as ScheduleUtils } from './flows/scheduleUtils'
 	import type { FlowEditorContext, FlowInput } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import {
@@ -369,12 +370,13 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
+	const selectedTriggerStore = writable('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
 	}
 
-	const scheduleStore = writable<Schedule>({
+	const scheduleStore = writable<ScheduleUtils>({
 		summary: undefined,
 		args: {},
 		cron: '',
@@ -395,10 +397,21 @@
 		selectedIdStore.set(selectedId)
 	}
 
+	function selectTrigger(selectedTrigger: string) {
+		selectedTriggerStore.set(selectedTrigger)
+	}
+
+	const httpTriggersStore = writable(undefined)
+	const schedulesStore = writable<Schedule[] | undefined>(undefined)
 	let insertButtonOpen = writable<boolean>(false)
+	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
+		selectedTrigger: selectedTriggerStore,
+		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
+		primarySchedule: primaryScheduleStore,
+		schedules: schedulesStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
@@ -416,7 +429,7 @@
 
 	async function loadSchedule() {
 		loadFlowSchedule(initialPath, $workspaceStore!)
-			.then((schedule: Schedule) => {
+			.then((schedule: ScheduleUtils) => {
 				scheduleStore.set(schedule)
 			})
 			.catch(() => {
@@ -1160,7 +1173,8 @@
 							color="light"
 							size="xs"
 							on:click={async () => {
-								select('settings-schedule')
+								select('triggers')
+								selectTrigger('schedules')
 							}}
 						>
 							{$scheduleStore.cron ?? ''}
@@ -1334,6 +1348,7 @@
 					on:reload={() => {
 						renderCount += 1
 					}}
+					{newFlow}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

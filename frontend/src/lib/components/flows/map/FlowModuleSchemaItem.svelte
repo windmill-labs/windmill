@@ -62,6 +62,11 @@
 	let newId: string = id ?? ''
 
 	let hover = false
+
+	let idBadgeWidth: number | undefined = undefined
+	let iconWidth: number | undefined = undefined
+
+	$: marginLeft = Math.max(iconWidth ?? 0, idBadgeWidth ?? 0) * 2 + 32
 </script>
 
 {#if deletable && id && editId}
@@ -230,16 +235,24 @@
 	</div>
 
 	<div
-		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
+		class="relative flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
 	 p-2 text-2xs module text-primary"
 	>
 		{#if $$slots.icon}
-			<slot name="icon" />
+			<div class="flex-none" bind:clientWidth={iconWidth}>
+				<slot name="icon" />
+			</div>
 		{/if}
-		<div class="truncate" class:font-bold={bold}>{label}</div>
-		<div class="flex items-center space-x-2 relative">
+		<div
+			class="absolute left-1/2 transform -translate-x-1/2 text-center truncate"
+			class:font-bold={bold}
+			style="max-width: calc(100% - {marginLeft}px)">{label}</div
+		>
+		<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
 			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
-				<Badge color="indigo">{id}</Badge>
+				<Badge color="indigo" wrapperClass="max-w-full" baseClass="max-w-full truncate" title={id}>
+					<span class="max-w-full text-2xs truncate">{id}</span></Badge
+				>
 				{#if deletable}
 					<button
 						class="absolute -left-[28px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-150 hover:bg-blue-400 {editId

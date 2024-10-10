@@ -15,6 +15,10 @@
 		drawer?.openNew(is_flow, initial_script_path)
 	}
 
+	export async function getTriggers() {
+		return drawer?.getTriggers()
+	}
+
 	let drawer: RouteEditorInner
 </script>
 

@@ -15,7 +15,8 @@
 		WorkspaceService,
 		type InputTransform,
 		type RawScript,
-		type PathScript
+		type PathScript,
+		type Schedule
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
@@ -41,14 +42,14 @@
 	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 	import { pickScript } from './flows/flowStateUtils'
-	import type { Schedule } from './flows/scheduleUtils'
+	import type { Schedule as ScheduleUtils } from './flows/scheduleUtils'
 	import {
 		approximateFindPythonRelativePath,
 		isTypescriptRelativePath,
 		parseTypescriptDeps
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
-
+	import type { TriggerContext } from './triggers'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -467,7 +468,7 @@
 	}
 
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable<Schedule>({
+	const scheduleStore = writable<ScheduleUtils>({
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -481,10 +482,20 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
-
+	const selectedTriggerStore = writable('webhooks')
+	const httpTriggersStore = writable(undefined)
+	const schedulesStore = writable<Schedule[] | undefined>(undefined)
+	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
+	setContext<TriggerContext>('TriggerContext', {
+		httpTriggers: httpTriggersStore,
+		schedule: scheduleStore,
+		primarySchedule: primaryScheduleStore
+	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
-		schedule: scheduleStore,
+		selectedTrigger: selectedTriggerStore,
+
+		schedules: schedulesStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,

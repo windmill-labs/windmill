@@ -6,7 +6,6 @@
 	import { getStateColor } from '../../util'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
-	import FlowCopilotButton from '$lib/components/flows/map/FlowCopilotButton.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 
 	export let data: {
@@ -27,11 +26,8 @@
 </script>
 
 <NodeWrapper let:darkMode>
-	{#if data.insertable && !data.disableAi && !data.hasPreprocessor}
-		<FlowCopilotButton className="-top-[4.25rem]" />
-	{/if}
 	{#if data.insertable && !data.hasPreprocessor}
-		<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 z-10">
+		<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
 			<InsertModuleButton
 				disableAi={data.disableAi}
 				index={data.index ?? 0}

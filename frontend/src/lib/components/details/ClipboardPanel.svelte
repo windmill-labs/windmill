@@ -13,12 +13,12 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class="px-2 py-1 border flex items-center cursor-pointer bg-surface-secondary text-primary justify-between rounded-md"
+	class="grow min-w-0 w-full px-2 py-1 border flex items-center cursor-pointer bg-surface-secondary text-primary justify-between rounded-md"
 	on:click={(e) => {
 		e.preventDefault()
 		copyToClipboard(content)
 	}}
 >
-	<div class="text-xs truncate whitespace-pre-wrap w-11/12">{content}</div>
-	<Clipboard size={14} class="w-1/12" />
+	<div class="text-xs truncate whitespace-no-wrap grow">{content}</div>
+	<Clipboard size={12} class="flex-shrink-0" />
 </div>

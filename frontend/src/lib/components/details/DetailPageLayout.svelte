@@ -8,7 +8,7 @@
 	export let flow_json: any | undefined = undefined
 	export let hasStepDetails: boolean = false
 	export let selected: string
-	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' | 'email' = 'webhooks'
 
 	let mobileTab: 'form' | 'detail' = 'form'
 

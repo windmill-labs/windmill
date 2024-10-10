@@ -114,6 +114,13 @@
 			contained:
 				'bg-surface border-transparent hover:bg-surface-hover focus-visible:bg-surface-hover text-primary focus-visible:ring-surface-selected',
 			divider: 'divide-x divide-gray-200 dark:divide-gray-700'
+		},
+		nord: {
+			border:
+				'border-nord-200 bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected-inverse dark:border-nord-200',
+			contained:
+				'bg-nord-300 hover:bg-nord-0 focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse dark:bg-nord-400 dark:hover:bg-nord-600 dark:text-primary-inverse',
+			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		}
 	}
 
