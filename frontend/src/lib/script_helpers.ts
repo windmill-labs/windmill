@@ -677,14 +677,16 @@ export const INITIAL_CODE = {
 		trigger: BUN_INIT_CODE_TRIGGER,
 		approval: BUN_INIT_CODE_APPROVAL,
 		failure: BUN_FAILURE_MODULE_CODE,
-		preprocessor: BUN_PREPROCESSOR_MODULE_CODE
+		preprocessor: BUN_PREPROCESSOR_MODULE_CODE,
+		clear: BUN_INIT_CODE_CLEAR
 	},
 	python3: {
 		script: PYTHON_INIT_CODE,
 		trigger: PYTHON_INIT_CODE_TRIGGER,
 		approval: PYTHON_INIT_CODE_APPROVAL,
 		failure: PYTHON_FAILURE_MODULE_CODE,
-		preprocessor: PYTHON_PREPROCESSOR_MODULE_CODE
+		preprocessor: PYTHON_PREPROCESSOR_MODULE_CODE,
+		clear: PYTHON_INIT_CODE_CLEAR
 	},
 	deno: {
 		script: DENO_INIT_CODE,
@@ -692,7 +694,8 @@ export const INITIAL_CODE = {
 		approval: DENO_INIT_CODE_APPROVAL,
 		failure: DENO_FAILURE_MODULE_CODE,
 		preprocessor: DENO_PREPROCESSOR_MODULE_CODE,
-		fetch: FETCH_INIT_CODE
+		fetch: FETCH_INIT_CODE,
+		clear: DENO_INIT_CODE_CLEAR
 	},
 	go: {
 		script: GO_INIT_CODE,
@@ -778,7 +781,7 @@ export function initialCode(
 			return INITIAL_CODE.deno.trigger
 		} else if (kind === 'script') {
 			if (subkind === 'flow') {
-				return INITIAL_CODE.deno.script
+				return INITIAL_CODE.deno.clear
 			} else if (subkind === 'pgsql') {
 				return INITIAL_CODE.postgresql.script
 			} else if (subkind === 'mysql') {
@@ -805,7 +808,7 @@ export function initialCode(
 		} else if (kind === 'failure') {
 			return INITIAL_CODE.python3.failure
 		} else if (subkind === 'flow') {
-			return INITIAL_CODE.python3.script
+			return INITIAL_CODE.python3.clear
 		} else if (subkind === 'preprocessor') {
 			return INITIAL_CODE.python3.preprocessor
 		} else {
@@ -851,7 +854,7 @@ export function initialCode(
 		} else if (subkind === 'preprocessor') {
 			return INITIAL_CODE.bun.preprocessor
 		} else if (subkind === 'flow') {
-			return INITIAL_CODE.bun.script
+			return INITIAL_CODE.bun.clear
 		}
 
 		return INITIAL_CODE.bun.script
