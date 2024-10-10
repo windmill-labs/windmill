@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.407.2](https://github.com/windmill-labs/windmill/compare/v1.407.1...v1.407.2) (2024-10-10)
+
+
+### Bug Fixes
+
+* improve default properties of new nodes of flows (suspend, branchone, branchall) ([d9bdc5a](https://github.com/windmill-labs/windmill/commit/d9bdc5a5b08dd4d0381304656af097315398c9d4))
+
 ## [1.407.1](https://github.com/windmill-labs/windmill/compare/v1.407.0...v1.407.1) (2024-10-10)
 
 
