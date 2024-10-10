@@ -372,6 +372,7 @@ try {{
             args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");
+            args.push("--allow-import");
             args.push("--allow-run=git,/usr/bin/chromium");
         } else {
             args.push("-A");
