@@ -25,7 +25,7 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource) {
+return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource, downloadFile) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
@@ -63,7 +63,8 @@ type WmFunctor = (
 	clearFiles,
 	showToast,
 	waitJob,
-	askNewResource
+	askNewResource,
+	downloadFile
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
@@ -237,6 +238,45 @@ export async function eval_like(
 		async (id) => waitJob(id),
 		(id) => {
 			controlComponents[id]?.askNewResource?.()
+		},
+		(urlOrBase64, filename) => {
+			const handleError = (error) => {
+				console.error('Error downloading file:', error)
+				sendUserToast(`Error downloading file: ${error.message}. Ensure it is a valid URL or a base64 encoded data URL (data:...)`, true)
+			}
+
+			if (urlOrBase64.startsWith('data:')) {
+				// Handle base64 data
+				const link = document.createElement('a')
+				link.href = urlOrBase64
+				link.download = filename || 'download'
+				document.body.appendChild(link)
+				link.click()
+				document.body.removeChild(link)
+			} else if (/^(http|https):\/\//.test(urlOrBase64)) {
+				// Ensure the URL is absolute
+				fetch(urlOrBase64)
+					.then(response => {
+						if (!response.ok) {
+							throw new Error(`HTTP error! status: ${response.status}`)
+						}
+						return response.blob()
+					})
+					.then(blob => {
+						const link = document.createElement('a')
+						const url = URL.createObjectURL(blob)
+						link.href = url
+						link.download = filename || 'download'
+						document.body.appendChild(link)
+						link.click()
+						document.body.removeChild(link)
+						URL.revokeObjectURL(url)
+					})
+					.catch(handleError)
+			} else {
+				// Handle invalid URL format
+				handleError(new Error('The URL must be an absolute URL.'))
+			}
 		}
 	)
 }
