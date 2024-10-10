@@ -116,7 +116,7 @@ where
 
 pub fn main() -> anyhow::Result<()> {
     #[cfg(feature = "deno_core")]
-    deno_core::JsRuntime::init_platform(None);
+    deno_core::JsRuntime::init_platform(None, false);
     create_and_run_current_thread_inner(windmill_main())
 }
 
