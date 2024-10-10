@@ -1471,7 +1471,7 @@ paths:
           in: query
           description: filter only active users
           schema:
-            type: bool
+            type: boolean
       responses:
         "200":
           description: user
