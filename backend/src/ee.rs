@@ -1,6 +1,4 @@
 use anyhow::anyhow;
-#[cfg(feature = "enterprise")]
-use windmill_common::error::{Error, Result};
 
 pub async fn set_license_key(_license_key: String) -> anyhow::Result<bool> {
     // Implementation is not open source
