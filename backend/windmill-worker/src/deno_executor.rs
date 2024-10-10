@@ -125,7 +125,7 @@ pub async fn generate_deno_lock(
             "--unstable-worker-options",
             "--unstable-http",
             "--lock=lock.json",
-            "--lock-write",
+            "--frozen=false",
             "--import-map",
             &import_map_path,
             "main.ts",
@@ -156,10 +156,13 @@ pub async fn generate_deno_lock(
     }
 
     let path_lock = format!("{job_dir}/lock.json");
-    let mut file = File::open(path_lock).await?;
-    let mut req_content = "".to_string();
-    file.read_to_string(&mut req_content).await?;
-    Ok(req_content)
+    if let Ok(mut file) = File::open(path_lock).await {
+        let mut req_content = "".to_string();
+        file.read_to_string(&mut req_content).await?;
+        Ok(req_content)
+    } else {
+        Ok("".to_string())
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -366,7 +369,6 @@ try {{
         } else if !*DISABLE_NSJAIL {
             args.push("--allow-net");
             args.push("--allow-sys");
-            args.push("--allow-hrtime");
             args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");
