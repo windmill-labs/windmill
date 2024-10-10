@@ -1015,7 +1015,8 @@ pub async fn handle_python_reqs(
             "download.config.proto",
             &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                 .replace("{WORKER_DIR}", &worker_dir)
-                .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                // .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                .replace("{CACHE_DIR}", UV_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
     };
@@ -1023,6 +1024,12 @@ pub async fn handle_python_reqs(
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
+        // let venv_p = format!(
+        //     "{UV_CACHE_DIR}/{}",
+        //     req.replace(' ', "").replace('/', "").replace(':', "")
+        // );
+
+        // tracing::error!("{:?}", &venv_p);
         let venv_p = format!(
             "{PIP_CACHE_DIR}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
@@ -1147,20 +1154,43 @@ pub async fn handle_python_reqs(
             let req = format!("{}", req);
 
             let mut command_args = vec![
-                PYTHON_PATH.as_str(),
-                "-m",
+                UV_PATH.as_str(),
+                // "-m",
                 "pip",
                 "install",
                 &req,
-                "-I",
+                // "-I",
                 "--no-deps",
                 "--no-color",
-                "--isolated",
-                "--no-warn-conflicts",
+                // "--isolated",
+                // Prevent uv from discovering configuration files.
+                "--no-config",
+                // "--no-warn-conflicts",
                 "--disable-pip-version-check",
-                "-t",
+                // TODO: Doublecheck it
+                "--system",
+                // "-t",
+                "--target",
                 venv_p.as_str(),
+                // TODO: Use variable instead
+                "--cache-dir",
+                UV_CACHE_DIR,
             ];
+            // let mut command_args = vec![
+            //     PYTHON_PATH.as_str(),
+            //     "-m",
+            //     "pip",
+            //     "install",
+            //     &req,
+            //     "-I",
+            //     "--no-deps",
+            //     "--no-color",
+            //     "--isolated",
+            //     "--no-warn-conflicts",
+            //     "--disable-pip-version-check",
+            //     "-t",
+            //     venv_p.as_str(),
+            // ];
             let pip_extra_index_url = PIP_EXTRA_INDEX_URL
                 .read()
                 .await
