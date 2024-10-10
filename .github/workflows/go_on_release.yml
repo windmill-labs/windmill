@@ -13,7 +13,7 @@ jobs:
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
       - name: install_jq
         run: |
           sudo apt-get update
