@@ -86,6 +86,7 @@ mod users;
 mod utils;
 mod variables;
 mod webhook_util;
+mod websocket_triggers;
 mod workers;
 mod workspaces;
 
@@ -224,7 +225,7 @@ pub async fn run_server(
             db: db.clone(),
             user_db: user_db,
             auth_cache: auth_cache.clone(),
-            rsmq: rsmq,
+            rsmq: rsmq.clone(),
             base_internal_url: base_internal_url.clone(),
         });
         if let Err(err) = smtp_server.start_listener_thread(addr).await {
@@ -243,6 +244,8 @@ pub async fn run_server(
             Router::new()
         }
     };
+
+    websocket_triggers::start_websockets(db.clone(), rsmq).await;
 
     // build our application with a route
     let app = Router::new()
@@ -284,7 +287,11 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", http_triggers::workspaced_service()),
+                        .nest("/http_triggers", http_triggers::workspaced_service())
+                        .nest(
+                            "/websocket_triggers",
+                            websocket_triggers::workspaced_service(),
+                        ),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE websocket_trigger SET enabled = $1, email = $2, edited_by = $3, edited_at = now(), server_id = NULL, last_server_ping = NULL, error = NULL\n        WHERE path = $4 AND workspace_id = $5 RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "12a86755706ce030a0a9142da78d035d0c7d361240b60005cc864e4345eb0bc7"
+}

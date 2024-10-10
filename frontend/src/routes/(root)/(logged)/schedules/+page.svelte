@@ -172,13 +172,13 @@
 			? selectedFilterKind === 'schedule'
 				? schedules?.filter(
 						(x) =>
-							x.path.startsWith(ownerFilter + '/' ?? '') &&
+							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
 				  )
 				: schedules?.filter(
 						(x) =>
-							x.script_path.startsWith(ownerFilter + '/' ?? '') &&
+							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
 				  )

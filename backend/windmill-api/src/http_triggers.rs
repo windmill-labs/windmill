@@ -12,10 +12,8 @@ use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
-    auth::fetch_authed_from_permissioned_as,
     db::UserDB,
     error::{self, JsonResult},
-    users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
@@ -27,7 +25,7 @@ use crate::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
-    users::OptAuthed,
+    users::{fetch_api_authed, OptAuthed},
 };
 
 lazy_static::lazy_static! {
@@ -419,28 +417,6 @@ struct TriggerRoute {
     edited_by: String,
     email: String,
     http_method: HttpMethod,
-}
-
-async fn fetch_api_authed(
-    username: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-    username_override: String,
-) -> error::Result<ApiAuthed> {
-    let permissioned_as = username_to_permissioned_as(username.as_str());
-    let authed =
-        fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
-    Ok(ApiAuthed {
-        username: username,
-        email: email,
-        is_admin: authed.is_admin,
-        is_operator: authed.is_operator,
-        groups: authed.groups,
-        folders: authed.folders,
-        scopes: authed.scopes,
-        username_override: Some(username_override),
-    })
 }
 
 async fn get_http_route_trigger(
