@@ -307,7 +307,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    let num_workers = if mode == Mode::Server || mode == Mode::Indexer {
+    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -422,6 +422,40 @@ Windmill Community Edition {GIT_VERSION}
 
     display_config(&ENV_SETTINGS);
 
+    if let Err(e) = reload_base_url_setting(&db).await {
+        tracing::error!("Error loading base url: {:?}", e)
+    }
+
+    if let Err(e) = reload_critical_error_channels_setting(&db).await {
+        tracing::error!("Could loading critical error emails setting: {:?}", e);
+    }
+
+    #[cfg(feature = "enterprise")]
+    {
+        let valid_key = if let Err(err) = reload_license_key(&db).await {
+            tracing::error!("{}", err.to_string());
+            if !server_mode {
+                panic!("Invalid license key, workers require a valid license key");
+            }
+            false
+        } else {
+            true
+        };
+
+        if server_mode {
+            let renewed_now = schedule_key_renewal(&HTTP_CLIENT, &db, !valid_key).await;
+            if renewed_now {
+                if let Err(e) = reload_license_key(&db).await {
+                    tracing::error!("{}", e.to_string());
+                    if num_workers > 0 {
+                        tracing::warn!("Invalid license key, setting num_workers to 0");
+                        num_workers = 0;
+                    }
+                }
+            }
+        }
+    }
+
     let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
@@ -448,7 +482,16 @@ Windmill Community Edition {GIT_VERSION}
 
         initial_load(&db, killpill_tx.clone(), worker_mode, server_mode, is_agent).await;
 
-        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode, true).await;
+        monitor_db(
+            &db,
+            &base_internal_url,
+            rsmq.clone(),
+            server_mode,
+            worker_mode,
+            true,
+            killpill_tx.clone(),
+        )
+        .await;
 
         monitor_pool(&db).await;
 
@@ -575,7 +618,9 @@ Windmill Community Edition {GIT_VERSION}
                                 &base_internal_url,
                                 rsmq.clone(),
                                 server_mode,
-                                false
+                                worker_mode,
+                                false,
+                                tx.clone(),
                             )
                             .await;
                         },
@@ -617,8 +662,13 @@ Windmill Community Edition {GIT_VERSION}
                                                     }
                                                 },
                                                 LICENSE_KEY_SETTING => {
+                                                    #[cfg(feature = "enterprise")]
                                                     if let Err(e) = reload_license_key(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload license key setting");
+                                                        tracing::error!("{}", e.to_string());
+                                                        if worker_mode {
+                                                            tracing::error!("Invalid license key, exiting...");
+                                                            tx.send(()).expect("send");
+                                                        }
                                                     }
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
@@ -764,13 +814,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        if mode == Mode::Server || mode == Mode::Standalone {
+        if server_mode {
             schedule_stats(&db, &HTTP_CLIENT).await;
-        }
-
-        #[cfg(feature = "enterprise")]
-        if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
         futures::try_join!(

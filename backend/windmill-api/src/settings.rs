@@ -34,6 +34,7 @@ use windmill_common::{
         HUB_BASE_URL_SETTING,
     },
     server::Smtp,
+    transactional,
     utils::send_email,
 };
 
@@ -163,8 +164,13 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    validate_license_key(license_key).await?;
-    Ok("Sent test email".to_string())
+    let (_, expired) = validate_license_key(license_key).await?;
+
+    if expired {
+        Err(error::Error::BadRequest("Expired license key".to_string()))
+    } else {
+        Ok("Valid license key".to_string())
+    }
 }
 
 pub async fn get_local_settings(
@@ -298,12 +304,13 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(
-        &HTTP_CLIENT,
-        &db,
-        true,
-        windmill_common::stats_ee::SendStatsReason::Manual,
-    )
+    transactional!(db, |tx| {
+        windmill_common::stats_ee::send_stats(
+            &HTTP_CLIENT,
+            tx,
+            windmill_common::stats_ee::SendStatsReason::Manual,
+        )
+    })
     .await?;
 
     Ok("Sent stats".to_string())
