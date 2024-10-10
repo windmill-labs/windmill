@@ -95,6 +95,10 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                                 continue 'inner;
                             },
 
+                            // Will expand into something like:
+                            // 0123..9 => new.ann1    = true,
+                            // 1234..9 => new.ann2    = true,
+                            // 2345..9 => new.ann3    = true,
                             #( #hashes => new.#fields = true, )*
                             // Non annotations
                             _ => continue 'outer,
@@ -109,6 +113,7 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                     // Apply changes
                     res |= new;
                 }
+
                 res
             }
         }
