@@ -9168,6 +9168,40 @@ paths:
                     items:
                       $ref: "#/components/schemas/JobSearchHit"
 
+  /srch/w/{workspace}/index/search/service_logs:
+    get:
+      summary: Search through service logs with a string query
+      operationId: searchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        dancer:
+                          type: string
+                  hits:
+                    description: log files that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogSearchHit"
+
 
 components:
   securitySchemes:
@@ -11960,6 +11994,12 @@ components:
         - name
 
     JobSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string
+
+    LogSearchHit:
       type: object
       properties:
         dancer:

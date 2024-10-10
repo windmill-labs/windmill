@@ -151,18 +151,18 @@ pub async fn add_webhook_allowed_origin(
 type IndexReader = ();
 
 #[cfg(not(feature = "tantivy"))]
-type IndexWriter = ();
+type ServiceLogIndexReader = ();
 
 #[cfg(feature = "tantivy")]
-type IndexReader = windmill_indexer::indexer_ee::IndexReader;
+type IndexReader = windmill_indexer::completed_runs_ee::IndexReader;
 #[cfg(feature = "tantivy")]
-type IndexWriter = windmill_indexer::indexer_ee::IndexWriter;
+type ServiceLogIndexReader = windmill_indexer::service_logs_ee::ServiceLogIndexReader;
 
 pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    index_reader: Option<IndexReader>,
-    index_writer: Option<IndexWriter>,
+    job_index_reader: Option<IndexReader>,
+    log_index_reader: Option<windmill_indexer::service_logs_ee::ServiceLogIndexReader>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
@@ -202,8 +202,9 @@ pub async fn run_server(
         .layer(Extension(rsmq.clone()))
         .layer(Extension(user_db.clone()))
         .layer(Extension(auth_cache.clone()))
-        .layer(Extension(index_reader))
-        .layer(Extension(index_writer))
+        .layer(Extension(job_index_reader))
+        .layer(Extension(log_index_reader))
+        // .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
         .layer(DefaultBodyLimit::max(

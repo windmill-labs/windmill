@@ -611,12 +611,8 @@
 								<Alert title="Service logs are only available to superadmins" type="warning">
 									Service logs are only available to superadmins
 								</Alert>
-							{:else if searchTerm.length == 1}
-								<ServiceLogsInner />
 							{:else}
-								<Alert title="Not yet supported" type="info">
-									Full-text search across Windmill logs is not yet supported
-								</Alert>
+								<ServiceLogsInner searchTerm={removePrefix(searchTerm, "!")} />
 							{/if}
 						</div>
 					{:else if tab === 'runs'}

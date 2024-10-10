@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ServiceLogsService } from '$lib/gen'
+	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import ManuelDatePicker from './runs/ManuelDatePicker.svelte'
@@ -10,6 +10,9 @@
 	import { onDestroy } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { truncateRev } from '$lib/utils'
+	import LogSnippetViewer from './LogSnippetViewer.svelte'
+
+	export let searchTerm: string
 
 	let minTs: undefined | string = undefined
 	let maxTs: undefined | string = undefined
@@ -267,6 +270,33 @@
 			return log
 		}
 	}
+
+	let logs: any
+
+	let debounceTimeout: any = undefined
+	const debouncePeriod: number = 400
+	let loadingLogs = false
+
+	async function searchLogs(searchTerm: string) {
+		if (searchTerm.trim() === '') {
+			logs = undefined
+			loadingLogs = false
+			return
+		}
+
+		loadingLogs = true
+		clearTimeout(debounceTimeout)
+		debounceTimeout = setTimeout(async () => {
+			clearTimeout(debounceTimeout)
+			logs = await IndexSearchService.searchLogsIndex({ searchQuery: searchTerm })
+			loadingLogs = false
+
+			loadingLogs = false
+			console.log(logs)
+		}, debouncePeriod)
+	}
+
+	$: selected && searchLogs(searchTerm)
 </script>
 
 <div class="w-full h-[70vh]" on:scroll|preventDefault>
@@ -438,59 +468,72 @@
 				>
 				{#if selected}
 					<div class="grow overflow-auto" id="logviewer">
-						{#each getLogs(selected, upTo) as file}
-							<div
-								style="min-height: {logsContent[file.file_path]
-									? 10
-									: (file.ok_lines + file.err_lines) / 20}px;"
-							>
-								<div class="bg-surface-primary-inverse text-sm font-semibold px-1"
-									>{new Date(file.ts).toLocaleTimeString([], {
-										day: '2-digit',
-										month: '2-digit',
-										hour: '2-digit',
-										minute: '2-digit'
-									})}</div
+						{#if loadingLogs}
+								<div class="flex w-full justify-center items-center h-48">
+									<div class="text-tertiary text-center">
+										<Loader2 size={34} class="animate-spin" />
+									</div>
+								</div>
+						{:else if logs != undefined}
+
+							{#each logs.hits as {snippet, errors} }
+								<LogSnippetViewer searchQuery={searchTerm} content={snippet} />
+							{/each}
+						{:else}
+							{#each getLogs(selected, upTo) as file}
+								<div
+									style="min-height: {logsContent[file.file_path]
+										? 10
+										: (file.ok_lines + file.err_lines) / 20}px;"
 								>
-								{#if logsContent[file.file_path] == undefined}
-									<div
-										class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
-									/>
-								{:else if logsContent[file.file_path]}
-									{#if logsContent[file.file_path].error}
-										{#if logsContent[file.file_path].error?.startsWith('Not Found')}
-											<div class="text-xs pb-4 pt-2 text-secondary"
-												>Log file is missing. Log files require a shared log volume to be mounted
-												across servers and workers or to use the EE S3/object storage integration
-												for logs. To avoid mounting a shared volume, set the EE object store logs in
-												the instance settings</div
+									<div class="bg-surface-primary-inverse text-sm font-semibold px-1"
+										>{new Date(file.ts).toLocaleTimeString([], {
+											day: '2-digit',
+											month: '2-digit',
+											hour: '2-digit',
+											minute: '2-digit'
+										})}</div
+									>
+									{#if logsContent[file.file_path] == undefined}
+										<div
+											class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
+										/>
+									{:else if logsContent[file.file_path]}
+										{#if logsContent[file.file_path].error}
+											{#if logsContent[file.file_path].error?.startsWith('Not Found')}
+												<div class="text-xs pb-4 pt-2 text-secondary"
+													>Log file is missing. Log files require a shared log volume to be mounted
+													across servers and workers or to use the EE S3/object storage integration
+													for logs. To avoid mounting a shared volume, set the EE object store logs in
+													the instance settings</div
+												>
+											{:else}
+												<div class="text-xs text-red-400 pb-4"
+													>{logsContent[file.file_path].error}</div
+												>
+											{/if}
+										{:else if logsContent[file.file_path].content}
+											<!-- svelte-ignore a11y-click-events-have-key-events -->
+											<!-- svelte-ignore a11y-no-static-element-interactions -->
+											<div on:click|preventDefault
+												><LogViewer
+													noAutoScroll
+													noMaxH
+													isLoading={false}
+													tag={undefined}
+													content={processLogWithJsonFmt(
+														logsContent[file.file_path].content,
+														file.json_fmt
+													)}
+												/></div
 											>
 										{:else}
-											<div class="text-xs text-red-400 pb-4"
-												>{logsContent[file.file_path].error}</div
-											>
+											<div>No logs</div>
 										{/if}
-									{:else if logsContent[file.file_path].content}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
-										<div on:click|preventDefault
-											><LogViewer
-												noAutoScroll
-												noMaxH
-												isLoading={false}
-												tag={undefined}
-												content={processLogWithJsonFmt(
-													logsContent[file.file_path].content,
-													file.json_fmt
-												)}
-											/></div
-										>
-									{:else}
-										<div>No logs</div>
 									{/if}
-								{/if}
-							</div>
-						{/each}
+								</div>
+							{/each}
+						{/if}
 					</div>
 					<div class="flex w-full items-center gap-4">
 						<div class="text-tertiary px-1 text-2xs">Last 5 log files up to:</div>
