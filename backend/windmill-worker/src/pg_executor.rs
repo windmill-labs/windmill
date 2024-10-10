@@ -30,7 +30,7 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{get_sql_annotations, to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -191,7 +191,7 @@ pub async fn do_postgresql(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let annotations = get_sql_annotations(query);
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let sslmode = match database.sslmode.as_deref() {
         Some("allow") => "prefer".to_string(),

@@ -1,0 +1,20 @@
+[package]
+name = "windmill-macros"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+
+# Dependencies for tests
+[dev-dependencies]
+# tests/annotation.rs
+lazy_static.workspace = true
+itertools.workspace = true
+regex.workspace = true

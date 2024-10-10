@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{get_sql_annotations, to_raw_value};
+use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::{append_logs, CanceledBy};
@@ -68,7 +68,7 @@ pub async fn do_mssql(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let annotations = get_sql_annotations(query);
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let mut config = Config::new();
 

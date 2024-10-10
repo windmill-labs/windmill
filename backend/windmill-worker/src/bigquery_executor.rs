@@ -5,7 +5,6 @@ use futures::{FutureExt, TryFutureExt};
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
-use windmill_common::worker::get_sql_annotations;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
@@ -238,7 +237,7 @@ pub async fn do_bigquery(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let annotations = get_sql_annotations(query);
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let service_account = CustomServiceAccount::from_json(&database)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
