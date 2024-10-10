@@ -1,1 +1,1 @@
-export let customIcon: { normal: string; white: string } | undefined = undefined
+export let customIcon: { normal?: string; white?: string } = {}

@@ -8,9 +8,11 @@
 
 #[cfg(feature = "deno_core")]
 use std::{
+    borrow::Cow,
     cell::RefCell,
     env,
     io::{self, BufReader},
+    path::PathBuf,
     rc::Rc,
 };
 
@@ -111,12 +113,12 @@ impl FetchPermissions for PermissionsContainer {
     }
 
     #[inline(always)]
-    fn check_read(
+    fn check_read<'a>(
         &mut self,
-        _p: &std::path::Path,
+        p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<Cow<'a, std::path::Path>, anyhow::Error> {
+        Ok(Cow::Borrowed(p))
     }
 }
 
@@ -130,20 +132,20 @@ impl TimersPermission for PermissionsContainer {
 
 #[cfg(feature = "deno_core")]
 impl NetPermissions for PermissionsContainer {
-    fn check_read(
+    fn check_read<'a>(
         &mut self,
-        _p: &std::path::Path,
+        p: &'a str,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<PathBuf, deno_core::error::AnyError> {
+        Ok(PathBuf::from(p))
     }
 
-    fn check_write(
+    fn check_write<'a>(
         &mut self,
-        _p: &std::path::Path,
+        p: &'a str,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<PathBuf, deno_core::error::AnyError> {
+        Ok(PathBuf::from(p))
     }
 
     fn check_net<T: AsRef<str>>(
@@ -152,6 +154,14 @@ impl NetPermissions for PermissionsContainer {
         _api_name: &str,
     ) -> Result<(), deno_core::error::AnyError> {
         Ok(())
+    }
+
+    fn check_write_path<'a>(
+        &mut self,
+        p: &'a std::path::Path,
+        _api_name: &str,
+    ) -> Result<std::borrow::Cow<'a, std::path::Path>, AnyError> {
+        Ok(Cow::Borrowed(p))
     }
 }
 

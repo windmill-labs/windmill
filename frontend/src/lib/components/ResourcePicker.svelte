@@ -176,9 +176,8 @@
 				<Button
 					{disabled}
 					color="light"
-					variant="contained"
+					variant="border"
 					size="sm"
-					btnClasses="w-8 px-0.5 py-1.5"
 					on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}
