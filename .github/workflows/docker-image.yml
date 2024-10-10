@@ -346,7 +346,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         run: cd integration_tests && ./run.sh
       - name: Archive logs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Windmill Integration Tests Logs
