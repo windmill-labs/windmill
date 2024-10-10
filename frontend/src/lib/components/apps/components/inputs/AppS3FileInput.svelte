@@ -34,7 +34,7 @@
 	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
-	const { app, worldStore, componentControl, runnableComponents } =
+	const { app, worldStore, componentControl, runnableComponents, workspace } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	$componentControl[id] = {
@@ -124,6 +124,7 @@
 		customResourceType="s3"
 		customClass={css?.container?.class}
 		customStyle={css?.container?.style}
+		{workspace}
 		on:addition={(evt) => {
 			const curr = outputs.result.peak()
 			outputs.result.set(curr.concat(evt.detail))
