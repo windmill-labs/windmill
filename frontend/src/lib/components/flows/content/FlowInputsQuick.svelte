@@ -366,7 +366,7 @@
 						}
 
 						dispatch('new', {
-							kind: 'script',
+							kind: selectedKind,
 							inlineScript: {
 								language: lang == 'docker' ? 'bash' : lang,
 								kind: selectedKind,
