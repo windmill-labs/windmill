@@ -25,7 +25,7 @@ export async function pushApp(
     return;
   }
   alreadySynced.push(localPath);
-  remotePath.replaceAll(SEP, "/");
+  remotePath = remotePath.replaceAll(SEP, "/");
   let app: any = undefined;
   // deleting old app if it exists in raw mode
   try {
