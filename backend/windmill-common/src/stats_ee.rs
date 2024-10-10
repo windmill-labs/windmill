@@ -27,8 +27,7 @@ pub enum SendStatsReason {
 
 pub async fn send_stats(
     _http_client: &reqwest::Client,
-    _db: &DB,
-    _skip_job_usage: bool,
+    _tx: &mut sqlx::Transaction<'_, Postgres>,
     _reason: SendStatsReason,
 ) -> Result<()> {
     // stats details are closed source
