@@ -17,6 +17,8 @@
 
 	let scheduleEditor: ScheduleEditor
 
+	export let flowEditor: boolean = false
+
 	$: path && loadSchedule()
 	$: path && loadSchedules()
 
@@ -67,7 +69,7 @@
 		}
 	}
 
-	const FlowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { primarySchedule, schedules } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <ScheduleEditor
@@ -79,7 +81,6 @@
 />
 
 <div class="flex flex-col gap-4 w-full">
-	FOO
 	{#if flowEditor}
 		<FlowSchedules />
 	{:else}
