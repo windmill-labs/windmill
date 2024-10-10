@@ -49,6 +49,7 @@
 		parseTypescriptDeps
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
+	import type { TriggerContext } from './triggers'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -485,12 +486,15 @@
 	const httpTriggersStore = writable(undefined)
 	const schedulesStore = writable<Schedule[] | undefined>(undefined)
 	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
+	setContext<TriggerContext>('TriggerContext', {
+		httpTriggers: httpTriggersStore,
+		schedule: scheduleStore,
+		primarySchedule: primaryScheduleStore
+	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,
-		httpTriggers: httpTriggersStore,
-		schedule: scheduleStore,
-		primarySchedule: primaryScheduleStore,
+
 		schedules: schedulesStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
