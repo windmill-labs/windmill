@@ -63,7 +63,6 @@
 				{#if $selectedTrigger === 'schedules'}
 					<div class="p-4">
 						<RunPageSchedules
-							{newFlow}
 							isFlow={true}
 							path={path ?? ''}
 							can_write={canWrite(path, {}, $userStore)}

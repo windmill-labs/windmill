@@ -8,16 +8,14 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import PrimarySchedule from './PrimarySchedule.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Alert from './common/alert/Alert.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import FlowSchedules from './flows/content/FlowSchedules.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let can_write: boolean
 
 	let scheduleEditor: ScheduleEditor
-
-	export let newFlow: boolean = false
 
 	$: path && loadSchedule()
 	$: path && loadSchedules()
@@ -69,7 +67,7 @@
 		}
 	}
 
-	const { primarySchedule, schedules } = getContext<FlowEditorContext>('FlowEditorContext')
+	const FlowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <ScheduleEditor
@@ -80,30 +78,34 @@
 	bind:this={scheduleEditor}
 />
 
-<div class="flex flex-col gap-4">
-	<Button
-		on:click={() => scheduleEditor?.openNew(isFlow, path)}
-		variant="border"
-		color="light"
-		size="xs"
-		startIcon={{ icon: Calendar }}
-	>
-		New Schedule
-	</Button>
+<div class="flex flex-col gap-4 w-full">
+	FOO
+	{#if flowEditor}
+		<FlowSchedules />
+	{:else}
+		<Button
+			on:click={() => scheduleEditor?.openNew(isFlow, path)}
+			variant="border"
+			color="light"
+			size="xs"
+			startIcon={{ icon: Calendar }}
+		>
+			New Schedule
+		</Button>
 
-	{#if $primarySchedule}
-		<PrimarySchedule
-			schedule={$primarySchedule}
-			{can_write}
-			{path}
-			{isFlow}
-			{scheduleEditor}
-			{setScheduleEnabled}
-		/>
-	{:else if $primarySchedule == undefined}
-		<Skeleton layout={[[6]]} />
+		{#if $primarySchedule}
+			<PrimarySchedule
+				schedule={$primarySchedule}
+				{can_write}
+				{path}
+				{isFlow}
+				{scheduleEditor}
+				{setScheduleEnabled}
+			/>
+		{:else if $primarySchedule == undefined}
+			<Skeleton layout={[[6]]} />
+		{/if}
 	{/if}
-
 	<Label label="Other schedules">
 		{#if $schedules}
 			{#if $schedules?.length == 0 || $schedules == undefined}
@@ -131,10 +133,4 @@
 			<Skeleton layout={[[8]]} />
 		{/if}
 	</Label>
-
-	{#if newFlow}
-		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the flow to enable schedules triggers.
-		</Alert>
-	{/if}
 </div>

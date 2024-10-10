@@ -148,13 +148,7 @@
 					</TriggerButton>
 				</Popover>
 				<Popover>
-					<svelte:fragment slot="text">
-						{#if newFlow}
-							Deploy the flow to add schedules triggers
-						{:else}
-							See all schedules triggers
-						{/if}
-					</svelte:fragment>
+					<svelte:fragment slot="text">See all schedules triggers</svelte:fragment>
 					<TriggerButton
 						on:click={() => {
 							if (isEditor) {
