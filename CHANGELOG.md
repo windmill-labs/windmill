@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.407.0](https://github.com/windmill-labs/windmill/compare/v1.406.0...v1.407.0) (2024-10-10)
+
+
+### Features
+
+* upgrade to deno 2 ([26b11a0](https://github.com/windmill-labs/windmill/commit/26b11a00150acbe101abe4bb542f24379da0cc56))
+
+
+### Bug Fixes
+
+* update internal deno runtime to latest (deno 2.0) ([c3a5736](https://github.com/windmill-labs/windmill/commit/c3a57366419882ea2de1938bea592c795b1a1d03))
+
 ## [1.406.0](https://github.com/windmill-labs/windmill/compare/v1.405.5...v1.406.0) (2024-10-09)
 
 
