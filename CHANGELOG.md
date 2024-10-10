@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.407.1](https://github.com/windmill-labs/windmill/compare/v1.407.0...v1.407.1) (2024-10-10)
+
+
+### Bug Fixes
+
+* improve handling of empty lock files on deno 2.0 ([7ca5bf2](https://github.com/windmill-labs/windmill/commit/7ca5bf2faeff44a7543b1afa9369c140fcb71dfc))
+
 ## [1.407.0](https://github.com/windmill-labs/windmill/compare/v1.406.0...v1.407.0) (2024-10-10)
 
 
