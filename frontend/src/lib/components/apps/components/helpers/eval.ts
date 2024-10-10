@@ -239,43 +239,64 @@ export async function eval_like(
 		(id) => {
 			controlComponents[id]?.askNewResource?.()
 		},
-		(urlOrBase64, filename) => {
+		(input, filename) => {
 			const handleError = (error) => {
 				console.error('Error downloading file:', error)
-				sendUserToast(`Error downloading file: ${error.message}. Ensure it is a valid URL or a base64 encoded data URL (data:...)`, true)
+				sendUserToast(`Error downloading file: ${error.message}. Ensure it is a valid URL, a base64 encoded data URL (data:...), or a valid S3 object.`, true)
 			}
 
-			if (urlOrBase64.startsWith('data:')) {
-				// Handle base64 data
+			const isBase64 = (str) => {
+				try {
+					return btoa(atob(str)) === str
+				} catch (err) {
+					return false
+				}
+			}
+
+			const downloadFile = (url) => {
 				const link = document.createElement('a')
-				link.href = urlOrBase64
+				link.href = url
 				link.download = filename || 'download'
 				document.body.appendChild(link)
 				link.click()
 				document.body.removeChild(link)
-			} else if (/^(http|https):\/\//.test(urlOrBase64)) {
-				// Ensure the URL is absolute
-				fetch(urlOrBase64)
-					.then(response => {
-						if (!response.ok) {
-							throw new Error(`HTTP error! status: ${response.status}`)
-						}
-						return response.blob()
-					})
-					.then(blob => {
-						const link = document.createElement('a')
-						const url = URL.createObjectURL(blob)
-						link.href = url
-						link.download = filename || 'download'
-						document.body.appendChild(link)
-						link.click()
-						document.body.removeChild(link)
-						URL.revokeObjectURL(url)
-					})
+			}
+
+			if (typeof input === 'object' && input.getAuthenticatedUrl) {
+				// Handle S3 object
+				input.getAuthenticatedUrl()
+					.then(url => downloadFile(url))
 					.catch(handleError)
+			} else if (typeof input === 'string') {
+				if (input.startsWith('data:')) {
+					// Handle base64 data URL
+					downloadFile(input)
+				} else if (isBase64(input)) {
+					// Handle direct base64 string
+					const base64Url = `data:application/octet-stream;base64,${input}`
+					downloadFile(base64Url)
+				} else if (/^(http|https):\/\//.test(input)) {
+					// Handle absolute URL
+					fetch(input)
+						.then(response => {
+							if (!response.ok) {
+								throw new Error(`HTTP error! status: ${response.status}`)
+							}
+							return response.blob()
+						})
+						.then(blob => {
+							const url = URL.createObjectURL(blob)
+							downloadFile(url)
+							URL.revokeObjectURL(url)
+						})
+						.catch(handleError)
+				} else {
+					// Handle invalid input format
+					handleError(new Error('The input must be a valid URL, a base64 encoded string, or a valid S3 object.'))
+				}
 			} else {
-				// Handle invalid URL format
-				handleError(new Error('The URL must be an absolute URL.'))
+				// Handle invalid input type
+				handleError(new Error('The input must be a string or an object with a getAuthenticatedUrl method.'))
 			}
 		}
 	)

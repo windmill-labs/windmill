@@ -302,7 +302,7 @@ declare async function askNewResource(id: string): void;
 /**
  * Download a file from a url or base64 encoded string
  * @param urlOrBase64 absolute url or [data URL](https://developer.mozilla.org/en-US/docs/Web/URI/Schemes/data)
- * @param fileName name of the file to download
+ * @param [fileName] name of the file to download (optional)
  */
 declare function downloadFile(urlOrBase64: string, fileName: string): void;
 
