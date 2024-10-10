@@ -60,7 +60,6 @@
 				allowTrigger={data.enableTrigger}
 				modules={data?.modules ?? []}
 				on:new={(e) => {
-					// console.log('new', e)
 					data?.eventHandlers.insert({
 						modules: data.modules,
 						index: data.index,
@@ -73,7 +72,8 @@
 					data?.eventHandlers.insert({
 						modules: data.modules,
 						index: data.index,
-						script: e.detail
+						script: e.detail,
+						kind: e.detail.kind
 					})
 				}}
 				on:pickFlow={(e) => {
@@ -107,7 +107,8 @@
 						data?.eventHandlers.insert({
 							modules: data.modules,
 							index: data.index,
-							script: e.detail
+							script: e.detail,
+							kind: e.detail.kind
 						})
 					}}
 					on:pickFlow={(e) => {

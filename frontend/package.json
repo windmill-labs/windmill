@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.405.5",
+	"version": "1.407.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -300,9 +300,9 @@
 			"types": "./package/utils.d.ts",
 			"default": "./package/utils.js"
 		},
-		"./icons/store": {
-			"types": "./package/icons/store.d.ts",
-			"default": "./package/icons/store.js"
+		"./components/icons/store": {
+			"types": "./package/components/icons/store.d.ts",
+			"default": "./package/components/icons/store.js"
 		},
 		"./script_helpers": {
 			"types": "./package/script_helpers.d.ts",
@@ -481,8 +481,8 @@
 			"script_helpers": [
 				"./package/script_helpers.d.ts"
 			],
-			"icons/store": [
-				"./package/icons/store.d.ts"
+			"components/icons/store": [
+				"./package/components/icons/store.d.ts"
 			]
 		}
 	},
