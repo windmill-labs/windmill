@@ -1,6 +1,7 @@
 import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
+import { base } from '$lib/base'
 
 export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {
@@ -253,31 +254,30 @@ export async function eval_like(
 				}
 			}
 
-			const downloadFile = (url) => {
+			const downloadFile = (url, downloadFilename) => {
 				const link = document.createElement('a')
 				link.href = url
-				link.download = filename || 'download'
+				link.download = downloadFilename || 'download'
 				document.body.appendChild(link)
 				link.click()
 				document.body.removeChild(link)
 			}
 
-			if (typeof input === 'object' && input.getAuthenticatedUrl) {
-				// Handle S3 object
-				input.getAuthenticatedUrl()
-					.then(url => downloadFile(url))
-					.catch(handleError)
+			if (typeof input === 'object' && input.s3) {
+				const workspaceId = computeGlobalContext(worldStore).ctx.workspace
+				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${input?.s3}${
+					input?.storage ? `&storage=${input.storage}` : ''
+				}`
+				downloadFile(s3href, filename || input.s3);
 			} else if (typeof input === 'string') {
 				if (input.startsWith('data:')) {
-					// Handle base64 data URL
-					downloadFile(input)
+					downloadFile(input, filename)
 				} else if (isBase64(input)) {
-					// Handle direct base64 string
 					const base64Url = `data:application/octet-stream;base64,${input}`
-					downloadFile(base64Url)
-				} else if (/^(http|https):\/\//.test(input)) {
-					// Handle absolute URL
-					fetch(input)
+					downloadFile(base64Url, filename)
+				} else if (/^(http|https):\/\//.test(input) || input.startsWith('/')) {
+					const url = input.startsWith('/') ? `${window.location.origin}${input}` : input
+					fetch(url)
 						.then(response => {
 							if (!response.ok) {
 								throw new Error(`HTTP error! status: ${response.status}`)
@@ -285,17 +285,17 @@ export async function eval_like(
 							return response.blob()
 						})
 						.then(blob => {
-							const url = URL.createObjectURL(blob)
-							downloadFile(url)
-							URL.revokeObjectURL(url)
+							const objectUrl = URL.createObjectURL(blob)
+							const urlParts = input.split('/')
+							const inferredFilename = urlParts[urlParts.length - 1]
+							downloadFile(objectUrl, filename || inferredFilename)
+							URL.revokeObjectURL(objectUrl)
 						})
 						.catch(handleError)
 				} else {
-					// Handle invalid input format
 					handleError(new Error('The input must be a valid URL, a base64 encoded string, or a valid S3 object.'))
 				}
 			} else {
-				// Handle invalid input type
 				handleError(new Error('The input must be a string or an object with a getAuthenticatedUrl method.'))
 			}
 		}
