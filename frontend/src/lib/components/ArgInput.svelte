@@ -141,6 +141,7 @@
 		defaultValue?: any,
 		nnullable?: boolean
 	) {
+		console.log(value)
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
