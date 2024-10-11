@@ -310,6 +310,10 @@ pub async fn run_server(
                     "/srch/w/:workspace_id/index",
                     indexer_ee::workspaced_service(),
                 )
+                .nest(
+                    "/srch/index/search/service_logs",
+                    indexer_ee::global_service(),
+                )
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",

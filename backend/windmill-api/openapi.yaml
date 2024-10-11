@@ -9206,7 +9206,7 @@ paths:
                     items:
                       $ref: "#/components/schemas/JobSearchHit"
 
-  /srch/w/{workspace}/index/search/service_logs:
+  /srch/index/search/service_logs:
     get:
       summary: Search through service logs with a string query
       operationId: searchLogsIndex

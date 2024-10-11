@@ -469,14 +469,13 @@
 				{#if selected}
 					<div class="grow overflow-auto" id="logviewer">
 						{#if loadingLogs}
-								<div class="flex w-full justify-center items-center h-48">
-									<div class="text-tertiary text-center">
-										<Loader2 size={34} class="animate-spin" />
-									</div>
+							<div class="flex w-full justify-center items-center h-48">
+								<div class="text-tertiary text-center">
+									<Loader2 size={34} class="animate-spin" />
 								</div>
+							</div>
 						{:else if logs != undefined}
-
-							{#each logs.hits as {snippet, errors} }
+							{#each logs.hits as { snippet, errors }}
 								<LogSnippetViewer searchQuery={searchTerm} content={snippet} />
 							{/each}
 						{:else}
@@ -504,8 +503,8 @@
 												<div class="text-xs pb-4 pt-2 text-secondary"
 													>Log file is missing. Log files require a shared log volume to be mounted
 													across servers and workers or to use the EE S3/object storage integration
-													for logs. To avoid mounting a shared volume, set the EE object store logs in
-													the instance settings</div
+													for logs. To avoid mounting a shared volume, set the EE object store logs
+													in the instance settings</div
 												>
 											{:else}
 												<div class="text-xs text-red-400 pb-4"
