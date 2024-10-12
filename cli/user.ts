@@ -13,7 +13,7 @@ import {
   log,
   Table,
   yamlStringify,
-  yamlParse,
+  yamlParseFile,
 } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 import {
@@ -170,6 +170,7 @@ export async function pushWorkspaceUser(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -189,6 +190,7 @@ export async function pushWorkspaceUser(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -251,6 +253,7 @@ export async function pushGroup(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -301,6 +304,7 @@ export async function pushGroup(
           });
         }
       } catch (e) {
+        //@ts-ignore
         console.error(e.body);
         throw e;
       }
@@ -329,6 +333,7 @@ export async function pushGroup(
             },
           });
         } catch (e) {
+          //@ts-ignore
           console.error(e.body);
           throw e;
         }
@@ -368,11 +373,13 @@ export async function pushGroup(
             });
           }
         } catch (e) {
+          //@ts-ignore
           console.error(e.body);
           throw e;
         }
       }
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -383,11 +390,7 @@ export async function pullInstanceUsers(preview: boolean = false) {
   const remoteUsers = await wmill.globalUsersExport();
 
   if (preview) {
-    let localUsers: ExportedUser[] = [];
-    try {
-      const raw = await Deno.readTextFile("instance_users.yaml");
-      localUsers = yamlParse(raw) as ExportedUser[];
-    } catch {}
+    const localUsers: ExportedUser[] = await readInstanceUsers();
     return compareInstanceObjects(remoteUsers, localUsers, "email", "user");
   } else {
     log.info("Pulling users from instance...");
@@ -399,11 +402,31 @@ export async function pullInstanceUsers(preview: boolean = false) {
   }
 }
 
+export async function readInstanceUsers() {
+  let localUsers: ExportedUser[] = [];
+  try {
+    localUsers = (await yamlParseFile("instance_users.yaml")) as ExportedUser[];
+  } catch {
+    log.warn("No instance_users.yaml file found");
+  }
+  return localUsers;
+}
+
+export async function readInstanceGroups() {
+  let localGroups: InstanceGroup[] = [];
+  try {
+    localGroups = (await yamlParseFile(
+      "instance_groups.yaml"
+    )) as ExportedInstanceGroup[];
+  } catch {
+    log.warn("No instance_groups.yaml file found");
+  }
+  return localGroups;
+}
+
 export async function pushInstanceUsers(preview: boolean = false) {
   const remoteUsers = await wmill.globalUsersExport();
-  const localUsers = (await Deno.readTextFile("instance_users.yaml")
-    .then((raw) => yamlParse(raw))
-    .catch(() => [])) as ExportedUser[];
+  const localUsers: ExportedUser[] = await readInstanceUsers();
 
   if (preview) {
     return compareInstanceObjects(localUsers, remoteUsers, "email", "user");
@@ -421,11 +444,7 @@ export async function pullInstanceGroups(preview = false) {
   const remoteGroups = await wmill.exportInstanceGroups();
 
   if (preview) {
-    let localGroups: InstanceGroup[] = [];
-    try {
-      const raw = await Deno.readTextFile("instance_groups.yaml");
-      localGroups = yamlParse(raw) as InstanceGroup[];
-    } catch {}
+    const localGroups = await readInstanceGroups();
     return compareInstanceObjects(remoteGroups, localGroups, "name", "group");
   } else {
     log.info("Pulling groups from instance...");
@@ -441,9 +460,7 @@ export async function pullInstanceGroups(preview = false) {
 
 export async function pushInstanceGroups(preview: boolean = false) {
   const remoteGroups = await wmill.exportInstanceGroups();
-  const localGroups = (await Deno.readTextFile("instance_groups.yaml")
-    .then((raw) => yamlParse(raw))
-    .catch(() => [])) as ExportedInstanceGroup[];
+  const localGroups = await readInstanceGroups();
 
   if (preview) {
     return compareInstanceObjects(localGroups, remoteGroups, "name", "group");

@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
 import { Confirm, SEP, log, yamlStringify } from "./deps.ts";
-import { colors, Command, Table, yamlParse } from "./deps.ts";
+import { colors, Command, Table, yamlParseFile } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
@@ -89,8 +89,7 @@ export async function pushFlow(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const localFlowRaw = await Deno.readTextFile(localPath + "flow.yaml");
-  const localFlow = yamlParse(localFlowRaw) as FlowFile;
+  const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
   replaceInlineScripts(localFlow.value.modules, localPath, undefined);
 
