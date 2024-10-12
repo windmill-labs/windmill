@@ -3,7 +3,7 @@ import {
   path,
   Confirm,
   yamlStringify,
-  yamlParse,
+  yamlParseFile,
   Command,
   setClient,
   Table,
@@ -459,9 +459,9 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       }
 
       try {
-        const workspaceSettings = yamlParse(
-          await Deno.readTextFile("settings.yaml")
-        ) as SimplifiedSettings;
+        const workspaceSettings = (await yamlParseFile(
+          "settings.yaml"
+        )) as SimplifiedSettings;
         await workspaceSetup(
           {
             token: instance.token,

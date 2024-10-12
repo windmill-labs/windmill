@@ -9,7 +9,7 @@ import {
   path,
   log,
   yamlStringify,
-  yamlParse,
+  yamlParseContent,
   SEP,
 } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
@@ -112,7 +112,7 @@ async function addCodebaseDigestIfRelevant(
   if (isTs) {
     const c = findCodebase(path, codebases);
     if (c) {
-      const parsed: any = yamlParse(content);
+      const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
         parsed["codebase"] = c.digest;
         parsed["lock"] = undefined;
@@ -660,7 +660,7 @@ export async function elementsToMap(
         if (json) {
           o = JSON.parse(content);
         } else {
-          o = yamlParse(content);
+          o = yamlParseContent(path, content);
         }
         if (o["is_secret"]) {
           continue;
@@ -704,7 +704,7 @@ async function compareDynFSElement(
 
   function parseYaml(k: string, v: string) {
     if (k.endsWith(".script.yaml")) {
-      const o: any = yamlParse(v);
+      const o: any = yamlParseContent(k, v);
       if (typeof o == "object") {
         if (Array.isArray(o?.["lock"])) {
           o["lock"] = o["lock"].join("\n");
@@ -715,7 +715,7 @@ async function compareDynFSElement(
       }
       return o;
     } else if (k.endsWith(".app.yaml")) {
-      const o: any = yamlParse(v);
+      const o: any = yamlParseContent(k, v);
       const o2 = o["policy"];
 
       if (typeof o2 == "object") {
@@ -728,7 +728,7 @@ async function compareDynFSElement(
       }
       return o;
     } else {
-      return yamlParse(v);
+      return yamlParseContent(k, v);
     }
   }
   for (const [k, v] of Object.entries(m1)) {
