@@ -41,6 +41,10 @@ jobs:
       - name: cargo test
         timeout-minutes: 15
         run:
+          /usr/bin/deno --version &&
+          /usr/bin/bun -v &&
+          go version &&
+          /usr/local/bin/python3 --version &&
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml &&
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill

@@ -95,7 +95,14 @@ shouldUsePortal={true} -->
 		role="none"
 	>
 		<div class="flex flex-row items-center gap-2">
-			<StepGenQuick {disableAi} on:insert bind:funcDesc {preFilter} {loading} />
+			<StepGenQuick
+				on:escape={() => close(null)}
+				{disableAi}
+				on:insert
+				bind:funcDesc
+				{preFilter}
+				{loading}
+			/>
 			{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 				<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 			{/if}

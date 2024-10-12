@@ -1,4 +1,4 @@
-import { log, yamlParse } from "./deps.ts";
+import { log, yamlParseFile } from "./deps.ts";
 
 export interface SyncOptions {
   stateful?: boolean;
@@ -40,9 +40,7 @@ export interface Codebase {
 
 export async function readConfigFile(): Promise<SyncOptions> {
   try {
-    const conf = yamlParse(
-      await Deno.readTextFile("wmill.yaml")
-    ) as SyncOptions;
+    const conf = (await yamlParseFile("wmill.yaml")) as SyncOptions;
     if (conf?.defaultTs == undefined) {
       log.warn(
         "No defaultTs defined in your wmill.yaml. Using 'bun' as default."

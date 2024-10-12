@@ -3,7 +3,7 @@ import {
   path,
   Confirm,
   yamlStringify,
-  yamlParse,
+  yamlParseFile,
   Command,
   setClient,
   Table,
@@ -459,9 +459,9 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       }
 
       try {
-        const workspaceSettings = yamlParse(
-          await Deno.readTextFile("settings.yaml")
-        ) as SimplifiedSettings;
+        const workspaceSettings = (await yamlParseFile(
+          "settings.yaml"
+        )) as SimplifiedSettings;
         await workspaceSetup(
           {
             token: instance.token,
@@ -578,6 +578,7 @@ async function whoami(opts: {}) {
     log.info(JSON.stringify(whoamiInfo, null, 2));
   } catch (error) {
     log.error(
+      //@ts-ignore
       colors.red(`Failed to retrieve whoami information: ${error.message}`)
     );
   }
@@ -620,7 +621,7 @@ const command = new Command()
   .description("Remove an instance")
   .complete("instance", async () => (await allInstances()).map((x) => x.name))
   .arguments("<instance:string:instance>")
-  .action(async (instance) => {
+  .action(async (instance: any) => {
     const instances = await allInstances();
 
     const choice = (await Select.prompt({

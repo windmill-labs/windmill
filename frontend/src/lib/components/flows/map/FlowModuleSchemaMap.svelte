@@ -91,14 +91,7 @@
 			;[module, state] = await createBranchAll(module.id)
 		}
 		$flowStateStore[module.id] = state
-		if (kind == 'trigger') {
-			module.summary = 'Trigger'
-		} else if (kind == 'approval') {
-			module.summary = 'Approval'
-		} else if (kind == 'end') {
-			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
-		}
+
 		if (inlineScript) {
 			const { language, kind, subkind } = inlineScript
 			;[module, state] = await createInlineScriptModule(
@@ -109,7 +102,22 @@
 				module.summary
 			)
 			$flowStateStore[module.id] = state
+			if (kind == 'trigger') {
+				module.summary = 'Trigger'
+			} else if (kind == 'approval') {
+				module.summary = 'Approval'
+			}
 		}
+
+		if (kind == 'approval') {
+			module.suspend = { required_events: 1 }
+		} else if (kind == 'trigger') {
+			module.stop_after_if = {
+				expr: '!result || (Array.isArray(result) && result.length == 0)',
+				skip_if_stopped: true
+			}
+		}
+
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
 		return modules
@@ -254,6 +262,13 @@
 			}
 		}
 	}
+
+	function setExpr(module: FlowModule, expr: string) {
+		if (module.value.type == 'forloopflow') {
+			module.value.iterator = { type: 'javascript', expr }
+			module.value.parallel = true
+		}
+	}
 </script>
 
 <Portal name="flow-module">
@@ -352,7 +367,7 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					if (detail.modules) {
+					if (detail.modules && Array.isArray(detail.modules)) {
 						await tick()
 						if ($moving) {
 							push(history, $flowStore)
@@ -366,19 +381,33 @@
 								insertNewPreprocessorModule(detail.inlineScript, detail.script)
 								$selectedId = 'preprocessor'
 							} else {
+								const index = detail.index ?? 0
 								await insertNewModuleAtIndex(
 									detail.modules,
-									detail.index ?? 0,
+									index,
 									detail.kind,
 									detail.script,
 									detail.flow,
 									detail.inlineScript
 								)
-								$selectedId = detail.modules[detail.index ?? 0].id
+								const id = detail.modules[detail.index ?? 0].id
+								$selectedId = id
+
+								if (detail.kind == 'trigger') {
+									await insertNewModuleAtIndex(
+										detail.modules,
+										index + 1,
+										'forloop',
+										undefined,
+										undefined,
+										undefined
+									)
+									setExpr(detail.modules[index + 1], `results.${id}`)
+								}
 							}
 						}
 
-						if (['branchone', 'branchall'].includes(detail.detail)) {
+						if (['branchone', 'branchall'].includes(detail.kind)) {
 							await addBranch(detail.modules[detail.index ?? 0])
 						}
 						$flowStateStore = $flowStateStore

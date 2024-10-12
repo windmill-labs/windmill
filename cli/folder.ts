@@ -73,6 +73,7 @@ export async function pushFolder(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -87,6 +88,7 @@ export async function pushFolder(
         },
       });
     } catch (e) {
+      //@ts-ignore
       throw Error(`Failed to create folder ${name}: ${e.body ?? e.message}`);
     }
   }

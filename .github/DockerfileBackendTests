@@ -1,21 +1,5 @@
-ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.80-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.4-slim-bookworm
-
-FROM ${DEBIAN_IMAGE} as downloader
-
-ARG TARGETPLATFORM
-
-SHELL ["/bin/bash", "-c"]
-
-RUN apt update -y
-RUN apt install -y unzip curl
-
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.46.3/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.46.3/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
-
-
-RUN unzip deno.zip && rm deno.zip
 
 
 FROM ${RUST_IMAGE} as builder
@@ -31,7 +15,7 @@ ENV SQLX_OFFLINE=true
 
 RUN mkdir -p /frontend/build
 RUN apt-get update \
-    && apt-get install -y ca-certificates tzdata libpq5 cmake\
+    && apt-get install -y ca-certificates tzdata libpq5 cmake unzip\
     make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
     libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
     libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev libnl-route-3-dev \
@@ -56,13 +40,14 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
-COPY --from=oven/bun:1.1.27 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.30 /usr/local/bin/bun /usr/bin/bun
 
+ARG TARGETPLATFORM
 
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
+RUN curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip 
+# RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
 
-COPY --from=downloader --chmod=755 /deno /usr/bin/deno
+RUN unzip deno.zip && rm deno.zip && mv deno /usr/bin/deno
 
 RUN apt-get update \
     && apt-get install -y postgresql-client --allow-unauthenticated

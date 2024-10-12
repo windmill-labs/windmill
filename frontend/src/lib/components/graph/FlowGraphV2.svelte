@@ -286,7 +286,7 @@
 	{:else}
 		<SvelteFlow
 			on:paneclick={(e) => {
-				window.dispatchEvent(new Event('focus'))
+				document.dispatchEvent(new Event('focus'))
 			}}
 			{nodes}
 			{edges}
