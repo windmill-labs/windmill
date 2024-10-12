@@ -11,7 +11,6 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use windmill_common::utils::rd_string;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -3054,6 +3053,7 @@ pub async fn run_script_by_path_inner(
 pub struct WorkflowAsCodeQuery {
     pub skip_update: Option<bool>,
 }
+
 pub async fn run_workflow_as_code(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3065,11 +3065,10 @@ pub async fn run_workflow_as_code(
     Json(task): Json<WorkflowTask>,
 ) -> error::Result<(StatusCode, String)> {
 
-    let rd_string = rd_string(3);
     let mut i = 1;
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3079,7 +3078,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3089,7 +3088,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3129,7 +3128,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3143,7 +3142,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3153,7 +3152,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3186,7 +3185,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3204,7 +3203,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
         i += 1;
     }
 
@@ -3213,7 +3212,7 @@ pub async fn run_workflow_as_code(
 
 
     if *CLOUD_HOSTED {
-        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        tracing::info!("workflow_as_code_tracing id {i} ");
     }
 
     Ok((StatusCode::CREATED, uuid.to_string()))
