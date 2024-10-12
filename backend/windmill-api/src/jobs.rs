@@ -11,6 +11,7 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
+use windmill_common::utils::rd_string;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -24,7 +25,7 @@ use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
     ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::worker::TMP_DIR;
+use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
@@ -3063,11 +3064,34 @@ pub async fn run_workflow_as_code(
     Query(wkflow_query): Query<WorkflowAsCodeQuery>,
     Json(task): Json<WorkflowTask>,
 ) -> error::Result<(StatusCode, String)> {
+
+    let rd_string = rd_string(3);
+    let mut i = 1;
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     check_tag_available_for_workspace(&w_id, &run_query.tag).await?;
 
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
+
     let job = get_queued_job(&job_id, &w_id, &db).await?;
+
+
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
 
 
     let job = not_found_if_none(job, "Queued Job", &job_id.to_string())?;
@@ -3103,6 +3127,12 @@ pub async fn run_workflow_as_code(
         _ => return Err(anyhow::anyhow!("Not supported").into()),
     };
 
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
     let mut extra = HashMap::new();
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
 
@@ -3111,9 +3141,22 @@ pub async fn run_workflow_as_code(
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
 
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
     let tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let tx = PushIsolationLevel::Transaction(tx);
+
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
 
     let (uuid, mut tx) = push(
         &db,
@@ -3140,6 +3183,13 @@ pub async fn run_workflow_as_code(
         Some(&authed.clone().into()),
     )
     .await?;
+
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
     if !wkflow_query.skip_update.unwrap_or(false) {
         sqlx::query!(
             "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
@@ -3152,7 +3202,20 @@ pub async fn run_workflow_as_code(
         tracing::info!("Skipping update of flow status for job {job_id} in workspace {w_id}");
     }
 
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+        i += 1;
+    }
+
+
     tx.commit().await?;
+
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing 1 id: {i} {rd_string}");
+    }
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
