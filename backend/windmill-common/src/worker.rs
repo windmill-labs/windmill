@@ -90,7 +90,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
+    if wc.worker_tags.is_empty() {
         tracing::error!("Empty tags in worker tags, skipping");
         return;
     }
@@ -122,7 +122,7 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
 pub async fn make_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
-        if tags.tags.len() == 0 {
+        if tags.tags.is_empty() {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
