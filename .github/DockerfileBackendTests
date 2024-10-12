@@ -47,7 +47,7 @@ ARG TARGETPLATFORM
 RUN curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip 
 # RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
 
-RUN unzip deno.zip && rm deno.zip
+RUN unzip deno.zip && rm deno.zip && mv deno /usr/bin/deno
 
 RUN apt-get update \
     && apt-get install -y postgresql-client --allow-unauthenticated
