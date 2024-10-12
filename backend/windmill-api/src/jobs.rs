@@ -3007,16 +3007,16 @@ pub async fn run_script_by_path_inner(
 
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let (job_payload, tag, _delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path, &db, &w_id, run_query.skip_preprocessor).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -3146,9 +3146,8 @@ pub async fn run_workflow_as_code(
         i += 1;
     }
 
-    let tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
 
     if *CLOUD_HOSTED {
