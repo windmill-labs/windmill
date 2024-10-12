@@ -3049,6 +3049,10 @@ pub async fn run_script_by_path_inner(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+#[derive(Deserialize)]
+pub struct WorkflowAsCodeQuery {
+    pub skip_update: Option<bool>,
+}
 pub async fn run_workflow_as_code(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3056,6 +3060,7 @@ pub async fn run_workflow_as_code(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, job_id, entrypoint)): Path<(String, Uuid, String)>,
     Query(run_query): Query<RunJobQuery>,
+    Query(wkflow_query): Query<WorkflowAsCodeQuery>,
     Json(task): Json<WorkflowTask>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
@@ -3135,13 +3140,18 @@ pub async fn run_workflow_as_code(
         Some(&authed.clone().into()),
     )
     .await?;
-    sqlx::query!(
-        "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
-        uuid.to_string(),
-        job_id,
-        w_id,
-        entrypoint
-    ).execute(&mut tx).await?;
+    if !wkflow_query.skip_update.unwrap_or(false) {
+        sqlx::query!(
+            "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
+            uuid.to_string(),
+            job_id,
+            w_id,
+            entrypoint
+        ).execute(&mut tx).await?;
+    } else {
+        tracing::info!("Skipping update of flow status for job {job_id} in workspace {w_id}");
+    }
+
     tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
