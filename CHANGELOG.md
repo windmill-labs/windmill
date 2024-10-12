@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.408.1](https://github.com/windmill-labs/windmill/compare/v1.408.0...v1.408.1) (2024-10-12)
+
+
+### Bug Fixes
+
+* fix deno cache --allow-import on deno 2 ([42fe31f](https://github.com/windmill-labs/windmill/commit/42fe31f804c9e6643cd90167494e45270831e013))
+
 ## [1.408.0](https://github.com/windmill-labs/windmill/compare/v1.407.2...v1.408.0) (2024-10-12)
 
 
