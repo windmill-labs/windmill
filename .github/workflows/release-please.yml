@@ -8,7 +8,7 @@ jobs:
     name: "Release please"
     runs-on: ubicloud
     steps:
-      - uses: GoogleCloudPlatform/release-please-action@v3
+      - uses: GoogleCloudPlatform/release-please-action@v4
         with:
           release-type: simple
           package-name: windmill
