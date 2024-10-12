@@ -3062,9 +3062,9 @@ pub async fn run_workflow_as_code(
     check_license_key_valid().await?;
     check_tag_available_for_workspace(&w_id, &run_query.tag).await?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let job = get_queued_job(&job_id, &w_id, &db).await?;
+
+
     let job = not_found_if_none(job, "Queued Job", &job_id.to_string())?;
     let (job_payload, tag, _delete_after_use, timeout) = match job.job_kind {
         JobKind::Preview => (
@@ -3089,7 +3089,7 @@ pub async fn run_workflow_as_code(
         JobKind::Script => {
             script_path_to_payload(
                 job.script_path(),
-                &mut tx,
+                &db,
                 &w_id,
                 run_query.skip_preprocessor,
             )
@@ -3105,6 +3105,8 @@ pub async fn run_workflow_as_code(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
+
+    let tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let tx = PushIsolationLevel::Transaction(tx);
 
