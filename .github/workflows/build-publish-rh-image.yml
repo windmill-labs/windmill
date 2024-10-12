@@ -2,7 +2,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-name: Build windmill-staging
+name: Build and publish windmill for RHEL9
 on:
   workflow_dispatch:
 
