@@ -126,6 +126,7 @@ pub async fn generate_deno_lock(
             "--unstable-http",
             "--lock=lock.json",
             "--frozen=false",
+            "--allow-import",
             "--import-map",
             &import_map_path,
             "main.ts",
@@ -372,6 +373,7 @@ try {{
             args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");
+            args.push("--allow-import");
             args.push("--allow-run=git,/usr/bin/chromium");
         } else {
             args.push("-A");

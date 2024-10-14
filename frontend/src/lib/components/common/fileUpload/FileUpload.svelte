@@ -23,6 +23,7 @@
 	export let pathTransformer: any = undefined // function taking as input {file: File} and returning a string
 	export let forceDisplayUploads: boolean = false
 	export let defaultValue: string | undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -154,7 +155,7 @@
 				})
 				xhr?.open(
 					'POST',
-					`/api/w/${$workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
+					`/api/w/${workspace ?? $workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -189,7 +190,7 @@
 
 	async function deleteFile(fileKey: string) {
 		await HelpersService.deleteS3File({
-			workspace: $workspaceStore!,
+			workspace: workspace ?? $workspaceStore!,
 			fileKey: fileKey
 		})
 		dispatch('deletion', { path: fileKey })

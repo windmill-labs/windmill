@@ -18,9 +18,9 @@
 	export let contentEncoding: 'base64' | 'binary' | undefined
 	export let customErrorMessage: string | undefined
 	export let minRows: number | undefined = undefined
-	export let disableCreate: boolean | undefined = false
-	export let disableVariablePicker: boolean | undefined = false
-	export let password: boolean = false
+	export let disableCreate: boolean | undefined = undefined
+	export let disableVariablePicker: boolean | undefined = undefined
+	export let password: boolean | undefined = undefined
 	export let noExtra = false
 	export let dateFormat: string | undefined
 	export let enumLabels: Record<string, string> | undefined = undefined
@@ -236,7 +236,7 @@
 			<Toggle
 				size="xs"
 				options={{ right: 'Disallow creating custom values' }}
-				checked={disableCreate != undefined && disableCreate}
+				checked={disableCreate}
 				on:change={(e) => {
 					if (e.detail) {
 						disableCreate = true
@@ -309,7 +309,7 @@
 		<Toggle
 			size="xs"
 			options={{ right: 'Disable variable picker' }}
-			checked={disableVariablePicker != undefined && disableVariablePicker}
+			checked={disableVariablePicker}
 			on:change={(e) => {
 				if (e.detail) {
 					disableVariablePicker = true
@@ -327,7 +327,11 @@
 			options={{ right: 'Is Password' }}
 			checked={password}
 			on:change={(e) => {
-				password = e.detail
+				if (e.detail) {
+					password = true
+				} else {
+					password = undefined
+				}
 			}}
 		/>
 	{/if}
