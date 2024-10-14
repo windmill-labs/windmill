@@ -3,7 +3,7 @@ import {
   path,
   Confirm,
   yamlStringify,
-  yamlParse,
+  yamlParseFile,
   Command,
   setClient,
   Table,
@@ -25,8 +25,8 @@ import {
 import {
   add as workspaceSetup,
   addWorkspace,
-  allWorkspaces,
   removeWorkspace,
+  setActiveWorkspace,
 } from "./workspace.ts";
 import {
   pushInstanceSettings,
@@ -35,8 +35,9 @@ import {
   pushInstanceConfigs,
   type SimplifiedSettings,
 } from "./settings.ts";
-import { sleep, deepEqual } from "./utils.ts";
+import { deepEqual } from "./utils.ts";
 import { GlobalOptions } from "./types.ts";
+import { getActiveWorkspace } from "./workspace.ts";
 
 export interface Instance {
   remote: string;
@@ -293,22 +294,18 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     log.info("No instance-level changes to apply");
   }
 
-  sleep(1000);
-
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
+    const rootDir = Deno.cwd();
+    const localWorkspaces = await getLocalWorkspaces(rootDir, instance.prefix);
+
+    const previousActiveWorkspace = await getActiveWorkspace(undefined);
     const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
       perPage: 1000,
     });
-    let localWorkspaces = await allWorkspaces();
-    localWorkspaces = localWorkspaces.filter((w) =>
-      w.name.startsWith(instance.prefix + "_")
-    );
-    const rootDir = Deno.cwd();
     for (const remoteWorkspace of remoteWorkspaces) {
       log.info("\nPulling workspace " + remoteWorkspace.id);
-      sleep(1000);
       const workspaceName = instance.prefix + "_" + remoteWorkspace.id;
       await Deno.mkdir(path.join(rootDir, workspaceName), {
         recursive: true,
@@ -341,7 +338,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     }
 
     const localWorkspacesToDelete = localWorkspaces.filter(
-      (w) => !remoteWorkspaces.find((r) => r.id === w.workspaceId)
+      (w) => !remoteWorkspaces.find((r) => r.id === w.id)
     );
 
     if (localWorkspacesToDelete.length > 0) {
@@ -350,20 +347,23 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
         (await Confirm.prompt({
           message:
             "Do you want to delete the local copy of workspaces that don't exist anymore on the instance?\n" +
-            localWorkspacesToDelete.map((w) => w.workspaceId).join(", "),
+            localWorkspacesToDelete.map((w) => w).join(", "),
           default: true,
         }));
 
       if (confirmDelete) {
         for (const workspace of localWorkspacesToDelete) {
-          await removeWorkspace(workspace.name, false, {});
-          await Deno.remove(path.join(rootDir, workspace.name), {
+          await removeWorkspace(workspace.id, false, {});
+          await Deno.remove(path.join(rootDir, workspace.dir), {
             recursive: true,
           });
         }
       }
     }
 
+    if (previousActiveWorkspace) {
+      await setActiveWorkspace(previousActiveWorkspace?.name);
+    }
     log.info(colors.green.underline.bold("All workspaces pulled"));
   }
 }
@@ -421,10 +421,10 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     log.info("No instance-level changes to apply");
   }
 
-  sleep(1000);
-
   if (opts.includeWorkspaces) {
     instances = await allInstances();
+    const rootDir = Deno.cwd();
+
     const localPrefix = (await Select.prompt({
       message: "What is the prefix of the local workspaces you want to sync?",
       options: [
@@ -440,18 +440,18 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       page: 1,
       perPage: 1000,
     });
-    let localWorkspaces = await allWorkspaces();
-    localWorkspaces = localWorkspaces.filter((w) =>
-      w.name.startsWith(localPrefix + "_")
-    );
 
-    log.info("\nPushing all workspaces");
-    const rootDir = Deno.cwd();
+    const previousActiveWorkspace = await getActiveWorkspace(undefined);
+
+    const localWorkspaces = await getLocalWorkspaces(rootDir, localPrefix);
+
+    log.info(
+      `\nPushing all workspaces: ${localWorkspaces.map((x) => x.id).join(", ")}`
+    );
     for (const localWorkspace of localWorkspaces) {
-      log.info("\nPushing workspace " + localWorkspace.workspaceId);
-      sleep(1000);
+      log.info("\nPushing workspace " + localWorkspace.id);
       try {
-        await Deno.chdir(path.join(rootDir, localWorkspace.name));
+        await Deno.chdir(path.join(rootDir, localWorkspace.dir));
       } catch (_) {
         throw new Error(
           "Workspace folder not found, are you in the right directory?"
@@ -459,9 +459,9 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
       }
 
       try {
-        const workspaceSettings = yamlParse(
-          await Deno.readTextFile("settings.yaml")
-        ) as SimplifiedSettings;
+        const workspaceSettings = (await yamlParseFile(
+          "settings.yaml"
+        )) as SimplifiedSettings;
         await workspaceSetup(
           {
             token: instance.token,
@@ -471,8 +471,8 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
             createWorkspaceName: workspaceSettings.name,
             createUsername: undefined,
           },
-          localWorkspace.name,
-          localWorkspace.workspaceId,
+          localWorkspace.dir,
+          localWorkspace.id,
           instance.remote
         );
       } catch (_) {
@@ -482,7 +482,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
         continue;
       }
       await push({
-        workspace: localWorkspace.name,
+        workspace: localWorkspace.dir,
         token: undefined,
         baseUrl: undefined,
         includeGroups: true,
@@ -495,7 +495,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     }
 
     const workspacesToDelete = remoteWorkspaces.filter(
-      (w) => !localWorkspaces.find((l) => l.workspaceId === w.id)
+      (w) => !localWorkspaces.find((l) => l.id === w.id)
     );
     if (workspacesToDelete.length > 0) {
       const confirmDelete =
@@ -514,8 +514,26 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
         }
       }
     }
+    if (previousActiveWorkspace) {
+      await setActiveWorkspace(previousActiveWorkspace?.name);
+    }
     log.info(colors.green.underline.bold("All workspaces pushed"));
   }
+}
+
+async function getLocalWorkspaces(rootDir: string, localPrefix: string) {
+  const localWorkspaces: { dir: string; id: string }[] = [];
+
+  for await (const dir of Deno.readDir(rootDir)) {
+    const dirName = dir.name;
+    if (dirName.startsWith(localPrefix + "_")) {
+      localWorkspaces.push({
+        dir: dirName,
+        id: dirName.substring(localPrefix.length + 1),
+      });
+    }
+  }
+  return localWorkspaces;
 }
 
 async function switchI(opts: {}, instanceName: string) {
@@ -560,6 +578,7 @@ async function whoami(opts: {}) {
     log.info(JSON.stringify(whoamiInfo, null, 2));
   } catch (error) {
     log.error(
+      //@ts-ignore
       colors.red(`Failed to retrieve whoami information: ${error.message}`)
     );
   }
@@ -602,7 +621,7 @@ const command = new Command()
   .description("Remove an instance")
   .complete("instance", async () => (await allInstances()).map((x) => x.name))
   .arguments("<instance:string:instance>")
-  .action(async (instance) => {
+  .action(async (instance: any) => {
     const instances = await allInstances();
 
     const choice = (await Select.prompt({

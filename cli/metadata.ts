@@ -1,6 +1,13 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import { SEP, colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
+import {
+  SEP,
+  colors,
+  log,
+  path,
+  yamlParseFile,
+  yamlStringify,
+} from "./deps.ts";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -119,9 +126,9 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  const flowValue = yamlParse(
-    await Deno.readTextFile(folder! + SEP + "flow.yaml")
-  ) as FlowFile;
+  const flowValue = (await yamlParseFile(
+    folder! + SEP + "flow.yaml"
+  )) as FlowFile;
 
   if (!justUpdateMetadataLock) {
     const changedScripts = [];
@@ -798,7 +805,7 @@ export async function parseMetadataFile(
     try {
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
-      const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
+      const payload: any = await yamlParseFile(metadataFilePath);
       replaceLock(payload);
 
       return {
@@ -840,9 +847,9 @@ export async function parseMetadataFile(
             codebases,
             false
           );
-          scriptInitialMetadata = yamlParse(
-            await Deno.readTextFile(metadataFilePath)
-          ) as ScriptMetadata;
+          scriptInitialMetadata = (await yamlParseFile(
+            metadataFilePath
+          )) as ScriptMetadata;
           replaceLock(scriptInitialMetadata);
         } catch (e) {
           log.info(
@@ -868,8 +875,7 @@ interface Lock {
 const WMILL_LOCKFILE = "wmill-lock.yaml";
 export async function readLockfile(): Promise<Lock> {
   try {
-    const lockfile = await Deno.readTextFile(WMILL_LOCKFILE);
-    const read = yamlParse(lockfile);
+    const read = await yamlParseFile(WMILL_LOCKFILE);
     if (typeof read == "object") {
       return read as Lock;
     } else {

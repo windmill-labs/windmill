@@ -113,7 +113,7 @@
 	</AlignWrapper>
 </div>
 
-<Portal target="#app-editor-top-level-drawer">
+<Portal target="#app-editor-top-level-drawer" name="app-drawer">
 	<Drawer
 		let:open
 		bind:this={appDrawer}

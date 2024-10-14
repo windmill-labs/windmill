@@ -318,15 +318,33 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
     );
 
+    // NOTE: powershell error handling / termination is quite tricky compared to bash
+    // here we're trying to catch terminating errors and propagate the exit code
+    // to the caller such that the job will be marked as failed. It's up to the user
+    // to catch specific errors in their script not caught by the below as there is no
+    // generic set -eu as in bash
+    let strict_termination_start = "$ErrorActionPreference = 'Stop'\n\
+        Set-StrictMode -Version Latest\n\
+        try {\n";
+
+    let strict_termination_end = "\n\
+        } catch {\n\
+            Write-Output \"An error occurred:\n\"\
+            Write-Output $_
+            exit 1\n\
+        }\n";
+
     // make sure param() is first
     let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
     let content: String = if let Some(param_match) = param_match {
         let param_match = param_match.as_str();
         format!(
-            "{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}",
             param_match,
             profile,
-            content.replace(param_match, "")
+            strict_termination_start,
+            content.replace(param_match, ""),
+            strict_termination_end
         )
     } else {
         format!("{}\n{}", profile, content)
@@ -351,7 +369,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     $pipe = New-TemporaryFile\n\
     & \"{}\" -File ./main.ps1 @args 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
-    Remove-Item $pipe\n",
+    Remove-Item $pipe\n\
+    exit $LASTEXITCODE\n",
             POWERSHELL_PATH.as_str()
         ),
     )?;

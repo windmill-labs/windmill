@@ -3,6 +3,13 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
+	import {
+		computePosition,
+		findGridItemParentGrid,
+		isContainer,
+		type GridShadow
+	} from '../editor/appUtils'
+	import { throttle } from './utils/other'
 
 	const dispatch = createEventDispatcher()
 
@@ -28,9 +35,12 @@
 	export let onTop
 	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
 	export let overlapped: string | undefined = undefined
+	export let moveMode: 'move' | 'insert' = 'move'
+	export let type: string | undefined = undefined
+	export let fakeShadow: GridShadow | undefined = undefined
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
-	const { mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const scale = ctx ? ctx.scale : writable(100)
 
@@ -75,6 +85,7 @@
 						x: (moveX / $scale) * 100 - initX,
 						y: (moveY / $scale) * 100 - initY
 					}
+
 					dispatch('move', { cordDiff, clientY: clientY })
 				}
 				return x
@@ -168,7 +179,7 @@
 	}
 
 	let dragClosure: (() => void) | undefined = undefined
-	const pointerdown = ({ clientX, clientY, pageX, pageY }) => {
+	const pointerdown = ({ clientX, clientY }) => {
 		dragClosure = () => {
 			dragClosure = undefined
 			ctx.componentActive.set(true)
@@ -223,16 +234,45 @@
 		}
 	}
 
+	// Shared state for the shadow position
+	let currentShadowPosition:
+		| { x: number; y: number; xPerPx: number; yPerPx: number; h: number; w: number }
+		| undefined = undefined
+	let currentIntersectingElementId: string | undefined = undefined
+
+	let moving: boolean = false
+
 	const pointermove = (event) => {
 		dragClosure && dragClosure()
 		event.preventDefault()
 		event.stopPropagation()
 		event.stopImmediatePropagation()
 
+		moving = true
+
 		const { clientX, clientY } = event
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
-		dispatch('move', { cordDiff, clientY })
+		if (moveMode === 'move') {
+			dispatch('move', {
+				cordDiff,
+				clientY,
+				intersectingElement: undefined,
+				shadow: undefined
+			})
+
+			return
+		}
+
+		throttledComputeShadow(clientX, clientY)
+
+		dispatch('move', {
+			cordDiff,
+			clientY,
+			intersectingElement: currentIntersectingElementId,
+			shadow: currentShadowPosition,
+			overlapped
+		})
 	}
 
 	export function updateMove(newCoordDiff, clientY) {
@@ -274,6 +314,56 @@
 			update()
 		}
 	}
+
+	let element: HTMLElement | undefined = undefined
+
+	function computeShadow(clientX: number, clientY: number) {
+		const elementsAtPoint = document.elementsFromPoint(clientX, clientY)
+		const intersectingElement = elementsAtPoint.find(
+			(el) =>
+				el.id !== divId &&
+				el.classList.contains('svlt-grid-item') &&
+				el.getAttribute('data-iscontainer') === 'true'
+		)
+
+		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[1] : undefined
+
+		const container = newOverlapped
+			? intersectingElement?.querySelector('.svlt-grid-container')
+			: document.getElementById('root-grid')
+
+		const xPerPxComputed = Number(container?.getAttribute('data-xperpx')) ?? xPerPx
+
+		const position = computePosition(
+			clientX,
+			clientY,
+			xPerPxComputed,
+			yPerPx,
+			newOverlapped,
+			element
+		)
+
+		if (overlapped !== newOverlapped) {
+			currentShadowPosition = undefined
+		} else {
+			// Update shared state
+			currentShadowPosition = {
+				x: position.x,
+				y: position.y,
+				xPerPx: xPerPxComputed,
+				yPerPx,
+				h: item.h,
+				w: item.w
+			}
+		}
+
+		currentIntersectingElementId = newOverlapped
+	}
+
+	const throttledComputeShadow = throttle((clientX, clientY) => {
+		computeShadow(clientX, clientY)
+	}, 50)
+
 	const pointerup = (e) => {
 		ctx.componentActive.set(false)
 		stopAutoscroll()
@@ -281,11 +371,29 @@
 		window.removeEventListener('pointerdown', pointerdown)
 		window.removeEventListener('pointermove', pointermove)
 		window.removeEventListener('pointerup', pointerup)
+
 		if (!dragClosure) {
 			repaint(true, true)
 		} else {
 			dragClosure = undefined
 		}
+
+		if (!moving) {
+			return
+		}
+
+		const parent = findGridItemParentGrid($app, id)
+
+		if (overlapped && (overlapped === parent || parent?.startsWith(overlapped))) {
+			return
+		}
+
+		dispatch('dropped', {
+			id,
+			overlapped,
+			x: fakeShadow?.x,
+			y: fakeShadow?.y
+		})
 	}
 
 	let resizeInitPos = { x: 0, y: 0 }
@@ -315,6 +423,7 @@
 
 		window.addEventListener('pointermove', resizePointerMove)
 		window.addEventListener('pointerup', resizePointerUp)
+		dispatch('resizeStart')
 	}
 
 	const resizePointerMove = ({ pageX, pageY }) => {
@@ -350,15 +459,36 @@
 
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
+		dispatch('resizeEnd')
+	}
+
+	function shouldDisplayShadow(moveMode: 'insert' | 'move', overlapped: string | undefined) {
+		if (moveMode === 'move') {
+			return true
+		}
+
+		const parent = findGridItemParentGrid($app, id)
+
+		if (parent === undefined) {
+			return overlapped === undefined
+		} else if (overlapped) {
+			return parent.startsWith(overlapped)
+		}
+
+		return false
 	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
+	bind:this={element}
 	draggable="false"
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
 	id={divId}
 	class="svlt-grid-item"
+	data-iscontainer={type ? isContainer(type) : false}
+	data-componenttype={type}
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {xPerPx == 0 ? 0 : active ? newSize.width : width}px; height:{xPerPx == 0
 		? 0
@@ -377,16 +507,24 @@
 		  } transform: translate(${left}px, ${top}px); `} "
 >
 	<slot />
-	<div class="svlt-grid-resizer-bottom" on:pointerdown={(e) => resizePointerDown(e, 'vertical')} />
-	<div class="svlt-grid-resizer-side" on:pointerdown={(e) => resizePointerDown(e, 'horizontal')} />
-	<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
+	{#if moveMode === 'move'}
+		<div
+			class="svlt-grid-resizer-bottom"
+			on:pointerdown={(e) => resizePointerDown(e, 'vertical')}
+		/>
+		<div
+			class="svlt-grid-resizer-side"
+			on:pointerdown={(e) => resizePointerDown(e, 'horizontal')}
+		/>
+		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
+	{/if}
 </div>
 
 {#if xPerPx > 0 && (active || trans) && shadow}
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			overlapped ? 'svlte-grid-shadow-forbidden' : ''
+			shouldDisplayShadow(moveMode, overlapped) ? '' : 'hidden'
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
@@ -469,9 +607,5 @@
 		backface-visibility: hidden;
 		-webkit-backface-visibility: hidden;
 		background: #93c4fdd0;
-	}
-
-	.svlte-grid-shadow-forbidden {
-		background: rgba(255, 99, 71, 0.2) !important;
 	}
 </style>

@@ -34,10 +34,10 @@ export async function allWorkspaces(): Promise<Workspace[]> {
 }
 
 async function getActiveWorkspaceName(
-  opts: GlobalOptions
+  opts: GlobalOptions | undefined
 ): Promise<string | undefined> {
-  if (opts.workspace) {
-    return opts.workspace;
+  if (opts?.workspace) {
+    return opts?.workspace;
   }
   try {
     return await Deno.readTextFile((await getRootStore()) + "/activeWorkspace");
@@ -47,7 +47,7 @@ async function getActiveWorkspaceName(
 }
 
 export async function getActiveWorkspace(
-  opts: GlobalOptions
+  opts: GlobalOptions | undefined
 ): Promise<Workspace | undefined> {
   const name = await getActiveWorkspaceName(opts);
   if (!name) {
@@ -115,7 +115,12 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
     return;
   }
 
-  return await Deno.writeTextFile(
+  await setActiveWorkspace(workspaceName);
+  return;
+}
+
+export async function setActiveWorkspace(workspaceName: string) {
+  await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
     workspaceName
   );
@@ -241,10 +246,8 @@ export async function add(
     },
     opts
   );
-  await Deno.writeTextFile(
-    (await getRootStore()) + "/activeWorkspace",
-    workspaceName
-  );
+  await setActiveWorkspace(workspaceName);
+
   log.info(
     colors.green.underline(
       `Added workspace ${workspaceName} for ${workspaceId} on ${remote}!`

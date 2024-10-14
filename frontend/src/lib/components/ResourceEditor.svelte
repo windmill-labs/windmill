@@ -86,7 +86,7 @@
 			sendUserToast(`Updated resource at ${path}`)
 			dispatch('refresh', path)
 		} else {
-			throw Error('Cannot edit undefined resourceToEdit')
+			throw Error('Cannot edit undefined resource')
 		}
 	}
 
@@ -231,11 +231,10 @@
 				<Skeleton layout={[[4]]} />
 			{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 				{#if resourceTypeInfo?.format_extension}
-						<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
-							File content ({resourceTypeInfo.format_extension})
-						</h5>
+					<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
+						File content ({resourceTypeInfo.format_extension})
+					</h5>
 					<div class="h-full w-full border p-1 rounded">
-
 						<SimpleEditor
 							autoHeight
 							class="editor"

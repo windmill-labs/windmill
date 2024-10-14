@@ -1015,6 +1015,9 @@ export type FlowModule = {
         skip_if_stopped?: boolean;
         expr: string;
     };
+    skip_if?: {
+        expr: string;
+    };
     sleep?: InputTransform;
     cache_ttl?: number;
     timeout?: number;
@@ -1176,6 +1179,7 @@ export type FlowStatusModule = {
         approver: string;
     }>;
     failed_retries?: Array<(string)>;
+    skipped?: boolean;
 };
 
 export type type4 = 'WaitingForPriorSteps' | 'WaitingForEvents' | 'WaitingForExecutor' | 'InProgress' | 'Success' | 'Failure';

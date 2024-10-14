@@ -20,7 +20,6 @@ import {
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
-import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
 	StaticAppInput,
@@ -35,6 +34,7 @@ import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 import { enterpriseLicense } from '$lib/stores'
+import gridHelp from '../svelte-grid/utils/helper'
 
 export function findComponentSettings(app: App, id: string | undefined) {
 	if (!id) return undefined
@@ -245,7 +245,8 @@ export function createNewGridItem(
 	columns?: Record<number, any>,
 	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
 	recOverride?: Record<number, Size>,
-	fixed?: boolean
+	fixed?: boolean,
+	shouldNotFindSpace?: boolean
 ): GridItem {
 	const newComponent = {
 		fixed: fixed ?? false,
@@ -272,11 +273,28 @@ export function createNewGridItem(
 				h: rec.h
 			}
 		} else {
-			newItem[column] = columns[column]
+			newItem[column] = {
+				...columns[column],
+				x: initialPosition.x,
+				y: initialPosition.y
+			}
 		}
-		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 
-		newItem[column] = { ...newItem[column], ...position }
+		let shouldComputePosition: boolean = false
+
+		// Fallback to avoid component disapearing
+		if (initialPosition.x === undefined || initialPosition.y === undefined) {
+			newItem[column].x = 0
+			newItem[column].y = 0
+			shouldComputePosition = true
+		}
+
+		// Either the final position is controlled using initialPosition or the position is computed because the component positions are wrong
+		if (!shouldNotFindSpace || shouldComputePosition) {
+			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+
+			newItem[column] = { ...newItem[column], ...position }
+		}
 	})
 
 	return newItem
@@ -392,7 +410,8 @@ export function insertNewGridItem(
 	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
 	recOverride?: Record<number, Size>,
 	keepSubgrids?: boolean,
-	fixed?: boolean
+	fixed?: boolean,
+	shouldNotFindSpace?: boolean
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
 
@@ -439,7 +458,16 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data, columns, initialPosition, recOverride, fixed)
+	const newItem = createNewGridItem(
+		grid,
+		id,
+		data,
+		columns,
+		initialPosition,
+		recOverride,
+		fixed,
+		shouldNotFindSpace
+	)
 	grid.push(newItem)
 	return id
 }
@@ -1133,5 +1161,122 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 				h: 1
 			}
 		}
+	)
+}
+
+export function isContainer(type: string): boolean {
+	return (
+		type === 'containercomponent' ||
+		type === 'tabscomponent' ||
+		type === 'verticalsplitpanescomponent' ||
+		type === 'horizontalsplitpanescomponent' ||
+		type === 'steppercomponent' ||
+		type === 'listcomponent' ||
+		type === 'decisiontreecomponent'
+	)
+}
+
+export function subGridIndexKey(type: string | undefined, id: string, world: World): number {
+	switch (type) {
+		case 'containercomponent':
+		case 'verticalsplitpanescomponent':
+		case 'horizontalsplitpanescomponent':
+		case 'listcomponent':
+			return 0
+		case 'tabscomponent': {
+			return (world?.outputsById?.[id]?.selectedTabIndex?.peak() as number) ?? 0
+		}
+		case 'steppercomponent': {
+			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'decisiontreecomponent': {
+			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0
+		}
+	}
+
+	return 0
+}
+
+export function computePosition(
+	clientX: number,
+	clientY: number,
+	xPerPx: number,
+	yPerPx: number,
+	overlapped?: string,
+	element?: HTMLElement
+) {
+	const overlappedElement = overlapped
+		? document.getElementById(`component-${overlapped}`)
+		: document.getElementById('root-grid')
+
+	const xRelativeToElement = element ? clientX - element.getBoundingClientRect().left : 0
+	const yRelativeToElement = element ? clientY - element.getBoundingClientRect().top : 0
+
+	const xRelativeToOverlappedElement = overlappedElement
+		? clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
+		: 0
+	const yRelativeToOverlappedElement = overlappedElement
+		? clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
+		: 0
+
+	const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
+	const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
+
+	return {
+		x: gridX,
+		y: gridY
+	}
+}
+
+export function getDeltaYByComponent(type: string) {
+	switch (type) {
+		case 'steppercomponent': {
+			return '36px + 0.5rem'
+		}
+		case 'tabscomponent': {
+			return '32px'
+		}
+		default:
+			return '0px'
+	}
+}
+
+export function getDeltaXByComponent(type: string) {
+	switch (type) {
+		case 'steppercomponent': {
+			return '0.5rem'
+		}
+		case 'tabscomponent': {
+			return '0px'
+		}
+		default:
+			return '0px'
+	}
+}
+
+export type GridShadow = {
+	x: number
+	y: number
+	xPerPx: number
+	yPerPx: number
+	w: number
+	h: number
+}
+
+export function areShadowsTheSame(
+	shadow1: GridShadow | undefined,
+	shadow2: GridShadow | undefined
+) {
+	if (!shadow1 || !shadow2) {
+		return false
+	}
+
+	return (
+		shadow1.x === shadow2.x &&
+		shadow1.y === shadow2.y &&
+		shadow1.xPerPx === shadow2.xPerPx &&
+		shadow1.yPerPx === shadow2.yPerPx &&
+		shadow1.w === shadow2.w &&
+		shadow1.h === shadow2.h
 	)
 }

@@ -38,7 +38,7 @@
 		</MenuButton>
 	</span>
 
-	<Portal>
+	<Portal name="menu">
 		<div use:popperContent={popperOptions} class="z-[2000]">
 			<Transition
 				show={open}
