@@ -489,7 +489,10 @@
 	setContext<TriggerContext>('TriggerContext', {
 		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
-		primarySchedule: primaryScheduleStore
+		primarySchedule: primaryScheduleStore,
+		triggerModule: writable(undefined),
+		selectedTrigger: selectedTriggerStore,
+		schedules: schedulesStore
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,

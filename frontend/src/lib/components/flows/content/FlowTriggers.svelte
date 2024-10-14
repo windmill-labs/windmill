@@ -10,12 +10,14 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-
+	import SchedulePollPanel from '$lib/components/details/SchedulePollPanel.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
 	export let noEditor: boolean
 	export let newFlow = false
 	let path = ''
 
 	const { pathStore, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { triggerModule } = getContext<TriggerContext>('TriggerContext')
 
 	$: path = $pathStore
 </script>
@@ -27,6 +29,9 @@
 			<Tab value="mail" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
+			<Tab value="schedule_poll" selectedClass="text-primary text-sm font-semibold"
+				>Schedule Poll</Tab
+			>
 
 			<svelte:fragment slot="content">
 				{#if $selectedTrigger === 'webhooks'}
@@ -68,6 +73,12 @@
 							path={path ?? ''}
 							can_write={canWrite(path, {}, $userStore)}
 						/>
+					</div>
+				{/if}
+
+				{#if $selectedTrigger === 'schedule_poll' && triggerModule}
+					<div class="p-4">
+						<SchedulePollPanel flowModule={$triggerModule} />
 					</div>
 				{/if}
 			</svelte:fragment>
