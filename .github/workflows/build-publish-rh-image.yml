@@ -107,4 +107,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.extract-ee.outputs.destination }}/* 
+            ${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9
