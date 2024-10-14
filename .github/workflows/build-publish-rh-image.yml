@@ -98,15 +98,21 @@ jobs:
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9:${{ steps.meta-ee-public.outputs.tags.sha}}-amd64
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9:${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/windmill/target/release/windmill"
 
       - name: Rename binary with corresponding architecture
         run: |
           mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9"
 
-      - name: Attach binary to release
-        uses: softprops/action-gh-release@v2
+      # - name: Attach binary to release
+      #   uses: softprops/action-gh-release@v2
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   with:
+      #     files: |
+      #       ${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9
+      
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            ${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9
+          name: RHEL9-amd64 build
+          path: ${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9
