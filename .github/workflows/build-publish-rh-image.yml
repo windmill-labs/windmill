@@ -77,32 +77,39 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}-amd64
             org.opencontainers.image.licenses=Windmill-Enterprise-License
       
-      # - name: Build and push publicly ee arm64
-      #   uses: depot/build-push-action@v1
-      #   with:
-      #     context: .
-      #     platforms: linux/arm64
-      #     push: true
-      #     build-args: |
-      #       features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core
-      #     secrets: |
-      #       rh_username=${{ secrets.RH_USERNAME }}
-      #       rh_password=${{ secrets.RH_PASSWORD }}
-      #     tags: |
-      #       ${{ steps.meta-ee-public.outputs.tags }}
-      #     labels: |
-      #       ${{ steps.meta-ee-public.outputs.labels }}
-      #       org.opencontainers.image.licenses=Windmill-Enterprise-License
+      - name: Build and push publicly ee arm64
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core
+          secrets: |
+            rh_username=${{ secrets.RH_USERNAME }}
+            rh_password=${{ secrets.RH_PASSWORD }}
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}-arm64
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}-arm64
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
 
       - uses: shrink/actions-docker-extract@v3
-        id: extract-ee
+        id: extract-ee-amd64
         with:
           image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/windmill/target/release/windmill"
 
+      - uses: shrink/actions-docker-extract@v3
+        id: extract-ee-arm64
+        with:
+          image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
+          path: "/windmill/target/release/windmill"
+          
       - name: Rename binary with corresponding architecture
         run: |
-          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9"
+          mv "${{ steps.extract-ee-amd64.outputs.destination }}/windmill" "${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9"
+          mv "${{ steps.extract-ee-arm64.outputs.destination }}/windmill" "${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9"
 
       # - name: Attach binary to release
       #   uses: softprops/action-gh-release@v2
@@ -114,4 +121,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-amd64 build
-          path: ${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9
+          path: ${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RHEL9-arm64 build
+          path: ${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9
