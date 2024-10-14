@@ -5,7 +5,9 @@ env:
 name: Build and publish windmill for RHEL9
 on:
   workflow_dispatch:
-
+  push:
+    branches:
+      - alp/rhel-1.407.2
 permissions: write-all
 
 jobs:
