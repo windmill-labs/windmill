@@ -2797,7 +2797,6 @@ paths:
                           type: string
                       required:
                         - type
-                        - display_name
                   saml:
                     type: string
                 required:

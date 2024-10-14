@@ -373,8 +373,8 @@
 													</div>
 													<div class="p-2 border rounded">
 														<label class="block pb-2">
-															<span class="text-primary font-semibold text-sm">Display Name</span>
-															<input type="text" placeholder="Display Name" bind:value={oauths[k]['display_name']} />
+															<span class="text-primary font-semibold text-sm">Custom Name</span>
+															<input type="text" placeholder="Custom Name" bind:value={oauths[k]['display_name']} />
 														</label>
 														<label class="block pb-2">
 															<span class="text-primary font-semibold text-sm">Client Id</span>

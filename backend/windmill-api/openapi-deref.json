@@ -3942,8 +3942,7 @@
                           }
                         },
                         "required": [
-                          "type",
-                          "display_name"
+                          "type"
                         ]
                     },
                     "saml": {

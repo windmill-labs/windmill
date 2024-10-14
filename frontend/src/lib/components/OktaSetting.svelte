@@ -67,8 +67,8 @@
 				</div>
 			</label>
 			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Display Name</span>
-				<input type="text" placeholder="Display Name" bind:value={value['display_name']} />
+				<span class="text-primary font-semibold text-sm">Custom Name</span>
+				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm"
