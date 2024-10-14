@@ -37,7 +37,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-staging-ee
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9
           flavor: |
             latest=false
           tags: |
@@ -55,34 +55,56 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
-      - name: Build and push publicly ee
+      - name: Copy RHEL9 Dockerfile
+        run: |
+          cp ./docker/RHEL9/Dockerfile ./Dockerfile
+
+      - name: Build and push publicly ee amd64
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core
+          secrets: |
+            rh_username=${{ secrets.RH_USERNAME }}
+            rh_password=${{ secrets.RH_PASSWORD }}
           tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}
+            ${{ steps.meta-ee-public.outputs.tags }}-amd64
           labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
+            ${{ steps.meta-ee-public.outputs.labels }}-amd64
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+      
+      # - name: Build and push publicly ee arm64
+      #   uses: depot/build-push-action@v1
+      #   with:
+      #     context: .
+      #     platforms: linux/arm64
+      #     push: true
+      #     build-args: |
+      #       features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core
+      #     secrets: |
+      #       rh_username=${{ secrets.RH_USERNAME }}
+      #       rh_password=${{ secrets.RH_PASSWORD }}
+      #     tags: |
+      #       ${{ steps.meta-ee-public.outputs.tags }}
+      #     labels: |
+      #       ${{ steps.meta-ee-public.outputs.labels }}
+      #       org.opencontainers.image.licenses=Windmill-Enterprise-License
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
-          path: "/usr/src/app/windmill"
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9:${{ steps.meta-ee-public.outputs.tags.sha}}-amd64
+          path: "/windmill/target/release/windmill"
 
       - name: Rename binary with corresponding architecture
         run: |
-          mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}-rhel9"
-          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}-rhel9"
+          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9"
 
       - name: Attach binary to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.extract.outputs.destination }}/*
             ${{ steps.extract-ee.outputs.destination }}/* 
