@@ -67,6 +67,10 @@
 				</div>
 			</label>
 			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Display Name</span>
+				<input type="text" placeholder="Display Name" bind:value={value['display_name']} />
+			</label>
+			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm"
 					>Client Id <Tooltip
 						>Client credential from the client ID section of the okta service configuration</Tooltip

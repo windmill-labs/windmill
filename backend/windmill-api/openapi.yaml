@@ -2789,7 +2789,15 @@ paths:
                   oauth:
                     type: array
                     items:
-                      type: string
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        display_name:
+                          type: string
+                      required:
+                        - type
+                        - display_name
                   saml:
                     type: string
                 required:
