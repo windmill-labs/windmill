@@ -8,7 +8,7 @@ RUN yum update -y && \
     yum install -y git openssl-devel npm nodejs rustfmt
 
 # Install rust manually
-RUN echo "bli" && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
