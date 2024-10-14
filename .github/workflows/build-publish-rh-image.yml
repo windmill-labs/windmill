@@ -97,7 +97,7 @@ jobs:
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9:${{ steps.meta-ee-public.outputs.tags}}-amd64
+          image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/windmill/target/release/windmill"
 
       - name: Rename binary with corresponding architecture
