@@ -4,10 +4,8 @@ env:
 
 name: Build and publish windmill for RHEL9
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - alp/rhel-1.407.2
+  workflow_dispatch
+
 permissions: write-all
 
 jobs:
@@ -103,20 +101,13 @@ jobs:
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee-arm64
         with:
-          image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
+          image: ${{ steps.meta-ee-public.outputs.tags}}-arm64
           path: "/windmill/target/release/windmill"
-          
+
       - name: Rename binary with corresponding architecture
         run: |
           mv "${{ steps.extract-ee-amd64.outputs.destination }}/windmill" "${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9"
           mv "${{ steps.extract-ee-arm64.outputs.destination }}/windmill" "${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9"
-
-      # - name: Attach binary to release
-      #   uses: softprops/action-gh-release@v2
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   with:
-      #     files: |
-      #       ${{ steps.extract-ee.outputs.destination }}/windmill-ee-amd64-rhel9
       
       - uses: actions/upload-artifact@v4
         with:
@@ -127,3 +118,11 @@ jobs:
         with:
           name: RHEL9-arm64 build
           path: ${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9
+
+      # - name: Attach binary to release
+      #   uses: softprops/action-gh-release@v2
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   with:
+      #     files: |
+      #       ${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9
+      #       ${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9
