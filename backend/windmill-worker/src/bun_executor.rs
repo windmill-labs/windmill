@@ -1239,7 +1239,12 @@ try {{
     }
     if annotation.native {
         #[cfg(not(feature = "deno_core"))]
-        return Ok(to_raw_value("").unwrap());
+        {
+            tracing::error!(
+                r#""deno_core" feature is not activated, but "//native" annotation used. Returning empty value..."#
+            );
+            return Ok(to_raw_value("").unwrap());
+        }
 
         #[cfg(feature = "deno_core")]
         {
