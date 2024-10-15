@@ -10580,6 +10580,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
+ "lazy_static",
  "object_store",
  "serde",
  "serde_json",
