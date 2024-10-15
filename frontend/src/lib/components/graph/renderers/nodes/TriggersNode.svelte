@@ -14,11 +14,13 @@
 		eventHandlers: GraphEventHandlers
 		modules: FlowModule[]
 		index: number
+		disableAi: boolean
 	}
 </script>
 
 <NodeWrapper wrapperClass="shadow-none">
 	<TriggersWrapper
+		{data}
 		path={data.path}
 		on:new={(e) => {
 			data?.eventHandlers.insert({

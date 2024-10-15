@@ -195,7 +195,8 @@ export default function graphBuilder(
 						isEditor: triggerProps?.isEditor,
 						newFlow: extra.newFlow,
 						eventHandlers: eventHandlers,
-						modules: modules
+						modules: modules,
+						...extra
 					}
 				}
 

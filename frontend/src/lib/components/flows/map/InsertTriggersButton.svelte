@@ -17,6 +17,12 @@
 	export let modules: FlowModule[] = []
 	export let disableAi = false
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
+	export let buttonClasses: string = twMerge(
+		'w-5 h-5 flex items-center justify-center',
+		'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
+		'text-secondary',
+		'bg-surface focus:outline-none hover:bg-surface-hover rounded '
+	)
 
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
@@ -63,12 +69,7 @@ shouldUsePortal={true} -->
 			}`}
 			id={`flow-editor-add-step-${index}`}
 			type="button"
-			class={twMerge(
-				'w-5 h-5 flex items-center justify-center',
-				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
-				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
-			)}
+			class={buttonClasses}
 			on:pointerdown|preventDefault|stopPropagation={pointerdown}
 			on:pointerup={pointerup}
 		>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Repeat } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 	import { NODE } from '../../util'
 	import { HttpTriggerService, ScheduleService } from '$lib/gen'
@@ -11,11 +11,20 @@
 	import { canWrite } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../../../flows/types'
-	import InsertTriggersButton from '../../../flows/map/InsertTriggersButton.svelte'
-	import TopLevelNode from '$lib/components/flows/pickers/TopLevelNode.svelte'
+	import InsertModuleButton from '../../../flows/map/InsertTriggersButton.svelte'
+	import type { FlowModule } from '$lib/gen'
+	import type { GraphEventHandlers } from '../../graphBuilder'
+	import { twMerge } from 'tailwind-merge'
+
 	export let path: string
 	export let isEditor: boolean
 	export let newFlow: boolean
+	export let data: {
+		modules: FlowModule[]
+		index: number
+		eventHandlers: GraphEventHandlers
+		disableAi: boolean
+	}
 
 	const dispatch = createEventDispatcher()
 
@@ -65,22 +74,6 @@
 
 	const { httpTriggers, selectedId, selectedTrigger, schedules, primarySchedule } =
 		getContext<FlowEditorContext>('FlowEditorContext') ?? {}
-
-	import { writable } from 'svelte/store'
-
-	const modifiableTriggers = writable<
-		{ type: 'routes' | 'webhooks' | 'schedule' | 'email' | 'schedule_poll' }[]
-	>([{ type: 'schedule' }])
-
-	function addTrigger(triggerType: 'routes' | 'webhooks' | 'schedule' | 'email' | 'schedule_poll') {
-		modifiableTriggers.update((triggers) => [...triggers, { type: triggerType }])
-	}
-
-	/* function removeTrigger(
-		triggerType: 'routes' | 'webhooks' | 'schedule' | 'email' | 'schedule_poll'
-	) {
-		modifiableTriggers.update((triggers) => triggers.filter((t) => t.type !== triggerType))
-	} */
 </script>
 
 {#if isEditor}
@@ -97,163 +90,135 @@
 				<div class="flex flex-col">
 					<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
 				</div>
-				{#if $modifiableTriggers.some((trigger) => trigger.type === 'webhooks')}
-					<Popover>
-						<svelte:fragment slot="text">
-							{#if newFlow}
-								Deploy the flow to see webhooks triggers
-							{:else}
-								See default webhooks triggers
-							{/if}
-						</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'webhooks'
-									$selectedId = 'webhooks'
-								} else {
-									dispatch('triggerDetail', 'webhooks')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<Webhook size={12} />
-						</TriggerButton>
-					</Popover>
-				{/if}
-				{#if $modifiableTriggers.some((trigger) => trigger.type === 'email')}
-					<Popover>
-						<svelte:fragment slot="text">
-							{#if newFlow}
-								Deploy the flow to see email triggers
-							{:else}
-								See all email triggers
-							{/if}
-						</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'mail'
-									$selectedId = 'mail'
-								} else {
-									dispatch('triggerDetail', 'mail')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<Mail size={12} />
-						</TriggerButton>
-					</Popover>
-				{/if}
-				{#if $modifiableTriggers.some((trigger) => trigger.type === 'routes')}
-					<Popover>
-						<svelte:fragment slot="text">
-							{#if newFlow}
-								Deploy the flow to add routes triggers
-							{:else}
-								See all routes triggers
-							{/if}
-						</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'routes'
-									$selectedId = 'routes'
-								} else {
-									dispatch('triggerDetail', 'routes')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<TriggerCount count={$httpTriggers?.length} />
-							<Route size={12} />
-						</TriggerButton>
-					</Popover>
-				{/if}
-				{#if $modifiableTriggers.some((trigger) => trigger.type === 'schedule')}
-					<Popover>
-						<svelte:fragment slot="text">See all schedules triggers</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'schedules'
-									$selectedId = 'schedules'
-								} else {
-									dispatch('triggerDetail', 'schedule')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<TriggerCount count={($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)} />
-							<Calendar size={12} />
-						</TriggerButton>
-					</Popover>
-				{/if}
-				{#if $modifiableTriggers.some((trigger) => trigger.type === 'schedule_poll')}
-					<Popover>
-						<svelte:fragment slot="text">See all schedules poll triggers</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'schedule_poll'
-									$selectedId = 'schedule_poll'
-								} else {
-									dispatch('triggerDetail', 'schedule_poll')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<Repeat size={12} />
-						</TriggerButton>
-					</Popover>
-				{/if}
+
+				<Popover>
+					<svelte:fragment slot="text">
+						{#if newFlow}
+							Deploy the flow to see webhooks triggers
+						{:else}
+							See default webhooks triggers
+						{/if}
+					</svelte:fragment>
+					<TriggerButton
+						on:click={() => {
+							if (isEditor) {
+								$selectedTrigger = 'webhooks'
+								$selectedId = 'webhooks'
+							} else {
+								dispatch('triggerDetail', 'webhooks')
+							}
+						}}
+						disabled={newFlow}
+					>
+						<Webhook size={12} />
+					</TriggerButton>
+				</Popover>
+
+				<Popover>
+					<svelte:fragment slot="text">
+						{#if newFlow}
+							Deploy the flow to see email triggers
+						{:else}
+							See all email triggers
+						{/if}
+					</svelte:fragment>
+					<TriggerButton
+						on:click={() => {
+							if (isEditor) {
+								$selectedTrigger = 'mail'
+								$selectedId = 'mail'
+							} else {
+								dispatch('triggerDetail', 'mail')
+							}
+						}}
+						disabled={newFlow}
+					>
+						<Mail size={12} />
+					</TriggerButton>
+				</Popover>
+
+				<Popover>
+					<svelte:fragment slot="text">
+						{#if newFlow}
+							Deploy the flow to add routes triggers
+						{:else}
+							See all routes triggers
+						{/if}
+					</svelte:fragment>
+					<TriggerButton
+						on:click={() => {
+							if (isEditor) {
+								$selectedTrigger = 'routes'
+								$selectedId = 'routes'
+							} else {
+								dispatch('triggerDetail', 'routes')
+							}
+						}}
+						disabled={newFlow}
+					>
+						<TriggerCount count={$httpTriggers?.length} />
+						<Route size={12} />
+					</TriggerButton>
+				</Popover>
+
+				<Popover>
+					<svelte:fragment slot="text">See all schedules triggers</svelte:fragment>
+					<TriggerButton
+						on:click={() => {
+							if (isEditor) {
+								$selectedTrigger = 'schedules'
+								$selectedId = 'schedules'
+							} else {
+								dispatch('triggerDetail', 'schedule')
+							}
+						}}
+						disabled={newFlow}
+					>
+						<TriggerCount count={($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)} />
+						<Calendar size={12} />
+					</TriggerButton>
+				</Popover>
 
 				<!-- index={data.index ?? 0}
 					allowTrigger={data.enableTrigger}
 					modules={data?.modules ?? []} -->
-				<InsertTriggersButton on:new on:pickScript>
-					<svelte:fragment slot="topLevelNodes" let:close>
-						{#each ['schedule', 'routes', 'email', 'webhooks', 'schedule_poll'] as triggersType}
-							{#if !$modifiableTriggers.some((trigger) => trigger.type === triggersType)}
-								{#if triggersType === 'schedule'}
-									<TopLevelNode
-										label="Schedule"
-										on:select={() => {
-											close(null)
-											addTrigger('schedule')
-										}}
-									/>
-								{:else if triggersType === 'routes'}
-									<TopLevelNode
-										label="Http route"
-										on:select={() => {
-											close(null)
-											addTrigger('routes')
-										}}
-									/>
-								{:else if triggersType === 'email'}
-									<TopLevelNode
-										label="Email"
-										on:select={() => {
-											close(null)
-											addTrigger('email')
-										}}
-									/>
-								{:else if triggersType === 'webhooks'}
-									<TopLevelNode
-										label="Webhook"
-										on:select={() => {
-											close(null)
-											addTrigger('webhooks')
-										}}
-									/>
-								{:else if triggersType === 'schedule_poll'}
-									<TopLevelNode label="Schedule poll" />
-								{/if}
-							{/if}
-						{/each}
-					</svelte:fragment>
-				</InsertTriggersButton>
+				<InsertModuleButton
+					disableAi={data.disableAi}
+					on:new={(e) => {
+						// console.log('new', e)
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							kind: e.detail.kind,
+							inlineScript: e.detail.inlineScript
+						})
+					}}
+					on:pickScript={(e) => {
+						// console.log('pickScript', e)
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							script: e.detail
+						})
+					}}
+					on:pickFlow={(e) => {
+						// console.log('pickFlow', e)
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							flow: e.detail
+						})
+					}}
+					kind="trigger"
+					index={data?.index ?? 0}
+					modules={data?.modules ?? []}
+					buttonClasses={twMerge(
+						'bg-surface-secondary hover:bg-surface-hover rounded-md border text-xs',
+						'w-6 h-6',
+						'relative center-center',
+						newFlow ? 'cursor-not-allowed bg-surface-disabled' : 'cursor-pointer'
+					)}
+				/>
 			</button>
 		</div>
 	</div>

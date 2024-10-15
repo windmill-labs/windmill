@@ -38,7 +38,6 @@
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import SchedulePollNode from './renderers/nodes/ShedulePollNode.svelte'
-	import tr from 'date-fns/locale/tr'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
