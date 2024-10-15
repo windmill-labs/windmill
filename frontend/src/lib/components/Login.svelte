@@ -55,8 +55,13 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = false
-	let logins: string[] | undefined = undefined
+	let logins: OAuthLogin[] | undefined = undefined
 	let saml: string | undefined = undefined
+
+	type OAuthLogin = {
+		type: string
+		displayName: string
+	}
 
 	async function login(): Promise<void> {
 		if (!email || !password) {
@@ -144,7 +149,10 @@
 
 	async function loadLogins() {
 		const allLogins = await OauthService.listOauthLogins()
-		logins = allLogins.oauth
+		logins = allLogins.oauth.map(login => ({
+			type: login.type,
+			displayName: login.display_name || login.type
+		}))
 		saml = allLogins.saml
 
 		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
@@ -205,26 +213,26 @@
 				<Skeleton layout={[0.5, [2.375]]} />
 			{/each}
 		{:else}
-			{#each providers as { type, icon, name }}
-				{#if logins?.includes(type)}
+			{#each providers as { type, icon }}
+				{#if logins?.some(login => login.type === type)}
 					<Button
 						color="light"
 						variant="border"
 						startIcon={{ icon, classes: 'h-4' }}
 						on:click={() => storeRedirect(type)}
 					>
-						{name}
+						{logins.find(login => login.type === type)?.displayName}
 					</Button>
 				{/if}
 			{/each}
-			{#each logins.filter((x) => !providersType?.includes(x)) as login}
+			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
 				<Button
 					color="dark"
 					variant="border"
 					btnClasses="mt-2 w-full !border-gray-300"
-					on:click={() => storeRedirect(login)}
+					on:click={() => storeRedirect(login.type)}
 				>
-					{login}
+					{login.displayName}
 				</Button>
 			{/each}
 		{/if}
