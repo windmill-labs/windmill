@@ -24,18 +24,20 @@
 	/* async function deleteSchedulePoll(e) {
 		data.eventHandlers.delete(e.detail, '')
 	} */
+	let componentHeight = 0
 </script>
 
 <NodeWrapper>
 	<button
 		class={twMerge(
-			'flex flex-col gap-2  rounded-sm p-1 z-10 border',
+			'flex flex-col gap-2 rounded-sm p-1 z-10 border absolute',
 			$selectedId === 'schedulePoll'
-				? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400'
+				? 'outline outline-offset-0 outline-2 outline-slate-500 dark:outline-gray-400'
 				: ''
 		)}
-		style="width: {NODE.width}px; min-height: {NODE.height}px;"
+		style="width: {NODE.width}px; min-height: {NODE.height}px; transform: translate(0, calc({NODE.height}px - {componentHeight}px));"
 		on:click={() => data.eventHandlers.select('schedulePoll')}
+		bind:clientHeight={componentHeight}
 	>
 		<div
 			class="text-2xs text-secondary font-normal text-center rounded-sm w-[80%] border bg-surface"
