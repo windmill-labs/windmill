@@ -10,14 +10,11 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import SchedulePollPanel from '$lib/components/details/SchedulePollPanel.svelte'
-	import type { TriggerContext } from '$lib/components/triggers'
 	export let noEditor: boolean
 	export let newFlow = false
 	let path = ''
 
 	const { pathStore, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
-	const { triggerModule } = getContext<TriggerContext>('TriggerContext')
 
 	$: path = $pathStore
 </script>
@@ -73,12 +70,6 @@
 							path={path ?? ''}
 							can_write={canWrite(path, {}, $userStore)}
 						/>
-					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'schedule_poll' && triggerModule}
-					<div class="p-4">
-						<SchedulePollPanel isFlow={true} path={path ?? ''} />
 					</div>
 				{/if}
 			</svelte:fragment>

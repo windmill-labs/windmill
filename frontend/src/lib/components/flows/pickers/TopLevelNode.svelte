@@ -1,18 +1,6 @@
 <script lang="ts">
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import {
-		CheckCircle2,
-		ChevronRight,
-		Code,
-		GitBranch,
-		Repeat,
-		Square,
-		Zap,
-		Calendar,
-		Mail,
-		Webhook,
-		Route
-	} from 'lucide-svelte'
+	import { CheckCircle2, ChevronRight, Code, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -64,22 +52,6 @@
 		{:else if label === 'Branch to all'}
 			<GitBranch size={14} />
 			Branch to all
-		{:else if label === 'Schedule'}
-			<Calendar size={14} />
-			Schedule
-		{:else if label === 'Schedule poll'}
-			<Repeat size={14} />
-			Schedule poll
-			<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-		{:else if label === 'Http route'}
-			<Route size={14} />
-			Http route
-		{:else if label === 'Webhook'}
-			<Webhook size={14} />
-			Webhook
-		{:else if label === 'Email'}
-			<Mail size={14} />
-			Email
 		{/if}
 	</span>
 	{#if returnIcon && selected}

@@ -1,4 +1,4 @@
-import type { HttpTrigger, Schedule, FlowModule } from '$lib/gen'
+import type { HttpTrigger, Schedule } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 
 export type ScheduleTrigger = {
@@ -15,5 +15,4 @@ export type TriggerContext = {
 	schedule: Writable<ScheduleTrigger>
 	primarySchedule: Writable<Schedule | undefined | boolean>
 	schedules: Writable<Schedule[] | undefined>
-	triggerModule: Writable<FlowModule | undefined>
 }

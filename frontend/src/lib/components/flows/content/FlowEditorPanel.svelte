@@ -12,7 +12,6 @@
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
-	import FlowShedulePole from './FlowShedulePole.svelte'
 	export let noEditor = false
 	export let enableAi = false
 	export let newFlow = false
@@ -71,8 +70,6 @@
 	<FlowPreprocessorModule {noEditor} />
 {:else if $selectedId === 'triggers'}
 	<FlowTriggers {noEditor} {newFlow} />
-{:else if $selectedId === 'schedulePoll'}
-	<FlowShedulePole />
 {:else}
 	{@const dup = checkDup($flowStore.value.modules)}
 	{#if dup}
