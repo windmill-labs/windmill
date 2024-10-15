@@ -57,7 +57,7 @@
 			</div>
 			{#if triggerScriptModule}
 				<div
-					class="text-2xs text-secondary font-normal text-center rounded-sm shrink shadow-md w-full border bg-surface"
+					class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm shrink shadow-md w-full border bg-surface"
 				>
 					<MapItem
 						mod={triggerScriptModule}
