@@ -177,7 +177,7 @@
 
 	let scrollToIndex = 0
 
-	function scrollToRun(ids: string[]) {
+	export function scrollToRun(ids: string[]) {
 		if (flatJobs && ids.length > 0) {
 			const i = flatJobs.findIndex(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === ids[0]
@@ -187,8 +187,6 @@
 			}
 		}
 	}
-
-	$: scrollToRun(selectedIds)
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
