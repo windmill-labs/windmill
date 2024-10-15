@@ -178,13 +178,11 @@
 	let scrollToIndex = 0
 
 	function scrollToRun(ids: string[]) {
-		console.log(ids)
 		if (flatJobs && ids.length > 0) {
 			const i = flatJobs.findIndex(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === ids[0]
 			)
-			if (i !== undefined && i != 0) {
-				console.log(scrollToIndex)
+			if (i !== -1) {
 				scrollToIndex = i
 			}
 		}
