@@ -1,4 +1,4 @@
-import type { HttpTrigger, Schedule } from '$lib/gen'
+import type { TriggersCount } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 
 export type ScheduleTrigger = {
@@ -10,9 +10,7 @@ export type ScheduleTrigger = {
 }
 
 export type TriggerContext = {
-	selectedTrigger: Writable<string>
-	httpTriggers: Writable<(HttpTrigger & { canWrite: boolean })[] | undefined>
-	schedule: Writable<ScheduleTrigger>
-	primarySchedule: Writable<Schedule | undefined | boolean>
-	schedules: Writable<Schedule[] | undefined>
+	selectedTrigger: Writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>
+	primarySchedule: Writable<ScheduleTrigger | undefined | false>
+	triggersCount: Writable<TriggersCount | undefined>
 }

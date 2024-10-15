@@ -6,6 +6,7 @@
 		ScriptService,
 		WorkspaceService,
 		type Script,
+		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -50,7 +51,6 @@
 		Activity,
 		Archive,
 		ArchiveRestore,
-		Calendar,
 		Eye,
 		FolderOpen,
 		GitFork,
@@ -75,12 +75,14 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
-	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import json from 'svelte-highlight/languages/json'
+	import { writable } from 'svelte/store'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -105,6 +107,8 @@
 			loadScript($page.params.hash)
 		}
 	}
+
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
 	async function deleteScript(hash: string): Promise<void> {
 		try {
@@ -150,8 +154,14 @@
 			}
 		}
 	}
-	let schedule: ScriptSchedule | undefined = undefined
 	let starred: boolean | undefined = undefined
+
+	async function loadTriggersCount(path: string) {
+		$triggersCount = await ScriptService.getTriggersCountOfScript({
+			workspace: $workspaceStore!,
+			path: path
+		})
+	}
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
@@ -173,7 +183,7 @@
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
-		schedule = await loadScriptSchedule(script.path, $workspaceStore!)
+		loadTriggersCount(script.path)
 
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
@@ -478,7 +488,6 @@
 
 	let token = 'TOKEN_TO_CREATE'
 	let detailSelected = 'saved_inputs'
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 </script>
 
 <MoveDrawer
@@ -512,7 +521,7 @@
 	</Drawer>
 	{#key script.hash}
 		<DetailPageLayout
-			bind:triggerSelected
+			{triggersCount}
 			bind:selected={detailSelected}
 			isOperator={$userStore?.operator}
 		>
@@ -564,21 +573,6 @@
 								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
 							</Badge>
 						</div>
-					{/if}
-					{#if schedule?.enabled}
-						<Button
-							btnClasses="inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								detailSelected = 'details'
-								triggerSelected = 'schedule'
-							}}
-						>
-							{schedule.cron ?? ''}
-						</Button>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>
@@ -678,6 +672,17 @@
 					</div>
 				</div>
 			</svelte:fragment>
+			<svelte:fragment slot="schema">
+				<div class="p-1 relative">
+					<button
+						on:click={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
+						class="absolute top-2 right-2"
+					>
+						<ClipboardCopy size={14} />
+					</button>
+					<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
+				</div>
+			</svelte:fragment>
 			<svelte:fragment slot="save_inputs">
 				{#if args}
 					<SavedInputs
@@ -709,7 +714,7 @@
 					<RoutesPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="email">
+			<svelte:fragment slot="emails">
 				<div class="p-2">
 					<EmailTriggerPanel
 						bind:token
@@ -719,9 +724,14 @@
 					/>
 				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="schedule">
+			<svelte:fragment slot="schedules">
 				<div class="p-2">
-					<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />
+					<RunPageSchedules
+						schema={script.schema}
+						isFlow={false}
+						path={script.path ?? ''}
+						{can_write}
+					/>
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="details">

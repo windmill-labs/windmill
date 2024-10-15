@@ -10,12 +10,14 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import type { TriggerContext } from '$lib/components/triggers'
 
 	export let noEditor: boolean
 	export let newFlow = false
 	let path = ''
 
-	const { pathStore, selectedTrigger } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { pathStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedTrigger } = getContext<TriggerContext>('TriggerContext')
 
 	$: path = $pathStore
 </script>
@@ -24,7 +26,7 @@
 	<div class="pt-4">
 		<Tabs bind:selected={$selectedTrigger}>
 			<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
-			<Tab value="mail" selectedClass="text-primary text-sm font-semibold">Email</Tab>
+			<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 
@@ -42,7 +44,7 @@
 					</div>
 				{/if}
 
-				{#if $selectedTrigger === 'mail'}
+				{#if $selectedTrigger === 'emails'}
 					<div class="p-4">
 						<EmailTriggerPanel
 							{newFlow}
@@ -61,11 +63,12 @@
 				{/if}
 
 				{#if $selectedTrigger === 'schedules'}
-					<div class="p-4">
+					<div class="p-2">
 						<RunPageSchedules
-							flowEditor={true}
+							schema={$flowStore.schema}
 							isFlow={true}
 							path={path ?? ''}
+							newItem={newFlow}
 							can_write={canWrite(path, {}, $userStore)}
 						/>
 					</div>

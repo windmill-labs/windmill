@@ -232,6 +232,7 @@ done`
 	on:tokenCreated={(e) => {
 		token = e.detail
 	}}
+	newTokenWorkspace={$workspaceStore}
 	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />

@@ -63,6 +63,7 @@
 	on:tokenCreated={(e) => {
 		token = e.detail
 	}}
+	newTokenWorkspace={$workspaceStore}
 	newTokenLabel={`${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />

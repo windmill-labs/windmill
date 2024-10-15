@@ -48,7 +48,6 @@
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
 	export let path: string | undefined = undefined
-	export let isEditor: boolean = false
 	export let newFlow: boolean = false
 
 	export let insertable = false
@@ -180,13 +179,6 @@
 		$selectedId,
 		moving,
 		{
-			openSchedules: () => {
-				dispatch('openSchedules')
-			},
-			triggerDetail: (e) => {
-				dispatch('triggerDetail', e)
-			},
-			isEditor: isEditor,
 			path
 		}
 	)

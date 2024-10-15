@@ -16,7 +16,7 @@
 		type InputTransform,
 		type RawScript,
 		type PathScript,
-		type Schedule
+		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
@@ -42,14 +42,13 @@
 	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 	import { pickScript } from './flows/flowStateUtils'
-	import type { Schedule as ScheduleUtils } from './flows/scheduleUtils'
 	import {
 		approximateFindPythonRelativePath,
 		isTypescriptRelativePath,
 		parseTypescriptDeps
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
-	import type { TriggerContext } from './triggers'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -468,13 +467,7 @@
 	}
 
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable<ScheduleUtils>({
-		args: {},
-		cron: '',
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		enabled: false,
-		summary: undefined
-	})
+
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
@@ -482,20 +475,19 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
-	const selectedTriggerStore = writable('webhooks')
-	const httpTriggersStore = writable(undefined)
-	const schedulesStore = writable<Schedule[] | undefined>(undefined)
-	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
+	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
+		'webhooks'
+	)
+
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		httpTriggers: httpTriggersStore,
-		schedule: scheduleStore,
-		primarySchedule: primaryScheduleStore
+		primarySchedule: primaryScheduleStore,
+		selectedTrigger: selectedTriggerStore,
+		triggersCount: triggersCount
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
-		selectedTrigger: selectedTriggerStore,
-
-		schedules: schedulesStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,

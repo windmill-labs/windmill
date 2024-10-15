@@ -1,25 +1,24 @@
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
+	import { type GraphEventHandlers } from '../../graphBuilder'
 
 	export let data: {
 		path: string
-		openSchedules: () => void
-		triggerDetail: (e: { detail: 'webhook' | 'mail' | 'schedule' }) => void
 		isEditor: boolean
 		newFlow: boolean
 		extra_perms: Record<string, any>
+		eventHandlers: GraphEventHandlers
 	}
 </script>
 
 <NodeWrapper wrapperClass="shadow-none">
 	<TriggersWrapper
 		path={data.path}
-		on:openSchedules={() => data.openSchedules()}
-		on:triggerDetail={(e) => {
-			data.triggerDetail(e.detail)
+		on:select={() => {
+			data?.eventHandlers?.select('triggers')
 		}}
-		isEditor={data.isEditor}
-		newFlow={data.newFlow}
+		isFlow={true}
+		newItem={data.newFlow}
 	/>
 </NodeWrapper>

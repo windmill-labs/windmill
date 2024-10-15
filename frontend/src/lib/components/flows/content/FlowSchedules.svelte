@@ -11,19 +11,33 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Calendar } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
 
-	const { schedule, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
+
 	let schedules: Schedule[] | undefined = undefined
 
 	async function loadSchedules() {
 		try {
-			schedules = (
-				await ScheduleService.listSchedules({
-					workspace: $workspaceStore ?? '',
-					path: initialPath,
-					isFlow: true
-				})
-			).filter((s) => s.path != initialPath)
+			const allSchedules = await ScheduleService.listSchedules({
+				workspace: $workspaceStore ?? '',
+				path: initialPath,
+				isFlow: true
+			})
+			const primary = allSchedules.find((s) => s.path == initialPath)
+			if (primary) {
+				$primarySchedule = {
+					summary: primary.summary,
+					args: primary.args ?? {},
+					cron: primary.schedule,
+					timezone: primary.timezone,
+					enabled: primary.enabled
+				}
+			} else {
+				$primarySchedule = false
+			}
+			schedules = allSchedules.filter((s) => s.path != initialPath)
 		} catch (e) {
 			console.error('impossible to load schedules')
 		}
@@ -34,37 +48,50 @@
 	$: initialPath && loadSchedules()
 </script>
 
-<div class="w-full flex flex-col gap-4 mb-4">
-	<!-- svelte-ignore a11y-autofocus -->
-	<Label label="Summary">
-		<input
-			autofocus
-			type="text"
-			placeholder="Short summary to be displayed when listed"
-			class="text-sm w-full"
-			bind:value={$schedule.summary}
-		/>
-	</Label>
-</div>
-
-<CronInput bind:schedule={$schedule.cron} bind:timezone={$schedule.timezone} />
-<div class="mt-10" />
-<SchemaForm schema={$flowStore.schema} bind:args={$schedule.args} />
-{#if emptyString($schedule.cron)}
-	<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
+{#if $primarySchedule}
+	<div class="w-full flex flex-col gap-4 mb-4">
+		<!-- svelte-ignore a11y-autofocus -->
+		<Label label="Summary">
+			<input
+				autofocus
+				type="text"
+				placeholder="Short summary to be displayed when listed"
+				class="text-sm w-full"
+				bind:value={$primarySchedule.summary}
+			/>
+		</Label>
+	</div>
+	<CronInput bind:schedule={$primarySchedule.cron} bind:timezone={$primarySchedule.timezone} />
+	<div class="mt-10" />
+	<SchemaForm schema={$flowStore.schema} bind:args={$primarySchedule.args} />
+	{#if emptyString($primarySchedule.cron)}
+		<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
+	{/if}
+	<div class="mt-10" />
+	<Toggle
+		disabled={emptyString($primarySchedule.cron)}
+		bind:checked={$primarySchedule.enabled}
+		options={{
+			right: 'Schedule enabled'
+		}}
+	/>
+	<Alert bgClass="my-4" type="warning" title="Changes only applied upon deploy">
+		Changes to the primary schedule are only applied upon deploy. Other schedules' changes are
+		applied immediately.
+	</Alert>
+{:else}
+	<Button
+		on:click={() => {
+			$primarySchedule = { summary: '', args: {}, cron: '', timezone: '', enabled: true }
+		}}
+		variant="border"
+		color="light"
+		size="xs"
+		startIcon={{ icon: Calendar }}
+	>
+		New Primary Schedule
+	</Button>
 {/if}
-<div class="mt-10" />
-<Toggle
-	disabled={emptyString($schedule.cron)}
-	bind:checked={$schedule.enabled}
-	options={{
-		right: 'Schedule enabled'
-	}}
-/>
-<Alert bgClass="my-4" type="warning" title="Changes only applied upon deploy">
-	Changes to the primary schedule are only applied upon deploy. Other schedules' changes are applied
-	immediately.
-</Alert>
 
 {#if initialPath != ''}
 	<ScheduleEditor

@@ -9,7 +9,6 @@
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import { type Schedule } from '$lib/gen'
 
-	export let light = false
 	export let schedule: any
 	export let can_write: boolean
 	export let path: string
@@ -35,7 +34,7 @@
 			<div class="flex flex-row gap-2 items-center">
 				<input
 					size="9"
-					class={light ? '!text-xs !h-6 !text-primary' : 'text-sm bg-red-400'}
+					class="!text-xs !h-6 !text-primary"
 					type="text"
 					id="cron-schedule"
 					name="cron-schedule"
@@ -52,11 +51,9 @@
 							sendUserToast('not enough permission', true)
 						}
 					}}
-					options={light
-						? undefined
-						: {
-								right: 'On'
-						  }}
+					options={{
+						right: 'On'
+					}}
 					size="xs"
 					textClass="text-primary font-normal text-xs"
 				/>
@@ -64,36 +61,26 @@
 		</div>
 		<div class="flex justify-end">
 			<div class="flex flex-row gap-2 items-center">
-				{#if !light}
-					<Button
-						size={light ? 'xs2' : 'xs'}
-						variant="border"
-						color="light"
-						href={`${base}/runs/${path}`}
-						spacingSize={light ? 'xs3' : undefined}
-					>
-						<span class={light ? 'text-2xs px-1 font-normal' : ''}>Runs</span>
-						<ListOrdered size={light ? 12 : 14} />
-					</Button>
-				{/if}
+				<Button size={'xs'} variant="border" color="light" href={`${base}/runs/${path}`}>
+					<span>Runs</span>
+					<ListOrdered size={14} />
+				</Button>
 				<Button
-					size={light ? 'xs2' : 'xs'}
+					size="xs"
 					color="dark"
 					on:click={() => scheduleEditor?.openEdit(path ?? '', isFlow)}
 				>
-					<PenBox size={light ? 12 : 14} />
+					<PenBox size={14} />
 				</Button>
 			</div>
 		</div>
 	</div>
 
-	{#if !light}
-		{#if Object.keys(schedule?.args ?? {}).length > 0}
-			<div class="">
-				<JobArgs args={schedule?.args ?? {}} />
-			</div>
-		{:else}
-			<div class="text-xs text-tertiary"> No arguments </div>
-		{/if}
+	{#if Object.keys(schedule?.args ?? {}).length > 0}
+		<div class="">
+			<JobArgs args={schedule?.args ?? {}} />
+		</div>
+	{:else}
+		<div class="text-xs text-tertiary"> No arguments </div>
 	{/if}
 </div>

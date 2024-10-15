@@ -28,9 +28,6 @@ export default function graphBuilder(
 	moving: string | undefined,
 	triggerProps?: {
 		path?: string
-		openSchedules?: () => void
-		triggerDetail?: (e) => void
-		isEditor?: boolean
 	}
 ): {
 	nodes: Node[]
@@ -165,15 +162,12 @@ export default function graphBuilder(
 				type: 'trigger',
 				data: {
 					path: triggerProps?.path,
-					openSchedules: triggerProps?.openSchedules,
-					triggerDetail: triggerProps?.triggerDetail,
-					isEditor: triggerProps?.isEditor,
-					newFlow: extra.newFlow
+					newFlow: extra.newFlow,
+					eventHandlers: eventHandlers
 				}
 			}
-
 			nodes.push(triggerNode)
-			if (!!preprocessorModule) {
+			if (preprocessorModule != null && preprocessorModule != undefined) {
 				addEdge('Trigger', preprocessorModule.id, {
 					type: 'empty'
 				})

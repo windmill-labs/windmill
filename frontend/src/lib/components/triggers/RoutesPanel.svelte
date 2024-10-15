@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { HttpTriggerService } from '$lib/gen'
+	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { RouteIcon } from 'lucide-svelte'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
-	import { getContext } from 'svelte'
 
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
@@ -18,9 +16,11 @@
 	let routeEditor: RouteEditor
 
 	$: path && loadTriggers()
+
+	let httpTriggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {
 		try {
-			$httpTriggers = (
+			httpTriggers = (
 				await HttpTriggerService.listHttpTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
@@ -30,12 +30,9 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 		} catch (e) {
-			console.error('impossible to load http routes')
+			console.error('impossible to load http routes', e)
 		}
 	}
-
-	const { httpTriggers } = getContext<FlowEditorContext>('FlowEditorContext')
-	$httpTriggers ?? loadTriggers()
 </script>
 
 <RouteEditor
@@ -58,23 +55,23 @@
 		</Button>
 	{/if}
 
-	{#if $httpTriggers}
-		{#if $httpTriggers.length == 0}
+	{#if httpTriggers}
+		{#if httpTriggers.length == 0}
 			<div class="text-xs text-secondary"> No http routes </div>
 		{:else}
 			<div class="flex flex-col divide-y pt-2">
-				{#each $httpTriggers as $httpTriggers ($httpTriggers.path)}
+				{#each httpTriggers as httpTriggers (httpTriggers.path)}
 					<div class="grid grid-cols-5 text-2xs items-center py-2">
-						<div class="col-span-2 truncate">{$httpTriggers.path}</div>
+						<div class="col-span-2 truncate">{httpTriggers.path}</div>
 						<div class="col-span-2 truncate">
-							{$httpTriggers.http_method.toUpperCase()} /{$httpTriggers.route_path}
+							{httpTriggers.http_method.toUpperCase()} /{httpTriggers.route_path}
 						</div>
 						<div class="flex justify-end">
 							<button
-								on:click={() => routeEditor?.openEdit($httpTriggers.path, isFlow)}
+								on:click={() => routeEditor?.openEdit(httpTriggers.path, isFlow)}
 								class="px-2"
 							>
-								{#if $httpTriggers.canWrite}
+								{#if httpTriggers.canWrite}
 									Edit
 								{:else}
 									View

@@ -321,7 +321,6 @@
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
 			path={$pathStore}
-			isEditor={true}
 			{newFlow}
 			{disableAi}
 			insertable
@@ -474,9 +473,6 @@
 				} else {
 					$moving = undefined
 				}
-			}}
-			on:openSchedules={() => {
-				$selectedId = 'settings-schedule'
 			}}
 		/>
 	</div>
