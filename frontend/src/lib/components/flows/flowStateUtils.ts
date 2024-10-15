@@ -85,6 +85,7 @@ export async function createInlineScriptModule(
 		value: { type: 'rawscript', content: code, language, input_transforms: {} },
 		isTrigger: kind === 'trigger'
 	}
+	console.log('flowModule', flowModule)
 
 	return [flowModule, await loadFlowModuleState(flowModule)]
 }

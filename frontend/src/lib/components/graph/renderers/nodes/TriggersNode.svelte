@@ -15,6 +15,7 @@
 		modules: FlowModule[]
 		index: number
 		disableAi: boolean
+		flowIsSimplifiable: boolean
 	}
 </script>
 
@@ -23,6 +24,7 @@
 		{data}
 		path={data.path}
 		on:new={(e) => {
+			console.log('new', e)
 			data?.eventHandlers.insert({
 				modules: data.modules,
 				index: 0,
@@ -35,7 +37,6 @@
 				kind: 'forloop',
 				light: true
 			})
-			data?.eventHandlers.addSchedulePoll()
 		}}
 		on:pickScript={(e) => {
 			data?.eventHandlers.insert({
@@ -49,7 +50,6 @@
 				kind: 'forloop',
 				light: true
 			})
-			data?.eventHandlers.addSchedulePoll()
 		}}
 		on:openSchedules={() => data.openSchedules()}
 		on:triggerDetail={(e) => {

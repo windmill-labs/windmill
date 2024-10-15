@@ -14,8 +14,7 @@ export type GraphEventHandlers = {
 	move: (module: FlowModule, modules: FlowModule[]) => void
 	selectedIteration: (detail, moduleId: string) => void
 	changeId: (newId: string) => void
-	addSchedulePoll: () => void
-	removeSchedulePoll: () => void
+	simplifyFlow: (detail: boolean) => void
 }
 
 export default function graphBuilder(
@@ -33,8 +32,8 @@ export default function graphBuilder(
 		openSchedules?: () => void
 		triggerDetail?: (e) => void
 		isEditor?: boolean
-	},
-	hasSchedulePoll?: boolean
+		flowIsSimplifiable?: boolean
+	}
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -162,54 +161,32 @@ export default function graphBuilder(
 		}
 
 		if (extra.path) {
-			if (hasSchedulePoll) {
-				const schedulePollNode: Node = {
-					id: 'SchedulePoll',
-					position: { x: -1, y: -1 },
-					type: 'schedulePoll',
-					data: {
-						eventHandlers: eventHandlers,
-						modules: modules,
-						...extra
-					}
+			const triggerNode: Node = {
+				id: 'Trigger',
+				position: { x: -1, y: -1 },
+				type: 'trigger',
+				data: {
+					flowIsSimplifiable: triggerProps?.flowIsSimplifiable,
+					path: triggerProps?.path,
+					openSchedules: triggerProps?.openSchedules,
+					triggerDetail: triggerProps?.triggerDetail,
+					isEditor: triggerProps?.isEditor,
+					newFlow: extra.newFlow,
+					eventHandlers: eventHandlers,
+					modules: modules,
+					...extra
 				}
-				nodes.push(schedulePollNode)
-				if (!!preprocessorModule) {
-					addEdge('SchedulePoll', preprocessorModule.id, {
-						type: 'empty'
-					})
-				} else {
-					addEdge('SchedulePoll', 'Input', {
-						type: 'empty'
-					})
-				}
-			} else {
-				const triggerNode: Node = {
-					id: 'Trigger',
-					position: { x: -1, y: -1 },
-					type: 'trigger',
-					data: {
-						path: triggerProps?.path,
-						openSchedules: triggerProps?.openSchedules,
-						triggerDetail: triggerProps?.triggerDetail,
-						isEditor: triggerProps?.isEditor,
-						newFlow: extra.newFlow,
-						eventHandlers: eventHandlers,
-						modules: modules,
-						...extra
-					}
-				}
+			}
 
-				nodes.push(triggerNode)
-				if (!!preprocessorModule) {
-					addEdge('Trigger', preprocessorModule.id, {
-						type: 'empty'
-					})
-				} else {
-					addEdge('Trigger', 'Input', {
-						type: 'empty'
-					})
-				}
+			nodes.push(triggerNode)
+			if (!!preprocessorModule) {
+				addEdge('Trigger', preprocessorModule.id, {
+					type: 'empty'
+				})
+			} else {
+				addEdge('Trigger', 'Input', {
+					type: 'empty'
+				})
 			}
 		}
 

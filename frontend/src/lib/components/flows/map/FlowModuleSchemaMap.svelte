@@ -45,8 +45,6 @@
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	let hasSchedulePoll = false
-
 	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -102,6 +100,7 @@
 			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
 		}
 		if (inlineScript) {
+			console.log('inlineScript', inlineScript)
 			const { language, kind, subkind } = inlineScript
 			;[module, state] = await createInlineScriptModule(
 				language,
@@ -256,7 +255,6 @@
 			}
 		}
 	}
-	$: console.log('has schedule poll', hasSchedulePoll)
 </script>
 
 <Portal name="flow-module">
@@ -321,7 +319,6 @@
 			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
-			{hasSchedulePoll}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
@@ -330,9 +327,6 @@
 					if (e.id === 'preprocessor') {
 						$selectedId = 'Input'
 						$flowStore.value.preprocessor_module = undefined
-					} else if (e.id === 'schedulePoll') {
-						$selectedId = 'Triggers'
-						hasSchedulePoll = false
 					} else {
 						selectNextId(e.id)
 						removeAtId($flowStore.value.modules, e.id)
@@ -381,7 +375,7 @@
 									detail.flow,
 									detail.inlineScript
 								)
-								$selectedId = detail.modules[detail.index ?? 0].id
+								//$selectedId = detail.modules[detail.index ?? 0].id
 								console.log('Modules', detail.modules)
 							}
 						}
@@ -456,12 +450,6 @@
 			}}
 			on:openSchedules={() => {
 				$selectedId = 'settings-schedule'
-			}}
-			on:addSchedulePoll={() => {
-				hasSchedulePoll = true
-			}}
-			on:removeSchedulePoll={() => {
-				hasSchedulePoll = false
 			}}
 		/>
 	</div>

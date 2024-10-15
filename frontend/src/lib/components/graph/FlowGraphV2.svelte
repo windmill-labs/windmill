@@ -37,7 +37,6 @@
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
-	import SchedulePollNode from './renderers/nodes/ShedulePollNode.svelte'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -51,7 +50,6 @@
 	export let path: string | undefined = undefined
 	export let isEditor: boolean = false
 	export let newFlow: boolean = false
-	export let hasSchedulePoll: boolean = true
 	export let insertable = false
 	export let scroll = false
 	export let moving: string | undefined = undefined
@@ -77,7 +75,15 @@
 	let fullWidth = 0
 	let width = 0
 
-	let forloopEdge: Edge | undefined = undefined
+	export let simplifyFlow: boolean = false
+
+	let flowIsSimplifiable: boolean | { triggerNode: any; forLoopNode: any } = false
+
+	function updateFlowSimplifiability() {
+		flowIsSimplifiable = isSimplifiable(graph)
+	}
+
+	$: if (graph) updateFlowSimplifiability()
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -177,11 +183,9 @@
 			selectedIteration: (detail, moduleId) => {
 				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
 			},
-			addSchedulePoll: () => {
-				dispatch('addSchedulePoll')
-			},
-			removeSchedulePoll: () => {
-				dispatch('removeSchedulePoll')
+			simplifyFlow: (detail) => {
+				simplifyFlow = detail
+				console.log('simplifyFlow', detail)
 			}
 		},
 		success,
@@ -196,9 +200,9 @@
 				dispatch('triggerDetail', e)
 			},
 			isEditor: isEditor,
-			path
-		},
-		hasSchedulePoll
+			path,
+			flowIsSimplifiable: !!flowIsSimplifiable
+		}
 	)
 
 	const nodes = writable<Node[]>([])
@@ -261,109 +265,67 @@
 		return { nodes: updatedNodes, edges: updatedEdges }
 	}
 
-	function removeForLoopNodes(nodes, edges) {
-		let updatedGraph = {
-			nodes: [...nodes],
-			edges: [...edges]
-		}
-		let forloopNode = updatedGraph.nodes.find((node) => node?.data?.value?.type === 'forloopflow')
-
-		if (!forloopNode) {
-			return updatedGraph
-		}
-
-		updatedGraph = removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
-
-		return updatedGraph
-	}
-
-	function removeForLoopStartNodes(nodes, edges) {
-		let updatedGraph = {
-			nodes: [...nodes],
-			edges: [...edges]
-		}
-		let forloopNode = updatedGraph.nodes.find((node) => node?.type === 'forLoopStart')
-		if (!forloopNode) {
-			return updatedGraph
-		}
-		forloopEdge = updatedGraph.edges.find((edge) => edge.source === forloopNode.id)
-		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
-	}
-
-	function removeForLoopEndNodes(nodes, edges) {
-		let updatedGraph = {
-			nodes: [...nodes],
-			edges: [...edges]
-		}
-		let forloopNode = updatedGraph.nodes.find((node) => node?.type === 'forLoopEnd')
-		if (!forloopNode) {
-			return updatedGraph
-		}
-		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
-	}
-
-	function removeTriggerScriptModule(nodes, edges) {
-		let updatedGraph = {
-			nodes: [...nodes],
-			edges: [...edges]
-		}
-		let triggerScriptModule = updatedGraph.nodes.find((node) => node?.data?.module?.isTrigger)
-		console.log('triggerScriptModule', triggerScriptModule)
-		if (!triggerScriptModule) {
-			return updatedGraph
-		}
-		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, triggerScriptModule.id)
-	}
-
-	function processGraph(graph) {
+	function processGraph(graph, simplifiable) {
 		let newGraph = { nodes: graph.nodes, edges: graph.edges }
 		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
-		newGraph = removeForLoopNodes(newGraph.nodes, newGraph.edges)
-		newGraph = removeForLoopStartNodes(newGraph.nodes, newGraph.edges)
-		newGraph = removeForLoopEndNodes(newGraph.nodes, newGraph.edges)
-		newGraph = removeTriggerScriptModule(newGraph.nodes, newGraph.edges)
-		newGraph.edges = replaceEdge(newGraph.edges, forloopEdge)
+		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
+		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
+		//newGraph.edges = replaceEdge(newGraph.edges, forloopEdge)
 		return newGraph
 	}
 
-	function replaceEdge(edges, edge) {
-		if (!edge) {
-			return edges
+	function isSimplifiable(graph): boolean | { triggerNode: any; forLoopNode: any } {
+		if (!graph || !graph.nodes || graph.nodes.length < 6) {
+			return false
 		}
-		const schedulePollEdge = edges.find((edge) => edge.source === 'SchedulePoll')
-		if (!schedulePollEdge) {
-			return edges
-		}
-		const targetNode = schedulePollEdge.target
-		edge.source = 'SchedulePoll'
-		edge.target = targetNode
-		edges.push(edge)
 
-		// Remove the original SchedulePoll edge
-		return edges.filter((e) => e !== schedulePollEdge)
+		// Find the node that has 'Input' as parent in parentIds
+		const triggerNode = graph.nodes.find(
+			(node) =>
+				node.data?.parentIds &&
+				node.data.parentIds.includes('Input') &&
+				node.data?.module?.isTrigger
+		)
+		console.log('dbg', triggerNode)
+
+		if (!triggerNode) {
+			return false
+		}
+
+		// Check if there's a node which parent is triggerNode and that is a for loop
+		const forLoopNode = graph.nodes.find(
+			(node) =>
+				node.data?.parentIds &&
+				node.data.parentIds.includes(triggerNode.id) &&
+				node.data.value?.type === 'forloopflow'
+		)
+
+		if (!forLoopNode) {
+			return false
+		}
+		return { triggerNode: triggerNode, forLoopNode: forLoopNode }
 	}
+	$: console.log('isSimplifiable', isSimplifiable(graph))
 
 	function updateStores() {
 		if (graph.error) {
 			return
 		}
+		let newGraph = graph
 
-		if (hasSchedulePoll) {
-			graph = processGraph(graph)
+		if (flowIsSimplifiable && simplifyFlow) {
+			console.log('simplifying flow')
+			newGraph = processGraph(graph, flowIsSimplifiable)
 		}
 
-		console.log('graph nodes after removal', graph.nodes)
-		console.log('graph edges after removal', graph.edges)
-		console.log('graph nodes', graph.nodes)
-		console.log('graph edges', graph.edges)
-		$nodes = layoutNodes(graph.nodes)
-		$edges = graph.edges
+		$nodes = layoutNodes(newGraph.nodes)
+		$edges = newGraph.edges
 
 		console.log('nodes', $nodes)
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
-	$: graph && updateStores()
+	$: (graph || simplifyFlow) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -378,8 +340,7 @@
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchAllEndNode,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode,
-		schedulePoll: SchedulePollNode
+		trigger: TriggersNode
 	} as any
 
 	const edgeTypes = {
