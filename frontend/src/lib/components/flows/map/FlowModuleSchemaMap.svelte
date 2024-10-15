@@ -256,6 +256,7 @@
 			}
 		}
 	}
+	$: console.log('has schedule poll', hasSchedulePoll)
 </script>
 
 <Portal name="flow-module">
@@ -457,6 +458,9 @@
 			}}
 			on:addSchedulePoll={() => {
 				hasSchedulePoll = true
+			}}
+			on:removeSchedulePoll={() => {
+				hasSchedulePoll = false
 			}}
 		/>
 	</div>

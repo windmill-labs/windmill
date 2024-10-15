@@ -38,6 +38,7 @@
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import SchedulePollNode from './renderers/nodes/ShedulePollNode.svelte'
+	import tr from 'date-fns/locale/tr'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -177,6 +178,9 @@
 			},
 			addSchedulePoll: () => {
 				dispatch('addSchedulePoll')
+			},
+			removeSchedulePoll: () => {
+				dispatch('removeSchedulePoll')
 			}
 		},
 		success,
@@ -201,12 +205,139 @@
 
 	let height = 0
 
+	function removeInputNode(nodes, edges, id) {
+		const inputNode = nodes.find((node) => node.id === id)
+		if (!inputNode) return { nodes, edges }
+
+		// Find edges connected to the input node
+		const connectedEdges = edges.filter((edge) => edge.source === id || edge.target === id)
+
+		// Remove the input node
+		let updatedNodes = nodes.filter((node) => node.id !== id)
+
+		// Remove edges connected to the input node
+		let updatedEdges = edges.filter((edge) => edge.source !== id && edge.target !== id)
+
+		// Create new edges from the input node's parent to its children
+		const inputEdges = connectedEdges.filter((edge) => edge.target === id)
+		const outputEdges = connectedEdges.filter((edge) => edge.source === id)
+
+		inputEdges.forEach((inputEdge) => {
+			outputEdges.forEach((outputEdge) => {
+				const newEdge = {
+					id: `edge:${inputEdge.source}->${outputEdge.target}`,
+					source: inputEdge.source,
+					target: outputEdge.target,
+					type: 'empty',
+					data: {
+						...outputEdge.data,
+						sourceId: inputEdge.source,
+						targetId: outputEdge.target
+					}
+				}
+				updatedEdges.push(newEdge)
+			})
+		})
+
+		// Update parent ids of the nodes
+		updatedNodes = updatedNodes.map((node) => {
+			if (node.data && node.data.parentIds && node.data.parentIds.includes(id)) {
+				const updatedParentIds = node.data.parentIds.filter((parentId) => parentId !== id)
+				if (inputNode.data && inputNode.data.parentIds) {
+					updatedParentIds.push(...inputNode.data.parentIds)
+				}
+				return {
+					...node,
+					data: {
+						...node.data,
+						parentIds: [...new Set(updatedParentIds)] // Remove duplicates
+					}
+				}
+			}
+			return node
+		})
+
+		return { nodes: updatedNodes, edges: updatedEdges }
+	}
+
+	function removeTriggerForLoopNodes(nodes, edges) {
+		let updatedGraph = {
+			nodes: [...nodes],
+			edges: [...edges]
+		}
+		let forloopNode = updatedGraph.nodes.find((node) => node?.data?.value?.type === 'forloopflow')
+
+		if (!forloopNode) {
+			return updatedGraph
+		}
+
+		if (forloopNode?.data?.value?.parentsIds?.length > 0) {
+			console.log('triggerScript', forloopNode?.data?.value?.parentsIds[0])
+		}
+
+		let forloopModules = forloopNode?.data?.value?.modules
+		if (!forloopModules) {
+			return updatedGraph
+		}
+
+		for (let i = 0; i < forloopModules.length; i++) {
+			const module = forloopModules[i]
+			console.log(`Processing module ${i}:`, module)
+			updatedGraph = removeInputNode(updatedGraph.nodes, updatedGraph.edges, module.id)
+		}
+
+		updatedGraph = removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
+
+		return updatedGraph
+	}
+
+	function removeForLoopStartNodes(nodes, edges) {
+		let updatedGraph = {
+			nodes: [...nodes],
+			edges: [...edges]
+		}
+		let forloopNode = updatedGraph.nodes.find((node) => node?.type === 'forLoopStart')
+		if (!forloopNode) {
+			return updatedGraph
+		}
+		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
+	}
+
+	function removeForLoopEndNodes(nodes, edges) {
+		let updatedGraph = {
+			nodes: [...nodes],
+			edges: [...edges]
+		}
+		let forloopNode = updatedGraph.nodes.find((node) => node?.type === 'forLoopEnd')
+		if (!forloopNode) {
+			return updatedGraph
+		}
+		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
+	}
+
+	function processGraph(graph) {
+		let newGraph = { nodes: graph.nodes, edges: graph.edges }
+		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
+		newGraph = removeTriggerForLoopNodes(newGraph.nodes, newGraph.edges)
+		newGraph = removeForLoopStartNodes(newGraph.nodes, newGraph.edges)
+		newGraph = removeForLoopEndNodes(newGraph.nodes, newGraph.edges)
+		return newGraph
+	}
+
 	function updateStores() {
 		if (graph.error) {
 			return
 		}
 
-		$nodes = layoutNodes(graph?.nodes)
+		if (hasSchedulePoll) {
+			graph = processGraph(graph)
+		}
+
+		console.log('graph nodes after removal', graph.nodes)
+		console.log('graph edges after removal', graph.edges)
+		console.log('graph nodes', graph.nodes)
+		console.log('graph edges', graph.edges)
+		$nodes = layoutNodes(graph.nodes)
 		$edges = graph.edges
 
 		console.log('nodes', $nodes)

@@ -15,6 +15,7 @@ export type GraphEventHandlers = {
 	selectedIteration: (detail, moduleId: string) => void
 	changeId: (newId: string) => void
 	addSchedulePoll: () => void
+	removeSchedulePoll: () => void
 }
 
 export default function graphBuilder(
@@ -168,7 +169,8 @@ export default function graphBuilder(
 					type: 'schedulePoll',
 					data: {
 						eventHandlers: eventHandlers,
-						modules: modules
+						modules: modules,
+						...extra
 					}
 				}
 				nodes.push(schedulePollNode)

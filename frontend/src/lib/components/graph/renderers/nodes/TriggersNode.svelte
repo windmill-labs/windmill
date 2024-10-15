@@ -21,8 +21,6 @@
 	<TriggersWrapper
 		path={data.path}
 		on:new={(e) => {
-			console.log('Yes New script at index', data.index, e)
-			console.log('Event Handlers', data?.eventHandlers)
 			data?.eventHandlers.insert({
 				modules: data.modules,
 				index: 0,
