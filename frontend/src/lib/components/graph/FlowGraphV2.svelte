@@ -37,6 +37,7 @@
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
+	import SchedulePollNode from './renderers/nodes/ShedulePollNode.svelte'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -50,7 +51,7 @@
 	export let path: string | undefined = undefined
 	export let isEditor: boolean = false
 	export let newFlow: boolean = false
-
+	export let hasSchedulePoll: boolean = true
 	export let insertable = false
 	export let scroll = false
 	export let moving: string | undefined = undefined
@@ -173,6 +174,9 @@
 			},
 			selectedIteration: (detail, moduleId) => {
 				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+			},
+			addSchedulePoll: () => {
+				dispatch('addSchedulePoll')
 			}
 		},
 		success,
@@ -188,7 +192,8 @@
 			},
 			isEditor: isEditor,
 			path
-		}
+		},
+		hasSchedulePoll
 	)
 
 	const nodes = writable<Node[]>([])
@@ -204,6 +209,7 @@
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
 
+		console.log('nodes', $nodes)
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
@@ -222,7 +228,8 @@
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchAllEndNode,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode
+		trigger: TriggersNode,
+		schedulePoll: SchedulePollNode
 	} as any
 
 	const edgeTypes = {

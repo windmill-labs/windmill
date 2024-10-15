@@ -45,6 +45,8 @@
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
+	let hasSchedulePoll = false
+
 	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -318,6 +320,7 @@
 			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
+			{hasSchedulePoll}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
@@ -326,6 +329,9 @@
 					if (e.id === 'preprocessor') {
 						$selectedId = 'Input'
 						$flowStore.value.preprocessor_module = undefined
+					} else if (e.id === 'schedulePoll') {
+						$selectedId = 'Triggers'
+						hasSchedulePoll = false
 					} else {
 						selectNextId(e.id)
 						removeAtId($flowStore.value.modules, e.id)
@@ -448,6 +454,9 @@
 			}}
 			on:openSchedules={() => {
 				$selectedId = 'settings-schedule'
+			}}
+			on:addSchedulePoll={() => {
+				hasSchedulePoll = true
 			}}
 		/>
 	</div>

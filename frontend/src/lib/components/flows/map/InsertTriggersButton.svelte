@@ -8,6 +8,7 @@
 	import type { ComputeConfig } from 'svelte-floating-ui'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
+	import { createEventDispatcher } from 'svelte'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -35,6 +36,7 @@
 	let loading = false
 	let small = false
 	let open = false
+	let dispatch = createEventDispatcher()
 
 	$: small = kind === 'preprocessor' || kind === 'failure'
 </script>
@@ -109,9 +111,14 @@ shouldUsePortal={true} -->
 				on:close={() => {
 					close(null)
 				}}
-				on:new
-				on:pickScript
-				on:pickFlow
+				on:new={(event) => {
+					dispatch('new', event.detail)
+					close(null)
+				}}
+				on:pickScript={(event) => {
+					dispatch('pickScript', event.detail)
+					close(null)
+				}}
 				{preFilter}
 				{small}
 			/>

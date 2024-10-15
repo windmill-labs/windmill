@@ -13,7 +13,6 @@
 	import type { FlowEditorContext } from '../../../flows/types'
 	import InsertTriggersButton from '../../../flows/map/InsertTriggersButton.svelte'
 	import TopLevelNode from '$lib/components/flows/pickers/TopLevelNode.svelte'
-	import type { TriggerContext } from '../../../triggers'
 	export let path: string
 	export let isEditor: boolean
 	export let newFlow: boolean
@@ -67,17 +66,8 @@
 	const { httpTriggers, selectedId, selectedTrigger, schedules, primarySchedule } =
 		getContext<FlowEditorContext>('FlowEditorContext') ?? {}
 
-	const { triggerModule } = getContext<TriggerContext>('TriggerContext') ?? {}
-
 	import { writable } from 'svelte/store'
-	import { pickScript } from '$lib/components/flows/flowStateUtils'
 
-	async function pickScriptEventHandler(path: string, summary: string, id: string) {
-		var module
-		var state
-		;[module, state] = await pickScript(path, summary, id)
-		$triggerModule = module
-	}
 	const modifiableTriggers = writable<
 		{ type: 'routes' | 'webhooks' | 'schedule' | 'email' | 'schedule_poll' }[]
 	>([{ type: 'schedule' }])
@@ -221,19 +211,7 @@
 				<!-- index={data.index ?? 0}
 					allowTrigger={data.enableTrigger}
 					modules={data?.modules ?? []} -->
-				<InsertTriggersButton
-					on:new={(e) => {
-						// console.log('new', e)
-						$selectedId = 'triggers'
-						$selectedTrigger = 'schedule_poll'
-						addTrigger('schedule_poll')
-					}}
-					on:pickScript={(e) => {
-						pickScriptEventHandler(e.detail.path, e.detail.summary, e.detail.id)
-						// console.log('pickScript', e)
-						close(null)
-					}}
-				>
+				<InsertTriggersButton on:new on:pickScript>
 					<svelte:fragment slot="topLevelNodes" let:close>
 						{#each ['schedule', 'routes', 'email', 'webhooks', 'schedule_poll'] as triggersType}
 							{#if !$modifiableTriggers.some((trigger) => trigger.type === triggersType)}

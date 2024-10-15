@@ -1,6 +1,8 @@
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
+	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { FlowModule } from '$lib/gen'
 
 	export let data: {
 		path: string
@@ -9,12 +11,46 @@
 		isEditor: boolean
 		newFlow: boolean
 		extra_perms: Record<string, any>
+		eventHandlers: GraphEventHandlers
+		modules: FlowModule[]
+		index: number
 	}
 </script>
 
 <NodeWrapper wrapperClass="shadow-none">
 	<TriggersWrapper
 		path={data.path}
+		on:new={(e) => {
+			console.log('Yes New script at index', data.index, e)
+			console.log('Event Handlers', data?.eventHandlers)
+			data?.eventHandlers.insert({
+				modules: data.modules,
+				index: 0,
+				kind: e.detail.kind,
+				inlineScript: e.detail.inlineScript
+			})
+			data?.eventHandlers.insert({
+				modules: data.modules,
+				index: 1,
+				kind: 'forloop',
+				light: true
+			})
+			data?.eventHandlers.addSchedulePoll()
+		}}
+		on:pickScript={(e) => {
+			data?.eventHandlers.insert({
+				modules: data.modules,
+				index: 0,
+				script: e.detail
+			})
+			data?.eventHandlers.insert({
+				modules: data.modules,
+				index: 1,
+				kind: 'forloop',
+				light: true
+			})
+			data?.eventHandlers.addSchedulePoll()
+		}}
 		on:openSchedules={() => data.openSchedules()}
 		on:triggerDetail={(e) => {
 			data.triggerDetail(e.detail)

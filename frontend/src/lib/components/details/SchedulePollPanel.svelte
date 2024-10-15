@@ -6,10 +6,9 @@
 	import { getContext } from 'svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
-	let schedulePollExists: boolean = true
 	export let path: string
 	export let isFlow: boolean
-	export let setScheduleEnabled: (path: string, enabled: boolean) => void
+	export let setScheduleEnabled: (path: string, enabled: boolean) => void = () => {}
 
 	const { triggerModule, primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
@@ -19,7 +18,7 @@
 <ScheduleEditor on:update={() => {}} bind:this={scheduleEditor} />
 
 <div class="flex flex-col gap-8">
-	{#if schedulePollExists && $triggerModule}
+	{#if $triggerModule}
 		<Label label="Schedule">
 			{#if $primarySchedule}
 				<PrimarySchedule

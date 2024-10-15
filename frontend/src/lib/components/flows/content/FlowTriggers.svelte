@@ -78,7 +78,7 @@
 
 				{#if $selectedTrigger === 'schedule_poll' && triggerModule}
 					<div class="p-4">
-						<SchedulePollPanel flowModule={$triggerModule} />
+						<SchedulePollPanel isFlow={true} path={path ?? ''} />
 					</div>
 				{/if}
 			</svelte:fragment>

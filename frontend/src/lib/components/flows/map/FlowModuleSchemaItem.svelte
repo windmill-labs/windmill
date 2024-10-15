@@ -131,7 +131,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer',
+		'w-full module flex rounded-sm cursor-pointer max-w-full',
 		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
