@@ -174,6 +174,23 @@
 		computeHeight()
 	})
 	const dispatch = createEventDispatcher()
+
+	let scrollToIndex = 0
+
+	function scrollToRun(ids: string[]) {
+		console.log(ids)
+		if (flatJobs && ids.length > 0) {
+			const i = flatJobs.findIndex(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === ids[0]
+			)
+			if (i !== undefined && i != 0) {
+				console.log(scrollToIndex)
+				scrollToIndex = i
+			}
+		}
+	}
+
+	$: scrollToRun(selectedIds)
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
@@ -248,6 +265,9 @@
 			itemSize={42}
 			overscanCount={20}
 			{stickyIndices}
+			{scrollToIndex}
+			scrollToAlignment="center"
+			scrollToBehaviour="smooth"
 		>
 			<div slot="item" let:index let:style {style} class="w-full">
 				{#if flatJobs}
