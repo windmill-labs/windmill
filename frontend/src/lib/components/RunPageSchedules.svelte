@@ -1,9 +1,9 @@
 <script lang="ts">
 	import ScheduleEditor from './ScheduleEditor.svelte'
-	import { Alert, Button } from './common'
+	import { Button } from './common'
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
-	import { Calendar, Trash } from 'lucide-svelte'
+	import { Calendar, Trash, Save } from 'lucide-svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { getContext } from 'svelte'
@@ -62,7 +62,7 @@
 <div class="flex flex-col gap-4 w-full">
 	{#if $primarySchedule}
 		<div class="w-full flex flex-col mb-4">
-			<div class="w-full flex-row-reverse flex">
+			<div class="w-full flex-row-reverse justify-between flex mb-2">
 				<Button
 					on:click={() => {
 						$primarySchedule = false
@@ -72,6 +72,9 @@
 					size="xs"
 					startIcon={{ icon: Trash }}
 				/>
+				{#if !newItem}
+					<Button color="dark" size="sm" startIcon={{ icon: Save }}>Save changes</Button>
+				{/if}
 			</div>
 			<!-- svelte-ignore a11y-autofocus -->
 			<Label label="Summary">
@@ -96,12 +99,6 @@
 				right: 'Schedule enabled'
 			}}
 		/>
-		{#if !newItem}
-			<Alert bgClass="my-4" type="warning" title="Changes only applied upon deploy">
-				Changes to the primary schedule are only applied upon deploy. Other schedules' changes are
-				applied immediately.
-			</Alert>
-		{/if}
 	{:else}
 		<Button
 			btnClasses="mt-2"
@@ -128,6 +125,7 @@
 	{/if}
 
 	{#if !newItem}
+		<div class="mt-10" />
 		{#if $primarySchedule}
 			<Button
 				on:click={() => scheduleEditor?.openNew(isFlow, path)}
