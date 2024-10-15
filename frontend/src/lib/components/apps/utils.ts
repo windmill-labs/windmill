@@ -458,6 +458,9 @@ export function transformBareBase64IfNecessary(source: string | undefined) {
 	if (!source) {
 		return source
 	}
+	if (/^(http|https):\/\//.test(source) || source.startsWith('/')) {
+		return source
+	}
 	if (source.startsWith('data:') || source.includes(',')) {
 		return source
 	} else {

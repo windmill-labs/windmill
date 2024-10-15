@@ -243,7 +243,10 @@ export async function eval_like(
 		(input, filename) => {
 			const handleError = (error) => {
 				console.error('Error downloading file:', error)
-				sendUserToast(`Error downloading file: ${error.message}. Ensure it is a valid URL, a base64 encoded data URL (data:...), or a valid S3 object.`, true)
+				sendUserToast(
+					`Error downloading file: ${error.message}. Ensure it is a valid URL, a base64 encoded data URL (data:...), or a valid S3 object.`,
+					true
+				)
 			}
 
 			const isBase64 = (str) => {
@@ -255,9 +258,12 @@ export async function eval_like(
 			}
 
 			const downloadFile = (url, downloadFilename) => {
+				console.log(url, downloadFilename)
 				const link = document.createElement('a')
 				link.href = url
-				link.download = downloadFilename || 'download'
+				link.download = downloadFilename || true
+				link.target = '_blank'
+				link.rel = 'external'
 				document.body.appendChild(link)
 				link.click()
 				document.body.removeChild(link)
@@ -265,10 +271,10 @@ export async function eval_like(
 
 			if (typeof input === 'object' && input.s3) {
 				const workspaceId = computeGlobalContext(worldStore).ctx.workspace
-				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${input?.s3}${
-					input?.storage ? `&storage=${input.storage}` : ''
-				}`
-				downloadFile(s3href, filename || input.s3);
+				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${
+					input?.s3
+				}${input?.storage ? `&storage=${input.storage}` : ''}`
+				downloadFile(s3href, filename || input.s3)
 			} else if (typeof input === 'string') {
 				if (input.startsWith('data:')) {
 					downloadFile(input, filename)
@@ -277,26 +283,19 @@ export async function eval_like(
 					downloadFile(base64Url, filename)
 				} else if (/^(http|https):\/\//.test(input) || input.startsWith('/')) {
 					const url = input.startsWith('/') ? `${window.location.origin}${input}` : input
-					fetch(url)
-						.then(response => {
-							if (!response.ok) {
-								throw new Error(`HTTP error! status: ${response.status}`)
-							}
-							return response.blob()
-						})
-						.then(blob => {
-							const objectUrl = URL.createObjectURL(blob)
-							const urlParts = input.split('/')
-							const inferredFilename = urlParts[urlParts.length - 1]
-							downloadFile(objectUrl, filename || inferredFilename)
-							URL.revokeObjectURL(objectUrl)
-						})
-						.catch(handleError)
+					console.log('Downloading file from:', url)
+					downloadFile(url, filename ?? url.split('/').pop()?.split('?')[0])
 				} else {
-					handleError(new Error('The input must be a valid URL, a base64 encoded string, or a valid S3 object.'))
+					handleError(
+						new Error(
+							'The input must be a valid URL, a base64 encoded string, or a valid S3 object.'
+						)
+					)
 				}
 			} else {
-				handleError(new Error('The input must be a string or an object with a getAuthenticatedUrl method.'))
+				handleError(
+					new Error('The input must be a string or an object with a getAuthenticatedUrl method.')
+				)
 			}
 		}
 	)
