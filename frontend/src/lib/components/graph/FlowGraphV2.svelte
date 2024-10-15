@@ -78,6 +78,8 @@
 	let fullWidth = 0
 	let width = 0
 
+	let forloopEdge: Edge | undefined = undefined
+
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
 		for (const n of nodes) {
@@ -260,7 +262,7 @@
 		return { nodes: updatedNodes, edges: updatedEdges }
 	}
 
-	function removeTriggerForLoopNodes(nodes, edges) {
+	function removeForLoopNodes(nodes, edges) {
 		let updatedGraph = {
 			nodes: [...nodes],
 			edges: [...edges]
@@ -269,21 +271,6 @@
 
 		if (!forloopNode) {
 			return updatedGraph
-		}
-
-		if (forloopNode?.data?.value?.parentsIds?.length > 0) {
-			console.log('triggerScript', forloopNode?.data?.value?.parentsIds[0])
-		}
-
-		let forloopModules = forloopNode?.data?.value?.modules
-		if (!forloopModules) {
-			return updatedGraph
-		}
-
-		for (let i = 0; i < forloopModules.length; i++) {
-			const module = forloopModules[i]
-			console.log(`Processing module ${i}:`, module)
-			updatedGraph = removeInputNode(updatedGraph.nodes, updatedGraph.edges, module.id)
 		}
 
 		updatedGraph = removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
@@ -300,6 +287,7 @@
 		if (!forloopNode) {
 			return updatedGraph
 		}
+		forloopEdge = updatedGraph.edges.find((edge) => edge.source === forloopNode.id)
 		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
 	}
 
@@ -315,13 +303,45 @@
 		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, forloopNode.id)
 	}
 
+	function removeTriggerScriptModule(nodes, edges) {
+		let updatedGraph = {
+			nodes: [...nodes],
+			edges: [...edges]
+		}
+		let triggerScriptModule = updatedGraph.nodes.find((node) => node?.data?.module?.isTrigger)
+		console.log('triggerScriptModule', triggerScriptModule)
+		if (!triggerScriptModule) {
+			return updatedGraph
+		}
+		return removeInputNode(updatedGraph.nodes, updatedGraph.edges, triggerScriptModule.id)
+	}
+
 	function processGraph(graph) {
 		let newGraph = { nodes: graph.nodes, edges: graph.edges }
 		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
-		newGraph = removeTriggerForLoopNodes(newGraph.nodes, newGraph.edges)
+		newGraph = removeForLoopNodes(newGraph.nodes, newGraph.edges)
 		newGraph = removeForLoopStartNodes(newGraph.nodes, newGraph.edges)
 		newGraph = removeForLoopEndNodes(newGraph.nodes, newGraph.edges)
+		newGraph = removeTriggerScriptModule(newGraph.nodes, newGraph.edges)
+		newGraph.edges = replaceEdge(newGraph.edges, forloopEdge)
 		return newGraph
+	}
+
+	function replaceEdge(edges, edge) {
+		if (!edge) {
+			return edges
+		}
+		const schedulePollEdge = edges.find((edge) => edge.source === 'SchedulePoll')
+		if (!schedulePollEdge) {
+			return edges
+		}
+		const targetNode = schedulePollEdge.target
+		edge.source = 'SchedulePoll'
+		edge.target = targetNode
+		edges.push(edge)
+
+		// Remove the original SchedulePoll edge
+		return edges.filter((e) => e !== schedulePollEdge)
 	}
 
 	function updateStores() {

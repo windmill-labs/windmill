@@ -24,7 +24,7 @@
 			data?.eventHandlers.insert({
 				modules: data.modules,
 				index: 0,
-				kind: e.detail.kind,
+				kind: 'trigger',
 				inlineScript: e.detail.inlineScript
 			})
 			data?.eventHandlers.insert({
