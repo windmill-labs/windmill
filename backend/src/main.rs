@@ -476,7 +476,7 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::indexer_ee::init_index().await?;
+            let (r, w) = windmill_indexer::indexer_ee::init_index(&db).await?;
             (Some(r), Some(w))
         } else {
             (None, None)
