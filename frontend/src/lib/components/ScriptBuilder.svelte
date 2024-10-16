@@ -16,7 +16,10 @@
 		emptyString,
 		encodeState,
 		formatCron,
-		orderedJsonStringify
+		orderedJsonStringify,
+
+		type Value
+
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -68,6 +71,7 @@
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -84,6 +88,11 @@
 	export let replaceStateFn: (url: string) => void = (url) =>
 		window.history.replaceState(null, '', url)
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
+
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -221,7 +230,36 @@
 		}
 	}
 
-	async function editScript(stay: boolean, deploymentMsg?: string): Promise<void> {
+	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void>{
+
+			let latestScript = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: script.path,
+				withStarredInfo: true
+			});
+
+			deployedBy = latestScript.created_by;
+
+			let actual_parent_hash = latestScript.hash;
+
+			deployedValue = latestScript;
+
+			if (script.parent_hash == actual_parent_hash) {
+				// Handle directly
+				await editScript(stay, actual_parent_hash, deployMsg);
+			} else {
+				
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					open = false
+					await editScript(stay, actual_parent_hash, deployMsg);
+				}
+				// Open confirmation modal
+				open = true
+			}
+	}
+
+	async function editScript(stay: boolean, parentHash: string, deploymentMsg?: string, ): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -238,6 +276,13 @@
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
+
+
+			// console.log(script.parent_hash)
+			// console.log(deployedScript.parent_hashes[0])
+			// console.log(deployedScript.parent_hashes)
+			// console.log("\n")
+
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -245,7 +290,9 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: script.parent_hash,
+					parent_hash: parentHash,
+					// parent_hash: script.parent_hash,
+					// parent_hash: deployedScript.parent_hashes[0],
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
@@ -442,7 +489,7 @@
 						{
 							label: 'Deploy & Stay here',
 							onClick: () => {
-								editScript(true)
+								handleEditScript(true)
 							}
 						},
 						{
@@ -500,6 +547,14 @@
 <svelte:window on:keydown={onKeyDown} />
 <slot />
 
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={script}
+/>
 {#if !$userStore?.operator}
 	<Drawer
 		placement="right"
@@ -1163,10 +1218,10 @@
 							size="xs"
 							disabled={!fullyLoaded}
 							startIcon={{ icon: Save }}
-							on:click={() => editScript(false)}
+							on:click={() => handleEditScript(false)}
 							dropdownItems={computeDropdownItems(initialPath)}
 						>
-							Deploy
+							Deployyyy
 						</Button>
 						<svelte:fragment slot="overlay">
 							<div class="flex flex-row gap-2 min-w-72">

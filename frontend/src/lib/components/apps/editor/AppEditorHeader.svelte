@@ -122,6 +122,7 @@
 	export let leftPanelHidden: boolean = false
 	export let rightPanelHidden: boolean = false
 	export let bottomPanelHidden: boolean = false
+
 	let last_updated_at: string | undefined = undefined
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -167,7 +168,6 @@
 	let historyBrowserDrawerOpen = false
 	let debugAppDrawerOpen = false
 	let deploymentMsg: string | undefined = undefined
-
 	
   onMount(async () => {
 		last_updated_at = (await AppService.getAppByPath({
@@ -389,17 +389,18 @@
 
 		if (last_updated_at && last_updated_at == deployedApp.created_at && onLatest) {
 			// Handle directly
-			updateApp(npath)
+			await updateApp(npath)
 		} else {
 			// Handle through confirmation modal
-			confirmCallback = () => {
-				updateApp(npath)
+			confirmCallback = async () => {
 				open = false
+				await updateApp(npath)
 			}
 			// Open confirmation modal
 			open = true
 		}
 	}
+
 	async function updateApp(npath: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
@@ -877,8 +878,8 @@
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#if !onLatest}
-			<Alert title="You're not on the latest app version" type="warning">
-				By deploying, you may overwrite changes made by other users.
+			<Alert title="You're not on the latest app version. " type="warning">
+				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
 			<div class="py-2" />
 		{/if}
@@ -979,7 +980,7 @@
 					}
 				}}
 			>
-				Deploy
+				Deployyyyyyy12123y
 			</Button>
 		</div>
 		<div class="py-2" />
