@@ -34,7 +34,6 @@ use windmill_common::{
         HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    transactional,
     utils::send_email,
 };
 
@@ -304,13 +303,11 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    transactional!(db, |tx| {
-        windmill_common::stats_ee::send_stats(
-            &HTTP_CLIENT,
-            tx,
-            windmill_common::stats_ee::SendStatsReason::Manual,
-        )
-    })
+    windmill_common::stats_ee::send_stats(
+        &HTTP_CLIENT,
+        &db,
+        windmill_common::stats_ee::SendStatsReason::Manual,
+    )
     .await?;
 
     Ok("Sent stats".to_string())

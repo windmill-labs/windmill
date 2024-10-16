@@ -27,7 +27,7 @@ use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::schedule_key_renewal;
+use windmill_common::ee::{schedule_key_renewal, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
     global_settings::{
@@ -307,6 +307,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
+    #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
@@ -432,25 +433,36 @@ Windmill Community Edition {GIT_VERSION}
 
     #[cfg(feature = "enterprise")]
     {
-        let valid_key = if let Err(err) = reload_license_key(&db).await {
-            tracing::error!("{}", err.to_string());
-            if !server_mode {
-                panic!("Invalid license key, workers require a valid license key");
-            }
-            false
-        } else {
-            true
-        };
-
+        // load the license key and check if it's valid
+        // if not valid and not server mode just quit
+        // if not expired and server mode then force renewal
+        // if key still invalid and num_workers > 0, set to 0
+        // schedule key renewal
+        if let Err(err) = reload_license_key(&db).await {
+            tracing::error!("Failed to reload license key: {err:#}");
+        }
+        let valid_key = *LICENSE_KEY_VALID.read().await;
+        if !valid_key && !server_mode {
+            panic!("Invalid license key, workers require a valid license key");
+        }
         if server_mode {
-            let renewed_now = schedule_key_renewal(&HTTP_CLIENT, &db, !valid_key).await;
+            // only force renewal if invalid but not empty (= expired)
+            let renewed_now = schedule_key_renewal(
+                &HTTP_CLIENT,
+                &db,
+                !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
+            )
+            .await;
             if renewed_now {
-                if let Err(e) = reload_license_key(&db).await {
-                    tracing::error!("{}", e.to_string());
-                    if num_workers > 0 {
-                        tracing::warn!("Invalid license key, setting num_workers to 0");
-                        num_workers = 0;
-                    }
+                if let Err(err) = reload_license_key(&db).await {
+                    tracing::error!("Failed to reload license key: {err:#}");
+                }
+            }
+            if num_workers > 0 {
+                let valid_key = *LICENSE_KEY_VALID.read().await;
+                if !valid_key {
+                    tracing::warn!("License key invalid, setting num_workers to 0");
+                    num_workers = 0;
                 }
             }
         }
@@ -662,10 +674,13 @@ Windmill Community Edition {GIT_VERSION}
                                                     }
                                                 },
                                                 LICENSE_KEY_SETTING => {
-                                                    #[cfg(feature = "enterprise")]
                                                     if let Err(e) = reload_license_key(&db).await {
-                                                        tracing::error!("{}", e.to_string());
-                                                        if worker_mode {
+                                                        tracing::error!("Failed to reload license key: {e:#}");
+                                                    }
+                                                    #[cfg(feature = "enterprise")]
+                                                    if worker_mode {
+                                                        let valid_key = *LICENSE_KEY_VALID.read().await;
+                                                        if !valid_key {
                                                             tracing::error!("Invalid license key, exiting...");
                                                             tx.send(()).expect("send");
                                                         }

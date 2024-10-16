@@ -274,22 +274,34 @@
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
 						<div class="text-secondary pb-4 text-xs"
-							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the instance or sending critical alerts.
-							<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_smtp">Learn more</a></div
+							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
+							instance or sending critical alerts.
+							<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_smtp">Learn more</a
+							></div
 						>
 					{:else if category == 'Registries'}
 						<div class="text-secondary pb-4 text-xs">
-							Add private registries for Pip, Bun and npm. <a target="_blank" href="https://www.windmill.dev/docs/advanced/imports">Learn more</a>
+							Add private registries for Pip, Bun and npm. <a
+								target="_blank"
+								href="https://www.windmill.dev/docs/advanced/imports">Learn more</a
+							>
 						</div>
 					{:else if category == 'Slack'}
 						<div class="text-secondary pb-4 text-xs">
-							Connecting your instance to a Slack workspace enables critical alerts to be sent to a Slack channel.
-							<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim">Learn more</a>
+							Connecting your instance to a Slack workspace enables critical alerts to be sent to a
+							Slack channel.
+							<a target="_blank" href="https://www.windmill.dev/docs/misc/saml_and_scim"
+								>Learn more</a
+							>
 						</div>
 					{:else if category == 'SCIM/SAML'}
 						<div class="text-secondary pb-4 text-xs">
-							Setting up SAML and SCIM allows you to authenticate users using your identity provider.
-							<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#slack">Learn more</a>
+							Setting up SAML and SCIM allows you to authenticate users using your identity
+							provider.
+							<a
+								target="_blank"
+								href="https://www.windmill.dev/docs/advanced/instance_settings#slack">Learn more</a
+							>
 						</div>
 					{:else if category == 'Debug'}
 						<div class="text-secondary pb-4 text-xs">
@@ -310,9 +322,11 @@
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
-						<div class="text-secondary pb-4 text-xs">
-							On Enterprise Edition, you must send data to check that usage is in line with the terms of the subscription. You can either enable telemetry or regularly send usage data by clicking the button below.
-						</div>
+							<div class="text-secondary pb-4 text-xs">
+								On Enterprise Edition, you must send data to check that usage is in line with the
+								terms of the subscription. You can either enable telemetry or regularly send usage
+								data by clicking the button below.
+							</div>
 							<Button
 								on:click={sendStats}
 								variant="border"
@@ -340,12 +354,17 @@
 								{/if}
 
 								<div class="py-1" />
-									<div class="mb-2">
-										<span class="text-primary text-sm">When at least one of the below options is set, users will be able to login to
-											Windmill via their third-party account.
-											<br /> To test SSO, the recommended workflow is to to save the settings and try to
-											login in an incognito window. <a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#sso">Learn more</a></span>
-									</div>
+								<div class="mb-2">
+									<span class="text-primary text-sm"
+										>When at least one of the below options is set, users will be able to login to
+										Windmill via their third-party account.
+										<br /> To test SSO, the recommended workflow is to to save the settings and try
+										to login in an incognito window.
+										<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#sso"
+											>Learn more</a
+										></span
+									>
+								</div>
 								<div class="flex flex-col gap-2 py-4">
 									<OAuthSetting name="google" bind:value={oauths['google']} />
 									<OAuthSetting name="microsoft" bind:value={oauths['microsoft']} />
@@ -374,7 +393,11 @@
 													<div class="p-2 border rounded">
 														<label class="block pb-2">
 															<span class="text-primary font-semibold text-sm">Custom Name</span>
-															<input type="text" placeholder="Custom Name" bind:value={oauths[k]['display_name']} />
+															<input
+																type="text"
+																placeholder="Custom Name"
+																bind:value={oauths[k]['display_name']}
+															/>
 														</label>
 														<label class="block pb-2">
 															<span class="text-primary font-semibold text-sm">Client Id</span>
@@ -429,12 +452,18 @@
 								</div>
 							{:else if ssoOrOauth === 'oauth'}
 								<div class="mb-2">
-									<span class="text-primary text-sm">When one of the below options is set, you will be able to create a specific
+									<span class="text-primary text-sm"
+										>When one of the below options is set, you will be able to create a specific
 										resource containing a token automatically generated by the third-party provider.
 										<br />
 										To test it after setting an oauth client, go to the Resources menu and create a new
-										one of the type of your oauth client (i.e. a 'github' resource if you set Github OAuth).
-										<br /><a target="_blank" href="https://www.windmill.dev/docs/misc/setup_oauth#oauth">Learn more</a></span>
+										one of the type of your oauth client (i.e. a 'github' resource if you set Github
+										OAuth).
+										<br /><a
+											target="_blank"
+											href="https://www.windmill.dev/docs/misc/setup_oauth#oauth">Learn more</a
+										></span
+									>
 								</div>
 								<div class="py-1" />
 								<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
@@ -621,24 +650,33 @@
 														{@const attemptedAt = new Date(
 															latestKeyRenewalAttempt.attempted_at
 														).toLocaleString()}
+														{@const isTrial =
+															latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 														<div class="relative">
 															<Popover notClickable>
 																<div class="flex flex-row items-center gap-1">
 																	{#if latestKeyRenewalAttempt.result === 'success'}
 																		<BadgeCheck class="text-green-600" size={12} />
 																	{:else}
-																		<BadgeX class="text-red-600" size={12} />
+																		<BadgeX
+																			class={isTrial ? 'text-yellow-500' : 'text-red-600'}
+																			size={12}
+																		/>
 																	{/if}
 																	<span
 																		class={classNames(
 																			'text-xs',
 																			latestKeyRenewalAttempt.result === 'success'
 																				? 'text-green-600'
+																				: isTrial
+																				? 'text-yellow-500'
 																				: 'text-red-600'
 																		)}
 																	>
 																		{latestKeyRenewalAttempt.result === 'success'
 																			? 'Latest key renewal succeeded'
+																			: isTrial
+																			? 'Latest key renewal ignored because in trial'
 																			: 'Latest key renewal failed'}
 																		on {attemptedAt}
 																	</span>
@@ -647,6 +685,10 @@
 																	{#if latestKeyRenewalAttempt.result === 'success'}
 																		<span class="text-green-300">
 																			Latest key renewal succeeded on {attemptedAt}
+																		</span>
+																	{:else if isTrial}
+																		<span class="text-yellow-300">
+																			License key cannot be renewed during trial ({attemptedAt})
 																		</span>
 																	{:else}
 																		<span class="text-red-300">

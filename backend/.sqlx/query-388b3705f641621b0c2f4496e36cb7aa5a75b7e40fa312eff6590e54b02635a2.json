@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM metrics WHERE id = 'license_key_renewal' AND value = '\"success\"'::jsonb AND created_at > NOW() - INTERVAL '24 hours')",
+  "query": "SELECT EXISTS(SELECT 1 FROM metrics WHERE id = 'license_key_renewal' AND created_at > NOW() - INTERVAL '24 hours')",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "47eb0698d6296ce13511c48d8ca8929bbf3686b385467b07d96016c632b67fad"
+  "hash": "388b3705f641621b0c2f4496e36cb7aa5a75b7e40fa312eff6590e54b02635a2"
 }

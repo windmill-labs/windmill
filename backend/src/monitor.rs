@@ -27,7 +27,7 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{worker_groups_alerts, jobs_waiting_alerts};
+use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts, LICENSE_KEY_VALID};
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -859,15 +859,8 @@ pub async fn reload_license_key(db: &DB) -> anyhow::Result<()> {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
         }
     };
-
-    let expired = set_license_key(value)
-        .await
-        .map_err(|err| anyhow::anyhow!("Invalid license key: {}", err.to_string()))?;
-    if expired {
-        Err(anyhow::anyhow!("License key expired"))
-    } else {
-        Ok(())
-    }
+    set_license_key(value).await;
+    Ok(())
 }
 
 pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
@@ -1005,9 +998,9 @@ pub async fn monitor_db(
     base_internal_url: &str,
     rsmq: Option<MultiplexedRsmq>,
     server_mode: bool,
-    worker_mode: bool,
+    _worker_mode: bool,
     initial_load: bool,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    _killpill_tx: tokio::sync::broadcast::Sender<()>,
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
@@ -1029,10 +1022,13 @@ pub async fn monitor_db(
     let verify_license_key_f = async {
         #[cfg(feature = "enterprise")]
         if !initial_load {
-            let valid = verify_license_key().await;
-            if !valid && worker_mode {
-                tracing::error!("Invalid license key, exiting...");
-                killpill_tx.send(()).expect("send");
+            verify_license_key().await;
+            if _worker_mode {
+                let valid_key = *LICENSE_KEY_VALID.read().await;
+                if !valid_key {
+                    tracing::error!("Invalid license key, exiting...");
+                    _killpill_tx.send(()).expect("send");
+                }
             }
         }
     };

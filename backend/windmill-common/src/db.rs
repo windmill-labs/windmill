@@ -146,26 +146,3 @@ impl UserDB {
         Ok(tx)
     }
 }
-
-#[macro_export]
-macro_rules! transactional {
-    ($pool:expr, $func:expr) => {{
-        async {
-            // Begin a new transaction
-            let mut tx = match $pool.begin().await {
-                Ok(tx) => tx,
-                Err(e) => return Err(e.into()),
-            };
-
-            match $func(&mut tx).await {
-                Ok(val) => {
-                    if let Err(e) = tx.commit().await {
-                        return Err(e.into());
-                    }
-                    Ok(val)
-                }
-                Err(e) => Err(e),
-            }
-        }
-    }};
-}
