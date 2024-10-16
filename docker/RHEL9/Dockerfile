@@ -4,10 +4,12 @@ ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
-RUN yum install -y rust-toolset
-
 RUN yum update -y && \
     yum install -y git openssl-devel npm nodejs rustfmt
+
+# Install rust manually
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
 
@@ -35,7 +37,7 @@ COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser
 COPY /typescript-client/docs/ /frontend/static/tsdocs/
 
 RUN npm run generate-backend-client
-ENV NODE_OPTIONS "--max-old-space-size=8192"
+ENV NODE_OPTIONS "--max-old-space-size=10240"
 RUN npm run build
 
 
