@@ -40,12 +40,12 @@
 	export let disableTutorials = false
 	export let disableAi = false
 	export let disableSettings = false
-
+	export let newFlow: boolean = false
 	export let smallErrorHandler = false
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore } =
+	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
@@ -320,6 +320,8 @@
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			path={$pathStore}
+			{newFlow}
 			{disableAi}
 			insertable
 			scroll

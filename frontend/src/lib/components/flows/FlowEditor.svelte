@@ -18,6 +18,7 @@
 	export let disableSettings = false
 	export let disabledFlowInputs = false
 	export let smallErrorHandler = false
+	export let newFlow: boolean = false
 
 	let size = 50
 
@@ -48,6 +49,7 @@
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
+						{newFlow}
 						bind:modules={$flowStore.value.modules}
 						on:reload
 					/>
@@ -62,7 +64,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel {disabledFlowInputs} enableAi={!disableAi} />
+				<FlowEditorPanel {disabledFlowInputs} {newFlow} enableAi={!disableAi} />
 			{/if}
 		</Pane>
 	</Splitpanes>

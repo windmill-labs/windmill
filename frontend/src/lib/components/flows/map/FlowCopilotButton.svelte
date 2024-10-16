@@ -6,7 +6,6 @@
 	import { copilotInfo } from '$lib/stores'
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import { base } from '$lib/base'
-	import { twMerge } from 'tailwind-merge'
 
 	let openNoCopilot = false
 	export let className = ''
@@ -15,7 +14,7 @@
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
-<div class={twMerge('absolute left-1/2 transform -translate-x-1/2 z-10', className)}>
+<div class={className}>
 	<Popover>
 		<div class={openNoCopilot ? 'z-10' : ''}>
 			<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
