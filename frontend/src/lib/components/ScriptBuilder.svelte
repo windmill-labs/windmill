@@ -252,16 +252,11 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void>{
-			// Fetch latest script
-			let latestScript = await ScriptService.getScriptByPath({
+			// Fetch latest version and fetch entire script after if needed
+			let actual_parent_hash = (await ScriptService.getScriptLatestVersion({
 				workspace: $workspaceStore!,
 				path: script.path,
-				withStarredInfo: true
-			});
-
-			deployedBy = latestScript.created_by;
-			let actual_parent_hash = latestScript.hash;
-			deployedValue = latestScript;
+			})).script_hash;
 
 			// Usually when we create new script, we put current hash as a parent_hash
 			// But if we specify parent_hash that is already used, than we get error
@@ -271,6 +266,16 @@
 				// Handle directly
 				await editScript(stay, actual_parent_hash, deployMsg);
 			} else {
+
+				// Fetch entire script, since we need it to show Diff
+				let latestScript = await ScriptService.getScriptByPath({
+					workspace: $workspaceStore!,
+					path: script.path,
+					withStarredInfo: true
+				});
+
+				deployedValue = latestScript;
+				deployedBy = latestScript.created_by;
 				
 				// Handle through confirmation modal
 				confirmCallback = async () => {

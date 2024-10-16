@@ -119,12 +119,12 @@
 		if (version === undefined) {
 			return
 		}
-		const flowHistory = await FlowService.getFlowHistory({
+		const flowVersion = await FlowService.getFlowLatestVersion({
 			workspace: $workspaceStore!,
 			path: $pathStore
 		})
 
-		onLatest = version === flowHistory[0]?.id
+		onLatest = version === flowVersion.id
 	}
 
 	const dispatch = createEventDispatcher()

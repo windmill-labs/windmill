@@ -618,11 +618,11 @@
 		if (version === undefined) {
 			return
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
+		const appVersion = await AppService.getAppLatestVersion({
 			workspace: $workspaceStore!,
 			path: appPath
 		})
-		onLatest = version === appHistory[0]?.version
+		onLatest = version === appVersion.version
 	}
 	$: saveDrawerOpen && compareVersions()
 

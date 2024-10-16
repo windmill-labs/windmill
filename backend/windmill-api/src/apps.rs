@@ -62,6 +62,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_app))
         .route("/create", post(create_app))
         .route("/history/p/*path", get(get_app_history))
+        .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
 }
 
@@ -424,6 +425,30 @@ async fn get_app_history(
             deployment_msg: row.deployment_msg,
         })
         .collect();
+    return Ok(Json(result));
+}
+
+async fn get_latest_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<AppHistory> {
+    let mut tx = user_db.begin(&authed).await?;
+    let row = sqlx::query!(
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
+        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        WHERE a.workspace_id = $1 AND a.path = $2
+        ORDER BY created_at DESC",
+        w_id,
+        path.to_path(),
+    ).fetch_one(&mut *tx).await?;
+    tx.commit().await?;
+
+    let result = AppHistory {
+        app_id: row.app_id,
+        version: row.version_id,
+        deployment_msg: row.deployment_msg,
+    };
     return Ok(Json(result));
 }
 
