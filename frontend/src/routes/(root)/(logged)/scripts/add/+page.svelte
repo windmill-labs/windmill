@@ -39,7 +39,7 @@
 			return decoded
 		} catch (e) {
 			console.error('Error decoding state', e)
-			return defaultScript
+			return defaultScript()
 		}
 	}
 
