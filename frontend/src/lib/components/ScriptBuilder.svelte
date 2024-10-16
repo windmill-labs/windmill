@@ -1221,7 +1221,7 @@
 							on:click={() => handleEditScript(false)}
 							dropdownItems={computeDropdownItems(initialPath)}
 						>
-							Deployyyy
+							Deploy
 						</Button>
 						<svelte:fragment slot="overlay">
 							<div class="flex flex-row gap-2 min-w-72">

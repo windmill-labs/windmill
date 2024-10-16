@@ -981,7 +981,7 @@
 					}
 				}}
 			>
-				Deployyyyyyy12123y
+				Deploy
 			</Button>
 		</div>
 		<div class="py-2" />
