@@ -108,7 +108,7 @@
 		}
 		$flowStateStore[module.id] = state
 
-		if (kind == 'trigger') {
+		if (kind == 'trigger' && module.summary == '') {
 			module.summary = 'Trigger'
 		} else if (kind == 'approval') {
 			module.summary = 'Approval'
