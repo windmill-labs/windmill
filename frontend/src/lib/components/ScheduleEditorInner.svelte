@@ -520,13 +520,14 @@
 						<Toggle
 							disabled={!can_write}
 							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
+							options={{ right: 'Enabled' }}
 							on:change={async (e) => {
 								await ScheduleService.setScheduleEnabled({
 									path: initialPath,
 									workspace: $workspaceStore ?? '',
 									requestBody: { enabled: e.detail }
 								})
+								dispatch('update')
 								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 							}}
 						/>

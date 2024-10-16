@@ -45,7 +45,8 @@
 			'preprocessor',
 			'constants',
 			'Result',
-			'Input'
+			'Input',
+			'triggers'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
 </script>

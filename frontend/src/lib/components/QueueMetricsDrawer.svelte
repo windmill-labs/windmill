@@ -215,7 +215,7 @@
 					<div>
 						<form on:submit|preventDefault>
 							<table class="w-full border-collapse mb-2 text-xs table-auto">
-								<thead class="bg-gray-200 text-left text-xs">
+								<thead class="bg-gray-200 dark:bg-slate-600 text-left text-xs">
 									<tr>
 										<th class="p-2 min-w-[120px]">
 											Name
@@ -251,8 +251,9 @@
 								<tbody>
 									{#each alerts as alert, index}
 										<tr
-											class:staged-for-deletion={removedAlerts.includes(alert)}
-											class:non-interactable={removedAlerts.includes(alert)}
+											class={removedAlerts.includes(alert)
+												? 'bg-red-100 dark:bg-red-900 pointer-events-none opacity-50'
+												: ''}
 										>
 											<td class="border p-2">
 												{#if editingIndex === index}
@@ -265,12 +266,14 @@
 												{#if editingIndex === index}
 													<div class="flex flex-wrap gap-1 mb-2">
 														{#each alert.tags_to_monitor as tag}
-															<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs">
+															<span
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
+															>
 																{tag}
 																<button
 																	on:click={() => removeTag(index, tag)}
 																	aria-label="Remove Tag"
-																	class="ml-1 text-black text-xs">x</button
+																	class="ml-1 text-xs">x</button
 																>
 															</span>
 														{/each}
@@ -290,17 +293,23 @@
 													<!-- Add the new "Add All Tags" button here -->
 													<button
 														on:click={() => addAllTags(index)}
-														class="text-xs hover:bg-gray-200 rounded px-2 py-1 mt-1"
+														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded px-2 py-1 mt-1"
 													>
 														Add All Tags
 													</button>
 													{#if filteredTags.length > 0}
-														<ul class="autocomplete-list">
+														<ul
+															class="autocomplete-list border max-h-36 overflow-y-auto absolute z-50"
+														>
 															{#each filteredTags as tag}
 																<li>
-																	<button type="button" on:click={() => addTag(index, tag)}
-																		>{tag}</button
+																	<button
+																		type="button"
+																		class="w-full text-left p-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+																		on:click={() => addTag(index, tag)}
 																	>
+																		{tag}
+																	</button>
 																</li>
 															{/each}
 														</ul>
@@ -308,7 +317,8 @@
 												{:else}
 													<div class="flex flex-wrap gap-1">
 														{#each alert.tags_to_monitor as tag}
-															<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs"
+															<span
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
 																>{tag}</span
 															>
 														{/each}
@@ -380,9 +390,14 @@
 					</Button>
 				</div>
 			{:else}
-				<p class="text-gray-600 text-sm">
-					Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting jobs. Please upgrade to access this functionality. 
-					<a href="https://www.windmill.dev/docs/misc/plans_details" target="_blank" class="text-blue-500 underline">Learn more about our plans.</a>
+				<p class="text-sm">
+					Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting
+					jobs. Please upgrade to access this functionality.
+					<a
+						href="https://www.windmill.dev/docs/misc/plans_details"
+						target="_blank"
+						class="text-blue-500 underline">Learn more about our plans.</a
+					>
 				</p>
 			{/if}
 		</Section>
@@ -391,28 +406,3 @@
 		</div>
 	</DrawerContent>
 </Drawer>
-
-<style>
-	.staged-for-deletion {
-		background-color: #f8d7da; /* Light red background for staged deletion */
-	}
-	.non-interactable {
-		pointer-events: none; /* Disable pointer events */
-		opacity: 0.5; /* Reduce opacity */
-	}
-	.autocomplete-list {
-		border: 1px solid #ccc;
-		max-height: 150px;
-		overflow-y: auto;
-		background-color: white;
-		position: absolute;
-		z-index: 1000;
-	}
-	.autocomplete-list li {
-		padding: 8px;
-		cursor: pointer;
-	}
-	.autocomplete-list li:hover {
-		background-color: #f0f0f0;
-	}
-</style>

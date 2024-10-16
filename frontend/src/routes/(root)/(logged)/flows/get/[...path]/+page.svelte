@@ -6,15 +6,16 @@
 		WorkspaceService,
 		type Flow,
 		type FlowModule,
+		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { canWrite, copyToClipboard, defaultIfEmptyString, emptyString } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
-	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
+	import { Alert, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -36,27 +37,29 @@
 		Columns,
 		Pen,
 		Eye,
-		Calendar,
-		HistoryIcon
+		HistoryIcon,
+		ClipboardCopy
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
-	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import json from 'svelte-highlight/languages/json'
+	import { writable } from 'svelte/store'
+	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -68,6 +71,8 @@
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
 
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
+
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
 	let previousPath: string | undefined = undefined
@@ -76,6 +81,7 @@
 			if (previousPath !== path) {
 				previousPath = path
 				loadFlow()
+				loadTriggersCount()
 			}
 		}
 	}
@@ -95,8 +101,14 @@
 		goto('/')
 	}
 
-	let schedule: Schedule | undefined = undefined
 	let starred: boolean | undefined = undefined
+
+	async function loadTriggersCount() {
+		$triggersCount = await FlowService.getTriggersCountOfFlow({
+			workspace: $workspaceStore!,
+			path
+		})
+	}
 
 	async function loadFlow(): Promise<void> {
 		flow = await FlowService.getFlowByPath({
@@ -109,9 +121,6 @@
 			invisible_to_owner = flow.visible_to_runner_only
 		}
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
-		try {
-			schedule = await loadFlowSchedule(path, $workspaceStore!)
-		} catch {}
 	}
 
 	let isValid = true
@@ -326,9 +335,7 @@
 	}
 	let stepDetail: FlowModule | string | undefined = undefined
 	let token = 'TOKEN_TO_CREATE'
-	let detailSelected = 'saved_inputs'
-
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	let rightPaneSelected = 'saved_inputs'
 
 	let flowHistory: FlowHistory | undefined = undefined
 </script>
@@ -354,8 +361,8 @@
 
 {#if flow}
 	<DetailPageLayout
-		bind:triggerSelected
-		bind:selected={detailSelected}
+		{triggersCount}
+		bind:selected={rightPaneSelected}
 		isOperator={$userStore?.operator}
 		flow_json={{
 			value: flow.value,
@@ -363,10 +370,12 @@
 			description: flow.description,
 			schema: flow.schema
 		}}
-		hasStepDetails={Boolean(stepDetail)}
 	>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
+				on:seeTriggers={() => {
+					rightPaneSelected = 'triggers'
+				}}
 				{mainButtons}
 				menuItems={getMenuItems(flow, deployUiSettings)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
@@ -375,6 +384,18 @@
 				errorHandlerKind="flow"
 				tag={flow.tag}
 			>
+				<svelte:fragment slot="trigger-badges">
+					<TriggersBadge
+						showOnlyWithCount={true}
+						{path}
+						newItem={false}
+						isFlow
+						selected={rightPaneSelected == 'triggers'}
+						on:select={() => {
+							rightPaneSelected = 'triggers'
+						}}
+					/>
+				</svelte:fragment>
 				{#if $workspaceStore}
 					<Star
 						kind="flow"
@@ -399,21 +420,6 @@
 							{`Concurrency limit: ${flow?.value?.concurrent_limit} runs every ${flow?.value?.concurrency_time_window_s}s`}
 						</HeaderBadge>
 					</div>
-				{/if}
-				{#if schedule?.enabled}
-					<Button
-						btnClasses="inline-flex"
-						startIcon={{ icon: Calendar }}
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={() => {
-							detailSelected = 'details'
-							triggerSelected = 'schedule'
-						}}
-					>
-						{schedule.cron ?? ''}
-					</Button>
 				{/if}
 			</DetailPageHeader>
 		</svelte:fragment>
@@ -474,9 +480,14 @@
 						on:select={(e) => {
 							if (e.detail) {
 								stepDetail = e.detail
+								rightPaneSelected = 'flow_step'
 							} else {
 								stepDetail = undefined
+								rightPaneSelected = 'saved_inputs'
 							}
+						}}
+						on:triggerDetail={(e) => {
+							rightPaneSelected = 'triggers'
 						}}
 					/>
 				</div>
@@ -494,33 +505,47 @@
 				}}
 			/>
 		</svelte:fragment>
-		<svelte:fragment slot="details">
-			<div class="p-1">
-				<SchemaViewer schema={flow.schema} />
+		<svelte:fragment slot="schema">
+			<div class="p-1 relative">
+				<button
+					on:click={() => copyToClipboard(JSON.stringify(flow?.schema, null, 4))}
+					class="absolute top-2 right-2"
+				>
+					<ClipboardCopy size={14} />
+				</button>
+				<Highlight language={json} code={JSON.stringify(flow?.schema, null, 4)} />
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
-			<WebhooksPanel
-				bind:token
-				scopes={[`run:flow/${flow?.path}`]}
-				path={flow?.path}
-				isFlow={true}
-				{args}
-			/>
+			<div class="p-2">
+				<WebhooksPanel
+					bind:token
+					scopes={[`run:flow/${flow?.path}`]}
+					path={flow?.path}
+					isFlow={true}
+					{args}
+				/>
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="routes">
-			<RoutesPanel path={flow.path ?? ''} isFlow />
+			<div class="p-2">
+				<RoutesPanel path={flow.path ?? ''} isFlow />
+			</div>
 		</svelte:fragment>
-		<svelte:fragment slot="email">
-			<EmailTriggerPanel
-				bind:token
-				scopes={[`run:flow/${flow?.path}`]}
-				path={flow?.path}
-				isFlow={true}
-			/>
+		<svelte:fragment slot="emails">
+			<div class="p-2">
+				<EmailTriggerPanel
+					bind:token
+					scopes={[`run:flow/${flow?.path}`]}
+					path={flow?.path}
+					isFlow={true}
+				/>
+			</div>
 		</svelte:fragment>
-		<svelte:fragment slot="schedule">
-			<RunPageSchedules isFlow={true} path={flow.path ?? ''} {can_write} />
+		<svelte:fragment slot="schedules">
+			<div class="p-2">
+				<RunPageSchedules schema={flow.schema} isFlow={true} path={flow.path ?? ''} {can_write} />
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="cli">
 			<div class="p-2">

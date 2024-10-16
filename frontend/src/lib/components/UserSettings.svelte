@@ -25,6 +25,7 @@
 
 	export let scopes: string[] | undefined = undefined
 	export let newTokenLabel: string | undefined = undefined
+	export let newTokenWorkspace: string | undefined = undefined
 	export let newToken: string | undefined = undefined
 
 	let newPassword: string | undefined
@@ -79,7 +80,12 @@
 			date.setDate(date.getDate() + newTokenExpiration)
 		}
 		newToken = await UserService.createToken({
-			requestBody: { label: newTokenLabel, expiration: date?.toISOString(), scopes } as NewToken
+			requestBody: {
+				label: newTokenLabel,
+				expiration: date?.toISOString(),
+				scopes,
+				workspace_id: newTokenWorkspace
+			} as NewToken
 		})
 		dispatch('tokenCreated', newToken)
 		listTokens()

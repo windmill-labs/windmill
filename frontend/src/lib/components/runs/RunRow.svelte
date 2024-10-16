@@ -94,6 +94,10 @@
 			<Badge color="blue" baseClass="!px-1.5">
 				<Calendar size={14} />
 			</Badge>
+		{:else if job.canceled}
+			<Badge color="red" baseClass="!px-1.5">
+				<Hourglass size={14} />
+			</Badge>
 		{:else}
 			<Badge baseClass="!px-1.5">
 				<Hourglass size={14} />
@@ -120,6 +124,9 @@
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}
+				{:else if job.canceled}
+					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+
 				{:else}
 					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}
