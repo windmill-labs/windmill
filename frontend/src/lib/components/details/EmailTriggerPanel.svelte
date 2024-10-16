@@ -68,7 +68,7 @@
 		triggerTokens?.listTokens()
 	}}
 	newTokenWorkspace={$workspaceStore}
-	newTokenLabel={`${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+	newTokenLabel={`email-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />
 
