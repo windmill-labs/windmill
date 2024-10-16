@@ -497,7 +497,7 @@
 	}
 
 	function isJobCancelable(j: Job): boolean {
-		return j.type === 'QueuedJob' && !j.schedule_path
+		return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 	}
 
 	function jobCountString(count: number) {
