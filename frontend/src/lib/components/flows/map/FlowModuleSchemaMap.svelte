@@ -74,10 +74,17 @@
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()
+		$flowStateStore[module.id] = state
 		if (wsFlow) {
 			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
 		} else if (wsScript) {
-			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+			;[module, state] = await pickScript(
+				wsScript.path,
+				wsScript.summary,
+				module.id,
+				wsScript.hash,
+				kind
+			)
 		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(
 				module.id,
@@ -89,18 +96,7 @@
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
-		}
-		$flowStateStore[module.id] = state
-		if (kind == 'trigger') {
-			module.summary = 'Trigger'
-		} else if (kind == 'approval') {
-			module.summary = 'Approval'
-		} else if (kind == 'end') {
-			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
-		}
-		if (inlineScript) {
-			console.log('inlineScript', inlineScript)
+		} else if (inlineScript) {
 			const { language, kind, subkind } = inlineScript
 			;[module, state] = await createInlineScriptModule(
 				language,
@@ -109,8 +105,18 @@
 				module.id,
 				module.summary
 			)
-			$flowStateStore[module.id] = state
 		}
+		$flowStateStore[module.id] = state
+
+		if (kind == 'trigger') {
+			module.summary = 'Trigger'
+		} else if (kind == 'approval') {
+			module.summary = 'Approval'
+		} else if (kind == 'end') {
+			module.summary = 'Terminate flow'
+			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
+		}
+
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
 		return modules
