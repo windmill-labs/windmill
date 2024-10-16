@@ -30,8 +30,6 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let scrollableDiv: HTMLDivElement | undefined = undefined
-
 	let displayWorkerTagPicker = false
 	$: $flowStore.tag ? (displayWorkerTagPicker = true) : null
 
@@ -57,7 +55,7 @@
 		.map((option) => option.name)
 </script>
 
-<div class="h-full overflow-y-auto flex flex-col" bind:this={scrollableDiv}>
+<div class="h-full overflow-y-auto flex flex-col">
 	<FlowCard {noEditor} title="Settings">
 		<div class="grow min-h-0 p-4 h-full flex flex-col gap-8">
 			<!-- Metadata Section -->

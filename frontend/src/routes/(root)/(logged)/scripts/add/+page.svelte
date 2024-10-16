@@ -119,6 +119,7 @@
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
+	{savedPrimarySchedule}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
 	<UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} />
