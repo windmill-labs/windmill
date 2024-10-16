@@ -104,6 +104,7 @@
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let version: number | undefined = undefined
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
@@ -113,6 +114,18 @@
 
 	$: setContext('customUi', customUi)
 
+	let onLatest = true
+	async function compareVersions() {
+		if (version === undefined) {
+			return
+		}
+		const flowHistory = await FlowService.getFlowHistory({
+			workspace: $workspaceStore!,
+			path: $pathStore
+		})
+
+		onLatest = version === flowHistory[0]?.id
+	}
 
 	const dispatch = createEventDispatcher()
 
@@ -263,10 +276,21 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
-		if (await onLatest()) {
+
+		await compareVersions();
+		if (onLatest) {
 			// Handle directly
 			saveFlow(deploymentMsg)
 		} else {
+			// We need it for diff
+			let flow = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path: $pathStore,
+				withStarredInfo: true
+			})
+			deployedValue = flow
+			deployedBy = flow.edited_by
+
 			// Handle through confirmation modal
 			confirmCallback = () => {
 				saveFlow(deploymentMsg)
@@ -276,22 +300,6 @@
 		}
 	}
 
-	// Check if there is no new deployed version while editing
-	async function onLatest(): Promise<boolean> {
-		let flow = await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
-			path: $pathStore,
-			withStarredInfo: true
-		})
-		// We need it for diff
-		deployedValue = flow
-		deployedBy = flow.edited_by
-
-		let last_updated_at = savedFlow?.edited_at;
-		if (last_updated_at && flow.edited_at == last_updated_at) return true
-
-		return false
-	}
 
 	async function saveFlow(deploymentMsg?: string): Promise<void> {
 		loadingSave = true
