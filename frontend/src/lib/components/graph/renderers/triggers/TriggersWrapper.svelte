@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Square } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 	import { NODE } from '../../util'
 	import { HttpTriggerService, ScheduleService } from '$lib/gen'
@@ -17,6 +17,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import MapItem from '../../../flows/map/MapItem.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { fade } from 'svelte/transition'
 
 	export let path: string
 	export let isEditor: boolean
@@ -87,185 +88,197 @@
 </script>
 
 {#if isEditor}
-	<div style={`width: ${NODE.width}px;`}>
-		<div class="flex flex-row mx-auto w-min">
-			<button
-				class="flex flex-row gap-2 px-2 border p-1 rounded-md bg-surface shadow-md items-center {$selectedId?.startsWith(
-					'triggers'
-				)
-					? 'outline outline-offset-1 outline-2  outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400'
-					: ''}"
-				on:click|self={() => ($selectedId = 'triggers')}
-			>
-				{#if !simplifiedTriggers}
-					<div class="flex flex-col">
-						<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
-					</div>
-
-					<Popover>
-						<svelte:fragment slot="text">
-							{#if newFlow}
-								Deploy the flow to see webhooks triggers
-							{:else}
-								See default webhooks triggers
-							{/if}
-						</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'webhooks'
-									$selectedId = 'triggers'
-								} else {
-									dispatch('triggerDetail', 'webhooks')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<Webhook size={12} />
-						</TriggerButton>
-					</Popover>
-
-					<Popover>
-						<svelte:fragment slot="text">
-							{#if newFlow}
-								Deploy the flow to see email triggers
-							{:else}
-								See all email triggers
-							{/if}
-						</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'mail'
-									$selectedId = 'triggers'
-								} else {
-									dispatch('triggerDetail', 'mail')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<Mail size={12} />
-						</TriggerButton>
-					</Popover>
-
-					<Popover>
-						<svelte:fragment slot="text">
-							{#if newFlow}
-								Deploy the flow to add routes triggers
-							{:else}
-								See all routes triggers
-							{/if}
-						</svelte:fragment>
-						<TriggerButton
-							on:click={() => {
-								if (isEditor) {
-									$selectedTrigger = 'routes'
-									$selectedId = 'triggers'
-								} else {
-									dispatch('triggerDetail', 'routes')
-								}
-							}}
-							disabled={newFlow}
-						>
-							<TriggerCount count={$httpTriggers?.length} />
-							<Route size={12} />
-						</TriggerButton>
-					</Popover>
-				{/if}
+	<div style={`width: ${NODE.width}px;`} class="center-center">
+		<button
+			class="flex flex-row w-full gap-2 px-2 border p-1 rounded-md bg-surface shadow-md justify-center items-center {$selectedId?.startsWith(
+				'triggers'
+			)
+				? 'outline outline-offset-1 outline-2  outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400'
+				: ''}"
+			on:click|self={() => ($selectedId = 'triggers')}
+		>
+			{#if !simplifiedTriggers}
+				<div class="flex flex-col">
+					<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
+				</div>
 
 				<Popover>
-					<svelte:fragment slot="text">See all schedules triggers</svelte:fragment>
+					<svelte:fragment slot="text">
+						{#if newFlow}
+							Deploy the flow to see webhooks triggers
+						{:else}
+							See default webhooks triggers
+						{/if}
+					</svelte:fragment>
 					<TriggerButton
 						on:click={() => {
 							if (isEditor) {
-								$selectedTrigger = 'schedules'
+								$selectedTrigger = 'webhooks'
 								$selectedId = 'triggers'
 							} else {
-								dispatch('triggerDetail', 'schedule')
+								dispatch('triggerDetail', 'webhooks')
 							}
 						}}
 						disabled={newFlow}
 					>
-						<TriggerCount count={($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)} />
-						<Calendar size={12} />
+						<Webhook size={12} />
 					</TriggerButton>
 				</Popover>
 
-				<!-- index={data.index ?? 0}
+				<Popover>
+					<svelte:fragment slot="text">
+						{#if newFlow}
+							Deploy the flow to see email triggers
+						{:else}
+							See all email triggers
+						{/if}
+					</svelte:fragment>
+					<TriggerButton
+						on:click={() => {
+							if (isEditor) {
+								$selectedTrigger = 'mail'
+								$selectedId = 'triggers'
+							} else {
+								dispatch('triggerDetail', 'mail')
+							}
+						}}
+						disabled={newFlow}
+					>
+						<Mail size={12} />
+					</TriggerButton>
+				</Popover>
+
+				<Popover>
+					<svelte:fragment slot="text">
+						{#if newFlow}
+							Deploy the flow to add routes triggers
+						{:else}
+							See all routes triggers
+						{/if}
+					</svelte:fragment>
+					<TriggerButton
+						on:click={() => {
+							if (isEditor) {
+								$selectedTrigger = 'routes'
+								$selectedId = 'triggers'
+							} else {
+								dispatch('triggerDetail', 'routes')
+							}
+						}}
+						disabled={newFlow}
+					>
+						<TriggerCount count={$httpTriggers?.length} />
+						<Route size={12} />
+					</TriggerButton>
+				</Popover>
+			{/if}
+
+			<Popover>
+				<svelte:fragment slot="text">See all schedules triggers</svelte:fragment>
+				<TriggerButton
+					on:click={() => {
+						if (isEditor) {
+							$selectedTrigger = 'schedules'
+							$selectedId = 'triggers'
+						} else {
+							dispatch('triggerDetail', 'schedule')
+						}
+					}}
+					disabled={newFlow}
+				>
+					<TriggerCount count={($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)} />
+					<Calendar size={12} />
+				</TriggerButton>
+			</Popover>
+
+			<!-- index={data.index ?? 0}
 					allowTrigger={data.enableTrigger}
 					modules={data?.modules ?? []} -->
 
-				{#if !simplifiedTriggers && !data.flowIsSimplifiable}
-					<InsertModuleButton
-						disableAi={data.disableAi}
-						on:new={(e) => {
-							dispatch('new', e.detail)
-							simplifiedTriggers = true
-						}}
-						on:pickScript={(e) => {
-							dispatch('pickScript', e.detail)
-							simplifiedTriggers = true
-						}}
-						kind="trigger"
-						index={data?.index ?? 0}
-						modules={data?.modules ?? []}
-						buttonClasses={twMerge(
-							'bg-surface-secondary hover:bg-surface-hover rounded-md border text-xs',
-							'w-6 h-6',
-							'relative center-center',
-							newFlow ? 'cursor-not-allowed bg-surface-disabled' : 'cursor-pointer'
-						)}
-					/>
-				{/if}
+			{#if !simplifiedTriggers && !data.flowIsSimplifiable}
+				<InsertModuleButton
+					disableAi={data.disableAi}
+					on:new={(e) => {
+						dispatch('new', e.detail)
+						simplifiedTriggers = true
+					}}
+					on:pickScript={(e) => {
+						dispatch('pickScript', e.detail)
+						simplifiedTriggers = true
+					}}
+					kind="trigger"
+					index={data?.index ?? 0}
+					modules={data?.modules ?? []}
+					buttonClasses={twMerge(
+						'bg-surface-secondary hover:bg-surface-hover rounded-md border text-xs',
+						'w-6 h-6',
+						'relative center-center',
+						newFlow ? 'cursor-not-allowed bg-surface-disabled' : 'cursor-pointer'
+					)}
+				/>
+			{/if}
 
-				{#if triggerScriptModule && simplifiedTriggers}
-					<div
-						class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm shrink shadow-md w-full border bg-surface"
-					>
-						<MapItem
-							mod={triggerScriptModule}
-							insertable={false}
-							bgColor={'#ffffff'}
-							modules={data.modules ?? []}
-							moving={''}
-							flowJobs={undefined}
-							on:delete={(e) => {
-								data.eventHandlers.delete(e.detail, '')
-							}}
-							on:insert={(e) => {
-								data.eventHandlers.insert(e.detail)
-							}}
-							on:changeId={(e) => {
-								data.eventHandlers.changeId(e.detail)
-							}}
-							on:move={(e) => {
-								if (triggerScriptModule) {
-									data.eventHandlers.move(triggerScriptModule, data.modules)
-								}
-							}}
-							on:newBranch={(e) => {
-								if (triggerScriptModule) {
-									data.eventHandlers.newBranch(triggerScriptModule)
-								}
-							}}
-							on:select={(e) => {
-								data.eventHandlers.select(e.detail)
-							}}
-						/>
-					</div>
-				{/if}
-
-				{#if data.flowIsSimplifiable}
-					<Toggle
-						size="xs"
-						label="Simplify view"
-						bind:checked={simplifiedTriggers}
-						on:change={(e) => {
-							e.stopPropagation()
+			{#if triggerScriptModule && simplifiedTriggers}
+				<div
+					class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm shrink shadow-md w-full border bg-surface"
+				>
+					<MapItem
+						mod={triggerScriptModule}
+						insertable={false}
+						bgColor={'#ffffff'}
+						modules={data.modules ?? []}
+						moving={''}
+						flowJobs={undefined}
+						on:delete={(e) => {
+							data.eventHandlers.delete(e.detail, '')
+						}}
+						on:insert={(e) => {
+							data.eventHandlers.insert(e.detail)
+						}}
+						on:changeId={(e) => {
+							data.eventHandlers.changeId(e.detail)
+						}}
+						on:move={(e) => {
+							if (triggerScriptModule) {
+								data.eventHandlers.move(triggerScriptModule, data.modules)
+							}
+						}}
+						on:newBranch={(e) => {
+							if (triggerScriptModule) {
+								data.eventHandlers.newBranch(triggerScriptModule)
+							}
+						}}
+						on:select={(e) => {
+							data.eventHandlers.select(e.detail)
 						}}
 					/>
-				{/if}
-			</button>
-		</div>
+				</div>
+			{/if}
+
+			{#if data.flowIsSimplifiable}
+				<Toggle
+					size="xs"
+					label="Simplify view"
+					bind:checked={simplifiedTriggers}
+					on:change={(e) => {
+						e.stopPropagation()
+					}}
+				/>
+			{/if}
+
+			{#if simplifiedTriggers}
+				<div class="absolute text-sm right-4 -bottom-3 flex flex-row gap-1 z-10">
+					<Popover notClickable>
+						<div
+							transition:fade|local={{ duration: 200 }}
+							class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+						>
+							<Square size={12} />
+						</div>
+						<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+					</Popover>
+				</div>
+			{/if}
+		</button>
 	</div>
 {/if}
