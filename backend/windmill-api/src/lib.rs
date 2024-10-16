@@ -82,6 +82,7 @@ pub mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
+mod triggers;
 mod users;
 mod utils;
 mod variables;

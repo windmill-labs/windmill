@@ -25,7 +25,10 @@ export default function graphBuilder(
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
-	moving: string | undefined
+	moving: string | undefined,
+	triggerProps?: {
+		path?: string
+	}
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -149,6 +152,29 @@ export default function graphBuilder(
 				modules: modules,
 				hasPreprocessor: !!preprocessorModule,
 				...extra
+			}
+		}
+
+		if (extra.path) {
+			const triggerNode: Node = {
+				id: 'Trigger',
+				position: { x: -1, y: -1 },
+				type: 'trigger',
+				data: {
+					path: triggerProps?.path,
+					newFlow: extra.newFlow,
+					eventHandlers: eventHandlers
+				}
+			}
+			nodes.push(triggerNode)
+			if (preprocessorModule != null && preprocessorModule != undefined) {
+				addEdge('Trigger', preprocessorModule.id, {
+					type: 'empty'
+				})
+			} else {
+				addEdge('Trigger', 'Input', {
+					type: 'empty'
+				})
 			}
 		}
 
@@ -549,5 +575,4 @@ export default function graphBuilder(
 			error: e
 		}
 	}
-
 }
