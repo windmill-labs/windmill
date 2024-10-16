@@ -67,6 +67,8 @@
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import TriggersEditor from './triggers/TriggersEditor.svelte'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
