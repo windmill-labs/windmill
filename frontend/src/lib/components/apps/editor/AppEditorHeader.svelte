@@ -385,6 +385,7 @@
 			withStarredInfo: true
 		})
 
+		deployedBy = deployedApp.created_by;
 		deployedValue = deployedApp
 
 		if (last_updated_at && last_updated_at == deployedApp.created_at && onLatest) {
