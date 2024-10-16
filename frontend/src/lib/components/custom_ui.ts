@@ -30,6 +30,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	languages?: (SupportedLanguage | 'docker' | 'bunnative')[]
 	scriptFork?: boolean
 	editorBar?: EditorBarUi
+	downloadLogs?: boolean
 }
 
 export type EditorBarUi = {

@@ -5,7 +5,7 @@
 	import { Wand2, Loader2 } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import { emptyString } from '$lib/utils'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	export let funcDesc: string
 	export let trigger = false
@@ -16,6 +16,8 @@
 	let scripts: Script[] | undefined = undefined
 	export let filteredItems: (Script & { marked?: string })[] | (Item & { marked?: string })[] = []
 	$: prefilteredItems = scripts ?? []
+
+	const dispatch = createEventDispatcher()
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -53,6 +55,11 @@
 		<input
 			bind:this={input}
 			type="text"
+			on:keydown={(e) => {
+				if (e.key === 'Escape') {
+					dispatch('escape')
+				}
+			}}
 			bind:value={funcDesc}
 			placeholder="Search {trigger ? 'triggers' : 'scripts'} {disableAi ? '' : 'or AI gen'}"
 		/>

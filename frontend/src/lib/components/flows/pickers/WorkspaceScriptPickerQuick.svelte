@@ -82,7 +82,7 @@
 			if (kind == 'flow') {
 				dispatch('pickFlow', { path: item.path })
 			} else {
-				dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined })
+				dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined, kind })
 			}
 		}
 	}
@@ -114,7 +114,7 @@
 						if (kind == 'flow') {
 							dispatch('pickFlow', { path: path })
 						} else {
-							dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined })
+							dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
 						}
 					}}
 				>

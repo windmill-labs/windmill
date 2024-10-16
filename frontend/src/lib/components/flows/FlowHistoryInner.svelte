@@ -9,6 +9,7 @@
 	import { createEventDispatcher } from 'svelte'
 
 	export let path: string
+	export let allowFork: boolean = false
 	let loading: boolean = false
 
 	let versions: FlowVersion[] = []
@@ -175,19 +176,22 @@
 								{/if}
 							</span>
 							<div class="flex p-1 gap-2">
-								<div class="flex">
-									<Button
-										size="sm"
-										color="dark"
-										on:click={() =>
-											window.open(
-												`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
-												'_blank'
-											)}
-									>
-										Restore as fork
-									</Button>
-								</div>
+								{#if allowFork}
+									<div class="flex">
+										<Button
+											size="sm"
+											color="dark"
+											on:click={() =>
+												window.open(
+													`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
+													'_blank'
+												)}
+										>
+											Restore as fork
+										</Button>
+									</div>
+								{/if}
+
 								<div class="flex">
 									<Button size="sm" color="dark" on:click={() => restoreVersion(selected)}
 										>Redeploy with that version

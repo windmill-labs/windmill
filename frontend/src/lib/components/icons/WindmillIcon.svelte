@@ -7,7 +7,7 @@
 	export let spin: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined = undefined
 </script>
 
-{#if customIcon}
+{#if customIcon.white || customIcon.normal}
 	{#if white}
 		<img src={customIcon.white} alt="Windmill Custom icon" {width} {height} class={$$props.class} />
 	{:else}
