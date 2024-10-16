@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'Websocket triggers' }
+		stuff: { title: 'HTTP routes' }
 	}
 }

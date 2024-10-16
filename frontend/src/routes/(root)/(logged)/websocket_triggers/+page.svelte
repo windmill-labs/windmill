@@ -12,7 +12,6 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import RouteEditor from '$lib/components/triggers/RouteEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -90,7 +89,7 @@
 			loadTriggers()
 		}
 	}
-	let websocketTriggerEditor: RouteEditor
+	let websocketTriggerEditor: WebsocketTriggerEditor
 
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
