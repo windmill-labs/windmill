@@ -24,12 +24,14 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
-		sleep
+		sleep,
+		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { Drawer } from '$lib/components/common'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { setContext, tick, type ComponentType } from 'svelte'
+	import { onMount, setContext, tick, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -101,7 +103,23 @@
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
 
+	// Used by multiplayer deploy collision warning
+	let last_updated_at: string | undefined = undefined
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
+
 	$: setContext('customUi', customUi)
+
+	onMount(async () => {
+		
+		last_updated_at = (await FlowService.getFlowByPath({
+			workspace: $workspaceStore!,
+			path: $pathStore,
+			withStarredInfo: true
+		})).edited_at;
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -232,6 +250,38 @@
 				.filter((m) => m.value.type == 'script' && m.value.hash == null)
 				.map((m) => [m.id, (m.value as PathScript).path])
 		)
+	}
+
+	async function handleSaveFlow(deploymentMsg?: string) {
+		if (await onLatest()) {
+			// Handle directly
+			saveFlow(deploymentMsg)
+		} else {
+			// Handle through confirmation modal
+			confirmCallback = () => {
+				saveFlow(deploymentMsg)
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+
+	// Check if there is no new deployed version while editing
+	async function onLatest(): Promise<boolean> {
+		let flow = await FlowService.getFlowByPath({
+			workspace: $workspaceStore!,
+			path: $pathStore,
+			withStarredInfo: true
+		})
+
+		deployedValue = flow
+
+		if (last_updated_at == undefined) return false
+		if (flow.edited_at == last_updated_at) return true
+
+		deployedBy = flow.edited_by
+
+		return false
 	}
 
 	async function saveFlow(deploymentMsg?: string): Promise<void> {
@@ -1084,6 +1134,15 @@
 
 <slot />
 
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={$flowStore}
+/>
+
 {#key renderCount}
 	{#if !$userStore?.operator}
 		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
@@ -1292,7 +1351,9 @@
 							loading={loadingSave}
 							size="xs"
 							startIcon={{ icon: Save }}
-							on:click={() => saveFlow()}
+							on:click={async () => {
+								await handleSaveFlow()
+							}}
 							dropdownItems={!newFlow ? dropdownItems : undefined}
 						>
 							Deploy
@@ -1303,16 +1364,16 @@
 									type="text"
 									placeholder="Deployment message"
 									bind:value={deploymentMsg}
-									on:keydown={(e) => {
+									on:keydown={async (e) => {
 										if (e.key === 'Enter') {
-											saveFlow(deploymentMsg)
+											await handleSaveFlow(deploymentMsg)
 										}
 									}}
 									bind:this={msgInput}
 								/>
 								<Button
 									size="xs"
-									on:click={() => saveFlow(deploymentMsg)}
+									on:click={async () => await handleSaveFlow(deploymentMsg)}
 									endIcon={{ icon: CornerDownLeft }}
 									loading={loadingSave}
 								>

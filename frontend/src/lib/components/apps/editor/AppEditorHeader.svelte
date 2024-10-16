@@ -33,14 +33,15 @@
 		Smartphone,
 		FileClock
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
 		cleanValueProperties,
 		copyToClipboard,
 		truncateRev,
-		orderedJsonStringify
+		orderedJsonStringify,
+		type Value
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -85,6 +86,7 @@
 	import Summary from '$lib/components/Summary.svelte'
 	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	async function hash(message) {
 		try {
@@ -120,6 +122,11 @@
 	export let leftPanelHidden: boolean = false
 	export let rightPanelHidden: boolean = false
 	export let bottomPanelHidden: boolean = false
+	let last_updated_at: string | undefined = undefined
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	const {
 		app,
@@ -160,6 +167,15 @@
 	let historyBrowserDrawerOpen = false
 	let debugAppDrawerOpen = false
 	let deploymentMsg: string | undefined = undefined
+
+	
+  onMount(async () => {
+		last_updated_at = (await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path: appPath,
+			withStarredInfo: true
+		})).created_at; 
+  });
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -360,6 +376,30 @@
 		}
 	}
 
+	async function handleUpdateApp(npath: string) {
+	  // There is onLatest, but we need more information while deploying 
+	  // We need it to show diff
+		let deployedApp = await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path: appPath,
+			withStarredInfo: true
+		})
+
+		deployedValue = deployedApp
+
+		if (last_updated_at && last_updated_at == deployedApp.created_at && onLatest) {
+			// Handle directly
+			updateApp(npath)
+		} else {
+			// Handle through confirmation modal
+			confirmCallback = () => {
+				updateApp(npath)
+				open = false
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
 	async function updateApp(npath: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
@@ -766,6 +806,20 @@
 	}}
 />
 
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={{
+		summary: $summary,
+		value: $app,
+		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		policy
+	}}
+/>
+
 {#if appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
@@ -902,7 +956,7 @@
 								if (appPath == '') {
 									createApp(newPath)
 								} else {
-									updateApp(newPath)
+									handleUpdateApp(newPath)
 								}
 							}
 						}
@@ -921,7 +975,7 @@
 					if (appPath == '') {
 						createApp(newPath)
 					} else {
-						updateApp(newPath)
+						handleUpdateApp(newPath)
 					}
 				}}
 			>
