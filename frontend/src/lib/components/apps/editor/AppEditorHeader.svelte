@@ -379,7 +379,7 @@
 		  // There is onLatest, but we need more information while deploying 
 		  // We need it to show diff
 			// Handle through confirmation modal
-			await syncDeployedApp();
+			await syncWithDeployed();
 
 			confirmCallback = async () => {
 				open = false
@@ -390,7 +390,7 @@
 		}
 	}
 
-	async function syncDeployedApp(){
+	async function syncWithDeployed(){
 			let deployedApp = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: appPath,
@@ -753,7 +753,7 @@
 				}
 
 				// deployedValue should be syncronized when we open Diff
-				await syncDeployedApp();
+				await syncWithDeployed();
 
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
@@ -944,7 +944,7 @@
 						return
 					}
 					// deployedValue should be syncronized when we open Diff
-					await syncDeployedApp();
+					await syncWithDeployed();
 
 					saveDrawerOpen = false
 					diffDrawer?.openDrawer()

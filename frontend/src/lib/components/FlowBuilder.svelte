@@ -280,9 +280,20 @@
 		await compareVersions();
 		if (onLatest) {
 			// Handle directly
-			saveFlow(deploymentMsg)
+			await saveFlow(deploymentMsg)
 		} else {
 			// We need it for diff
+			await syncWithDeployed()
+
+			// Handle through confirmation modal
+			confirmCallback = async () => {
+				await saveFlow(deploymentMsg)
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+	async function syncWithDeployed(){
 			let flow = await FlowService.getFlowByPath({
 				workspace: $workspaceStore!,
 				path: $pathStore,
@@ -290,14 +301,6 @@
 			})
 			deployedValue = flow
 			deployedBy = flow.edited_by
-
-			// Handle through confirmation modal
-			confirmCallback = () => {
-				saveFlow(deploymentMsg)
-			}
-			// Open confirmation modal
-			open = true
-		}
 	}
 
 
@@ -1343,14 +1346,17 @@
 							color="light"
 							variant="border"
 							size="xs"
-							on:click={() => {
+							on:click={async () => {
 								if (!savedFlow) {
 									return
 								}
+
+								await syncWithDeployed()
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
-									deployed: savedFlow,
+									deployed: deployedValue ?? savedFlow,
 									draft: savedFlow['draft'],
 									current: { ...$flowStore, path: $pathStore }
 								})

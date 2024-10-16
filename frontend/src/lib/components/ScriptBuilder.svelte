@@ -268,14 +268,7 @@
 			} else {
 
 				// Fetch entire script, since we need it to show Diff
-				let latestScript = await ScriptService.getScriptByPath({
-					workspace: $workspaceStore!,
-					path: script.path,
-					withStarredInfo: true
-				});
-
-				deployedValue = latestScript;
-				deployedBy = latestScript.created_by;
+				await syncWithDeployed()
 				
 				// Handle through confirmation modal
 				confirmCallback = async () => {
@@ -285,6 +278,17 @@
 				// Open confirmation modal
 				open = true
 			}
+	}
+
+	async function syncWithDeployed(){
+			let latestScript = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: script.path,
+				withStarredInfo: true
+			});
+
+			deployedValue = latestScript;
+			deployedBy = latestScript.created_by;
 	}
 
 	async function editScript(stay: boolean, parentHash: string, deploymentMsg?: string, ): Promise<void> {
@@ -1204,14 +1208,16 @@
 							color="light"
 							variant="border"
 							size="xs"
-							on:click={() => {
+							on:click={async () => {
 								if (!savedScript) {
 									return
 								}
+								await syncWithDeployed()
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
-									deployed: savedScript,
+									deployed: deployedValue ?? savedScript,
 									draft: savedScript['draft'],
 									current: script
 								})
