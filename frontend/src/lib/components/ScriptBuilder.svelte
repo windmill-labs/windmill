@@ -231,7 +231,7 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void>{
-
+			// Fetch latest script
 			let latestScript = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: script.path,
@@ -239,11 +239,13 @@
 			});
 
 			deployedBy = latestScript.created_by;
-
 			let actual_parent_hash = latestScript.hash;
-
 			deployedValue = latestScript;
 
+			// Usually when we create new script, we put current hash as a parent_hash
+			// But if we specify parent_hash that is already used, than we get error
+			// In order to fix it we make sure that client's understanding of parent_hash 
+			// is aligns with understanding of backend.
 			if (script.parent_hash == actual_parent_hash) {
 				// Handle directly
 				await editScript(stay, actual_parent_hash, deployMsg);

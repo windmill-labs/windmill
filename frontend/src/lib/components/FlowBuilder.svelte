@@ -273,13 +273,11 @@
 			path: $pathStore,
 			withStarredInfo: true
 		})
-
+		// We need it for diff
 		deployedValue = flow
-
-		if (last_updated_at == undefined) return false
-		if (flow.edited_at == last_updated_at) return true
-
 		deployedBy = flow.edited_by
+
+		if (last_updated_at && flow.edited_at == last_updated_at) return true
 
 		return false
 	}
