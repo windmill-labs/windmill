@@ -134,9 +134,6 @@
 	]
 
 	$: visibleItems = items.filter((item) => item.display)
-	$: console.log('visibleItems', visibleItems)
-	$: console.log('simplifiedTriggers', simplifiedTriggers)
-	$: console.log('data.flowIsSimplifiable', data.flowIsSimplifiable)
 </script>
 
 {#if isEditor}
@@ -148,12 +145,7 @@
 		>
 			<div class="flex flex-row w-min-0 gap-2.5 w-fit max-w-full px-2 py-1">
 				{#each visibleItems as item (item.id)}
-					<div
-						in:scale={{ duration: 200 }}
-						out:scale={{ duration: 150 }}
-						animate:flip={{ duration: 300 }}
-						class="grow {item.grow ? 'grow' : 'shrink-0'} min-w-0 center-center"
-					>
+					<div class="grow {item.grow ? 'grow' : 'shrink-0'} min-w-0 center-center">
 						{#if item.type === 'popover'}
 							<Popover>
 								<svelte:fragment slot="text">
@@ -210,7 +202,6 @@
 							{:else if simplifiedTriggers}
 								<div
 									class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm grow shadow-md w-full border"
-									transition:scale={{ duration: 200 }}
 								>
 									<MapItem
 										mod={triggerScriptModule}
