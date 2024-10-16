@@ -16,8 +16,7 @@
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { twMerge } from 'tailwind-merge'
 	import MapItem from '../../../flows/map/MapItem.svelte'
-	import { fade, scale } from 'svelte/transition'
-	import { flip } from 'svelte/animate'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let path: string
 	export let isEditor: boolean
@@ -239,19 +238,25 @@
 				{/each}
 
 				{#if data.flowIsSimplifiable}
-					<div class="grow-0 center-center">
-						<button
-							class="flex items-center text-xs"
+					<div class="absolute -top-5 right-0 text-2xs">
+						<Toggle
+							color="nord"
+							options={{
+								left: 'Simplified view'
+							}}
+							checked={simplifiedTriggers}
+							size="2xs"
+							textClass="text-[0.6rem] text-tertiary font-normal"
 							on:click={() => {
 								simplifiedTriggers = !simplifiedTriggers
 							}}
 						>
-							{#if !simplifiedTriggers}
-								<ChevronDown class="ml-1" size={14} />
+							{#if simplifiedTriggers}
+								Switch to full view
 							{:else}
-								<ChevronRight class="ml-1" size={14} />
+								Switch to simplified view
 							{/if}
-						</button>
+						</Toggle>
 					</div>
 				{/if}
 
