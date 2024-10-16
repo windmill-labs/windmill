@@ -447,9 +447,7 @@ async fn ee_license() -> &'static str {
 async fn ee_license() -> String {
     use windmill_common::ee::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    let valid = LICENSE_KEY_VALID.read().await.clone();
-
-    if valid {
+    if *LICENSE_KEY_VALID.read().await {
         LICENSE_KEY_ID.read().await.clone()
     } else {
         "".to_string()

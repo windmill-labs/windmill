@@ -659,7 +659,7 @@
 																		<BadgeCheck class="text-green-600" size={12} />
 																	{:else}
 																		<BadgeX
-																			class={isTrial ? 'text-yellow-500' : 'text-red-600'}
+																			class={isTrial ? 'text-yellow-600' : 'text-red-600'}
 																			size={12}
 																		/>
 																	{/if}
@@ -669,7 +669,7 @@
 																			latestKeyRenewalAttempt.result === 'success'
 																				? 'text-green-600'
 																				: isTrial
-																				? 'text-yellow-500'
+																				? 'text-yellow-600'
 																				: 'text-red-600'
 																		)}
 																	>
