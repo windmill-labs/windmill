@@ -40,7 +40,7 @@ opt-level = 0
 incremental = true
 
 [profile.release]
-lto = "fat"
+lto = "thin"
 
 [features]
 default = []
