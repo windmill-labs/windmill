@@ -17,7 +17,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import MapItem from '../../../flows/map/MapItem.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { fade } from 'svelte/transition'
+	import { fade, scale } from 'svelte/transition'
+	import { flip } from 'svelte/animate'
 
 	export let path: string
 	export let isEditor: boolean
@@ -84,201 +85,202 @@
 	let triggerScriptModule: FlowModule | undefined = undefined
 	$: triggerScriptModule = data.modules.find((mod) => mod.isTrigger)
 
+	$: console.log('triggerScriptModule', triggerScriptModule)
+
 	$: data.eventHandlers.simplifyFlow(simplifiedTriggers)
+
+	$: items = [
+		{
+			id: 1,
+			type: 'text',
+			data: { text: 'Triggers' },
+			display: !simplifiedTriggers
+		},
+		{
+			id: 2,
+			type: 'popover',
+			data: { triggerType: 'mail', icon: Mail },
+			display: !simplifiedTriggers
+		},
+		{
+			id: 3,
+			type: 'popover',
+			data: { triggerType: 'webhooks', icon: Webhook },
+			display: !simplifiedTriggers
+		},
+		{
+			id: 4,
+			type: 'popover',
+			data: { triggerType: 'routes', icon: Route, count: $httpTriggers?.length },
+			display: !simplifiedTriggers
+		},
+		{
+			id: 5,
+			type: 'popover',
+			data: {
+				triggerType: 'schedules',
+				icon: Calendar,
+				count: ($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)
+			},
+			display: true
+		},
+		{
+			id: 6,
+			type: 'insertButton',
+			data: {},
+			display: !data.flowIsSimplifiable || simplifiedTriggers,
+			grow: true
+		}
+	]
+
+	$: visibleItems = items.filter((item) => item.display)
+	$: console.log('visibleItems', visibleItems)
+	$: console.log('simplifiedTriggers', simplifiedTriggers)
+	$: console.log('data.flowIsSimplifiable', data.flowIsSimplifiable)
 </script>
 
 {#if isEditor}
 	<div style={`width: ${NODE.width}px;`} class="center-center">
 		<button
-			class="flex flex-row w-full gap-2 px-2 border p-1 rounded-md bg-surface shadow-md justify-center items-center {$selectedId?.startsWith(
-				'triggers'
-			)
-				? 'outline outline-offset-1 outline-2  outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400'
-				: ''}"
+			class=" w-full border rounded-md bg-surface shadow-md center-center items-center max-w-full"
+			class:selected={$selectedId?.startsWith('triggers')}
 			on:click|self={() => ($selectedId = 'triggers')}
 		>
-			{#if !simplifiedTriggers}
-				<div class="flex flex-col">
-					<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
-				</div>
-
-				<Popover>
-					<svelte:fragment slot="text">
-						{#if newFlow}
-							Deploy the flow to see webhooks triggers
-						{:else}
-							See default webhooks triggers
-						{/if}
-					</svelte:fragment>
-					<TriggerButton
-						on:click={() => {
-							if (isEditor) {
-								$selectedTrigger = 'webhooks'
-								$selectedId = 'triggers'
-							} else {
-								dispatch('triggerDetail', 'webhooks')
-							}
-						}}
-						disabled={newFlow}
+			<div class="flex flex-row w-min-0 gap-2.5 w-fit max-w-full px-2 py-1">
+				{#each visibleItems as item (item.id)}
+					<div
+						in:scale={{ duration: 200 }}
+						out:scale={{ duration: 150 }}
+						animate:flip={{ duration: 300 }}
+						class="grow {item.grow ? 'grow' : 'shrink-0'} min-w-0 center-center"
 					>
-						<Webhook size={12} />
-					</TriggerButton>
-				</Popover>
-
-				<Popover>
-					<svelte:fragment slot="text">
-						{#if newFlow}
-							Deploy the flow to see email triggers
-						{:else}
-							See all email triggers
+						{#if item.type === 'popover'}
+							<Popover>
+								<svelte:fragment slot="text">
+									{#if newFlow}
+										Deploy the flow to see {item.data.triggerType} triggers
+									{:else}
+										See default {item.data.triggerType} triggers
+									{/if}
+								</svelte:fragment>
+								<TriggerButton
+									on:click={() => {
+										if (isEditor) {
+											$selectedTrigger = item.data.triggerType ?? ''
+											$selectedId = 'triggers'
+										} else {
+											dispatch('triggerDetail', item.data.triggerType)
+										}
+									}}
+									disabled={newFlow}
+								>
+									{#if item.data.count}
+										<TriggerCount count={item.data.count} />
+									{/if}
+									<svelte:component this={item.data.icon} size={12} />
+								</TriggerButton>
+							</Popover>
+						{:else if item.type === 'text'}
+							<div class="grow min-w-0 items-center text-2xs font-normal">
+								{item.data.text}
+							</div>
+						{:else if item.type === 'insertButton'}
+							{#if !triggerScriptModule}
+								<InsertModuleButton
+									disableAi={data.disableAi}
+									on:new={(e) => {
+										dispatch('new', e.detail)
+										simplifiedTriggers = true
+									}}
+									on:pickScript={(e) => {
+										dispatch('pickScript', e.detail)
+										simplifiedTriggers = true
+									}}
+									kind="trigger"
+									index={data?.index ?? 0}
+									modules={data?.modules ?? []}
+									buttonClasses={twMerge(
+										'bg-surface-secondary hover:bg-surface-hover rounded-md border text-xs',
+										'w-6 h-6',
+										'relative center-center',
+										newFlow ? 'cursor-not-allowed bg-surface-disabled' : 'cursor-pointer',
+										'flex-shrink-0'
+									)}
+								/>
+							{:else if simplifiedTriggers}
+								<div
+									class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm grow shadow-md w-full border"
+									transition:scale={{ duration: 200 }}
+								>
+									<MapItem
+										mod={triggerScriptModule}
+										insertable={false}
+										bgColor={'#ffffff'}
+										modules={data.modules ?? []}
+										moving={''}
+										flowJobs={undefined}
+										on:delete={(e) => {
+											data.eventHandlers.delete(e.detail, '')
+										}}
+										on:insert={(e) => {
+											data.eventHandlers.insert(e.detail)
+										}}
+										on:changeId={(e) => {
+											data.eventHandlers.changeId(e.detail)
+										}}
+										on:move={(e) => {
+											if (triggerScriptModule) {
+												data.eventHandlers.move(triggerScriptModule, data.modules)
+											}
+										}}
+										on:newBranch={(e) => {
+											if (triggerScriptModule) {
+												data.eventHandlers.newBranch(triggerScriptModule)
+											}
+										}}
+										on:select={(e) => {
+											data.eventHandlers.select(e.detail)
+										}}
+									/>
+								</div>
+							{/if}
 						{/if}
-					</svelte:fragment>
-					<TriggerButton
-						on:click={() => {
-							if (isEditor) {
-								$selectedTrigger = 'mail'
-								$selectedId = 'triggers'
-							} else {
-								dispatch('triggerDetail', 'mail')
-							}
-						}}
-						disabled={newFlow}
-					>
-						<Mail size={12} />
-					</TriggerButton>
-				</Popover>
+					</div>
+				{/each}
 
-				<Popover>
-					<svelte:fragment slot="text">
-						{#if newFlow}
-							Deploy the flow to add routes triggers
-						{:else}
-							See all routes triggers
-						{/if}
-					</svelte:fragment>
-					<TriggerButton
-						on:click={() => {
-							if (isEditor) {
-								$selectedTrigger = 'routes'
-								$selectedId = 'triggers'
-							} else {
-								dispatch('triggerDetail', 'routes')
-							}
-						}}
-						disabled={newFlow}
-					>
-						<TriggerCount count={$httpTriggers?.length} />
-						<Route size={12} />
-					</TriggerButton>
-				</Popover>
-			{/if}
+				{#if data.flowIsSimplifiable}
+					<div class="grow-0 center-center">
+						<Toggle
+							size="xs"
+							label="Simplify view"
+							bind:checked={simplifiedTriggers}
+							on:change={(e) => {
+								e.stopPropagation()
+							}}
+						/>
+					</div>
+				{/if}
 
-			<Popover>
-				<svelte:fragment slot="text">See all schedules triggers</svelte:fragment>
-				<TriggerButton
-					on:click={() => {
-						if (isEditor) {
-							$selectedTrigger = 'schedules'
-							$selectedId = 'triggers'
-						} else {
-							dispatch('triggerDetail', 'schedule')
-						}
-					}}
-					disabled={newFlow}
-				>
-					<TriggerCount count={($schedules?.length ?? 0) + ($primarySchedule ? 1 : 0)} />
-					<Calendar size={12} />
-				</TriggerButton>
-			</Popover>
-
-			<!-- index={data.index ?? 0}
-					allowTrigger={data.enableTrigger}
-					modules={data?.modules ?? []} -->
-
-			{#if !simplifiedTriggers && !data.flowIsSimplifiable}
-				<InsertModuleButton
-					disableAi={data.disableAi}
-					on:new={(e) => {
-						dispatch('new', e.detail)
-						simplifiedTriggers = true
-					}}
-					on:pickScript={(e) => {
-						dispatch('pickScript', e.detail)
-						simplifiedTriggers = true
-					}}
-					kind="trigger"
-					index={data?.index ?? 0}
-					modules={data?.modules ?? []}
-					buttonClasses={twMerge(
-						'bg-surface-secondary hover:bg-surface-hover rounded-md border text-xs',
-						'w-6 h-6',
-						'relative center-center',
-						newFlow ? 'cursor-not-allowed bg-surface-disabled' : 'cursor-pointer'
-					)}
-				/>
-			{/if}
-
-			{#if triggerScriptModule && simplifiedTriggers}
-				<div
-					class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm shrink shadow-md w-full border bg-surface"
-				>
-					<MapItem
-						mod={triggerScriptModule}
-						insertable={false}
-						bgColor={'#ffffff'}
-						modules={data.modules ?? []}
-						moving={''}
-						flowJobs={undefined}
-						on:delete={(e) => {
-							data.eventHandlers.delete(e.detail, '')
-						}}
-						on:insert={(e) => {
-							data.eventHandlers.insert(e.detail)
-						}}
-						on:changeId={(e) => {
-							data.eventHandlers.changeId(e.detail)
-						}}
-						on:move={(e) => {
-							if (triggerScriptModule) {
-								data.eventHandlers.move(triggerScriptModule, data.modules)
-							}
-						}}
-						on:newBranch={(e) => {
-							if (triggerScriptModule) {
-								data.eventHandlers.newBranch(triggerScriptModule)
-							}
-						}}
-						on:select={(e) => {
-							data.eventHandlers.select(e.detail)
-						}}
-					/>
-				</div>
-			{/if}
-
-			{#if data.flowIsSimplifiable}
-				<Toggle
-					size="xs"
-					label="Simplify view"
-					bind:checked={simplifiedTriggers}
-					on:change={(e) => {
-						e.stopPropagation()
-					}}
-				/>
-			{/if}
-
-			{#if simplifiedTriggers}
-				<div class="absolute text-sm right-4 -bottom-3 flex flex-row gap-1 z-10">
-					<Popover notClickable>
-						<div
-							transition:fade|local={{ duration: 200 }}
-							class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-						>
-							<Square size={12} />
-						</div>
-						<svelte:fragment slot="text">Early stop/break</svelte:fragment>
-					</Popover>
-				</div>
-			{/if}
+				{#if simplifiedTriggers}
+					<div class="absolute text-sm right-4 -bottom-3 flex flex-row gap-1 z-10">
+						<Popover notClickable>
+							<div
+								transition:fade|local={{ duration: 200 }}
+								class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+							>
+								<Square size={12} />
+							</div>
+							<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+						</Popover>
+					</div>
+				{/if}
+			</div>
 		</button>
 	</div>
 {/if}
+
+<style>
+	.selected {
+		@apply outline outline-offset-1 outline-2 outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400;
+	}
+</style>
