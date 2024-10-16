@@ -39,6 +39,9 @@ path = "./src/main.rs"
 opt-level = 0
 incremental = true
 
+[profile.release]
+lto = "fat"
+
 [features]
 default = []
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
