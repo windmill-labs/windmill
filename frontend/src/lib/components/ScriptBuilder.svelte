@@ -299,13 +299,6 @@
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
-
-
-			// console.log(script.parent_hash)
-			// console.log(deployedScript.parent_hashes[0])
-			// console.log(deployedScript.parent_hashes)
-			// console.log("\n")
-
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -314,8 +307,6 @@
 					description: script.description ?? '',
 					content: script.content,
 					parent_hash: parentHash,
-					// parent_hash: script.parent_hash,
-					// parent_hash: deployedScript.parent_hashes[0],
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,

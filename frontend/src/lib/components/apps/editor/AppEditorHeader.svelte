@@ -378,6 +378,19 @@
 		} else {
 		  // There is onLatest, but we need more information while deploying 
 		  // We need it to show diff
+			// Handle through confirmation modal
+			await syncDeployedApp();
+
+			confirmCallback = async () => {
+				open = false
+				await updateApp(npath)
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+
+	async function syncDeployedApp(){
 			let deployedApp = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: appPath,
@@ -386,14 +399,6 @@
 
 			deployedBy = deployedApp.created_by;
 			deployedValue = deployedApp
-			// Handle through confirmation modal
-			confirmCallback = async () => {
-				open = false
-				await updateApp(npath)
-			}
-			// Open confirmation modal
-			open = true
-		}
 	}
 
 	async function updateApp(npath: string) {
@@ -742,14 +747,18 @@
 		{
 			displayName: 'Diff',
 			icon: DiffIcon,
-			action: () => {
+			action: async () => {
 				if (!savedApp) {
 					return
 				}
+
+				// deployedValue should be syncronized when we open Diff
+				await syncDeployedApp();
+
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					mode: 'normal',
-					deployed: savedApp,
+					deployed: deployedValue ?? savedApp,
 					draft: savedApp.draft,
 					current: {
 						summary: $summary,
@@ -930,15 +939,18 @@
 				variant="border"
 				color="light"
 				disabled={!savedApp || savedApp.draft_only}
-				on:click={() => {
+				on:click={async () => {
 					if (!savedApp) {
 						return
 					}
+					// deployedValue should be syncronized when we open Diff
+					await syncDeployedApp();
+
 					saveDrawerOpen = false
 					diffDrawer?.openDrawer()
 					diffDrawer?.setDiff({
 						mode: 'normal',
-						deployed: savedApp,
+						deployed: deployedValue ?? savedApp,
 						draft: savedApp.draft,
 						current: {
 							summary: $summary,
