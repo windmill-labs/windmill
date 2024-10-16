@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Square } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Square, ChevronDown, ChevronRight } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 	import { NODE } from '../../util'
 	import { HttpTriggerService, ScheduleService } from '$lib/gen'
@@ -16,7 +16,6 @@
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { twMerge } from 'tailwind-merge'
 	import MapItem from '../../../flows/map/MapItem.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { fade, scale } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
 
@@ -241,14 +240,18 @@
 
 				{#if data.flowIsSimplifiable}
 					<div class="grow-0 center-center">
-						<Toggle
-							size="xs"
-							label="Simplify view"
-							bind:checked={simplifiedTriggers}
-							on:change={(e) => {
-								e.stopPropagation()
+						<button
+							class="flex items-center text-xs"
+							on:click={() => {
+								simplifiedTriggers = !simplifiedTriggers
 							}}
-						/>
+						>
+							{#if !simplifiedTriggers}
+								<ChevronDown class="ml-1" size={14} />
+							{:else}
+								<ChevronRight class="ml-1" size={14} />
+							{/if}
+						</button>
 					</div>
 				{/if}
 
