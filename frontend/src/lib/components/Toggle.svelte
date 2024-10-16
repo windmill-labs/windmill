@@ -3,6 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Tooltip from './Tooltip.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	export let options: {
 		left?: string
@@ -17,6 +18,7 @@
 	export let color: 'blue' | 'red' | 'nord' = 'blue'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
+	export let eeOnly: boolean = false
 
 	export let size: 'sm' | 'xs' = 'sm'
 
@@ -96,3 +98,11 @@
 	{/if}
 	<slot name="right" />
 </label>
+{#if eeOnly && disabled}
+	<span
+		class="inline-flex text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+	>
+		<AlertTriangle size={16} />
+		EE only <Tooltip>Enterprise Edition only feature</Tooltip>
+	</span>
+{/if}

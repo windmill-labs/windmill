@@ -43,7 +43,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
@@ -83,6 +83,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
+	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -487,7 +488,7 @@
 	}
 
 	let token = 'TOKEN_TO_CREATE'
-	let detailSelected = 'saved_inputs'
+	let rightPaneSelected = 'saved_inputs'
 </script>
 
 <MoveDrawer
@@ -522,7 +523,7 @@
 	{#key script.hash}
 		<DetailPageLayout
 			{triggersCount}
-			bind:selected={detailSelected}
+			bind:selected={rightPaneSelected}
 			isOperator={$userStore?.operator}
 		>
 			<svelte:fragment slot="header">
@@ -535,6 +536,18 @@
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
 				>
+					<svelte:fragment slot="trigger-badges">
+						<TriggersBadge
+							showOnlyWithCount={true}
+							path={script.path}
+							newItem={false}
+							isFlow={false}
+							selected={rightPaneSelected == 'triggers'}
+							on:select={() => {
+								rightPaneSelected = 'triggers'
+							}}
+						/>
+					</svelte:fragment>
 					{#if $workspaceStore}
 						<Star
 							kind="script"
@@ -725,7 +738,7 @@
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="schedules">
-				<div class="p-2">
+				<div class="p-2 mt-2">
 					<RunPageSchedules
 						schema={script.schema}
 						isFlow={false}

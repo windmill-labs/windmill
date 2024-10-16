@@ -51,8 +51,6 @@
 		}
 		toggleState = false
 	}
-
-	$: console.log('toggleState', toggleState)
 </script>
 
 <Toggle

@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 
 use crate::db::ApiAuthed;
-use crate::triggers::{get_triggers_count_internal, TriggersCount};
+use crate::triggers::{
+    get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
+};
 use crate::utils::WithStarredInfoQuery;
 use crate::{
     db::DB,
@@ -55,6 +57,7 @@ pub fn workspaced_service() -> Router {
         .route("/archive/*path", post(archive_flow_by_path))
         .route("/delete/*path", delete(delete_flow_by_path))
         .route("/get_triggers_count/*path", get(get_triggers_count))
+        .route("/list_tokens/*path", get(list_tokens))
         .route("/get/*path", get(get_flow_by_path))
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
@@ -882,6 +885,14 @@ async fn get_triggers_count(
 ) -> JsonResult<TriggersCount> {
     let path = path.to_path();
     get_triggers_count_internal(&db, &w_id, &path, true).await
+}
+
+async fn list_tokens(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let path = path.to_path();
+    list_tokens_internal(&db, &w_id, &path, true).await
 }
 
 async fn get_flow_by_path(

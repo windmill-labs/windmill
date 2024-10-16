@@ -155,6 +155,7 @@
 
 	setLicense()
 	export async function setCollaborationMode() {
+		await setLicense()
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
 				{
@@ -177,7 +178,7 @@
 
 		wsProvider = new WebsocketProvider(
 			`${wsProtocol}://${window.location.host}/ws_mp/`,
-			$workspaceStore + '/' + path ?? 'no-room-name',
+			$workspaceStore + '/' + (path ?? 'no-room-name'),
 			ydoc,
 			{ connect: false }
 		)

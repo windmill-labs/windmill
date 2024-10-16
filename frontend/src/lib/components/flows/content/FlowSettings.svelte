@@ -3,7 +3,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
-	import { getContext, beforeUpdate, afterUpdate } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -17,6 +17,7 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	export let noEditor: boolean
 
@@ -28,8 +29,6 @@
 	}
 	let path: Path | undefined = undefined
 	let dirtyPath = false
-
-	let autoscroll = false
 
 	let scrollableDiv: HTMLDivElement | undefined = undefined
 
@@ -56,81 +55,65 @@
 	$: activeAdvancedOptionNames = activeAdvancedOptions
 		.filter((option) => option.active)
 		.map((option) => option.name)
-
-	beforeUpdate(() => {
-		if (scrollableDiv) {
-			const scrollableDistance = scrollableDiv.scrollHeight - scrollableDiv.offsetHeight
-			autoscroll = scrollableDiv.scrollTop > scrollableDistance - 20
-			console.log('autoscroll', autoscroll)
-		}
-	})
-
-	afterUpdate(() => {
-		if (autoscroll && scrollableDiv) {
-			scrollableDiv.scrollTo(0, scrollableDiv.scrollHeight)
-		}
-	})
 </script>
 
 <div class="h-full overflow-y-auto flex flex-col" bind:this={scrollableDiv}>
 	<FlowCard {noEditor} title="Settings">
 		<div class="grow min-h-0 p-4 h-full flex flex-col gap-8">
 			<!-- Metadata Section -->
-			<Section label="Metadata" small={true}>
-				<div class="h-full gap-8 flex flex-col">
-					<Label label="Summary">
-						<MetadataGen
-							bind:content={$flowStore.summary}
-							promptConfigName="flowSummary"
-							flow={$flowStore.value}
-							on:change={() => {
-								if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
-									path?.setName(
-										$flowStore.summary
-											.toLowerCase()
-											.replace(/[^a-z0-9_]/g, '_')
-											.replace(/-+/g, '_')
-											.replace(/^-|-$/g, '')
-									)
-								}
-							}}
-							elementProps={{
-								type: 'text',
-								id: 'flow-summary',
-								placeholder: 'Short summary to be displayed when listed'
-							}}
+			<div class="gap-8 flex flex-col">
+				<Label label="Summary">
+					<MetadataGen
+						bind:content={$flowStore.summary}
+						promptConfigName="flowSummary"
+						flow={$flowStore.value}
+						on:change={() => {
+							if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
+								path?.setName(
+									$flowStore.summary
+										.toLowerCase()
+										.replace(/[^a-z0-9_]/g, '_')
+										.replace(/-+/g, '_')
+										.replace(/^-|-$/g, '')
+								)
+							}
+						}}
+						elementProps={{
+							type: 'text',
+							id: 'flow-summary',
+							placeholder: 'Short summary to be displayed when listed'
+						}}
+					/>
+				</Label>
+
+				{#if !noEditor}
+					<Label label="Path">
+						<Path
+							autofocus={false}
+							bind:this={path}
+							bind:dirty={dirtyPath}
+							bind:path={$pathStore}
+							{initialPath}
+							namePlaceholder="flow"
+							kind="flow"
 						/>
 					</Label>
+				{/if}
 
-					{#if !noEditor}
-						<Label label="Path">
-							<Path
-								autofocus={false}
-								bind:this={path}
-								bind:dirty={dirtyPath}
-								bind:path={$pathStore}
-								{initialPath}
-								namePlaceholder="flow"
-								kind="flow"
-							/>
-						</Label>
-					{/if}
-
-					<Label label="Description">
-						<MetadataGen
-							bind:content={$flowStore.description}
-							promptConfigName="flowDescription"
-							flow={$flowStore.value}
-							class="w-full"
-							elementType="textarea"
-							elementProps={{
-								id: 'inp',
-								placeholder: 'What this flow does and how to use it.'
-							}}
-						/>
-					</Label>
-				</div>
-			</Section>
+				<Label label="Description">
+					<MetadataGen
+						bind:content={$flowStore.description}
+						promptConfigName="flowDescription"
+						flow={$flowStore.value}
+						class="w-full"
+						elementType="textarea"
+						elementProps={{
+							id: 'inp',
+							placeholder: 'What this flow does and how to use it.'
+						}}
+					/>
+				</Label>
+			</div>
 
 			<!-- Deployable Section -->
 			<Section
@@ -139,8 +122,41 @@
 				small={true}
 				class="h-full grow  min-h-0 flex flex-col gap-4"
 			>
+				<!-- Worker Group Section -->
+				{#if customUi?.settingsTabs?.workerGroup != false}
+					<div>
+						<Toggle
+							textClass="font-normal text-sm"
+							color="nord"
+							size="xs"
+							checked={displayWorkerTagPicker}
+							on:change={() => {
+								displayWorkerTagPicker = !displayWorkerTagPicker
+								if (!displayWorkerTagPicker) {
+									$flowStore.tag = undefined
+								}
+							}}
+							options={{
+								right: 'Worker Group Tag (Queue)',
+								rightTooltip:
+									"When a worker group tag is defined at the flow level, any steps inside the flow will run on any worker group that listen to that tag, regardless of the steps tag. If no worker group tags is defined, the flow controls will be executed with the default tag 'flow' and the steps will be executed with their respective tag"
+							}}
+							class="py-1"
+						/>
+
+						{#if displayWorkerTagPicker}
+							<WorkerTagPicker bind:tag={$flowStore.tag} popupPlacement="top-end" />
+						{/if}
+					</div>
+
+					<!-- <Tooltip
+								>In this mode, every scripts of this flow is run on the workers dedicated to this flow
+								that keep the scripts "hot" so that there is not cold start cost incurred. Steps can run
+								at >1500 rps in this mode.</Tooltip
+							> -->
+				{/if}
+
 				<!-- Metadata Advanced Section -->
-				<!-- TODO: Add EE-only badge when we have it -->
 				<svelte:fragment slot="badge">
 					{#if numberOfAdvancedOptionsOn > 0}
 						<div class="flex grow min-w-0 w-full flex-wrap gap-1 ps-2">
@@ -152,99 +168,6 @@
 						</div>
 					{/if}
 				</svelte:fragment>
-
-				<!-- Priority Section -->
-				<Toggle
-					textClass="font-normal text-sm"
-					color="nord"
-					size="xs"
-					disabled={!$enterpriseLicense || isCloudHosted()}
-					checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
-					on:change={() => {
-						if ($flowStore.value.priority) {
-							$flowStore.value.priority = undefined
-						} else {
-							$flowStore.value.priority = 100
-						}
-					}}
-					options={{
-						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
-							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
-						}`
-					}}
-					textDisabled={true}
-					class="py-1 relative"
-				>
-					<svelte:fragment slot="right">
-						<input
-							type="number"
-							class="!w-16 text-xs ml-4 absolute left-52"
-							disabled={$flowStore.value.priority === undefined}
-							bind:value={$flowStore.value.priority}
-							on:focus
-							on:change={() => {
-								if ($flowStore.value.priority && $flowStore.value.priority > 100) {
-									$flowStore.value.priority = 100
-								} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
-									$flowStore.value.priority = 0
-								}
-							}}
-						/>
-					</svelte:fragment>
-				</Toggle>
-
-				<!-- Visibility Section -->
-				<Toggle
-					textClass="font-normal text-sm"
-					color="nord"
-					size="xs"
-					checked={Boolean($flowStore.visible_to_runner_only)}
-					on:change={() => {
-						if ($flowStore.visible_to_runner_only) {
-							$flowStore.visible_to_runner_only = undefined
-						} else {
-							$flowStore.visible_to_runner_only = true
-						}
-					}}
-					options={{
-						right: 'Make runs invisible to others',
-						rightTooltip:
-							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.'
-					}}
-					class="py-1"
-					textDisabled={true}
-				/>
-
-				<!-- Error Handler Section -->
-				<div class="flex flex-row items-center py-1">
-					<ErrorHandlerToggleButtonV2
-						color="nord"
-						kind="flow"
-						scriptOrFlowPath={$pathStore}
-						bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
-						textDisabled={true}
-					/>
-				</div>
-
-				<!-- Shared Directory Section -->
-				{#if customUi?.settingsTabs?.sharedDiretory != false}
-					<Toggle
-						textClass="font-normal text-sm"
-						color="nord"
-						size="xs"
-						bind:checked={$flowStore.value.same_worker}
-						options={{
-							right: 'Shared Directory on `./shared`',
-							rightTooltip:
-								'Steps will share a folder at `./shared` in which they can store heavier data and ' +
-								'pass them to the next step. Beware that the `./shared` folder is not ' +
-								'preserved across suspends and sleeps.'
-						}}
-						class="py-1"
-						textDisabled={true}
-					/>
-				{/if}
 
 				<!-- Cache Section -->
 				{#if customUi?.settingsTabs?.cache != false}
@@ -265,7 +188,6 @@
 								right: 'Cache the results for each possible inputs'
 							}}
 							class="py-1"
-							textDisabled={true}
 						/>
 						{#if $flowStore.value.cache_ttl}
 							<div class="flex gap-x-4 flex-col gap-1">
@@ -305,7 +227,6 @@
 									'to decide if the flow should stop early.'
 							}}
 							class="py-1"
-							textDisabled={true}
 						/>
 						{#if $flowStore.value.skip_expr}
 							<div
@@ -351,12 +272,11 @@
 								}
 							}}
 							options={{
-								right: 'Early return sync endpoint at a top-level step',
+								right: 'Early return for sync webhooks',
 								rightTooltip:
 									'If defined, sync endpoints will return early at the node defined here while the rest of the flow continue asynchronously.'
 							}}
 							class="py-1"
-							textDisabled={true}
 						/>
 						{#if $flowStore.value.early_return}
 							<div
@@ -380,72 +300,62 @@
 					</div>
 				{/if}
 
-				<!-- Worker Group Section -->
-				{#if customUi?.settingsTabs?.workerGroup != false}
-					<div>
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							disabled={!$enterpriseLicense}
-							checked={displayWorkerTagPicker}
-							on:change={() => {
-								displayWorkerTagPicker = !displayWorkerTagPicker
-								if (!displayWorkerTagPicker) {
-									$flowStore.tag = undefined
-								}
-							}}
-							options={{
-								right: 'Worker Group Tag (Queue)',
-								rightTooltip:
-									"When a worker group tag is defined at the flow level, any steps inside the flow will run on any worker group that listen to that tag, regardless of the steps tag. If no worker group tags is defined, the flow controls will be executed with the default tag 'flow' and the steps will be executed with their respective tag"
-							}}
-							class="py-1"
-							textDisabled={true}
-						/>
-
-						{#if displayWorkerTagPicker}
-							<WorkerTagPicker bind:tag={$flowStore.tag} popupPlacement="top-end" />
-						{/if}
-					</div>
-
-					<div>
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							disabled={!$enterpriseLicense || isCloudHosted()}
-							checked={Boolean($flowStore.dedicated_worker)}
-							on:change={() => {
-								if ($flowStore.dedicated_worker) {
-									$flowStore.dedicated_worker = undefined
-								} else {
-									$flowStore.dedicated_worker = true
-								}
-							}}
-							options={{
-								right: 'Flow is run on dedicated workers'
-							}}
-							class="py-1"
-							textDisabled={true}
-						/>
-						{#if $flowStore.dedicated_worker}
-							<div>
-								<Alert type="info" title="Require dedicated workers">
-									One worker in a worker group needs to be configured with dedicated worker set to: <pre
-										>{$workspaceStore}:flow/{$pathStore}</pre
-									>
-								</Alert>
-							</div>
-						{/if}
-					</div>
-
-					<!-- <Tooltip
-						>In this mode, every scripts of this flow is run on the workers dedicated to this flow
-						that keep the scripts "hot" so that there is not cold start cost incurred. Steps can run
-						at >1500 rps in this mode.</Tooltip
-					> -->
+				<!-- Shared Directory Section -->
+				{#if customUi?.settingsTabs?.sharedDiretory != false}
+					<Toggle
+						textClass="font-normal text-sm"
+						color="nord"
+						size="xs"
+						bind:checked={$flowStore.value.same_worker}
+						options={{
+							right: 'Same Worker + Shared Directory on `./shared`',
+							rightTooltip:
+								'Steps will share a folder at `./shared` in which they can store heavier data and ' +
+								'pass them to the next step. Beware that the `./shared` folder is not ' +
+								'preserved across suspends and sleeps.'
+						}}
+						class="py-1"
+					/>
 				{/if}
+
+				<!-- Visibility Section -->
+				<Toggle
+					textClass="font-normal text-sm"
+					color="nord"
+					size="xs"
+					checked={Boolean($flowStore.visible_to_runner_only)}
+					on:change={() => {
+						if ($flowStore.visible_to_runner_only) {
+							$flowStore.visible_to_runner_only = undefined
+						} else {
+							$flowStore.visible_to_runner_only = true
+						}
+					}}
+					options={{
+						right: 'Make runs invisible to others',
+						rightTooltip:
+							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.'
+					}}
+					class="py-1"
+				/>
+
+				<!-- Error Handler Section -->
+				<div class="flex flex-row items-center py-1">
+					<ErrorHandlerToggleButtonV2
+						color="nord"
+						kind="flow"
+						scriptOrFlowPath={$pathStore}
+						bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
+					/>
+					{#if !$enterpriseLicense}
+						<span
+							class="inline-flex text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+						>
+							<AlertTriangle size={16} />
+							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
+						</span>
+					{/if}
+				</div>
 
 				<!-- Concurrency Section -->
 				{#if customUi?.settingsTabs?.concurrency != false}
@@ -468,7 +378,7 @@
 								rightTooltip: 'Allowed concurrency within a given timeframe'
 							}}
 							class="py-1"
-							textDisabled={true}
+							eeOnly={true}
 						/>
 
 						{#if $flowStore.value.concurrent_limit}
@@ -516,6 +426,86 @@
 						{/if}
 					</div>
 				{/if}
+
+				<!-- Priority Section -->
+				<Toggle
+					textClass="font-normal text-sm"
+					color="nord"
+					size="xs"
+					disabled={!$enterpriseLicense || isCloudHosted()}
+					checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
+					on:change={() => {
+						if ($flowStore.value.priority) {
+							$flowStore.value.priority = undefined
+						} else {
+							$flowStore.value.priority = 100
+						}
+					}}
+					options={{
+						right: `Label as high priority`,
+						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
+							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
+						}`
+					}}
+					class="py-1 relative"
+				>
+					<svelte:fragment slot="right">
+						<input
+							type="number"
+							class="!w-16 text-xs ml-4 absolute left-52"
+							disabled={$flowStore.value.priority === undefined}
+							bind:value={$flowStore.value.priority}
+							on:focus
+							on:change={() => {
+								if ($flowStore.value.priority && $flowStore.value.priority > 100) {
+									$flowStore.value.priority = 100
+								} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
+									$flowStore.value.priority = 0
+								}
+							}}
+						/>
+						{#if !$enterpriseLicense || isCloudHosted()}
+							<span
+								class="inline-flex absolute top-0 left-72 text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+							>
+								<AlertTriangle size={16} />
+								EE only <Tooltip>Enterprise Edition only feature</Tooltip>
+							</span>
+						{/if}
+					</svelte:fragment>
+				</Toggle>
+
+				<div>
+					<Toggle
+						textClass="font-normal text-sm"
+						color="nord"
+						size="xs"
+						disabled={!$enterpriseLicense || isCloudHosted()}
+						checked={Boolean($flowStore.dedicated_worker)}
+						on:change={() => {
+							if ($flowStore.dedicated_worker) {
+								$flowStore.dedicated_worker = undefined
+							} else {
+								$flowStore.dedicated_worker = true
+							}
+						}}
+						options={{
+							right: 'Flow is run on dedicated workers'
+						}}
+						class="py-1"
+						eeOnly={true}
+					/>
+
+					{#if $flowStore.dedicated_worker}
+						<div>
+							<Alert type="info" title="Require dedicated workers">
+								One worker in a worker group needs to be configured with dedicated worker set to: <pre
+									>{$workspaceStore}:flow/{$pathStore}</pre
+								>
+							</Alert>
+						</div>
+					{/if}
+				</div>
 			</Section>
 		</div>
 	</FlowCard>

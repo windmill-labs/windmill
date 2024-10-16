@@ -28,9 +28,11 @@
 					{:else}
 						<ChevronDown size={16} />
 					{/if}
+					{label}
 				</button>
+			{:else}
+				{label}
 			{/if}
-			{label}
 
 			<slot name="header" />
 			{#if tooltip}

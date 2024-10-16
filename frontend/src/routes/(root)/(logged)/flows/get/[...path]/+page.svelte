@@ -42,7 +42,7 @@
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
@@ -59,6 +59,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
+	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -383,6 +384,18 @@
 				errorHandlerKind="flow"
 				tag={flow.tag}
 			>
+				<svelte:fragment slot="trigger-badges">
+					<TriggersBadge
+						showOnlyWithCount={true}
+						{path}
+						newItem={false}
+						isFlow
+						selected={rightPaneSelected == 'triggers'}
+						on:select={() => {
+							rightPaneSelected = 'triggers'
+						}}
+					/>
+				</svelte:fragment>
 				{#if $workspaceStore}
 					<Star
 						kind="flow"

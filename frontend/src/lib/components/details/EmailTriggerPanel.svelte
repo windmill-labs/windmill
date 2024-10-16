@@ -15,6 +15,7 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import TriggerTokens from '../triggers/TriggerTokens.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -22,7 +23,6 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
-	export let newFlow: boolean = false
 
 	let emailDomain: string | null = null
 
@@ -34,6 +34,7 @@
 			})) as any) ?? null
 		loading = false
 	}
+
 	getEmailDomain()
 
 	let requestType: 'hash' | 'path' = 'path'
@@ -54,6 +55,8 @@
 	export let email: string = ''
 
 	$: email = emailAddress()
+
+	let triggerTokens: TriggerTokens | undefined = undefined
 </script>
 
 <HighlightTheme />
@@ -62,6 +65,7 @@
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {
 		token = e.detail
+		triggerTokens?.listTokens()
 	}}
 	newTokenWorkspace={$workspaceStore}
 	newTokenLabel={`${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
@@ -139,10 +143,6 @@
 			</Alert>
 		{/if}
 
-		{#if newFlow}
-			<Alert title="Triggers disabled" type="warning" size="xs">
-				Deploy the flow to enable email triggers.
-			</Alert>
-		{/if}
+		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="email" />
 	{/if}
 </div>

@@ -8,14 +8,18 @@
 	import RouteEditor from './RouteEditor.svelte'
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
+	import type { TriggerContext } from '../triggers'
+	import { getContext } from 'svelte'
 
 	export let isFlow: boolean
 	export let path: string
-	export let newFlow: boolean = false
+	export let newItem: boolean = false
 
 	let routeEditor: RouteEditor
 
 	$: path && loadTriggers()
+
+	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	let httpTriggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {
@@ -29,6 +33,7 @@
 			).map((x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
+			$triggersCount = { ...($triggersCount ?? {}), http_routes_count: httpTriggers?.length }
 		} catch (e) {
 			console.error('impossible to load http routes', e)
 		}
@@ -43,7 +48,7 @@
 />
 
 <div class="flex flex-col gap-4">
-	{#if $userStore?.is_admin || $userStore?.is_super_admin}
+	{#if !newItem && ($userStore?.is_admin || $userStore?.is_super_admin)}
 		<Button
 			on:click={() => routeEditor?.openNew(isFlow, path)}
 			variant="border"
@@ -86,9 +91,9 @@
 		<Skeleton layout={[[8]]} />
 	{/if}
 
-	{#if newFlow}
+	{#if newItem}
 		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the flow to enable routes triggers.
+			Deploy the {isFlow ? 'flow' : 'script'} to enable http routes triggers.
 		</Alert>
 	{/if}
 </div>

@@ -101,10 +101,23 @@
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 
 	$: setContext('customUi', customUi)
 
 	const dispatch = createEventDispatcher()
+
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
+	const triggersCount = writable<TriggersCount | undefined>(
+		savedPrimarySchedule
+			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+			: undefined
+	)
+
+	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
+		primaryScheduleStore.set(schedule)
+		loadTriggers()
+	}
 
 	async function createSchedule(path: string) {
 		if ($primaryScheduleStore) {
@@ -192,7 +205,8 @@
 					typ: 'flow',
 					value: {
 						...flow,
-						path: $pathStore
+						path: $pathStore,
+						primary_schedule: $primaryScheduleStore
 					}
 				}
 			})
@@ -373,7 +387,8 @@
 					encodeState({
 						flow: $flowStore,
 						path: $pathStore,
-						selectedId: $selectedIdStore
+						selectedId: $selectedIdStore,
+						primarySchedule: $primaryScheduleStore
 					})
 				)
 			} catch (err) {
@@ -410,8 +425,6 @@
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
-	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -436,30 +449,25 @@
 		triggersCount
 	})
 
-	async function loadSchedule() {
-		// loadFlowSchedule(initialPath, $workspaceStore!)
-		// 	.then((schedule: ScheduleTrigger) => {
-		// 		scheduleStore.set(schedule)
-		// 	})
-		// 	.catch(() => {
-		// 		scheduleStore.set({
-		// 			summary: undefined,
-		// 			cron: '0 */5 * * *',
-		// 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		// 			args: {},
-		// 			enabled: false
-		// 		})
-		// 	})
-
+	async function loadTriggers() {
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
+		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
+			$triggersCount = {
+				...($triggersCount ?? {}),
+				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
+				primary_schedule: {
+					schedule: $primaryScheduleStore.cron
+				}
+			}
+		}
 	}
 
 	$: selectedId && select(selectedId)
 
-	$: initialPath && initialPath != '' && $workspaceStore && loadSchedule()
+	$: initialPath && initialPath != '' && $workspaceStore && loadTriggers()
 
 	function onKeyDown(event: KeyboardEvent) {
 		let classes = event.target?.['className']
@@ -1198,7 +1206,7 @@
 								? $primaryScheduleStore
 									? $primaryScheduleStore?.cron
 									: ''
-								: $triggersCount?.primary_schedule}
+								: $triggersCount?.primary_schedule?.schedule}
 						</Button>
 					{/if}
 

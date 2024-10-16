@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import bash from 'svelte-highlight/languages/bash'
-	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
+	import { Tabs, Tab, TabContent, Button, Alert } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import {
@@ -15,12 +15,12 @@
 	import UserSettings from '../UserSettings.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
-	import ClipboardPanel from './ClipboardPanel.svelte'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import { base } from '$lib/base'
 	import Label from '$lib/components/Label.svelte'
-	import Alert from '../common/alert/Alert.svelte'
+	import TriggerTokens from './TriggerTokens.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -30,8 +30,7 @@
 	export let hash: string | undefined = undefined
 	export let path: string
 	export let url: string = ''
-	export let newFlow = false
-
+	export let newItem: boolean = false
 	let selectedTab: string = 'rest'
 
 	let webhooks: {
@@ -223,6 +222,8 @@ while true; do
 done`
 }`
 	}
+
+	let triggerTokens: TriggerTokens | undefined = undefined
 </script>
 
 <HighlightTheme />
@@ -231,6 +232,7 @@ done`
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {
 		token = e.detail
+		triggerTokens?.listTokens()
 	}}
 	newTokenWorkspace={$workspaceStore}
 	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
@@ -386,9 +388,14 @@ done`
 		</svelte:fragment>
 	</Tabs>
 
-	{#if newFlow}
-		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the flow to enable webhooks triggers.
+	<div class="mt-10" />
+	<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
+
+	{#if newItem}
+		<div class="mt-10" />
+		<Alert type="warning" title="Attached to a deployed path">
+			The webhooks are only valid for a given path and will only trigger the deployed version of the
+			{isFlow ? 'flow' : 'script'}.
 		</Alert>
 	{/if}
 </div>

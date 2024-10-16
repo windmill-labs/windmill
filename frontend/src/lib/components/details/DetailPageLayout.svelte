@@ -86,19 +86,6 @@
 							<slot slot="cli" name="cli" />
 						</DetailPageTriggerPanel>
 					</TabContent>
-
-					<!-- <TabContent value="detail" class="flex flex-col flex-1 h-full">
-						<DetailPageDetailPanel
-							bind:triggerSelected={$selectedTriggerStore}
-							bind:selected
-							{isOperator}
-						>
-
-							<slot slot="details" name="details" />
-							<slot slot="save_inputs" name="save_inputs" />
-							<slot slot="flow_step" name="flow_step" />
-						</DetailPageDetailPanel>
-					</TabContent> -->
 				</svelte:fragment>
 			</Tabs>
 		</div>

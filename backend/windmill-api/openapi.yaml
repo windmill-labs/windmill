@@ -4030,6 +4030,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/TriggersCount"
 
+  /w/{workspace}/scripts/list_tokens/{path}:
+    get:
+      summary: get tokens with script scope
+      operationId: listTokensOfScript
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: tokens list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TruncatedToken"
+
   /w/{workspace}/scripts/get/draft/{path}:
     get:
       summary: get script by path with draft
@@ -4650,6 +4669,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TriggersCount"
+
+  /w/{workspace}/flows/list_tokens/{path}:
+    get:
+      summary: get tokens with flow scope
+      operationId: listTokensOfFlow
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: tokens list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TruncatedToken"
+
 
   /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
     post:
@@ -10281,6 +10320,8 @@ components:
           type: array
           items:
             type: string
+        email:
+          type: string
       required:
         - token_prefix
         - created_at

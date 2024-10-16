@@ -69,6 +69,7 @@
 						{$triggersCount?.primary_schedule?.schedule ?? ''}
 					</Button>
 				{/if}
+				<slot name="trigger-badges" />
 			</div>
 			<div class="flex gap-1 md:gap-2 items-center">
 				{#if menuItems.length > 0}
