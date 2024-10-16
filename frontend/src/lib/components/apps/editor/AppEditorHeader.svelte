@@ -33,7 +33,7 @@
 		Smartphone,
 		FileClock
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
@@ -123,7 +123,6 @@
 	export let rightPanelHidden: boolean = false
 	export let bottomPanelHidden: boolean = false
 
-	let last_updated_at: string | undefined = undefined
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
@@ -168,14 +167,6 @@
 	let historyBrowserDrawerOpen = false
 	let debugAppDrawerOpen = false
 	let deploymentMsg: string | undefined = undefined
-	
-  onMount(async () => {
-		last_updated_at = (await AppService.getAppByPath({
-			workspace: $workspaceStore!,
-			path: appPath,
-			withStarredInfo: true
-		})).created_at; 
-  });
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -377,21 +368,24 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
-	  // There is onLatest, but we need more information while deploying 
-	  // We need it to show diff
-		let deployedApp = await AppService.getAppByPath({
-			workspace: $workspaceStore!,
-			path: appPath,
-			withStarredInfo: true
-		})
 
-		deployedBy = deployedApp.created_by;
-		deployedValue = deployedApp
+		// We have to make sure there is no updates when we clicked the button
+		await compareVersions();
 
-		if (last_updated_at && last_updated_at == deployedApp.created_at && onLatest) {
+		if (onLatest) {
 			// Handle directly
 			await updateApp(npath)
 		} else {
+		  // There is onLatest, but we need more information while deploying 
+		  // We need it to show diff
+			let deployedApp = await AppService.getAppByPath({
+				workspace: $workspaceStore!,
+				path: appPath,
+				withStarredInfo: true
+			})
+
+			deployedBy = deployedApp.created_by;
+			deployedValue = deployedApp
 			// Handle through confirmation modal
 			confirmCallback = async () => {
 				open = false
