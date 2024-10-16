@@ -9,7 +9,8 @@
 		ScriptService,
 		type OpenFlow,
 		type RawScript,
-		type InputTransform
+		type InputTransform,
+		type TriggersCount
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -40,7 +41,6 @@
 	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext, FlowInput } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import {
@@ -82,6 +82,7 @@
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
+	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -99,30 +100,48 @@
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
+	export let disabledFlowInputs = false
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 
 	$: setContext('customUi', customUi)
 
 	const dispatch = createEventDispatcher()
 
-	async function createSchedule(path: string) {
-		const { cron, timezone, args, enabled, summary } = $scheduleStore
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
+	const triggersCount = writable<TriggersCount | undefined>(
+		savedPrimarySchedule
+			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+			: undefined
+	)
 
-		try {
-			await ScheduleService.createSchedule({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: path,
-					schedule: formatCron(cron),
-					timezone,
-					script_path: path,
-					is_flow: true,
-					args,
-					enabled,
-					summary
-				}
-			})
-		} catch (err) {
-			sendUserToast(`The primary schedule could not be created: ${err}`, true)
+	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
+		primaryScheduleStore.set(schedule)
+		loadTriggers()
+	}
+
+	async function createSchedule(path: string) {
+		if ($primaryScheduleStore) {
+			const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
+
+			try {
+				await ScheduleService.createSchedule({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path: path,
+						schedule: formatCron(cron),
+						timezone,
+						script_path: path,
+						is_flow: true,
+						args,
+						enabled,
+						summary
+					}
+				})
+			} catch (err) {
+				sendUserToast(`The primary schedule could not be created: ${err}`, true)
+			}
+		} else {
+			sendUserToast('The primary schedule could not be created: no schedule data', true)
 		}
 	}
 
@@ -186,7 +205,8 @@
 					typ: 'flow',
 					value: {
 						...flow,
-						path: $pathStore
+						path: $pathStore,
+						primary_schedule: $primaryScheduleStore
 					}
 				}
 			})
@@ -240,7 +260,7 @@
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
-			const { cron, timezone, args, enabled, summary } = $scheduleStore
+
 			if (newFlow) {
 				try {
 					localStorage.removeItem('flow')
@@ -263,7 +283,7 @@
 						deployment_message: deploymentMsg || undefined
 					}
 				})
-				if (enabled) {
+				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule($pathStore)
 				}
 			} else {
@@ -283,31 +303,40 @@
 						workspace: $workspaceStore ?? '',
 						path: initialPath
 					})
-					if (
-						JSON.stringify(schedule.args) != JSON.stringify(args) ||
-						schedule.schedule != cron ||
-						schedule.timezone != timezone ||
-						schedule.summary != summary
-					) {
-						await ScheduleService.updateSchedule({
+					if ($primaryScheduleStore) {
+						const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
+
+						if (
+							JSON.stringify(schedule.args) != JSON.stringify(args) ||
+							schedule.schedule != cron ||
+							schedule.timezone != timezone ||
+							schedule.summary != summary
+						) {
+							await ScheduleService.updateSchedule({
+								workspace: $workspaceStore ?? '',
+								path: initialPath,
+								requestBody: {
+									schedule: formatCron(cron),
+									timezone,
+									args,
+									summary
+								}
+							})
+						}
+						if (enabled != schedule.enabled) {
+							await ScheduleService.setScheduleEnabled({
+								workspace: $workspaceStore ?? '',
+								path: initialPath,
+								requestBody: { enabled }
+							})
+						}
+					} else if (scheduleExists) {
+						await ScheduleService.deleteSchedule({
 							workspace: $workspaceStore ?? '',
-							path: initialPath,
-							requestBody: {
-								schedule: formatCron(cron),
-								timezone,
-								args,
-								summary
-							}
+							path: $pathStore
 						})
 					}
-					if (enabled != schedule.enabled) {
-						await ScheduleService.setScheduleEnabled({
-							workspace: $workspaceStore ?? '',
-							path: initialPath,
-							requestBody: { enabled }
-						})
-					}
-				} else if (enabled) {
+				} else if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule(initialPath)
 				}
 
@@ -358,7 +387,8 @@
 					encodeState({
 						flow: $flowStore,
 						path: $pathStore,
-						selectedId: $selectedIdStore
+						selectedId: $selectedIdStore,
+						primarySchedule: $primaryScheduleStore
 					})
 				)
 			} catch (err) {
@@ -368,18 +398,14 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
+	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
+		'webhooks'
+	)
 
 	export function getSelectedId() {
 		return $selectedIdStore
 	}
 
-	const scheduleStore = writable<Schedule>({
-		summary: undefined,
-		args: {},
-		cron: '',
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		enabled: false
-	})
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
@@ -394,9 +420,14 @@
 		selectedIdStore.set(selectedId)
 	}
 
+	function selectTrigger(selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes') {
+		selectedTriggerStore.set(selectedTrigger)
+	}
+
+	let insertButtonOpen = writable<boolean>(false)
+
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
-		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
@@ -408,28 +439,35 @@
 		saveDraft,
 		initialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		customUi
+		customUi,
+		insertButtonOpen
 	})
 
-	async function loadSchedule() {
-		loadFlowSchedule(initialPath, $workspaceStore!)
-			.then((schedule: Schedule) => {
-				scheduleStore.set(schedule)
-			})
-			.catch(() => {
-				scheduleStore.set({
-					summary: undefined,
-					cron: '0 */5 * * *',
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					args: {},
-					enabled: false
-				})
-			})
+	setContext<TriggerContext>('TriggerContext', {
+		selectedTrigger: selectedTriggerStore,
+		primarySchedule: primaryScheduleStore,
+		triggersCount
+	})
+
+	async function loadTriggers() {
+		$triggersCount = await FlowService.getTriggersCountOfFlow({
+			workspace: $workspaceStore!,
+			path: initialPath
+		})
+		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
+			$triggersCount = {
+				...($triggersCount ?? {}),
+				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
+				primary_schedule: {
+					schedule: $primaryScheduleStore.cron
+				}
+			}
+		}
 	}
 
 	$: selectedId && select(selectedId)
 
-	$: initialPath && initialPath != '' && $workspaceStore && loadSchedule()
+	$: initialPath && initialPath != '' && $workspaceStore && loadTriggers()
 
 	function onKeyDown(event: KeyboardEvent) {
 		let classes = event.target?.['className']
@@ -461,20 +499,24 @@
 				}
 				break
 			case 'ArrowDown': {
-				let ids = generateIds()
-				let idx = ids.indexOf($selectedIdStore)
-				if (idx > -1 && idx < ids.length - 1) {
-					$selectedIdStore = ids[idx + 1]
-					event.preventDefault()
+				if (!$insertButtonOpen) {
+					let ids = generateIds()
+					let idx = ids.indexOf($selectedIdStore)
+					if (idx > -1 && idx < ids.length - 1) {
+						$selectedIdStore = ids[idx + 1]
+						event.preventDefault()
+					}
 				}
 				break
 			}
 			case 'ArrowUp': {
-				let ids = generateIds()
-				let idx = ids.indexOf($selectedIdStore)
-				if (idx > 0 && idx < ids.length) {
-					$selectedIdStore = ids[idx - 1]
-					event.preventDefault()
+				if (!$insertButtonOpen) {
+					let ids = generateIds()
+					let idx = ids.indexOf($selectedIdStore)
+					if (idx > 0 && idx < ids.length) {
+						$selectedIdStore = ids[idx - 1]
+						event.preventDefault()
+					}
 				}
 				break
 			}
@@ -561,6 +603,8 @@
 				kind: string
 				app: string
 				ask_id: number
+				id: number
+				version_id: number
 			}[]
 		} catch (err) {
 			if (err.name !== 'CancelError') throw err
@@ -690,10 +734,13 @@
 			}
 
 			if (module.type === 'trigger') {
-				if (!$scheduleStore.cron) {
-					$scheduleStore.cron = '0 */15 * * *'
+				$primaryScheduleStore = {
+					summary: 'Scheduled poll of flow',
+					args: {},
+					cron: '0 */15 * * *',
+					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					enabled: true
 				}
-				$scheduleStore.enabled = true
 			}
 
 			const flowModule: FlowModule & {
@@ -890,7 +937,8 @@
 								const snakeKey = snakeCase(key)
 								if (
 									schemaProperty &&
-									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
+									(!$flowStore.schema ||
+										!(snakeKey in ($flowStore?.schema?.properties ?? ({} as any)))) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
 									if (schema?.required.includes(snakeKey)) {
@@ -1142,7 +1190,7 @@
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $scheduleStore.enabled}
+					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1150,10 +1198,15 @@
 							color="light"
 							size="xs"
 							on:click={async () => {
-								select('settings-schedule')
+								select('triggers')
+								selectTrigger('schedules')
 							}}
 						>
-							{$scheduleStore.cron ?? ''}
+							{$primaryScheduleStore != undefined
+								? $primaryScheduleStore
+									? $primaryScheduleStore?.cron
+									: ''
+								: $triggersCount?.primary_schedule?.schedule}
 						</Button>
 					{/if}
 
@@ -1317,12 +1370,14 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
+					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
 					{loading}
 					on:reload={() => {
 						renderCount += 1
 					}}
+					{newFlow}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

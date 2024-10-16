@@ -38,6 +38,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
+	import { isJobCancelable } from '$lib/utils'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -165,6 +166,8 @@
 	let graphIsRunsChart: boolean = graph === 'RunChart'
 
 	let manualDatePicker: ManuelDatePicker
+
+	let runsTable: RunsTable
 
 	$: (user ||
 		label ||
@@ -494,10 +497,6 @@
 		isCancelingVisibleJobs = true
 	}
 
-	function isJobCancelable(j: Job): boolean {
-		return j.type === 'QueuedJob' && !j.schedule_path
-	}
-
 	function jobCountString(count: number) {
 		return `${count} ${count == 1 ? 'job' : 'jobs'}`
 	}
@@ -755,13 +754,16 @@
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
-					jobs={completedJobs}
 					on:loadExtra={loadExtra}
+					jobs={completedJobs}
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
 						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+					on:pointClicked={(e) => {
+						runsTable.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -988,6 +990,7 @@
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
 							on:filterBySchedule={filterBySchedule}
+							bind:this={runsTable}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -1130,6 +1133,9 @@
 						maxTs = e.detail.max.toISOString()
 						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+					on:pointClicked={(e) => {
+						runsTable.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -1359,6 +1365,7 @@
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
 				on:filterByTag={filterByTag}
+				bind:this={runsTable}
 			/>
 		</div>
 	</div>

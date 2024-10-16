@@ -627,7 +627,7 @@
 									>
 								</button>
 							{:else if !result?.disable_download}
-								<FileDownload s3object={result} />
+								<FileDownload {workspaceId} s3object={result} />
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap"
 									on:click={() => {
@@ -854,7 +854,7 @@
 			</DrawerContent>
 		</Drawer>
 
-		<Portal>
+		<Portal name="s3filepicker">
 			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 		</Portal>
 	{/if}

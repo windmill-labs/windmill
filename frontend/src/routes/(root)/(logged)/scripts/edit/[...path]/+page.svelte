@@ -10,6 +10,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import type { ScheduleTrigger } from '$lib/components/triggers'
 
 	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -34,6 +35,8 @@
 
 	let savedScript: NewScriptWithDraft | undefined = undefined
 	let fullyLoaded = false
+
+	let savedPrimarySchedule: ScheduleTrigger | undefined = scriptLoadedFromUrl?.primarySchedule
 
 	async function loadScript(): Promise<void> {
 		fullyLoaded = false
@@ -94,6 +97,10 @@
 				savedScript = structuredClone(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
+					if (script['primary_schedule']) {
+						savedPrimarySchedule = script['primary_schedule']
+						scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
+					}
 					if (!scriptWithDraft.draft_only) {
 						reloadAction = async () => {
 							scriptLoadedFromUrl = undefined
@@ -199,6 +206,7 @@
 		bind:savedScript
 		{initialArgs}
 		{diffDrawer}
+		{savedPrimarySchedule}
 		searchParams={$page.url.searchParams}
 		on:deploy={(e) => {
 			let newHash = e.detail

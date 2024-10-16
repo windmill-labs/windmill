@@ -7,7 +7,6 @@
 	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStraightLinePath } from '../utils'
-	import InsertTriggerButton from '$lib/components/flows/map/InsertTriggerButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let sourceX: number
@@ -47,33 +46,44 @@
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
-
-	let menuOpen = false
 </script>
 
 <EdgeLabelRenderer>
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
-			class={twMerge('edgeButtonContainer nodrag nopan top-0', menuOpen ? 'z-50' : '')}
+			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY + 2}px)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}
 				index={data.index ?? 0}
-				trigger={data.enableTrigger}
+				allowTrigger={data.enableTrigger}
 				modules={data?.modules ?? []}
 				on:new={(e) => {
-					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						kind: e.detail.kind,
+						inlineScript: e.detail.inlineScript
+					})
 				}}
-				on:insert={(e) => {
+				on:pickScript={(e) => {
+					// console.log('pickScript', e)
 					data?.eventHandlers.insert({
 						modules: data.modules,
 						index: data.index,
 						script: e.detail,
-						detail: 'script'
+						kind: e.detail.kind
 					})
 				}}
-				bind:open={menuOpen}
+				on:pickFlow={(e) => {
+					// console.log('pickFlow', e)
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						flow: e.detail
+					})
+				}}
 			/>
 		</div>
 		{#if data.enableTrigger}
@@ -81,23 +91,35 @@
 				class="edgeButtonContainer nodrag nopan"
 				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY + 2}px)"
 			>
-				<InsertTriggerButton
+				<InsertModuleButton
 					disableAi={data.disableAi}
 					on:new={(e) => {
+						// console.log('new', e)
 						data?.eventHandlers.insert({
 							modules: data.modules,
 							index: data.index,
-							detail: e.detail
+							kind: e.detail.kind,
+							inlineScript: e.detail.inlineScript
 						})
 					}}
-					on:insert={(e) => {
+					on:pickScript={(e) => {
+						// console.log('pickScript', e)
 						data?.eventHandlers.insert({
 							modules: data.modules,
 							index: data.index,
 							script: e.detail,
-							detail: 'script'
+							kind: e.detail.kind
 						})
 					}}
+					on:pickFlow={(e) => {
+						// console.log('pickFlow', e)
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							flow: e.detail
+						})
+					}}
+					kind="trigger"
 					index={data?.index ?? 0}
 					modules={data?.modules ?? []}
 				/>

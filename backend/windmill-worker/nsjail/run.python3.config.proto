@@ -98,6 +98,13 @@ mount {
 }
 
 mount {
+    dst: "/dev/shm"
+    fstype: "tmpfs"
+    rw: true
+    is_bind: false
+}
+
+mount {
     src: "/dev/random"
     dst: "/dev/random"
     is_bind: true

@@ -199,11 +199,6 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         Err(err) => Err(err),
     }?;
 
-    #[cfg(feature = "enterprise")]
-    if let Err(e) = windmill_migrations(&mut custom_migrator, db).await {
-        tracing::error!("Could not apply windmill custom migrations: {e:#}")
-    }
-
     Ok(())
 }
 
@@ -494,33 +489,6 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         ).execute(db).await?;
     });
 
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(), Error> {
-    if std::env::var("MIGRATION_NO_BYPASSRLS").is_ok() {
-        migrator.lock().await?;
-        let has_done_migration = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'bypassrls_1-2')",
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
-        if !has_done_migration {
-            let query = include_str!("../../custom_migrations/bypassrls_1.sql");
-            tracing::info!("Applying bypassrls_1.sql");
-            let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-            tx.execute(query).await?;
-            tracing::info!("Applied bypassrls_1.sql");
-            sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1-2')")
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-        }
-        migrator.unlock().await?;
-    }
     Ok(())
 }
 

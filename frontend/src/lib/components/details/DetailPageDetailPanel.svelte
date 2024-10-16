@@ -1,25 +1,17 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
-	import { CalendarCheck2, MailIcon, Route, Terminal, Webhook } from 'lucide-svelte'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import FlowViewerInner from '../FlowViewerInner.svelte'
+	import DetailPageTriggerPanel from './DetailPageTriggerPanel.svelte'
 
-	export let triggerSelected: 'webhooks' | 'email' | 'schedule' | 'cli' | 'routes' = 'webhooks'
+	export let triggerSelected: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' = 'webhooks'
 	export let flow_json: any | undefined = undefined
-	export let hasStepDetails: boolean = false
 
 	export let isOperator: boolean = false
 
 	export let selected: string
-
-	$: if (hasStepDetails) {
-		selected = 'flow_step'
-	}
-
-	// When we no longer have a selected flow step, switch to saved inputs
-	$: !hasStepDetails && selected === 'flow_step' && (selected = 'saved_inputs')
 </script>
 
 <HighlightTheme />
@@ -27,79 +19,38 @@
 <Splitpanes horizontal class="h-full">
 	<Pane size={100}>
 		<Tabs bind:selected>
-			<Tab value="saved_inputs">Saved inputs</Tab>
+			<Tab value="saved_inputs">Saved Inputs</Tab>
 			{#if !isOperator}
-				<Tab value="details">Details & Triggers</Tab>
+				<Tab value="triggers">Triggers</Tab>
 			{/if}
 			{#if flow_json}
-				<Tab value="raw">Raw</Tab>
+				<Tab value="raw">Export</Tab>
 			{/if}
-			{#if hasStepDetails}
+			{#if selected == 'flow_step'}
 				<Tab value="flow_step">Step</Tab>
 			{/if}
+			{#if !flow_json && !isOperator}
+				<Tab value="schema">Schema</Tab>
+			{/if}
+
 			<svelte:fragment slot="content">
 				<div class="overflow-hidden" style="height:calc(100% - 32px);">
 					<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
 						<slot name="save_inputs" />
 					</TabContent>
-					<TabContent value="details" class="flex flex-col flex-1 h-full">
-						<Splitpanes horizontal class="h-full">
-							<Pane size={50} minSize={20}>
-								<slot name="details" />
-							</Pane>
-							<Pane size={50} minSize={20}>
-								<Tabs bind:selected={triggerSelected}>
-									<Tab value="webhooks">
-										<span class="flex flex-row gap-2 items-center">
-											<Webhook size={14} />
-											Webhooks
-										</span>
-									</Tab>
-									<Tab value="schedule">
-										<span class="flex flex-row gap-2 items-center">
-											<CalendarCheck2 size={14} />
-											Schedules
-										</span>
-									</Tab>
-									<Tab value="routes">
-										<span class="flex flex-row gap-2 items-center">
-											<Route size={14} />
-											HTTP
-										</span>
-									</Tab>
-									<Tab value="email">
-										<span class="flex flex-row gap-2 items-center">
-											<MailIcon size={14} />
-											Email
-										</span>
-									</Tab>
-									<Tab value="cli">
-										<span class="flex flex-row gap-2 items-center">
-											<Terminal size={14} />
-											CLI
-										</span>
-									</Tab>
-								</Tabs>
-
-								<div class="h-[calc(100%-32px)]">
-									<div class="h-full overflow-auto">
-										{#if triggerSelected === 'webhooks'}
-											<slot name="webhooks" />
-										{:else if triggerSelected === 'routes'}
-											<slot name="routes" />
-										{:else if triggerSelected === 'email'}
-											<slot name="email" />
-										{:else if triggerSelected === 'schedule'}
-											<slot name="schedule" />
-										{:else if triggerSelected === 'cli'}
-											<slot name="cli" />
-										{/if}
-									</div>
-								</div>
-							</Pane>
-						</Splitpanes>
+					<TabContent value="schema" class="flex flex-col flex-1 h-full">
+						<slot name="schema" />
 					</TabContent>
-					<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto">
+					<TabContent value="triggers" class="flex flex-col flex-1 h-full pt-2">
+						<DetailPageTriggerPanel bind:triggerSelected>
+							<slot slot="webhooks" name="webhooks" />
+							<slot slot="routes" name="routes" />
+							<slot slot="emails" name="emails" />
+							<slot slot="schedules" name="schedules" />
+							<slot slot="cli" name="cli" />
+						</DetailPageTriggerPanel>
+					</TabContent>
+					<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">
 						<FlowViewerInner flow={flow_json} />
 					</TabContent>
 					<TabContent value="flow_step" class="flex flex-col flex-1 h-full">

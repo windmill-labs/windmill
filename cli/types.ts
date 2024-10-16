@@ -6,7 +6,7 @@ import {
   colors,
   log,
   path,
-  yamlParse,
+  yamlParseContent,
   yamlStringify,
 } from "./deps.ts";
 import { pushApp } from "./apps.ts";
@@ -115,7 +115,7 @@ export async function pushObj(
   newObj: any,
   plainSecrets: boolean,
   alreadySynced: string[],
-  message?: string,
+  message?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -155,7 +155,7 @@ export async function pushObj(
 
 export function parseFromPath(p: string, content: string): any {
   return p.endsWith(".yaml")
-    ? yamlParse(content)
+    ? yamlParseContent(p, content)
     : p.endsWith(".json")
     ? JSON.parse(content)
     : content;
@@ -164,7 +164,7 @@ export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
     return JSON.parse(Deno.readTextFileSync(p));
   } else if (p.endsWith(".yaml") || p.endsWith(".yml")) {
-    return yamlParse(Deno.readTextFileSync(p));
+    return yamlParseContent(p, Deno.readTextFileSync(p));
   } else {
     throw new Error("Could not read file " + p);
   }
@@ -227,7 +227,7 @@ export function getTypeStrFromPath(
     return typeEnding;
   } else {
     if (isFileResource(p)) {
-      return "resource"
+      return "resource";
     }
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
   }

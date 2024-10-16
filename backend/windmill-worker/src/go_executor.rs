@@ -225,7 +225,12 @@ func Run(req Req) (interface{{}}, error){{
         }
     } else {
         let target = format!("{job_dir}/main");
-        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
+        #[cfg(unix)]
+        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
+        #[cfg(windows)]
+        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+
+        symlink.map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))

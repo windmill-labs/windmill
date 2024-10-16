@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
@@ -8,7 +7,7 @@
 
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { Plus } from 'lucide-svelte'
+	import { Plus, Loader2 } from 'lucide-svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
 
@@ -65,23 +64,6 @@
 		refreshCount += 1
 		open = true
 	}
-
-	function processEvent(event: MessageEvent) {
-		if (event.origin !== window.location.origin) {
-			return
-		}
-
-		if (event.data.type === 'error') {
-			sendUserToast(event.data.error, true)
-		}
-		if (event.data.type === 'refresh') {
-			window.removeEventListener('message', processEvent)
-			value = event.data.detail
-			valueSelect = { value, label: value }
-			drawer?.closeDrawer?.()
-			open = false
-		}
-	}
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -89,12 +71,15 @@
 {#if expressOAuthSetup}
 	{#if open}
 		{#key refreshCount}
-			<iframe
-				title="App connection"
-				class="w-full h-full hidden"
-				src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
-					$workspaceStore}&express=true"
-			/>
+			{#await import('./AppConnectLightweightResourcePicker.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					workspace={appViewerContext?.workspace ?? $workspaceStore}
+					{resourceType}
+					express={true}
+				/>
+			{/await}
 		{/key}
 	{/if}
 {:else}
@@ -105,12 +90,31 @@
 			tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 			documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 		>
-			<iframe
+			{#await import('./AppConnectLightweightResourcePicker.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					workspace={appViewerContext?.workspace ?? $workspaceStore}
+					{resourceType}
+					express={false}
+					on:error={(e) => {
+						sendUserToast(e.detail, true)
+					}}
+					on:refresh={(e) => {
+						value = e.detail
+						valueSelect = { value, label: value }
+						drawer?.closeDrawer?.()
+						open = false
+					}}
+				/>
+			{/await}
+
+			<!-- <iframe
 				title="App connection"
 				class="w-full h-full"
 				src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
 					$workspaceStore}&express=false"
-			/>
+			/> -->
 		</DrawerContent>
 	</Drawer>
 {/if}
@@ -142,13 +146,11 @@
 			<Button
 				{disabled}
 				color="light"
-				variant="border"
-				size="xs"
+				variant="contained"
+				btnClasses="w-8 px-0.5 py-1.5"
+				size="sm"
 				on:click={() => {
 					open = true
-					window.removeEventListener('message', processEvent)
-					window.addEventListener('message', processEvent)
-
 					drawer?.openDrawer?.()
 				}}
 				startIcon={{ icon: Plus }}

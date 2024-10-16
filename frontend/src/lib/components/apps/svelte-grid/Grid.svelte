@@ -1,15 +1,43 @@
+<script lang="ts" context="module">
+	import { writable } from 'svelte/store'
+
+	const componentDraggedIdStore = writable<string | undefined>(undefined)
+	const componentDraggedParentIdStore = writable<string | undefined>(undefined)
+	const overlappedStore = writable<string | undefined>(undefined)
+	const fakeShadowStore = writable<GridShadow | undefined>(undefined)
+	const isCtrlOrMetaPressedStore = writable<boolean>(false)
+</script>
+
 <script lang="ts">
+	import gridHelp from './utils/helper'
+	import type { AppViewerContext, GridItem } from '../types'
+	import { twMerge } from 'tailwind-merge'
+
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher, getContext } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
-	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT, sortGridItemsPosition } from '../editor/appUtils'
+	import {
+		areShadowsTheSame,
+		findGridItemParentGrid,
+		getDeltaXByComponent,
+		getDeltaYByComponent,
+		isContainer,
+		ROW_GAP_X,
+		ROW_GAP_Y,
+		ROW_HEIGHT,
+		sortGridItemsPosition,
+		subGridIndexKey,
+		type GridShadow
+	} from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
+
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let items: FilledItem<T>[]
 	export let rowHeight: number = ROW_HEIGHT
@@ -22,11 +50,10 @@
 	export let containerWidth: number | undefined = undefined
 	export let scroller: HTMLElement | undefined = undefined
 	export let sensor = 20
-
+	export let root: boolean = false
 	export let parentWidth: number | undefined = undefined
 
 	let getComputedCols
-
 	let container
 
 	$: [gapX, gapY] = gap
@@ -81,7 +108,21 @@
 	let sortedItems: FilledItem<T>[] = []
 	$: sortedItems = JSON.parse(JSON.stringify(items)).sort((a, b) => a.id.localeCompare(b.id))
 
+	let resizing: boolean = false
+
+	function handleKeyUp(event) {
+		if ((event.key === 'Control' || event.key === 'Meta') && $isCtrlOrMetaPressedStore) {
+			setTimeout(() => {
+				$isCtrlOrMetaPressedStore = false
+
+				$fakeShadowStore = undefined
+			}, 50)
+		}
+	}
+	const initialFixedStates = new Map()
+
 	let initItems: FilledItem<T>[] | undefined = undefined
+
 	const updateMatrix = ({ detail }) => {
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
@@ -114,10 +155,44 @@
 						...shadows[id]
 					}
 				}
-				let { items, overlap } = moveItem(activeItem, sortedItems, getComputedCols)
 
-				sortedItems = items
-				overlapped = overlap ? id : undefined
+				if ($isCtrlOrMetaPressedStore) {
+					if ($componentDraggedParentIdStore === $overlappedStore) {
+						const fixedContainer = sortedItems.map((item) => {
+							if (isContainer(item.data['type'])) {
+								initialFixedStates.set(item.id, {
+									item3Fixed: item[3].fixed,
+									item12Fixed: item[12].fixed
+								})
+
+								item[3].fixed = true
+								item[12].fixed = true
+							}
+
+							return item
+						})
+
+						let { items } = moveItem(activeItem, fixedContainer, getComputedCols)
+
+						items = items.map((item) => {
+							if (initialFixedStates.has(item.id)) {
+								const initialState = initialFixedStates.get(item.id)
+
+								if (initialState) {
+									item[3].fixed = initialState.item3Fixed
+									item[12].fixed = initialState.item12Fixed
+								}
+							}
+							return item
+						})
+
+						sortedItems = items
+					}
+				} else {
+					let { items } = moveItem(activeItem, sortedItems, getComputedCols)
+
+					sortedItems = items
+				}
 			}
 		}
 
@@ -139,6 +214,8 @@
 
 	//let hiddenComponents = writable({})
 
+	let lastDetail: { isPointerUp: false; activate: false; id: string | undefined } | undefined =
+		undefined
 	const handleRepaint = ({ detail }) => {
 		if (!detail.isPointerUp) {
 			throttleMatrix({ detail })
@@ -156,6 +233,21 @@
 		*/
 	}
 
+	function handleKeyDown(event) {
+		if ((event.key === 'Control' || event.key === 'Meta') && !$isCtrlOrMetaPressedStore) {
+			if (resizing) {
+				return
+			}
+
+			$isCtrlOrMetaPressedStore = true
+
+			if (lastDetail) {
+				throttleMatrix({ detail: lastDetail })
+				lastDetail = undefined
+			}
+		}
+	}
+
 	let moveResizes: Record<string, MoveResize> = {}
 	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
 
@@ -165,32 +257,199 @@
 				moveResize?.updateMove(JSON.parse(JSON.stringify(detail.cordDiff)), detail.eventY)
 			}
 		})
+
+		lastDetail = detail
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
+
+		if (!$isCtrlOrMetaPressedStore) {
+			$overlappedStore = undefined
+			return
+		}
+
+		if (
+			// We don't display the fake shadow if the dragged component is a child of the overlapped component
+			$componentDraggedParentIdStore !== $overlappedStore &&
+			detail.shadow &&
+			// only update the fake shadow if the are different
+			!areShadowsTheSame($fakeShadowStore, detail.shadow)
+		) {
+			const draggedItem = sortedItems.find((item) => item.id === $componentDraggedIdStore)
+
+			if (draggedItem) {
+				draggedItem[getComputedCols].x = detail.shadow.x
+				draggedItem[getComputedCols].y = detail.shadow.y
+			}
+
+			let items: GridItem[] = []
+
+			if ($overlappedStore) {
+				const div = document.getElementById(`component-${$overlappedStore}`)
+				const type = div?.getAttribute('data-componenttype')
+
+				if (!$app.subgrids) {
+					return
+				}
+
+				const index = type ? subGridIndexKey(type, $overlappedStore, $worldStore) : 0
+
+				items = $app.subgrids[`${$overlappedStore}-${index}`] ?? []
+			} else {
+				items = $app.grid ?? []
+			}
+
+			if (!draggedItem) {
+				return
+			}
+
+			const freeSpace = gridHelp.findSpace(draggedItem, items, getComputedCols)
+
+			$fakeShadowStore = {
+				x: freeSpace.x,
+				y: freeSpace.y,
+				xPerPx: detail.shadow.xPerPx,
+				yPerPx: detail.shadow.yPerPx,
+				w: detail.shadow.w,
+				h: detail.shadow.h
+			}
+		}
+
+		// When leaving the overlapped component, we clear the fake shadow
+		// to avoid rendering it with the wrong position at the next intersection
+		if (detail.intersectingElement !== $overlappedStore) {
+			$fakeShadowStore = undefined
+		}
+
+		// Update the overlapped component
+		$overlappedStore = detail.intersectingElement
 	}
 
-	export function handleInitMove({ detail }) {
+	export function handleInitMove(id: string) {
+		$componentDraggedIdStore = id
+		$componentDraggedParentIdStore = findGridItemParentGrid($app, id)?.split('-')[0] ?? undefined
+
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
 				moveResize?.initmove()
 			}
 		})
 	}
-	let overlapped: string | undefined = undefined
 </script>
 
-<div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
+<svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
+
+<div
+	class="svlt-grid-container"
+	style="height: {containerHeight}px"
+	bind:this={container}
+	id={root ? 'root-grid' : undefined}
+	data-xperpx={xPerPx}
+>
+	<!-- ROOT SHADOW-->
+	{#if $isCtrlOrMetaPressedStore && root && $overlappedStore !== $componentDraggedParentIdStore}
+		<div
+			class={twMerge(
+				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
+				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
+				$componentDraggedIdStore && $overlappedStore === undefined
+					? 'bg-draggedover dark:bg-draggedover-dark'
+					: ''
+			)}
+		/>
+		{#if $overlappedStore === undefined && $componentDraggedIdStore && $fakeShadowStore}
+			{@const columnGap = gapX}
+			<!-- gap between the columns in px -->
+			{@const containerBorder = 0.5 * 16}
+			<!-- 0.5rem converted to px (1rem = 16px) -->
+			{@const gridTotalWidth = containerWidth ? containerWidth - 2 * containerBorder : 0}
+			<!-- subtract borders -->
+			{@const availableWidth = gridTotalWidth - 11 * columnGap}
+			<!-- subtract gaps between the 12 columns (11 gaps) -->
+			{@const columnWidthPx = availableWidth / 12}
+			<!-- divide by the number of columns -->
+			{@const maxX = Math.floor(availableWidth / columnWidthPx) - $fakeShadowStore.w}
+
+			<div class="absolute inset-0">
+				<div class="relative h-full w-full">
+					<div
+						class="absolute bg-blue-300 transition-all"
+						style={`
+								left:${Math.min(maxX, $fakeShadowStore.x) * xPerPx + gapX}px ;
+								top: ${$fakeShadowStore.y * yPerPx + gapY}px;
+								width: ${$fakeShadowStore.w * xPerPx - gapX}px;
+								height: ${$fakeShadowStore.h * yPerPx - gapY}px;
+							`}
+					/>
+				</div>
+			</div>
+		{/if}
+	{/if}
+
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
+			{#if $isCtrlOrMetaPressedStore && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
+				{@const columnGap = gapX}
+				<!-- gap between the columns in px -->
+				{@const containerBorder = 0.5 * 16}
+				<!-- 0.5rem converted to px (1rem = 16px) -->
+				{@const gridTotalWidth = containerWidth ? containerWidth - 2 * containerBorder : 0}
+				<!-- subtract borders -->
+				{@const availableWidth = gridTotalWidth - 11 * columnGap}
+				<!-- subtract gaps between the 12 columns (11 gaps) -->
+				{@const columnWidthPx = availableWidth / 12}
+				<!-- divide by the number of columns -->
+				{@const maxX = Math.floor(availableWidth / columnWidthPx) - $fakeShadowStore.w}
+
+				<div
+					class="absolute"
+					style={`
+						left: ${item[getComputedCols].x * xPerPx + gapX}px;
+						top: ${item[getComputedCols].y * yPerPx + gapY}px;
+					`}
+				>
+					<div class="relative h-full w-full">
+						<div
+							class={twMerge('absolute transition-all duration-[50ms] bg-blue-300')}
+							style={`
+								left: calc(${
+									Math.min($fakeShadowStore.x, maxX) * $fakeShadowStore.xPerPx + gapX
+								}px + 0.5rem + ${getDeltaXByComponent(item.data['type'])});
+								top: calc(${
+									$fakeShadowStore.y * $fakeShadowStore.yPerPx + gapY
+								}px + 0.5rem + ${getDeltaYByComponent(item.data['type'])});
+								width: ${$fakeShadowStore.w * $fakeShadowStore.xPerPx - gapX * 2}px;
+								height: ${$fakeShadowStore.h * $fakeShadowStore.yPerPx - gapY * 2}px;
+							`}
+						/>
+					</div>
+				</div>
+			{/if}
+
 			<MoveResize
-				on:initmove={handleInitMove}
+				on:initmove={() => handleInitMove(item.id)}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}
 				bind:this={moveResizes[item.id]}
 				on:repaint={handleRepaint}
+				on:resizeStart={() => (resizing = true)}
+				on:resizeEnd={() => (resizing = false)}
 				onTop={Boolean(allIdsInPath?.includes(item.id))}
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
+				fakeShadow={$fakeShadowStore}
+				on:dropped={(e) => {
+					$componentDraggedIdStore = undefined
+					$componentDraggedParentIdStore = undefined
+					$overlappedStore = undefined
+					$fakeShadowStore = undefined
+					lastDetail = undefined
+
+					if (!$isCtrlOrMetaPressedStore) {
+						return
+					}
+
+					dispatch('dropped', e.detail)
+				}}
 				width={xPerPx == 0
 					? 0
 					: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
@@ -205,10 +464,18 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
-				{overlapped}
+				overlapped={$overlappedStore}
+				moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
+				type={item.data['type']}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} hidden={false} {overlapped} />
+					<slot
+						dataItem={item}
+						hidden={false}
+						overlapped={$overlappedStore}
+						moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
+						componentDraggedId={$componentDraggedIdStore}
+					/>
 				{/if}
 			</MoveResize>
 		{/if}

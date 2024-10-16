@@ -11,10 +11,14 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Script } from './gen'
+import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
+
+export function isJobCancelable(j: Job): boolean {
+	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {

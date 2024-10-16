@@ -36,7 +36,7 @@
 		runPreview($previewArgs, undefined)
 	}
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
@@ -326,6 +326,7 @@
 		<div class="pt-4 flex flex-col grow">
 			{#if jobId}
 				<FlowStatusViewer
+					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					{flowStateStore}
 					{jobId}

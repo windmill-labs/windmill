@@ -51,6 +51,10 @@
 	{#if enabled}
 		<div class="p-2 rounded border">
 			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Custom Name</span>
+				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+			</label>
+			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">Client Id</span>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
