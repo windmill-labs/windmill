@@ -18,8 +18,9 @@
 	}
 </script>
 
-<NodeWrapper wrapperClass="shadow-none">
+<NodeWrapper wrapperClass="shadow-none" let:darkMode>
 	<TriggersWrapper
+		{darkMode}
 		{data}
 		path={data.path}
 		on:new={(e) => {

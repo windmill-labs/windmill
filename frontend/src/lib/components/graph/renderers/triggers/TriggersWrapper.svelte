@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Square, ChevronDown, ChevronRight } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Square, Maximize2, Minimize2 } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 	import { NODE } from '../../util'
 	import { HttpTriggerService, ScheduleService } from '$lib/gen'
@@ -16,8 +16,10 @@
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { twMerge } from 'tailwind-merge'
 	import MapItem from '../../../flows/map/MapItem.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import { fade } from 'svelte/transition'
+	import { getStateColor } from '../../util'
 
+	export let darkMode: boolean
 	export let path: string
 	export let isEditor: boolean
 	export let newFlow: boolean
@@ -137,9 +139,11 @@
 {#if isEditor}
 	<div style={`width: ${NODE.width}px;`} class="center-center">
 		<button
-			class=" w-full border rounded-md bg-surface shadow-md center-center items-center max-w-full"
-			class:selected={$selectedId?.startsWith('triggers')}
-			on:click|self={() => ($selectedId = 'triggers')}
+			class=" w-full border rounded-sm bg-surface shadow-md center-center items-center max-w-full
+			{$selectedId?.startsWith('triggers')
+				? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400'
+				: ''}"
+			on:click={() => ($selectedId = 'triggers')}
 		>
 			<div class="flex flex-row w-min-0 gap-2.5 w-fit max-w-full px-2 py-1">
 				{#each visibleItems as item (item.id)}
@@ -204,7 +208,7 @@
 									<MapItem
 										mod={triggerScriptModule}
 										insertable={false}
-										bgColor={'#ffffff'}
+										bgColor={getStateColor(undefined, darkMode, true, false)}
 										modules={data.modules ?? []}
 										moving={''}
 										flowJobs={undefined}
@@ -239,24 +243,25 @@
 
 				{#if data.flowIsSimplifiable}
 					<div class="absolute -top-5 right-0 text-2xs">
-						<Toggle
-							color="nord"
-							options={{
-								left: 'Simplified view'
-							}}
-							checked={simplifiedTriggers}
-							size="2xs"
-							textClass="text-[0.6rem] text-tertiary font-normal"
-							on:click={() => {
-								simplifiedTriggers = !simplifiedTriggers
-							}}
-						>
-							{#if simplifiedTriggers}
-								Switch to full view
-							{:else}
-								Switch to simplified view
-							{/if}
-						</Toggle>
+						<Popover notClickable placement="auto">
+							<button
+								class="absolute top-[12px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-nord-950 hover:text-white"
+								on:click|preventDefault|stopPropagation={() =>
+									(simplifiedTriggers = !simplifiedTriggers)}
+							>
+								{#if simplifiedTriggers}
+									<Maximize2 size={12} strokeWidth={2} />
+								{:else}
+									<Minimize2 size={12} strokeWidth={2} />
+								{/if}
+							</button>
+							<svelte:fragment slot="text"
+								>{simplifiedTriggers
+									? 'Expand schedule poll nodes'
+									: 'Collapse schedule poll nodes'}</svelte:fragment
+							>
+						</Popover>
 					</div>
 				{/if}
 
@@ -277,9 +282,3 @@
 		</button>
 	</div>
 {/if}
-
-<style>
-	.selected {
-		@apply outline outline-offset-1 outline-2 outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400;
-	}
-</style>
