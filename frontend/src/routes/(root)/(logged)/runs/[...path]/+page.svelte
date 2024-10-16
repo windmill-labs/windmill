@@ -166,6 +166,8 @@
 
 	let manualDatePicker: ManuelDatePicker
 
+	let runsTable: RunsTable
+
 	$: (user ||
 		label ||
 		folder ||
@@ -755,13 +757,16 @@
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
-					jobs={completedJobs}
 					on:loadExtra={loadExtra}
+					jobs={completedJobs}
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
 						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+					on:pointClicked={(e) => {
+						runsTable.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -988,6 +993,7 @@
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
 							on:filterBySchedule={filterBySchedule}
+							bind:this={runsTable}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -1130,6 +1136,9 @@
 						maxTs = e.detail.max.toISOString()
 						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+					on:pointClicked={(e) => {
+						runsTable.scrollToRun(e.detail)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -1359,6 +1368,7 @@
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
 				on:filterByTag={filterByTag}
+				bind:this={runsTable}
 			/>
 		</div>
 	</div>
