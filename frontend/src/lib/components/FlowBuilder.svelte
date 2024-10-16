@@ -32,7 +32,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { onMount, setContext, tick, type ComponentType } from 'svelte'
+	import { setContext, tick, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -106,7 +106,6 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 
 	// Used by multiplayer deploy collision warning
-	let last_updated_at: string | undefined = undefined
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
@@ -114,14 +113,6 @@
 
 	$: setContext('customUi', customUi)
 
-	onMount(async () => {
-		
-		last_updated_at = (await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
-			path: $pathStore,
-			withStarredInfo: true
-		})).edited_at;
-	})
 
 	const dispatch = createEventDispatcher()
 
@@ -296,6 +287,7 @@
 		deployedValue = flow
 		deployedBy = flow.edited_by
 
+		let last_updated_at = savedFlow?.edited_at;
 		if (last_updated_at && flow.edited_at == last_updated_at) return true
 
 		return false
