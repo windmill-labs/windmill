@@ -16,19 +16,32 @@
 	import { fade } from 'svelte/transition'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 
+	let drawer: Drawer
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
-
 	let itemKind: 'flow' | 'script' = 'script'
-
-	$: is_flow = itemKind === 'flow'
-
 	let script_path = ''
 	let initialScriptPath = ''
 	let fixedScriptPath = ''
-
+	let path: string = ''
+	let pathError = ''
+	let url = ''
+	let urlError = ''
+	let dirtyUrl = false
+	let enabled = false
+	let filters: {
+		key: string
+		value: any
+	}[] = []
+	let dirtyPath = false
+	let can_write = true
 	let drawerLoading = true
+
+	const dispatch = createEventDispatcher()
+
+	$: is_flow = itemKind === 'flow'
+
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
 		try {
@@ -37,6 +50,7 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			dirtyUrl = false
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
@@ -53,6 +67,7 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			url = ''
+			dirtyUrl = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -65,19 +80,6 @@
 		}
 	}
 
-	let path: string = ''
-	let pathError = ''
-	let url = ''
-	let urlError = ''
-	let enabled = false
-	let filters: {
-		key: string
-		value: any
-	}[] = []
-
-	const dispatch = createEventDispatcher()
-
-	let can_write = true
 	async function loadTrigger(): Promise<void> {
 		const s = await WebsocketTriggerService.getWebsocketTrigger({
 			workspace: $workspaceStore!,
@@ -130,9 +132,21 @@
 		drawer.closeDrawer()
 	}
 
-	let drawer: Drawer
-
-	let dirtyPath = false
+	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	function validateUrl(url: string) {
+		urlError = ''
+		if (validateTimeout) {
+			clearTimeout(validateTimeout)
+		}
+		validateTimeout = setTimeout(() => {
+			if (/^(ws:|wss:)\/\/[^\s]+$/.test(url) === false) {
+				urlError = 'Invalid websocket URL'
+			}
+			validateTimeout = undefined
+		}, 500)
+		validateTimeout = undefined
+	}
+	$: validateUrl(url)
 </script>
 
 <Drawer size="700px" bind:this={drawer}>
@@ -214,10 +228,16 @@
 								autocomplete="off"
 								bind:value={url}
 								disabled={!can_write}
+								on:input={() => {
+									dirtyUrl = true
+								}}
 								class={urlError === ''
 									? ''
 									: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
 							/>
+							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+								>{dirtyUrl ? urlError : ''}</div
+							>
 						</label>
 					</div>
 				</Section>

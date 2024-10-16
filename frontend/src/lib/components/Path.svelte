@@ -238,10 +238,10 @@
 			error = 'This name is not valid'
 			return false
 		} else if (meta.owner == '' && meta.ownerKind == 'folder') {
-			error = 'Folder need to be chosen'
+			error = 'Folder needs to be chosen'
 			return false
 		} else if (meta.owner == '' && meta.ownerKind == 'group') {
-			error = 'Group need to be chosen'
+			error = 'Group needs to be chosen'
 			return false
 		} else {
 			return true
@@ -462,7 +462,7 @@
 			/>
 			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 		</div>
-		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
+		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	</div>
 
 	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && kind != 'websocket_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
