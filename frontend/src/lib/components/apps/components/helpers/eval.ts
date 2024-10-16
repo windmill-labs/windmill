@@ -1,6 +1,7 @@
 import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
+import { base } from '$lib/base'
 
 export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {
@@ -25,7 +26,7 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource) {
+return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource, downloadFile) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
@@ -63,7 +64,8 @@ type WmFunctor = (
 	clearFiles,
 	showToast,
 	waitJob,
-	askNewResource
+	askNewResource,
+	downloadFile
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
@@ -237,6 +239,64 @@ export async function eval_like(
 		async (id) => waitJob(id),
 		(id) => {
 			controlComponents[id]?.askNewResource?.()
+		},
+		(input, filename) => {
+			const handleError = (error) => {
+				console.error('Error downloading file:', error)
+				sendUserToast(
+					`Error downloading file: ${error.message}. Ensure it is a valid URL, a base64 encoded data URL (data:...), or a valid S3 object.`,
+					true
+				)
+			}
+
+			const isBase64 = (str) => {
+				try {
+					return btoa(atob(str)) === str
+				} catch (err) {
+					return false
+				}
+			}
+
+			const downloadFile = (url, downloadFilename) => {
+				console.log(url, downloadFilename)
+				const link = document.createElement('a')
+				link.href = url
+				link.download = downloadFilename || true
+				link.target = '_blank'
+				link.rel = 'external'
+				document.body.appendChild(link)
+				link.click()
+				document.body.removeChild(link)
+			}
+
+			if (typeof input === 'object' && input.s3) {
+				const workspaceId = computeGlobalContext(worldStore).ctx.workspace
+				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${
+					input?.s3
+				}${input?.storage ? `&storage=${input.storage}` : ''}`
+				downloadFile(s3href, filename || input.s3)
+			} else if (typeof input === 'string') {
+				if (input.startsWith('data:')) {
+					downloadFile(input, filename)
+				} else if (isBase64(input)) {
+					const base64Url = `data:application/octet-stream;base64,${input}`
+					downloadFile(base64Url, filename)
+				} else if (/^(http|https):\/\//.test(input) || input.startsWith('/')) {
+					const url = input.startsWith('/') ? `${window.location.origin}${input}` : input
+					console.log('Downloading file from:', url)
+					downloadFile(url, filename ?? url.split('/').pop()?.split('?')[0])
+				} else {
+					handleError(
+						new Error(
+							'The input must be a valid URL, a base64 encoded string, or a valid S3 object.'
+						)
+					)
+				}
+			} else {
+				handleError(
+					new Error('The input must be a string or an object with a getAuthenticatedUrl method.')
+				)
+			}
 		}
 	)
 }

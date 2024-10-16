@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { colors, Command, log, SEP, Table, yamlParse } from "./deps.ts";
+import { colors, Command, log, SEP, Table, yamlParseFile } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 import { ListableApp, Policy } from "./gen/types.gen.ts";
 
@@ -40,8 +40,8 @@ export async function pushApp(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const localAppRaw = await Deno.readTextFile(localPath + "app.yaml");
-  const localApp = yamlParse(localAppRaw) as AppFile;
+  const path = localPath + "app.yaml";
+  const localApp = (await yamlParseFile(path)) as AppFile;
 
   function replaceInlineScripts(rec: any) {
     if (!rec) {

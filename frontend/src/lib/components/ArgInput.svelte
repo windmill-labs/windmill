@@ -141,6 +141,9 @@
 		defaultValue?: any,
 		nnullable?: boolean
 	) {
+		if (label == 'toString' && typeof value == 'function') {
+			value = undefined
+		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {

@@ -627,7 +627,7 @@
 									>
 								</button>
 							{:else if !result?.disable_download}
-								<FileDownload s3object={result} />
+								<FileDownload {workspaceId} s3object={result} />
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap"
 									on:click={() => {
