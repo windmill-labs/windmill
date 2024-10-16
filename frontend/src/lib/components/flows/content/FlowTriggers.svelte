@@ -26,9 +26,6 @@
 			<Tab value="mail" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
-			<Tab value="schedule_poll" selectedClass="text-primary text-sm font-semibold"
-				>Schedule Poll</Tab
-			>
 
 			<svelte:fragment slot="content">
 				{#if $selectedTrigger === 'webhooks'}

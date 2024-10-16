@@ -90,7 +90,6 @@
 		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
 		primarySchedule: primaryScheduleStore,
-		triggerModule: writable(undefined),
 		selectedTrigger: selectedTriggerStore,
 		schedules: schedulesStore
 	})
