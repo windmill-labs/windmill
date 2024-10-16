@@ -10,6 +10,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+
 	export let noEditor: boolean
 	export let newFlow = false
 	let path = ''

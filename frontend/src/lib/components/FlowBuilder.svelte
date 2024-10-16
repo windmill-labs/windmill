@@ -83,7 +83,7 @@
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
-	import type { TriggerContext } from './triggers'
+
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
 	export let newFlow: boolean
@@ -405,15 +405,6 @@
 	const schedulesStore = writable<Schedule[] | undefined>(undefined)
 	let insertButtonOpen = writable<boolean>(false)
 	const primaryScheduleStore = writable<Schedule | undefined | boolean>(undefined)
-	setContext<TriggerContext>('TriggerContext', {
-		httpTriggers: httpTriggersStore,
-		schedule: scheduleStore,
-		primarySchedule: primaryScheduleStore,
-		triggerModule: writable(undefined),
-		selectedTrigger: selectedTriggerStore,
-		schedules: schedulesStore
-	})
-
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		selectedTrigger: selectedTriggerStore,

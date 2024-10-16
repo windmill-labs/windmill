@@ -12,6 +12,7 @@
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
+
 	export let noEditor = false
 	export let enableAi = false
 	export let newFlow = false

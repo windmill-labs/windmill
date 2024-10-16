@@ -489,9 +489,7 @@
 	setContext<TriggerContext>('TriggerContext', {
 		httpTriggers: httpTriggersStore,
 		schedule: scheduleStore,
-		primarySchedule: primaryScheduleStore,
-		selectedTrigger: selectedTriggerStore,
-		schedules: schedulesStore
+		primarySchedule: primaryScheduleStore
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,

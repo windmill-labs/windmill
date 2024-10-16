@@ -270,7 +270,6 @@
 		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
 		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
 		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
-		//newGraph.edges = replaceEdge(newGraph.edges, forloopEdge)
 		return newGraph
 	}
 

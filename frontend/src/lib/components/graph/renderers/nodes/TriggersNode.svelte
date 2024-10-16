@@ -3,6 +3,7 @@
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import type { FlowModule } from '$lib/gen'
+
 	export let data: {
 		path: string
 		openSchedules: () => void
@@ -24,7 +25,6 @@
 		{data}
 		path={data.path}
 		on:new={(e) => {
-			console.log('new', e)
 			data?.eventHandlers.insert({
 				modules: data.modules,
 				index: 0,

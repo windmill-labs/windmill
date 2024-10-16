@@ -11,7 +11,7 @@
 	import { canWrite } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../../../flows/types'
-	import InsertModuleButton from '../../../flows/map/InsertTriggersButton.svelte'
+	import InsertModuleButton from '../../../flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { twMerge } from 'tailwind-merge'
@@ -65,7 +65,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 		} catch (e) {
-			console.error('impossible to load routes')
+			console.error('impossible to load http routes')
 		}
 	}
 
@@ -84,8 +84,6 @@
 
 	let triggerScriptModule: FlowModule | undefined = undefined
 	$: triggerScriptModule = data.modules.find((mod) => mod.isTrigger)
-
-	$: console.log('triggerScriptModule', triggerScriptModule)
 
 	$: data.eventHandlers.simplifyFlow(simplifiedTriggers)
 

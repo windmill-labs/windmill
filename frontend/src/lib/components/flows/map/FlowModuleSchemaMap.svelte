@@ -381,8 +381,7 @@
 									detail.flow,
 									detail.inlineScript
 								)
-								//$selectedId = detail.modules[detail.index ?? 0].id
-								console.log('Modules', detail.modules)
+								$selectedId = detail.modules[detail.index ?? 0].id
 							}
 						}
 

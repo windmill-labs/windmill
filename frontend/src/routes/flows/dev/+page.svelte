@@ -17,7 +17,7 @@
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import type { Schedule as ScheduleUtils } from '$lib/components/flows/scheduleUtils'
-	import type { TriggerContext } from '$lib/components/triggers'
+
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
 	let themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -85,14 +85,6 @@
 	// function select(selectedId: string) {
 	// 	selectedIdStore.set(selectedId)
 	// }
-
-	setContext<TriggerContext>('TriggerContext', {
-		httpTriggers: httpTriggersStore,
-		schedule: scheduleStore,
-		primarySchedule: primaryScheduleStore,
-		selectedTrigger: selectedTriggerStore,
-		schedules: schedulesStore
-	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
