@@ -1232,13 +1232,13 @@
 									bind:this={msgInput}
 									on:keydown={(e) => {
 										if (e.key === 'Enter') {
-											editScript(false, deploymentMsg)
+											handleEditScript(false, deploymentMsg)
 										}
 									}}
 								/>
 								<Button
 									size="xs"
-									on:click={() => editScript(false, deploymentMsg)}
+									on:click={() => handleEditScript(false, deploymentMsg)}
 									endIcon={{ icon: CornerDownLeft }}
 									loading={loadingSave}
 								>
