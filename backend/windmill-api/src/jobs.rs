@@ -1469,6 +1469,8 @@ async fn cancel_jobs(
         }
     }
 
+    uuids.extend(trivial_jobs);
+
     Ok(Json(uuids))
 }
 
