@@ -13,6 +13,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import type { ScheduleTrigger } from '$lib/components/triggers'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
@@ -54,6 +55,11 @@
 	let selectedId: string = 'settings-metadata'
 
 	let nobackenddraft = false
+
+	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
+
+	let flowBuilder: FlowBuilder | undefined = undefined
+
 	async function loadFlow(): Promise<void> {
 		loading = true
 		let flow: Flow
@@ -67,6 +73,7 @@
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
 			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
 			flow = stateLoadedFromUrl.flow
+			savedPrimarySchedule = stateLoadedFromUrl.primarySchedule
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
 				goto(`/flows/edit/${statePath}`)
@@ -113,6 +120,9 @@
 			}
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
+				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
+				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
 					const draft = cleanValueProperties(flow)
@@ -216,8 +226,10 @@
 	{selectedId}
 	{initialArgs}
 	{loading}
+	bind:this={flowBuilder}
 	bind:savedFlow
 	{diffDrawer}
+	{savedPrimarySchedule}
 >
 	<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
 </FlowBuilder>

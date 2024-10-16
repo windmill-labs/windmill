@@ -74,7 +74,7 @@
 	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
-	let scriptProgress = undefined;
+	let scriptProgress = undefined
 
 	// Test
 	let testIsLoading = false
@@ -106,7 +106,7 @@
 
 	function runTest() {
 		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset();
+		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
 		testJobLoader.runPreview(
 			path,
@@ -155,6 +155,7 @@
 
 	setLicense()
 	export async function setCollaborationMode() {
+		await setLicense()
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
 				{
@@ -177,7 +178,7 @@
 
 		wsProvider = new WebsocketProvider(
 			`${wsProtocol}://${window.location.host}/ws_mp/`,
-			$workspaceStore + '/' + path ?? 'no-room-name',
+			$workspaceStore + '/' + (path ?? 'no-room-name'),
 			ydoc,
 			{ connect: false }
 		)
@@ -432,10 +433,15 @@
 							{diffEditor}
 							{args}
 						>
-						{#if scriptProgress}
-							<!-- Put to the slot in logpanel -->
-							<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
-						{/if}
+							{#if scriptProgress}
+								<!-- Put to the slot in logpanel -->
+								<JobProgressBar
+									job={testJob}
+									bind:scriptProgress
+									bind:reset={jobProgressReset}
+									compact={true}
+								/>
+							{/if}
 						</LogPanel>
 					</Pane>
 				</Splitpanes>
