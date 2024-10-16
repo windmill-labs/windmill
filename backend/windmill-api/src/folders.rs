@@ -275,8 +275,10 @@ pub fn require_is_owner(authed: &ApiAuthed, name: &str) -> Result<()> {
 
 async fn update_folder(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
@@ -366,6 +368,18 @@ async fn update_folder(
             }
         }
     }
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' updated", name)),
+        rsmq,
+        true,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
