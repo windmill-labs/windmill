@@ -128,7 +128,13 @@ pub fn make_unauthed_service() -> Router {
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
-        Some(label) if label.starts_with("webhook-") => Some(label),
+        Some(label)
+            if label.starts_with("webhook-")
+                || label.starts_with("http-")
+                || label.starts_with("email-") =>
+        {
+            Some(label)
+        }
         Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
             label
                 .trim_start_matches("ephemeral-script-end-user-")
@@ -270,9 +276,10 @@ impl AuthCache {
             _ => {
                 let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<String>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes, label",
+                     OR expiration IS NULL) AND (workspace_id IS NULL OR workspace_id = $2) RETURNING owner, email, super_admin, scopes, label",
                 )
                 .bind(token)
+                .bind(w_id.as_ref())
                 .fetch_optional(&self.db)
                 .await
                 .ok()
@@ -837,6 +844,7 @@ pub struct NewToken {
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2389,14 +2397,15 @@ async fn create_token(
     .unwrap_or(false);
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin, scopes)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            (token, email, label, expiration, super_admin, scopes, workspace_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)",
         token,
         authed.email,
         new_token.label,
         new_token.expiration,
         is_super_admin,
-        new_token.scopes.as_ref().map(|x| x.as_slice())
+        new_token.scopes.as_ref().map(|x| x.as_slice()),
+        new_token.workspace_id,
     )
     .execute(&mut *tx)
     .await?;

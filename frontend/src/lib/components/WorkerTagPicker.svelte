@@ -71,5 +71,5 @@
 		}}
 		startIcon={{ icon: RotateCw }}
 	/>
-	<AssignableTags placement={popupPlacement} />
+	<AssignableTags placement={popupPlacement} color="nord" />
 </div>
