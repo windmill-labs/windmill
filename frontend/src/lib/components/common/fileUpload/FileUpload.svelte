@@ -24,6 +24,7 @@
 	export let forceDisplayUploads: boolean = false
 	export let defaultValue: string | undefined = undefined
 	export let workspace: string | undefined = undefined
+	export let fileUploads: Writable<FileUploadData[]> = writable([])
 
 	const dispatch = createEventDispatcher()
 
@@ -36,8 +37,6 @@
 		path?: string
 		file?: File
 	}
-
-	let fileUploads: Writable<FileUploadData[]> = writable([])
 
 	async function handleChange(files: File[] | undefined) {
 		for (const file of files ?? []) {

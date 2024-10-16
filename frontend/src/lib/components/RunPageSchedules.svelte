@@ -186,15 +186,17 @@
 			{/if}
 
 			<!-- svelte-ignore a11y-autofocus -->
-			<Label label="Summary" class="font-semibold" primary>
-				<input
-					autofocus
-					type="text"
-					placeholder="Short summary to be displayed when listed"
-					class="text-sm w-full"
-					bind:value={$primarySchedule.summary}
-				/>
-			</Label>
+			<div class="mt-5">
+				<Label label="Summary" class="font-semibold" primary>
+					<input
+						autofocus
+						type="text"
+						placeholder="Short summary to be displayed when listed"
+						class="text-sm w-full"
+						bind:value={$primarySchedule.summary}
+					/>
+				</Label>
+			</div>
 		</div>
 		<CronInput bind:schedule={$primarySchedule.cron} bind:timezone={$primarySchedule.timezone} />
 		<SchemaForm {schema} bind:args={$primarySchedule.args} />
@@ -233,7 +235,7 @@
 			>
 				Set Primary Schedule
 			</Button>
-			{#if initialPrimarySchedule != false && !newItem}
+			{#if initialPrimarySchedule != undefined && initialPrimarySchedule != false && !newItem}
 				<Button on:click={save} color="dark" size="md" startIcon={{ icon: Save }}>
 					Apply changes now
 				</Button>
@@ -244,6 +246,14 @@
 			{/if}
 		</div>
 
+		<Label label="Summary" class="font-semibold" primary>
+			<input
+				type="text"
+				disabled
+				placeholder="Short summary to be displayed when listed"
+				class="text-sm w-full"
+			/>
+		</Label>
 		<CronInput schedule={''} disabled timezone={Intl.DateTimeFormat().resolvedOptions().timeZone} />
 
 		<SchemaForm disabled {schema} />

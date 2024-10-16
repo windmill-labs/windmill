@@ -180,7 +180,9 @@
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 1000
 	let loadingCompletedRuns: boolean = false
+
 	let queryParseErrors: string[] = []
+	let indexMetadata: any = {}
 
 	async function handleSearch() {
 		queryParseErrors = []
@@ -240,6 +242,7 @@
 					})
 					itemMap['runs'] = searchResults.hits
 					queryParseErrors = searchResults.query_parse_errors
+					indexMetadata = searchResults.index_metadata
 				} catch (e) {
 					sendUserToast(e, true)
 				}
@@ -680,8 +683,33 @@
 								{#if selectedItem === undefined}
 									Select a result to preview
 								{:else}
-									<div class="w-8/12 overflow-y-scroll max-h-[70vh]">
-										<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+									<div class="w-8/12 max-h-[70vh]">
+										<div class="h-[95%] overflow-y-scroll">
+											<JobPreview
+												id={selectedItem?.document?.id[0]}
+												workspace={selectedWorkspace}
+											/>
+										</div>
+										<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
+											{#if indexMetadata.indexed_until}
+												<span class="px-2">
+												Most recent indexed job was created <TimeAgo
+													agoOnlyIfRecent
+													date={indexMetadata.indexed_until || ''}
+												/>
+												</span>
+											{/if}
+											{#if indexMetadata.lost_lock_ownership}
+												<Popover notClickable placement="top">
+													<AlertTriangle size={16} class="text-gray-500" />
+													<svelte:fragment slot="text">
+														The current indexer is no longer indexing new jobs. This is most likely
+														because of an ongoing deployment and indexing will resume once it's
+														complete.
+													</svelte:fragment>
+												</Popover>
+											{/if}
+										</div>
 									</div>
 								{/if}
 							{:else}

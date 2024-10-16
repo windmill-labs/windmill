@@ -222,7 +222,7 @@
 		<Label label="Timezone" class="font-semibold" primary>
 			{#if disabled}
 				<div>
-					<Badge><span class="text-primary-inverse">{timezone}</span></Badge>
+					<Badge><span class="text-primary dark:text-primary-inverse">{timezone}</span></Badge>
 				</div>
 			{:else}
 				<Select
