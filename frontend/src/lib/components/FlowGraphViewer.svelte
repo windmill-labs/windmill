@@ -20,7 +20,7 @@
 	export let noSide = false
 	export let download = false
 	export let noGraph = false
-
+	export let triggerNode = false
 	export let stepDetail: FlowModule | string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
@@ -33,6 +33,7 @@
 			class:overflow-auto={overflowAuto}
 		>
 			<FlowGraphV2
+				{triggerNode}
 				path={flow?.path}
 				{download}
 				minHeight={400}
