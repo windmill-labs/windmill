@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.409.4](https://github.com/windmill-labs/windmill/compare/v1.409.3...v1.409.4) (2024-10-17)
+
+
+### Bug Fixes
+
+* fix flow viewer renderer outside of flow details and editor context ([59a1e67](https://github.com/windmill-labs/windmill/commit/59a1e67465cd21ded5539cb5b829bc0d4e7169ed))
+
+## [1.409.3](https://github.com/windmill-labs/windmill/compare/v1.409.2...v1.409.3) (2024-10-17)
+
+
+### Bug Fixes
+
+* do not delete primary schedule of script/flow on redeploy even if schedule wasn't loaded ([c3c2fe4](https://github.com/windmill-labs/windmill/commit/c3c2fe462c52f48795a55025414b16f8d3d98fe0))
+* **nsjail:** improve memory reading when using nsjail ([b7ad19b](https://github.com/windmill-labs/windmill/commit/b7ad19bb75bd885a254ebac778349c7d88af8326))
+
+## [1.409.2](https://github.com/windmill-labs/windmill/compare/v1.409.1...v1.409.2) (2024-10-16)
+
+
+### Bug Fixes
+
+* add extra args support for exception to bun scripts ([1466da3](https://github.com/windmill-labs/windmill/commit/1466da3999add0238b9c42ca13df52194f082fc0))
+* fix script persistence in url + add support for extra error args in python ([3174024](https://github.com/windmill-labs/windmill/commit/3174024d8e6ecbe9f8c9e1ea055d611f652c0057))
+
+## [1.409.1](https://github.com/windmill-labs/windmill/compare/v1.409.0...v1.409.1) (2024-10-16)
+
+
+### Bug Fixes
+
+* **apidocs:** fix generated openapi files ([d24e153](https://github.com/windmill-labs/windmill/commit/d24e1530655d27ffda9bb4c19471dc1431124cc2))
+* **git-sync:** propagate update of folders with git sync ([6abb346](https://github.com/windmill-labs/windmill/commit/6abb346013da4a907a860713a8a67642985b8025))
+
 ## [1.409.0](https://github.com/windmill-labs/windmill/compare/v1.408.1...v1.409.0) (2024-10-16)
 
 

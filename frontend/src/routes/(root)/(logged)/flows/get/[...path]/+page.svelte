@@ -474,6 +474,7 @@
 				</div>
 				<div class="mt-8">
 					<FlowGraphViewer
+						triggerNode={true}
 						download
 						{flow}
 						overflowAuto
