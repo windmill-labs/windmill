@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.409.2](https://github.com/windmill-labs/windmill/compare/v1.409.1...v1.409.2) (2024-10-16)
+
+
+### Bug Fixes
+
+* add extra args support for exception to bun scripts ([1466da3](https://github.com/windmill-labs/windmill/commit/1466da3999add0238b9c42ca13df52194f082fc0))
+* fix script persistence in url + add support for extra error args in python ([3174024](https://github.com/windmill-labs/windmill/commit/3174024d8e6ecbe9f8c9e1ea055d611f652c0057))
+
+## [1.409.1](https://github.com/windmill-labs/windmill/compare/v1.409.0...v1.409.1) (2024-10-16)
+
+
+### Bug Fixes
+
+* **apidocs:** fix generated openapi files ([d24e153](https://github.com/windmill-labs/windmill/commit/d24e1530655d27ffda9bb4c19471dc1431124cc2))
+* **git-sync:** propagate update of folders with git sync ([6abb346](https://github.com/windmill-labs/windmill/commit/6abb346013da4a907a860713a8a67642985b8025))
+
+## [1.409.0](https://github.com/windmill-labs/windmill/compare/v1.408.1...v1.409.0) (2024-10-16)
+
+
+### Features
+
+* **frontend:** unify all triggers UX and simplify flow settings ([#4259](https://github.com/windmill-labs/windmill/issues/4259)) ([91a3d06](https://github.com/windmill-labs/windmill/commit/91a3d065298cce7a882464fa0cd31d8f1ae9dda2))
+* Scroll to element in virtual list when clicking on graph point ([#4532](https://github.com/windmill-labs/windmill/issues/4532)) ([7126ba1](https://github.com/windmill-labs/windmill/commit/7126ba12c7eb52d2cfbe8d83311b5592a5707bce))
+* **sso:** adding the ability to define a custom display name for sso ([#4529](https://github.com/windmill-labs/windmill/issues/4529)) ([99c5b3e](https://github.com/windmill-labs/windmill/commit/99c5b3ecdacb1158c2cba5b891c4c3b8b70c3b6a))
+
+
+### Bug Fixes
+
+* Add indexer backup lock to fit the deployment model ([#4531](https://github.com/windmill-labs/windmill/issues/4531)) ([411bce7](https://github.com/windmill-labs/windmill/commit/411bce7e13aabfa53db80d55261ea4511f6d1ae9))
+* **app:** accept connecting to non yet existing state output for convenience ([9eb1ecc](https://github.com/windmill-labs/windmill/commit/9eb1ecc9f3017e2f4284a827a2bcd21f36b1b8ac))
+* **app:** improve absolute url handling in download button and downloadFile ([dcdbf1a](https://github.com/windmill-labs/windmill/commit/dcdbf1afb4d5a18e00b9bbb1eb0bef129ea5667f))
+* **app:** make s3 uploads persistent across tabs change ([c3b536b](https://github.com/windmill-labs/windmill/commit/c3b536b1b8069898131768867a187b186b21e537))
+* canceled jobs button reporting 0 jobs cancelled ([#4534](https://github.com/windmill-labs/windmill/issues/4534)) ([e736572](https://github.com/windmill-labs/windmill/commit/e736572db10929ae5e123c4f6cef73b8e90fc29b))
+* **python-client:** improve get_job_status for running jobs ([a8c4ea2](https://github.com/windmill-labs/windmill/commit/a8c4ea2334d2535fa7d5d43f58d65565afe8f3e5))
+* **ui:** dark mode support for queue metrics based critical alert ([#4535](https://github.com/windmill-labs/windmill/issues/4535)) ([f38b3d1](https://github.com/windmill-labs/windmill/commit/f38b3d14e8092ae58817511aea91a4e77725ead6))
+
 ## [1.408.1](https://github.com/windmill-labs/windmill/compare/v1.408.0...v1.408.1) (2024-10-12)
 
 

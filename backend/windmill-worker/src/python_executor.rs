@@ -498,7 +498,10 @@ except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
     with open(result_json, 'w') as f:
-        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+        extra = e.__dict__ 
+        if extra and len(extra) > 0:
+            err['extra'] = extra
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id

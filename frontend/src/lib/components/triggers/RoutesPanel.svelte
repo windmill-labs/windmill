@@ -48,16 +48,20 @@
 />
 
 <div class="flex flex-col gap-4">
-	{#if !newItem && ($userStore?.is_admin || $userStore?.is_super_admin)}
-		<Button
-			on:click={() => routeEditor?.openNew(isFlow, path)}
-			variant="border"
-			color="light"
-			size="xs"
-			startIcon={{ icon: RouteIcon }}
-		>
-			New Route
-		</Button>
+	{#if !newItem}
+		{#if $userStore?.is_admin || $userStore?.is_super_admin}
+			<Button
+				on:click={() => routeEditor?.openNew(isFlow, path)}
+				variant="border"
+				color="light"
+				size="xs"
+				startIcon={{ icon: RouteIcon }}
+			>
+				New Route
+			</Button>
+		{:else}
+			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
+		{/if}
 	{/if}
 
 	{#if httpTriggers}
@@ -93,7 +97,7 @@
 
 	{#if newItem}
 		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to enable http routes triggers.
+			Deploy the {isFlow ? 'flow' : 'script'} to add http routes.
 		</Alert>
 	{/if}
 </div>

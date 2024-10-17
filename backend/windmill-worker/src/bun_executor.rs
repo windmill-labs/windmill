@@ -1105,6 +1105,16 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    const extra = {{}};
+    Object.getOwnPropertyNames(e).forEach((key) => {{
+        if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
+            return;
+        }}
+        extra[key] = e[key];
+    }});
+    if (Object.keys(extra).length > 0) {{
+        err["extra"] = extra;
+    }}
     await fs.writeFile("result.json", JSON.stringify(err));
     process.exit(1);
 }}
@@ -1433,7 +1443,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        false,
+        !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
         "bun run",

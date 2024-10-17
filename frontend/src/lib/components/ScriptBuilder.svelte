@@ -197,7 +197,7 @@
 	}
 
 	$: !disableHistoryChange &&
-		replaceStateFn('#' + encodeState({ script, primarySchedule: $primaryScheduleStore }))
+		replaceStateFn('#' + encodeState({ ...script, primarySchedule: $primaryScheduleStore }))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
