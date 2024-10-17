@@ -256,7 +256,7 @@
 			let actual_parent_hash = (await ScriptService.getScriptLatestVersion({
 				workspace: $workspaceStore!,
 				path: script.path,
-			})).script_hash;
+			}))?.script_hash;
 
 			// Usually when we create new script, we put current hash as a parent_hash
 			// But if we specify parent_hash that is already used, than we get error

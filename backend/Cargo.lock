@@ -10597,7 +10597,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.405.5"
+version = "1.409.2"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",

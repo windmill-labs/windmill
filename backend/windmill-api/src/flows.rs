@@ -543,7 +543,7 @@ async fn get_latest_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<FlowVersion> {
+) -> JsonResult<Option<FlowVersion>> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
@@ -556,7 +556,7 @@ async fn get_latest_version(
         path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
