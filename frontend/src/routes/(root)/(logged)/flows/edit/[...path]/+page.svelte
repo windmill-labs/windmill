@@ -113,10 +113,10 @@
 		} else {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (await FlowService.getFlowHistory({
+			version = (await FlowService.getFlowLatestVersion({
 				workspace: $workspaceStore!,
 				path: $page.params.path
-			}))[0]?.id;
+			})).id;
 
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
