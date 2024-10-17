@@ -247,7 +247,7 @@ pub async fn eval_timeout(
     #[cfg(not(feature = "deno_core"))]
     {
         #[allow(unreachable_code)]
-        return todo!();
+        return Err(anyhow::anyhow!("Deno core is not enabled".to_string()).into());
     }
 
     #[cfg(feature = "deno_core")]

@@ -9,6 +9,9 @@
 use crate::{
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
+    triggers::{
+        get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
+    },
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -53,7 +56,7 @@ use windmill_common::{
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
-    worker::{get_annotation_ts, to_raw_value},
+    worker::to_raw_value,
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -132,6 +135,8 @@ pub fn workspaced_service() -> Router {
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/get_triggers_count/*path", get(get_triggers_count))
+        .route("/list_tokens/*path", get(list_tokens))
         .route("/raw/p/*path", get(raw_script_by_path))
         .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
@@ -601,8 +606,8 @@ async fn create_script_internal<'c>(
     };
 
     let lang = if &ns.language == &ScriptLang::Bun || &ns.language == &ScriptLang::Bunnative {
-        let anns = get_annotation_ts(&ns.content);
-        if anns.native_mode {
+        let anns = windmill_common::worker::TypeScriptAnnotations::parse(&ns.content);
+        if anns.native {
             ScriptLang::Bunnative
         } else {
             ScriptLang::Bun
@@ -872,6 +877,22 @@ async fn get_script_by_path(
 
     let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn list_tokens(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let path = path.to_path();
+    list_tokens_internal(&db, &w_id, &path, false).await
+}
+
+async fn get_triggers_count(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<TriggersCount> {
+    let path = path.to_path();
+    get_triggers_count_internal(&db, &w_id, &path, false).await
 }
 
 async fn get_script_by_path_w_draft(

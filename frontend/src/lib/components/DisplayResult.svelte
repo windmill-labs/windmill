@@ -559,6 +559,11 @@
 						<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
 							>{result.error.stack ?? ''}</pre
 						>
+						{#if result.error?.extra}
+							<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
+								>{JSON.stringify(result.error.extra, null, 4)}</pre
+							>
+						{/if}
 						<slot />
 					</div>
 					{#if language === 'bun'}
@@ -627,7 +632,7 @@
 									>
 								</button>
 							{:else if !result?.disable_download}
-								<FileDownload s3object={result} />
+								<FileDownload {workspaceId} s3object={result} />
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap"
 									on:click={() => {

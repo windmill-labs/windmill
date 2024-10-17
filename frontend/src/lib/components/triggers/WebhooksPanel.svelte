@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import bash from 'svelte-highlight/languages/bash'
-	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
+	import { Tabs, Tab, TabContent, Button, Alert } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import {
@@ -15,10 +15,12 @@
 	import UserSettings from '../UserSettings.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
-	import ClipboardPanel from './ClipboardPanel.svelte'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import { base } from '$lib/base'
+	import Label from '$lib/components/Label.svelte'
+	import TriggerTokens from './TriggerTokens.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -27,7 +29,8 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
-
+	export let url: string = ''
+	export let newItem: boolean = false
 	let selectedTab: string = 'rest'
 
 	let webhooks: {
@@ -219,6 +222,8 @@ while true; do
 done`
 }`
 	}
+
+	let triggerTokens: TriggerTokens | undefined = undefined
 </script>
 
 <HighlightTheme />
@@ -227,32 +232,36 @@ done`
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {
 		token = e.detail
+		triggerTokens?.listTokens()
 	}}
+	newTokenWorkspace={$workspaceStore}
 	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />
 
-<div class="p-2 flex flex-col w-full gap-4">
+<div class="flex flex-col w-full gap-4">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-		<div class="flex flex-row justify-between my-2 gap-2">
-			<input
-				bind:value={token}
-				placeholder="paste your token here once created to alter examples below"
-				class="!text-xs"
-			/>
-			<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
-				Create a Webhook-specific Token
-				<Tooltip light>
-					The token will have a scope such that it can only be used to trigger this script. It is
-					safe to share as it cannot be used to impersonate you.
-				</Tooltip>
-			</Button>
-		</div>
+		<Label label="Token">
+			<div class="flex flex-row justify-between gap-2">
+				<input
+					bind:value={token}
+					placeholder="paste your token here once created to alter examples below"
+					class="!text-xs !font-normal"
+				/>
+				<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
+					Create a Webhook-specific Token
+					<Tooltip light>
+						The token will have a scope such that it can only be used to trigger this script. It is
+						safe to share as it cannot be used to impersonate you.
+					</Tooltip>
+				</Button>
+			</div>
+		</Label>
 	{/if}
 
 	<div class="flex flex-col gap-2">
 		<div class="flex flex-row justify-between">
-			<div class="text-xs font-semibold flex flex-row items-center">Request type</div>
+			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType}>
 				<ToggleButton
 					label="Async"
@@ -267,7 +276,7 @@ done`
 			</ToggleButtonGroup>
 		</div>
 		<div class="flex flex-row justify-between">
-			<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
+			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
 				<ToggleButton
 					label="POST by path"
@@ -294,7 +303,9 @@ done`
 			</ToggleButtonGroup>
 		</div>
 		<div class="flex flex-row justify-between">
-			<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
+			<div class="text-sm font-normal text-secondary flex flex-row items-center"
+				>Token configuration</div
+			>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
 				<ToggleButton label="Token in Headers" value="headers" />
 				<ToggleButton label="Token in Query" value="query" />
@@ -314,14 +325,20 @@ done`
 			{#key token}
 				<TabContent value="rest" class="flex flex-col flex-1 h-full ">
 					<div class="flex flex-col gap-2">
-						<ClipboardPanel title="Url" content={url} />
+						<Label label="Url">
+							<ClipboardPanel content={url} />
+						</Label>
 
 						{#if requestType !== 'get_path'}
-							<ClipboardPanel title="Body" content={JSON.stringify(args, null, 2)} />
+							<Label label="Body">
+								<ClipboardPanel content={JSON.stringify(args, null, 2)} />
+							</Label>
 						{/if}
 						{#key requestType}
 							{#key tokenType}
-								<ClipboardPanel title="Headers" content={JSON.stringify(headers(), null, 2)} />
+								<Label label="Headers">
+									<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
+								</Label>
 							{/key}
 						{/key}
 					</div>
@@ -370,4 +387,15 @@ done`
 			{/key}
 		</svelte:fragment>
 	</Tabs>
+
+	<div class="mt-10" />
+	<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
+
+	{#if newItem}
+		<div class="mt-10" />
+		<Alert type="warning" title="Attached to a deployed path">
+			The webhooks are only valid for a given path and will only trigger the deployed version of the
+			{isFlow ? 'flow' : 'script'}.
+		</Alert>
+	{/if}
 </div>

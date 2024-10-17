@@ -43,7 +43,7 @@
 	let value: string | undefined = resolvedConfig.defaultValue
 
 	let outputs = initOutput($worldStore, id, {
-		result: ''
+		result: value ?? ''
 	})
 
 	onDestroy(() => {

@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
-    worker::{get_sql_annotations, to_raw_value},
+    worker::to_raw_value,
 };
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
@@ -148,7 +148,7 @@ pub async fn do_mysql(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let annotations = get_sql_annotations(query);
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let opts = OptsBuilder::default()
         .db_name(Some(database.database))
