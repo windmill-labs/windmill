@@ -22,6 +22,7 @@ use tokio::sync::RwLock;
 lazy_static::lazy_static! {
 
     pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
+    pub static ref OBJECT_STORE_OIDC_SETTINGS: Arc<RwLock<Option<Arc<S3AwsOidcResource>>>> = Arc::new(RwLock::new(None));
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -356,17 +357,41 @@ pub enum ObjectStoreSettings {
 pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
+    AwsOidc(S3AwsOidcResource),
 }
 
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
 ) -> error::Result<Arc<dyn ObjectStore>> {
+    use crate::oidc_ee::generate_id_token;
+
     match settings {
         ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
         ObjectSettings::Azure(azure_settings) => {
             let azure_blob_resource = azure_settings;
             build_azure_blob_client(&azure_blob_resource)
+        }
+        ObjectSettings::AwsOidc(aws_oidc_settings) => {
+            #[cfg(feature = "openidconnect")]
+            {
+                let token_fn = |audience: String| async move {
+                    generate_id_token(
+                        db,
+                        claim,
+                        aws_oidc_settings.audience,
+                        "windmill_instance",
+                        "instance_storage@windmill.dev",
+                    )
+                };
+                todo!()
+            }
+            #[cfg(not(feature = "openidconnect"))]
+            {
+                return Err(error::Error::InternalErr(
+                    "OpenID Connect is not enabled".to_string(),
+                ));
+            }
         }
     }
 }

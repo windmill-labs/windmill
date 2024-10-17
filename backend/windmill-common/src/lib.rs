@@ -32,6 +32,8 @@ pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+#[cfg(feature = "openidconnect")]
+pub mod oidc_ee;
 pub mod s3_helpers;
 
 pub mod auth;
