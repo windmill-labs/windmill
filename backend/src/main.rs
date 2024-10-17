@@ -499,15 +499,15 @@ Windmill Community Edition {GIT_VERSION}
             }
         };
 
-        #[cfg(feature = "tantivy")]
+        #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let (log_index_reader, log_index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::service_logs_ee::init_index().await?;
+            let (r, w) = windmill_indexer::service_logs_ee::init_index(&db).await?;
             (Some(r), Some(w))
         } else {
             (None, None)
         };
 
-        #[cfg(feature = "tantivy")]
+        #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let log_indexer_f = {
             let log_indexer_rx = killpill_rx.resubscribe();
             let log_index_writer2 = log_index_writer.clone();
@@ -530,7 +530,10 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(not(feature = "tantivy"))]
         let indexer_f = async { Ok(()) as anyhow::Result<()> };
 
-        #[cfg(not(feature = "tantivy"))]
+        #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
+        let (log_index_reader, log_index_writer) = (None, None);
+
+        #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
         let server_f = async {
