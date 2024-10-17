@@ -632,7 +632,8 @@
 			workspace: $workspaceStore!,
 			path: appPath
 		})
-		onLatest = version === appVersion.version
+		onLatest = version === appVersion?.version
+
 	}
 	$: saveDrawerOpen && compareVersions()
 

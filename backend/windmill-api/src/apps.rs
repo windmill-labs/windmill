@@ -432,7 +432,9 @@ async fn get_latest_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<AppHistory> {
+
+) -> JsonResult<Option<AppHistory>> {
+
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -441,15 +443,21 @@ async fn get_latest_version(
         ORDER BY created_at DESC",
         w_id,
         path.to_path(),
-    ).fetch_one(&mut *tx).await?;
+    ).fetch_optional(&mut *tx).await?;
     tx.commit().await?;
 
-    let result = AppHistory {
-        app_id: row.app_id,
-        version: row.version_id,
-        deployment_msg: row.deployment_msg,
-    };
-    return Ok(Json(result));
+    if let Some(row) = row {
+        let result = AppHistory {
+            app_id: row.app_id,
+            version: row.version_id,
+            deployment_msg: row.deployment_msg,
+        };
+
+        return Ok(Json(Some(result)));
+    } else {
+        return Ok(Json(None));
+    }
+
 }
 
 async fn update_app_history(

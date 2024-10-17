@@ -124,7 +124,8 @@
 			path: $pathStore
 		})
 
-		onLatest = version === flowVersion.id
+		onLatest = version === flowVersion?.id
+
 	}
 
 	const dispatch = createEventDispatcher()
