@@ -249,6 +249,7 @@
 			if (canSelect) {
 				const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
 				selectedIds = ids
+				dispatch('pointClicked', ids)
 			}
 		},
 

@@ -299,6 +299,13 @@ declare async function waitJob(id: string): Promise<any>;
  */
 declare async function askNewResource(id: string): void;
 
+/**
+ * Download a file from a url or base64 encoded string
+ * @param input url, base64 encoded string, [dataUrl](https://developer.mozilla.org/en-US/docs/Web/URI/Schemes/data) or S3 object
+ * @param [fileName] name of the file to download (optional)
+ */
+declare function downloadFile(input: string | {s3: string, storage?: string}, fileName?: string): void;
+
 `
 		: ''
 }
@@ -449,6 +456,9 @@ export function hasTailwindClass(classes: string | undefined, pattern: RegExp) {
 
 export function transformBareBase64IfNecessary(source: string | undefined) {
 	if (!source) {
+		return source
+	}
+	if (/^(http|https):\/\//.test(source) || source.startsWith('/')) {
 		return source
 	}
 	if (source.startsWith('data:') || source.includes(',')) {

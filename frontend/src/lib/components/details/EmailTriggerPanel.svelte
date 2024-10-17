@@ -14,7 +14,8 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
-
+	import Label from '$lib/components/Label.svelte'
+	import TriggerTokens from '../triggers/TriggerTokens.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -33,6 +34,7 @@
 			})) as any) ?? null
 		loading = false
 	}
+
 	getEmailDomain()
 
 	let requestType: 'hash' | 'path' = 'path'
@@ -49,6 +51,12 @@
 			.toLowerCase()
 		return `${pathOrHash}+${encodedPrefix}@${emailDomain}`
 	}
+
+	export let email: string = ''
+
+	$: email = emailAddress()
+
+	let triggerTokens: TriggerTokens | undefined = undefined
 </script>
 
 <HighlightTheme />
@@ -57,18 +65,20 @@
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {
 		token = e.detail
+		triggerTokens?.listTokens()
 	}}
-	newTokenLabel={`${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+	newTokenWorkspace={$workspaceStore}
+	newTokenLabel={`email-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />
 
-<div class="p-2 flex flex-col w-full gap-4">
+<div class="flex flex-col w-full gap-4">
 	{#if loading}
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
 			{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-				<div class="my-2">
+				<Label label="Token">
 					<div class="flex flex-row justify-between gap-2">
 						<input
 							bind:value={token}
@@ -89,7 +99,7 @@
 							Create/input a valid token before copying the email address below
 						</div>
 					{/if}
-				</div>
+				</Label>
 			{/if}
 
 			{#if !isFlow}
@@ -103,20 +113,19 @@
 					</div>
 				</div>
 			{/if}
-			<div class="flex flex-col gap-4">
-				{#key requestType}
-					{#key token}
-						<div class="flex flex-col gap-2">
-							<ClipboardPanel title="Email address" content={emailAddress()} />
-						</div>
-					{/key}
+
+			{#key requestType}
+				{#key token}
+					<Label label="Email address">
+						<ClipboardPanel content={email} />
+					</Label>
 				{/key}
-				<Alert title="Email trigger" size="xs">
-					To trigger the job by email, send an email to the address above. The job will receive two
-					arguments: `raw_email` containing the raw email as string, and `parsed_email` containing
-					the parsed email as an object.
-				</Alert>
-			</div>
+			{/key}
+			<Alert title="Email trigger" size="xs">
+				To trigger the job by email, send an email to the address above. The job will receive two
+				arguments: `raw_email` containing the raw email as string, and `parsed_email` containing the
+				parsed email as an object.
+			</Alert>
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">
@@ -133,5 +142,7 @@
 				Email triggers on Windmill Community Edition are limited to 100 emails per day.
 			</Alert>
 		{/if}
+
+		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="email" />
 	{/if}
 </div>

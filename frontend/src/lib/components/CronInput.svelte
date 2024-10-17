@@ -203,7 +203,7 @@
 
 <div class="w-full flex space-x-8">
 	<div class="w-full flex flex-col gap-4">
-		<Label label="Cron">
+		<Label label="Cron" class="font-semibold" primary={true}>
 			<svelte:fragment slot="error">
 				{#if !validCRON}
 					<div class="text-red-600 text-xs"> Invalid cron syntax </div>
@@ -219,10 +219,10 @@
 				{disabled}
 			/>
 		</Label>
-		<Label label="Timezone">
+		<Label label="Timezone" class="font-semibold" primary>
 			{#if disabled}
 				<div>
-					<Badge>{timezone}</Badge>
+					<Badge><span class="text-primary dark:text-primary-inverse">{timezone}</span></Badge>
 				</div>
 			{:else}
 				<Select
@@ -390,9 +390,8 @@
 	</div>
 
 	<div class="w-full flex flex-col space-y-2">
-		<div class="text-sm font-semibold leading-none">Execution summary</div>
+		<div class="text-sm font-semibold leading-none">Estimated upcoming events ({timezone})</div>
 		<div class="flex flex-col space-y-2">
-			<div class="text-sm">Estimated upcoming events ({timezone})</div>
 			<div class="flex flex-col rounded-md p-4 border text-tertiary bg-surface-secondary gap-0.5">
 				{#each preview as date}
 					<span class="text-sm">{dateFormatter(new Date(date))}</span>

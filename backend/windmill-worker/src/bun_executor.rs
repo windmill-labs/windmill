@@ -47,7 +47,7 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     scripts::ScriptLang,
-    worker::{exists_in_cache, get_annotation_ts, save_cache, write_file},
+    worker::{exists_in_cache, save_cache, write_file},
     DB,
 };
 
@@ -663,7 +663,7 @@ pub async fn prebundle_bun_script(
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
-    let annotation = get_annotation_ts(inner_content);
+    let annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
     if annotation.nobundling {
         return Ok(());
     }
@@ -676,9 +676,9 @@ pub async fn prebundle_bun_script(
         &token,
         w_id,
         script_path,
-        if annotation.nodejs_mode {
+        if annotation.nodejs {
             LoaderMode::NodeBundle
-        } else if annotation.native_mode {
+        } else if annotation.native {
             LoaderMode::BrowserBundle
         } else {
             LoaderMode::BunBundle
@@ -800,7 +800,7 @@ pub async fn handle_bun_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let mut annotation = windmill_common::worker::get_annotation_ts(inner_content);
+    let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) =
         if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
@@ -822,7 +822,7 @@ pub async fn handle_bun_job(
 
     if !codebase.is_some() && !has_bundle_cache {
         let _ = write_file(job_dir, "main.ts", inner_content)?;
-    } else if !annotation.native_mode && codebase.is_none() {
+    } else if !annotation.native && codebase.is_none() {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
     };
 
@@ -830,7 +830,7 @@ pub async fn handle_bun_job(
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     if codebase.is_some() {
-        annotation.nodejs_mode = true
+        annotation.nodejs = true
     }
     let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
         Some(main_override) => {
@@ -844,7 +844,7 @@ pub async fn handle_bun_job(
     };
 
     #[cfg(not(feature = "enterprise"))]
-    if annotation.nodejs_mode || annotation.npm_mode {
+    if annotation.nodejs || annotation.npm {
         return Err(error::Error::ExecutionErr(
             "Nodejs / npm mode is an EE feature".to_string(),
         ));
@@ -875,20 +875,20 @@ pub async fn handle_bun_job(
         pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o.as_ref() {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-        if splitted.len() != 2 && !annotation.npm_mode {
+        if splitted.len() != 2 && !annotation.npm {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
 
         let _ = write_file(job_dir, "package.json", &splitted[0])?;
-        let lockb = if annotation.npm_mode { "" } else { splitted[1] };
+        let lockb = if annotation.npm { "" } else { splitted[1] };
         if lockb != EMPTY_FILE {
             let mut skip_install = false;
             let mut create_buntar = false;
             let mut buntar_path = "".to_string();
 
-            if !annotation.npm_mode {
+            if !annotation.npm {
                 let _ = write_lockb(&splitted[1], job_dir).await?;
 
                 let mut sha_path = sha2::Sha256::new();
@@ -921,7 +921,7 @@ pub async fn handle_bun_job(
                     job_dir,
                     worker_name,
                     common_bun_proc_envs.clone(),
-                    annotation.npm_mode,
+                    annotation.npm,
                     &mut Some(occupancy_metrics),
                 )
                 .await?;
@@ -963,7 +963,7 @@ pub async fn handle_bun_job(
             worker_name,
             false,
             None,
-            annotation.npm_mode,
+            annotation.npm,
             &mut Some(occupancy_metrics),
         )
         .await?;
@@ -971,19 +971,19 @@ pub async fn handle_bun_job(
         // }
     }
 
-    let mut init_logs = if annotation.native_mode {
+    let mut init_logs = if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if has_bundle_cache {
-        if annotation.nodejs_mode {
+        if annotation.nodejs {
             "\n\n--- NODE BUNDLE SNAPSHOT EXECUTION ---\n".to_string()
         } else {
             "\n\n--- BUN BUNDLE SNAPSHOT EXECUTION ---\n".to_string()
         }
     } else if codebase.is_some() {
         "\n\n--- NODE CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
-    } else if annotation.native_mode {
+    } else if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
-    } else if annotation.nodejs_mode {
+    } else if annotation.nodejs {
         write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
@@ -1003,7 +1003,7 @@ pub async fn handle_bun_job(
     }
 
     let write_wrapper_f = async {
-        if !has_bundle_cache && annotation.native_mode {
+        if !has_bundle_cache && annotation.native {
             return Ok(()) as error::Result<()>;
         }
         // let mut start = Instant::now();
@@ -1105,6 +1105,16 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    const extra = {{}};
+    Object.getOwnPropertyNames(e).forEach((key) => {{
+        if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
+            return;
+        }}
+        extra[key] = e[key];
+    }});
+    if (Object.keys(extra).length > 0) {{
+        err["extra"] = extra;
+    }}
     await fs.writeFile("result.json", JSON.stringify(err));
     process.exit(1);
 }}
@@ -1116,7 +1126,7 @@ try {{
 
     let reserved_variables_args_out_f = async {
         let args_and_out_f = async {
-            if !annotation.native_mode {
+            if !annotation.native {
                 create_args_and_out_file(&client, job, job_dir, db).await?;
             }
             Ok(()) as Result<()>
@@ -1133,7 +1143,7 @@ try {{
     let build_cache = !has_bundle_cache
         && !annotation.nobundling
         && !codebase.is_some()
-        && (requirements_o.is_some() || annotation.native_mode);
+        && (requirements_o.is_some() || annotation.native);
 
     let write_loader_f = async {
         if build_cache {
@@ -1143,9 +1153,9 @@ try {{
                 &client.get_token().await,
                 &job.workspace_id,
                 &job.script_path(),
-                if annotation.nodejs_mode {
+                if annotation.nodejs {
                     LoaderMode::NodeBundle
-                } else if annotation.native_mode {
+                } else if annotation.native {
                     LoaderMode::BrowserBundle
                 } else {
                     LoaderMode::BunBundle
@@ -1161,7 +1171,7 @@ try {{
                 &client.get_token().await,
                 &job.workspace_id,
                 &job.script_path(),
-                if annotation.nodejs_mode {
+                if annotation.nodejs {
                     LoaderMode::Node
                 } else {
                     LoaderMode::Bun
@@ -1207,7 +1217,7 @@ try {{
                     }
                 }
             }
-            if !annotation.native_mode {
+            if !annotation.native {
                 let ex_wrapper = read_file_content(&format!("{job_dir}/wrapper.mjs")).await?;
                 write_file(
                     job_dir,
@@ -1221,7 +1231,7 @@ try {{
             }
             fs::remove_file(format!("{job_dir}/main.ts"))?;
             has_bundle_cache = true;
-        } else if annotation.nodejs_mode {
+        } else if annotation.nodejs {
             generate_wrapper_mjs(
                 job_dir,
                 &job.workspace_id,
@@ -1237,9 +1247,14 @@ try {{
             .await?;
         }
     }
-    if annotation.native_mode {
+    if annotation.native {
         #[cfg(not(feature = "deno_core"))]
-        return Ok(to_raw_value("").unwrap());
+        {
+            tracing::error!(
+                r#""deno_core" feature is not activated, but "//native" annotation used. Returning empty value..."#
+            );
+            return Ok(to_raw_value("").unwrap());
+        }
 
         #[cfg(feature = "deno_core")]
         {
@@ -1299,14 +1314,7 @@ try {{
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
-                .replace(
-                    "{LANG}",
-                    if annotation.nodejs_mode {
-                        "nodejs"
-                    } else {
-                        "bun"
-                    },
-                )
+                .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
@@ -1314,7 +1322,7 @@ try {{
                     "{SHARED_MOUNT}",
                     &shared_mount.replace(
                         "/tmp/shared",
-                        if annotation.nodejs_mode {
+                        if annotation.nodejs {
                             "/tmp/nodejs/shared"
                         } else {
                             "/tmp/bun/shared"
@@ -1324,7 +1332,7 @@ try {{
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-        let args = if annotation.nodejs_mode {
+        let args = if annotation.nodejs {
             vec![
                 "--config",
                 "run.config.proto",
@@ -1368,7 +1376,7 @@ try {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let cmd = if annotation.nodejs_mode {
+        let cmd = if annotation.nodejs {
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*NODE_BIN_PATH);
@@ -1420,7 +1428,7 @@ try {{
 
         start_child_process(
             cmd,
-            if annotation.nodejs_mode {
+            if annotation.nodejs {
                 &*NODE_BIN_PATH
             } else {
                 &*BUN_PATH
@@ -1435,7 +1443,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        false,
+        !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
         "bun run",
@@ -1525,10 +1533,10 @@ pub async fn start_worker(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
-    let mut annotation = windmill_common::worker::get_annotation_ts(inner_content);
+    let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
     //TODO: remove this when bun dedicated workers work without issues
-    annotation.nodejs_mode = true;
+    annotation.nodejs = true;
 
     let context = variables::get_reserved_variables(
         db,
@@ -1582,7 +1590,7 @@ pub async fn start_worker(
                 job_dir,
                 worker_name,
                 common_bun_proc_envs.clone(),
-                annotation.npm_mode,
+                annotation.npm,
                 &mut None,
             )
             .await?;
@@ -1603,7 +1611,7 @@ pub async fn start_worker(
             worker_name,
             false,
             None,
-            annotation.npm_mode,
+            annotation.npm,
             &mut None,
         )
         .await?;
@@ -1681,7 +1689,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             token,
             w_id,
             script_path,
-            if annotation.nodejs_mode {
+            if annotation.nodejs {
                 LoaderMode::Node
             } else {
                 LoaderMode::Bun
@@ -1690,7 +1698,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         .await?;
     }
 
-    if annotation.nodejs_mode && !codebase.is_some() {
+    if annotation.nodejs && !codebase.is_some() {
         generate_wrapper_mjs(
             job_dir,
             w_id,
@@ -1706,7 +1714,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         .await?;
     }
 
-    if annotation.nodejs_mode {
+    if annotation.nodejs {
         let script_path = format!("{job_dir}/wrapper.mjs");
 
         handle_dedicated_process(

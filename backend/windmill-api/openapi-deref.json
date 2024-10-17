@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.304.2",
+    "version": "1.409.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -175,6 +175,22 @@
           },
           {
             "$ref": "#/components/parameters/Operation"
+          },
+          {
+            "name": "operations",
+            "in": "query",
+            "description": "comma separated list of exact operations to include",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exclude_operations",
+            "in": "query",
+            "description": "comma separated list of operations to exclude",
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "$ref": "#/components/parameters/ResourceName"
@@ -501,6 +517,9 @@
                 "properties": {
                   "is_super_admin": {
                     "type": "boolean"
+                  },
+                  "name": {
+                    "type": "string"
                   }
                 }
               }
@@ -653,6 +672,65 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/overwrite": {
+      "post": {
+        "summary": "global overwrite users (require super admin and EE)",
+        "operationId": "globalUsersOverwrite",
+        "tags": [
+          "user"
+        ],
+        "requestBody": {
+          "description": "List of users",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ExportedUser"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success message",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/export": {
+      "get": {
+        "summary": "global export users (require super admin and EE)",
+        "operationId": "globalUsersExport",
+        "tags": [
+          "user"
+        ],
+        "responses": {
+          "200": {
+            "description": "exported users",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExportedUser"
+                  }
                 }
               }
             }
@@ -1061,6 +1139,49 @@
         }
       }
     },
+    "/settings/test_critical_channels": {
+      "post": {
+        "summary": "test critical channels",
+        "operationId": "testCriticalChannels",
+        "tags": [
+          "setting"
+        ],
+        "requestBody": {
+          "description": "test critical channel payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    },
+                    "slack_channel": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/settings/test_license_key": {
       "post": {
         "summary": "test license key",
@@ -1155,6 +1276,103 @@
         }
       }
     },
+    "/settings/latest_key_renewal_attempt": {
+      "get": {
+        "summary": "get latest key renewal attempt",
+        "operationId": "getLatestKeyRenewalAttempt",
+        "tags": [
+          "setting"
+        ],
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": {
+                      "type": "string"
+                    },
+                    "attempted_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "result",
+                    "attempted_at"
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/renew_license_key": {
+      "post": {
+        "summary": "renew license key",
+        "operationId": "renewLicenseKey",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "name": "license_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/customer_portal": {
+      "post": {
+        "summary": "create customer portal session",
+        "operationId": "createCustomerPortalSession",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "name": "license_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "url to portal",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/saml/test_metadata": {
       "post": {
         "summary": "test metadata",
@@ -1180,6 +1398,30 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/list_global": {
+      "get": {
+        "summary": "list global settings",
+        "operationId": "listGlobalSettings",
+        "tags": [
+          "setting"
+        ],
+        "responses": {
+          "200": {
+            "description": "list of settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GlobalSetting"
+                  }
                 }
               }
             }
@@ -2122,6 +2364,9 @@
                     "git_sync": {
                       "$ref": "#/components/schemas/WorkspaceGitSyncSettings"
                     },
+                    "deploy_ui": {
+                      "$ref": "#/components/schemas/WorkspaceDeployUISettings"
+                    },
                     "default_app": {
                       "type": "string"
                     },
@@ -2730,6 +2975,46 @@
         }
       }
     },
+    "/w/{workspace}/workspaces/edit_deploy_ui_config": {
+      "post": {
+        "summary": "edit workspace deploy ui settings",
+        "operationId": "editWorkspaceDeployUISettings",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "Workspace deploy UI settings",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "deploy_ui_settings": {
+                    "$ref": "#/components/schemas/WorkspaceDeployUISettings"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/workspaces/edit_default_app": {
       "post": {
         "summary": "edit default app for workspace",
@@ -2934,6 +3219,9 @@
                 "properties": {
                   "new_key": {
                     "type": "string"
+                  },
+                  "skip_reencrypt": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -3127,6 +3415,40 @@
         }
       }
     },
+    "/w/{workspace}/users/username_to_email/{username}": {
+      "get": {
+        "summary": "get email from username",
+        "operationId": "usernameToEmail",
+        "tags": [
+          "user"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "email",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/users/tokens/create": {
       "post": {
         "summary": "create token",
@@ -3236,6 +3558,12 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
           }
         ],
         "responses": {
@@ -3559,6 +3887,19 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
           }
         ],
         "responses": {
@@ -3699,6 +4040,50 @@
         "responses": {
           "200": {
             "description": "slack token",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/connect_slack_callback": {
+      "post": {
+        "summary": "connect slack callback instance",
+        "operationId": "connectSlackCallbackInstance",
+        "tags": [
+          "oauth"
+        ],
+        "requestBody": {
+          "description": "code endpoint",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "state"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "success message",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3932,7 +4317,18 @@
                     "oauth": {
                       "type": "array",
                       "items": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          },
+                          "display_name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ]
                       }
                     },
                     "saml": {
@@ -3962,19 +4358,50 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "object",
-                    "properties": {
-                      "extra_params": {
-                        "additionalProperties": {
-                          "type": "string"
-                        }
-                      },
-                      "scopes": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/get_connect/{client}": {
+      "get": {
+        "summary": "get oauth connect",
+        "operationId": "getOAuthConnect",
+        "tags": [
+          "oauth"
+        ],
+        "parameters": [
+          {
+            "name": "client",
+            "description": "client name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "get",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "extra_params": {
+                      "type": "object"
+                    },
+                    "scopes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     }
                   }
@@ -4294,6 +4721,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4427,6 +4861,30 @@
                 "schema": {
                   "type": "string"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/resources/file_resource_type_to_file_ext_map": {
+      "get": {
+        "summary": "get map from resource type to format extension",
+        "operationId": "fileResourceTypeToFileExtMap",
+        "tags": [
+          "resource"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "map from resource type to file ext",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -5281,7 +5739,23 @@
           },
           {
             "name": "show_archived",
-            "description": "(default false)\nshow also the archived files.\nwhen multiple archived hash share the same path, only the ones with the latest create_at\nare \ned.\n",
+            "description": "(default false)\nshow only the archived files.\nwhen multiple archived hash share the same path, only the ones with the latest create_at\nare \ned.\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_without_main",
+            "description": "(default false)\ninclude scripts without an exported main function\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_draft_only",
+            "description": "(default false)\ninclude scripts that have no deployed version\n",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -5306,6 +5780,14 @@
           {
             "name": "starred_only",
             "description": "(default false)\nshow only the starred items\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "with_deployment_msg",
+            "description": "(default false)\ninclude deployment message\n",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -5735,6 +6217,13 @@
           },
           {
             "$ref": "#/components/parameters/ScriptPath"
+          },
+          {
+            "name": "with_starred_info",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -5744,6 +6233,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Script"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/scripts/get_triggers_count/{path}": {
+      "get": {
+        "summary": "get triggers count of script",
+        "operationId": "getTriggersCountOfScript",
+        "tags": [
+          "script"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "triggers count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggersCount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/scripts/list_tokens/{path}": {
+      "get": {
+        "summary": "get tokens with script scope",
+        "operationId": "listTokensOfScript",
+        "tags": [
+          "script"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tokens list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TruncatedToken"
+                  }
                 }
               }
             }
@@ -5963,6 +6513,13 @@
           },
           {
             "$ref": "#/components/parameters/ScriptHash"
+          },
+          {
+            "name": "with_starred_info",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -6074,6 +6631,14 @@
             "in": "query",
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "name": "skip_preprocessor",
+            "description": "skip the preprocessor",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -6518,7 +7083,7 @@
           },
           {
             "name": "show_archived",
-            "description": "(default false)\nshow also the archived files.\nwhen multiple archived hash share the same path, only the ones with the latest create_at\nare displayed.\n",
+            "description": "(default false)\nshow only the archived files.\nwhen multiple archived hash share the same path, only the ones with the latest create_at\nare displayed.\n",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -6527,6 +7092,22 @@
           {
             "name": "starred_only",
             "description": "(default false)\nshow only the starred items\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_draft_only",
+            "description": "(default false)\ninclude items that have no deployed version\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "with_deployment_msg",
+            "description": "(default false)\ninclude deployment message\n",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -6565,6 +7146,133 @@
         }
       }
     },
+    "/w/{workspace}/flows/history/p/{path}": {
+      "get": {
+        "summary": "get flow history by path",
+        "operationId": "getFlowHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "tags": [
+          "flow"
+        ],
+        "responses": {
+          "200": {
+            "description": "Flow history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FlowVersion"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/flows/get/v/{version}/p/{path}": {
+      "get": {
+        "summary": "get flow version",
+        "operationId": "getFlowVersion",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "type": "string",
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "tags": [
+          "flow"
+        ],
+        "responses": {
+          "200": {
+            "description": "flow details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Flow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/flows/history_update/v/{version}/p/{path}": {
+      "post": {
+        "summary": "update flow history",
+        "operationId": "updateFlowHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "type": "string",
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "requestBody": {
+          "description": "Flow deployment message",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "deployment_msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "deployment_msg"
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "flow"
+        ],
+        "responses": {
+          "200": {
+            "description": "success",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/flows/get/{path}": {
       "get": {
         "summary": "get flow by path",
@@ -6578,6 +7286,13 @@
           },
           {
             "$ref": "#/components/parameters/ScriptPath"
+          },
+          {
+            "name": "with_starred_info",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -6587,6 +7302,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Flow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/flows/get_triggers_count/{path}": {
+      "get": {
+        "summary": "get triggers count of flow",
+        "operationId": "getTriggersCountOfFlow",
+        "tags": [
+          "flow"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "triggers count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggersCount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/flows/list_tokens/{path}": {
+      "get": {
+        "summary": "get tokens with flow scope",
+        "operationId": "listTokensOfFlow",
+        "tags": [
+          "flow"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tokens list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TruncatedToken"
+                  }
                 }
               }
             }
@@ -6887,44 +7663,6 @@
         }
       }
     },
-    "/w/{workspace}/flows/input_history/p/{path}": {
-      "get": {
-        "summary": "list inputs for previous completed flow jobs",
-        "operationId": "getFlowInputHistoryByPath",
-        "tags": [
-          "flow"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "$ref": "#/components/parameters/ScriptPath"
-          },
-          {
-            "$ref": "#/components/parameters/Page"
-          },
-          {
-            "$ref": "#/components/parameters/PerPage"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "input history for completed jobs with this flow path",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Input"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/w/{workspace}/raw_apps/list": {
       "get": {
         "summary": "list all raw apps",
@@ -7136,6 +7874,22 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "include_draft_only",
+            "description": "(default false)\ninclude items that have no deployed version\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "with_deployment_msg",
+            "description": "(default false)\ninclude deployment message\n",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -7258,6 +8012,13 @@
           },
           {
             "$ref": "#/components/parameters/ScriptPath"
+          },
+          {
+            "name": "with_starred_info",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -7756,6 +8517,9 @@
                       "path": {
                         "type": "string"
                       },
+                      "lock": {
+                        "type": "string"
+                      },
                       "cache_ttl": {
                         "type": "integer"
                       }
@@ -7767,6 +8531,15 @@
                   },
                   "force_viewer_static_fields": {
                     "type": "object"
+                  },
+                  "force_viewer_one_of_fields": {
+                    "type": "object"
+                  },
+                  "force_viewer_allow_user_resources": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -7820,6 +8593,14 @@
             "in": "query",
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "name": "skip_preprocessor",
+            "description": "skip the preprocessor",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -7994,6 +8775,14 @@
             "in": "query",
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "name": "skip_preprocessor",
+            "description": "skip the preprocessor",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -8339,6 +9128,14 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "is_not_schedule",
+            "description": "is not a scheduled job",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8388,6 +9185,9 @@
                   "properties": {
                     "database_length": {
                       "type": "integer"
+                    },
+                    "suspended": {
+                      "type": "integer"
                     }
                   },
                   "required": [
@@ -8434,10 +9234,120 @@
         }
       }
     },
-    "/w/{workspace}/jobs/queue/cancel_all": {
+    "/w/{workspace}/jobs/queue/list_filtered_uuids": {
+      "get": {
+        "summary": "get the ids of all jobs matching the given filters",
+        "operationId": "listFilteredUuids",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/OrderDesc"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedBy"
+          },
+          {
+            "$ref": "#/components/parameters/ParentJob"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptExactPath"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptStartPath"
+          },
+          {
+            "$ref": "#/components/parameters/SchedulePath"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptExactHash"
+          },
+          {
+            "$ref": "#/components/parameters/StartedBefore"
+          },
+          {
+            "$ref": "#/components/parameters/StartedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/Success"
+          },
+          {
+            "$ref": "#/components/parameters/ScheduledForBeforeNow"
+          },
+          {
+            "$ref": "#/components/parameters/JobKinds"
+          },
+          {
+            "$ref": "#/components/parameters/Suspended"
+          },
+          {
+            "$ref": "#/components/parameters/Running"
+          },
+          {
+            "$ref": "#/components/parameters/ArgsFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ResultFilter"
+          },
+          {
+            "$ref": "#/components/parameters/Tag"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
+          },
+          {
+            "name": "concurrency_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "all_workspaces",
+            "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "is_not_schedule",
+            "description": "is not a scheduled job",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "uuids of jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs/queue/cancel_selection": {
       "post": {
-        "summary": "cancel all jobs",
-        "operationId": "cancelAll",
+        "summary": "cancel jobs based on the given uuids",
+        "operationId": "cancelSelection",
         "tags": [
           "job"
         ],
@@ -8446,6 +9356,20 @@
             "$ref": "#/components/parameters/WorkspaceId"
           }
         ],
+        "requestBody": {
+          "description": "uuids of the jobs to cancel",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "uuids of canceled jobs",
@@ -8479,6 +9403,9 @@
           },
           {
             "$ref": "#/components/parameters/CreatedBy"
+          },
+          {
+            "$ref": "#/components/parameters/Label"
           },
           {
             "$ref": "#/components/parameters/ParentJob"
@@ -8545,6 +9472,14 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "is_not_schedule",
+            "description": "is not a scheduled job",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8579,6 +9514,9 @@
             "$ref": "#/components/parameters/CreatedBy"
           },
           {
+            "$ref": "#/components/parameters/Label"
+          },
+          {
             "$ref": "#/components/parameters/ParentJob"
           },
           {
@@ -8600,6 +9538,12 @@
             "$ref": "#/components/parameters/StartedAfter"
           },
           {
+            "$ref": "#/components/parameters/CreatedBefore"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedAfter"
+          },
+          {
             "$ref": "#/components/parameters/CreatedOrStartedBefore"
           },
           {
@@ -8612,7 +9556,13 @@
             "$ref": "#/components/parameters/CreatedOrStartedAfter"
           },
           {
+            "$ref": "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+          },
+          {
             "$ref": "#/components/parameters/JobKinds"
+          },
+          {
+            "$ref": "#/components/parameters/Suspended"
           },
           {
             "$ref": "#/components/parameters/ArgsFilter"
@@ -8668,6 +9618,14 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "is_not_schedule",
+            "description": "is not a scheduled job",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8701,6 +9659,62 @@
               "application/json": {
                 "schema": {
                   "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/completed/count_by_tag": {
+      "get": {
+        "summary": "Count jobs by tag",
+        "operationId": "countJobsByTag",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "name": "horizon_secs",
+            "in": "query",
+            "description": "Past Time horizon in seconds (when to start the count = now - horizon) (default is 3600)",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "Specific workspace ID to filter results (optional)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job counts by tag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "tag": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "count"
+                    ]
+                  }
                 }
               }
             }
@@ -8802,6 +9816,33 @@
         }
       }
     },
+    "/w/{workspace}/jobs_u/get_args/{id}": {
+      "get": {
+        "summary": "get job args",
+        "operationId": "getJobArgs",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "job args",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/jobs_u/getupdate/{id}": {
       "get": {
         "summary": "get job updates",
@@ -8829,6 +9870,13 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "name": "get_progress",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8854,11 +9902,46 @@
                     "mem_peak": {
                       "type": "integer"
                     },
+                    "progress": {
+                      "type": "integer"
+                    },
                     "flow_status": {
                       "$ref": "#/components/schemas/WorkflowStatusRecord"
                     }
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs_u/get_log_file/{path}": {
+      "get": {
+        "summary": "get log file from object store",
+        "operationId": "getLogFileFromStore",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "job log",
+            "content": {
+              "text/plain": {
+                "type": "string"
               }
             }
           }
@@ -8934,6 +10017,34 @@
           },
           {
             "$ref": "#/components/parameters/JobId"
+          },
+          {
+            "name": "suspended_job",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resume_id",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "secret",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "approver",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9027,7 +10138,7 @@
     },
     "/w/{workspace}/jobs_u/queue/cancel/{id}": {
       "post": {
-        "summary": "cancel queued job",
+        "summary": "cancel queued or running job",
         "operationId": "cancelQueuedJob",
         "tags": [
           "job"
@@ -9982,6 +11093,13 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10060,7 +11178,8 @@
                     "type": "string",
                     "enum": [
                       "error",
-                      "recovery"
+                      "recovery",
+                      "success"
                     ]
                   },
                   "override_existing": {
@@ -10093,6 +11212,311 @@
         "responses": {
           "201": {
             "description": "default error handler set"
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/create": {
+      "post": {
+        "summary": "create http trigger",
+        "operationId": "createHttpTrigger",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "new http trigger",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewHttpTrigger"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "http trigger created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/update/{path}": {
+      "post": {
+        "summary": "update http trigger",
+        "operationId": "updateHttpTrigger",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "description": "updated trigger",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditHttpTrigger"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "http trigger updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/delete/{path}": {
+      "delete": {
+        "summary": "delete http trigger",
+        "operationId": "deleteHttpTrigger",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "http trigger deleted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/get/{path}": {
+      "get": {
+        "summary": "get http trigger",
+        "operationId": "getHttpTrigger",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "http trigger deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpTrigger"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/list": {
+      "get": {
+        "summary": "list http triggers",
+        "operationId": "listHttpTriggers",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId",
+            "required": true
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
+          },
+          {
+            "name": "path",
+            "description": "filter by path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "is_flow",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "http trigger list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HttpTrigger"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/exists/{path}": {
+      "get": {
+        "summary": "does http trigger exists",
+        "operationId": "existsHttpTrigger",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "http trigger exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/route_exists": {
+      "post": {
+        "summary": "does route exists",
+        "operationId": "existsRoute",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "route exists request",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "route_path": {
+                    "type": "string"
+                  },
+                  "http_method": {
+                    "type": "string",
+                    "enum": [
+                      "get",
+                      "post",
+                      "put",
+                      "delete",
+                      "patch"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "route_path",
+                  "http_method"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "route exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/http_triggers/used": {
+      "get": {
+        "summary": "whether http triggers are used",
+        "operationId": "used",
+        "tags": [
+          "http_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "whether http triggers are used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
           }
         }
       }
@@ -10340,6 +11764,65 @@
         "responses": {
           "200": {
             "description": "user removed from instance group",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/groups/export": {
+      "get": {
+        "summary": "export instance groups",
+        "operationId": "exportInstanceGroups",
+        "tags": [
+          "group"
+        ],
+        "responses": {
+          "200": {
+            "description": "exported instance groups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExportedInstanceGroup"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/groups/overwrite": {
+      "post": {
+        "summary": "overwrite instance groups",
+        "operationId": "overwriteInstanceGroups",
+        "tags": [
+          "group"
+        ],
+        "requestBody": {
+          "description": "overwrite instance groups",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ExportedInstanceGroup"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "success message",
             "content": {
               "text/plain": {
                 "schema": {
@@ -10759,6 +12242,9 @@
                   "name": {
                     "type": "string"
                   },
+                  "summary": {
+                    "type": "string"
+                  },
                   "owners": {
                     "type": "array",
                     "items": {
@@ -10815,6 +12301,9 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "summary": {
+                    "type": "string"
+                  },
                   "owners": {
                     "type": "array",
                     "items": {
@@ -11131,6 +12620,57 @@
         }
       }
     },
+    "/workers/queue_metrics": {
+      "get": {
+        "summary": "get queue metrics",
+        "operationId": "getQueueMetrics",
+        "tags": [
+          "worker"
+        ],
+        "responses": {
+          "200": {
+            "description": "metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "created_at": {
+                              "type": "string"
+                            },
+                            "value": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "created_at",
+                            "value"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "values"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/configs/list_worker_groups": {
       "get": {
         "summary": "list worker groups",
@@ -11248,6 +12788,30 @@
         }
       }
     },
+    "/configs/list": {
+      "get": {
+        "summary": "list configs",
+        "operationId": "listConfigs",
+        "tags": [
+          "config"
+        ],
+        "responses": {
+          "200": {
+            "description": "list of configs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Config"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/acls/get/{kind}/{path}": {
       "get": {
         "summary": "get granular acls",
@@ -11277,7 +12841,8 @@
                 "flow",
                 "folder",
                 "app",
-                "raw_app"
+                "raw_app",
+                "http_trigger"
               ]
             }
           }
@@ -11328,7 +12893,8 @@
                 "flow",
                 "folder",
                 "app",
-                "raw_app"
+                "raw_app",
+                "http_trigger"
               ]
             }
           }
@@ -11398,7 +12964,8 @@
                 "flow",
                 "folder",
                 "app",
-                "raw_app"
+                "raw_app",
+                "http_trigger"
               ]
             }
           }
@@ -11627,6 +13194,52 @@
                     "$ref": "#/components/schemas/Input"
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/inputs/{jobOrInputId}/args": {
+      "get": {
+        "summary": "Get args from history or saved input",
+        "operationId": "getArgsFromHistoryOrSavedInput",
+        "tags": [
+          "input"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "jobOrInputId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "input",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "allow_large",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "args",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -12097,7 +13710,7 @@
     },
     "/w/{workspace}/job_helpers/test_connection": {
       "get": {
-        "summary": "Test connection to the workspace datasets storage",
+        "summary": "Test connection to the workspace object storage",
         "operationId": "datasetStorageTestConnection",
         "tags": [
           "helpers"
@@ -12105,6 +13718,13 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12121,7 +13741,7 @@
     },
     "/w/{workspace}/job_helpers/list_stored_files": {
       "get": {
-        "summary": "List the file keys available in the workspace files storage (S3)",
+        "summary": "List the file keys available in a workspace object storage",
         "operationId": "listStoredFiles",
         "tags": [
           "helpers"
@@ -12147,6 +13767,13 @@
           },
           {
             "name": "prefix",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
             "in": "query",
             "schema": {
               "type": "string"
@@ -12199,6 +13826,13 @@
             "name": "file_key",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -12278,6 +13912,13 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12349,11 +13990,156 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Parquet Preview",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/job_helpers/load_table_count/{path}": {
+      "get": {
+        "summary": "Load the table row count",
+        "operationId": "loadTableRowCount",
+        "tags": [
+          "helpers"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          },
+          {
+            "name": "search_col",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search_term",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/job_helpers/load_csv_preview/{path}": {
+      "get": {
+        "summary": "Load a preview of a csv file",
+        "operationId": "loadCsvPreview",
+        "tags": [
+          "helpers"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "sort_col",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort_desc",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search_col",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search_term",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "csv_separator",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Csv Preview",
             "content": {
               "application/json": {
                 "schema": {}
@@ -12378,6 +14164,13 @@
             "name": "file_key",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -12418,6 +14211,13 @@
             "name": "dest_file_key",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -12474,6 +14274,13 @@
             "name": "resource_type",
             "in": "query",
             "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -12547,6 +14354,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12557,6 +14371,56 @@
                 "schema": {
                   "type": "string",
                   "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/job_helpers/download_s3_parquet_file_as_csv": {
+      "get": {
+        "summary": "Download file to S3 bucket",
+        "operationId": "fileDownloadParquetAsCsv",
+        "tags": [
+          "helpers"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "file_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "s3_resource_path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The downloaded file",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -12637,6 +14501,182 @@
         }
       }
     },
+    "/w/{workspace}/job_metrics/set_progress/{id}": {
+      "post": {
+        "summary": "set job metrics",
+        "operationId": "setJobProgress",
+        "tags": [
+          "metrics"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "requestBody": {
+          "description": "parameters for statistics retrieval",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "percent": {
+                    "type": "integer"
+                  },
+                  "flow_job_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Job progress updated",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/job_metrics/get_progress/{id}": {
+      "get": {
+        "summary": "get job progress",
+        "operationId": "getJobProgress",
+        "tags": [
+          "metrics"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "job progress between 0 and 99",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service_logs/list_files": {
+      "get": {
+        "summary": "list log files ordered by timestamp",
+        "operationId": "listLogFiles",
+        "tags": [
+          "service_logs"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Before"
+          },
+          {
+            "$ref": "#/components/parameters/After"
+          },
+          {
+            "name": "with_error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "hostname": {
+                        "type": "string"
+                      },
+                      "mode": {
+                        "type": "string"
+                      },
+                      "worker_group": {
+                        "type": "string"
+                      },
+                      "log_ts": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "ok_lines": {
+                        "type": "integer"
+                      },
+                      "err_lines": {
+                        "type": "integer"
+                      },
+                      "json_fmt": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "hostname",
+                      "mode",
+                      "log_ts",
+                      "file_path",
+                      "json_fmt"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service_logs/get_log_file/{path}": {
+      "get": {
+        "summary": "get log file by path",
+        "operationId": "getLogFile",
+        "tags": [
+          "service_logs"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "log stream",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/concurrency_groups/list": {
       "get": {
         "summary": "List all concurrency groups",
@@ -12661,7 +14701,7 @@
         }
       }
     },
-    "/concurrency_groups/{concurrency_id}": {
+    "/concurrency_groups/prune/{concurrency_id}": {
       "delete": {
         "summary": "Delete concurrency group",
         "operationId": "deleteConcurrencyGroup",
@@ -12681,6 +14721,238 @@
                 "schema": {
                   "type": "object",
                   "properties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/concurrency_groups/{id}/key": {
+      "get": {
+        "summary": "Get the concurrency key for a job that has concurrency limits enabled",
+        "operationId": "getConcurrencyKey",
+        "tags": [
+          "concurrencyGroups"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "concurrency key for given job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/concurrency_groups/list_jobs": {
+      "get": {
+        "summary": "Get intervals of job runtime concurrency",
+        "operationId": "listExtendedJobs",
+        "tags": [
+          "concurrencyGroups",
+          "job"
+        ],
+        "parameters": [
+          {
+            "name": "concurrency_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "row_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedBy"
+          },
+          {
+            "$ref": "#/components/parameters/Label"
+          },
+          {
+            "$ref": "#/components/parameters/ParentJob"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptExactPath"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptStartPath"
+          },
+          {
+            "$ref": "#/components/parameters/SchedulePath"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptExactHash"
+          },
+          {
+            "$ref": "#/components/parameters/StartedBefore"
+          },
+          {
+            "$ref": "#/components/parameters/StartedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedOrStartedBefore"
+          },
+          {
+            "$ref": "#/components/parameters/Running"
+          },
+          {
+            "$ref": "#/components/parameters/ScheduledForBeforeNow"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedOrStartedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+          },
+          {
+            "$ref": "#/components/parameters/JobKinds"
+          },
+          {
+            "$ref": "#/components/parameters/ArgsFilter"
+          },
+          {
+            "$ref": "#/components/parameters/Tag"
+          },
+          {
+            "$ref": "#/components/parameters/ResultFilter"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
+          },
+          {
+            "name": "is_skipped",
+            "description": "is the job skipped",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "is_flow_step",
+            "description": "is the job a flow step",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "has_null_parent",
+            "description": "has null parent",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "success",
+            "description": "filter on successful jobs",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "all_workspaces",
+            "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "is_not_schedule",
+            "description": "is not a scheduled job",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtendedJobs"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/srch/w/{workspace}/index/search/job": {
+      "get": {
+        "summary": "Search through jobs with a string query",
+        "operationId": "searchJobsIndex",
+        "tags": [
+          "indexSearch"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "search_query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "query_parse_errors": {
+                      "description": "a list of the terms that couldn't be parsed (and thus ignored)",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dancer": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "hits": {
+                      "description": "the jobs that matched the query",
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/JobSearchHit"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -12839,6 +15111,14 @@
           "type": "string"
         }
       },
+      "Label": {
+        "name": "label",
+        "description": "mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        }
+      },
       "ParentJob": {
         "name": "parent_job",
         "description": "The parent job that is at the origin and responsible for the execution of this script if any",
@@ -12929,6 +15209,24 @@
           "type": "string"
         }
       },
+      "CreatedBefore": {
+        "name": "created_before",
+        "description": "filter on created before (inclusive) timestamp",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "CreatedAfter": {
+        "name": "created_after",
+        "description": "filter on created after (exclusive) timestamp",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
       "StartedBefore": {
         "name": "started_before",
         "description": "filter on started before (inclusive) timestamp",
@@ -12947,9 +15245,27 @@
           "format": "date-time"
         }
       },
+      "Before": {
+        "name": "before",
+        "description": "filter on started before (inclusive) timestamp",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
       "CreatedOrStartedAfter": {
         "name": "created_or_started_after",
         "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "CreatedOrStartedAfterCompletedJob": {
+        "name": "created_or_started_after_completed_jobs",
+        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp but only for the completed jobs",
         "in": "query",
         "schema": {
           "type": "string",
@@ -13024,15 +15340,6 @@
       "After": {
         "name": "after",
         "description": "filter on created after (exclusive) timestamp",
-        "in": "query",
-        "schema": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "Before": {
-        "name": "before",
-        "description": "filter on created before (exclusive) timestamp",
         "in": "query",
         "schema": {
           "type": "string",
@@ -13198,7 +15505,10 @@
               "mssql",
               "graphql",
               "nativets",
-              "bun"
+              "bun",
+              "php",
+              "rust",
+              "ansible"
             ]
           },
           "kind": {
@@ -13235,6 +15545,9 @@
           "concurrency_time_window_s": {
             "type": "integer"
           },
+          "concurrency_key": {
+            "type": "string"
+          },
           "cache_ttl": {
             "type": "number"
           },
@@ -13258,6 +15571,15 @@
           },
           "visible_to_runner_only": {
             "type": "boolean"
+          },
+          "no_main_func": {
+            "type": "boolean"
+          },
+          "codebase": {
+            "type": "string"
+          },
+          "has_preprocessor": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -13274,7 +15596,9 @@
           "extra_perms",
           "language",
           "kind",
-          "starred"
+          "starred",
+          "no_main_func",
+          "has_preprocessor"
         ]
       },
       "NewScript": {
@@ -13319,7 +15643,10 @@
               "mssql",
               "graphql",
               "nativets",
-              "bun"
+              "bun",
+              "php",
+              "rust",
+              "ansible"
             ]
           },
           "kind": {
@@ -13379,6 +15706,15 @@
           },
           "visible_to_runner_only": {
             "type": "boolean"
+          },
+          "no_main_func": {
+            "type": "boolean"
+          },
+          "codebase": {
+            "type": "string"
+          },
+          "has_preprocessor": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -13436,9 +15772,6 @@
           },
           "name": {
             "type": "string"
-          },
-          "args": {
-            "type": "object"
           },
           "created_by": {
             "type": "string"
@@ -13613,7 +15946,10 @@
               "mssql",
               "graphql",
               "nativets",
-              "bun"
+              "bun",
+              "php",
+              "rust",
+              "ansible"
             ]
           },
           "email": {
@@ -13630,6 +15966,15 @@
           },
           "priority": {
             "type": "integer"
+          },
+          "self_wait_time_ms": {
+            "type": "number"
+          },
+          "aggregate_wait_time_ms": {
+            "type": "number"
+          },
+          "suspend": {
+            "type": "number"
           }
         },
         "required": [
@@ -13750,7 +16095,10 @@
               "mssql",
               "graphql",
               "nativets",
-              "bun"
+              "bun",
+              "php",
+              "rust",
+              "ansible"
             ]
           },
           "is_skipped": {
@@ -13770,6 +16118,18 @@
           },
           "priority": {
             "type": "integer"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "self_wait_time_ms": {
+            "type": "number"
+          },
+          "aggregate_wait_time_ms": {
+            "type": "number"
           }
         },
         "required": [
@@ -13789,29 +16149,58 @@
           "tag"
         ]
       },
+      "ObscuredJob": {
+        "type": "object",
+        "properties": {
+          "typ": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "duration_ms": {
+            "type": "number"
+          }
+        }
+      },
       "Job": {
-        "allOf": [
+        "oneOf": [
           {
-            "oneOf": [
+            "allOf": [
               {
                 "$ref": "#/components/schemas/CompletedJob"
               },
               {
-                "$ref": "#/components/schemas/QueuedJob"
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "CompletedJob"
+                    ]
+                  }
+                }
               }
             ]
           },
           {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "CompletedJob",
-                  "QueuedJob"
-                ]
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QueuedJob"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "QueuedJob"
+                    ]
+                  }
+                }
               }
-            }
+            ]
           }
         ],
         "discriminator": {
@@ -13940,6 +16329,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "email": {
+            "type": "string"
           }
         },
         "required": [
@@ -13963,6 +16355,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "workspace_id": {
+            "type": "string"
           }
         }
       },
@@ -13977,6 +16372,9 @@
             "format": "date-time"
           },
           "impersonate_email": {
+            "type": "string"
+          },
+          "workspace_id": {
             "type": "string"
           }
         },
@@ -14025,6 +16423,10 @@
           },
           "is_refreshed": {
             "type": "boolean"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14077,6 +16479,10 @@
           },
           "is_oauth": {
             "type": "boolean"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14396,6 +16802,14 @@
                 "typ"
               ]
             }
+          },
+          "no_main_func": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "has_preprocessor": {
+            "type": "boolean",
+            "nullable": true
           }
         },
         "required": [
@@ -14403,7 +16817,9 @@
           "start_kwargs",
           "args",
           "type",
-          "error"
+          "error",
+          "no_main_func",
+          "has_preprocessor"
         ]
       },
       "Preview": {
@@ -14433,7 +16849,10 @@
               "mssql",
               "graphql",
               "nativets",
-              "bun"
+              "bun",
+              "php",
+              "rust",
+              "ansible"
             ]
           },
           "tag": {
@@ -14550,6 +16969,13 @@
             "additionalProperties": {
               "type": "boolean"
             }
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14597,6 +17023,13 @@
           },
           "account": {
             "type": "number"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14618,6 +17051,16 @@
           },
           "schema": {},
           "description": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "format_extension": {
             "type": "string"
           }
         },
@@ -14698,6 +17141,12 @@
           "on_recovery_extra_args": {
             "$ref": "#/components/schemas/ScriptArgs"
           },
+          "on_success": {
+            "type": "string"
+          },
+          "on_success_extra_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
           "ws_error_handler_muted": {
             "type": "boolean"
           },
@@ -14712,6 +17161,10 @@
           },
           "tag": {
             "type": "string"
+          },
+          "paused_until": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14806,6 +17259,12 @@
           "on_recovery_extra_args": {
             "$ref": "#/components/schemas/ScriptArgs"
           },
+          "on_success": {
+            "type": "string"
+          },
+          "on_success_extra_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
           "ws_error_handler_muted": {
             "type": "boolean"
           },
@@ -14820,6 +17279,10 @@
           },
           "tag": {
             "type": "string"
+          },
+          "paused_until": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14864,6 +17327,12 @@
           "on_recovery_extra_args": {
             "$ref": "#/components/schemas/ScriptArgs"
           },
+          "on_success": {
+            "type": "string"
+          },
+          "on_success_extra_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
           "ws_error_handler_muted": {
             "type": "boolean"
           },
@@ -14878,6 +17347,10 @@
           },
           "tag": {
             "type": "string"
+          },
+          "paused_until": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14887,6 +17360,181 @@
           "is_flow",
           "args"
         ]
+      },
+      "HttpTrigger": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "edited_by": {
+            "type": "string"
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "route_path": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "extra_perms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "email": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "http_method": {
+            "type": "string",
+            "enum": [
+              "get",
+              "post",
+              "put",
+              "delete",
+              "patch"
+            ]
+          },
+          "is_async": {
+            "type": "boolean"
+          },
+          "requires_auth": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "edited_by",
+          "edited_at",
+          "script_path",
+          "route_path",
+          "extra_perms",
+          "is_flow",
+          "email",
+          "workspace_id",
+          "is_async",
+          "requires_auth",
+          "http_method"
+        ]
+      },
+      "NewHttpTrigger": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "route_path": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "http_method": {
+            "type": "string",
+            "enum": [
+              "get",
+              "post",
+              "put",
+              "delete",
+              "patch"
+            ]
+          },
+          "is_async": {
+            "type": "boolean"
+          },
+          "requires_auth": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "script_path",
+          "route_path",
+          "is_flow",
+          "is_async",
+          "requires_auth",
+          "http_method"
+        ]
+      },
+      "EditHttpTrigger": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "route_path": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "http_method": {
+            "type": "string",
+            "enum": [
+              "get",
+              "post",
+              "put",
+              "delete",
+              "patch"
+            ]
+          },
+          "is_async": {
+            "type": "boolean"
+          },
+          "requires_auth": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "script_path",
+          "is_flow",
+          "kind",
+          "is_async",
+          "requires_auth",
+          "http_method"
+        ]
+      },
+      "TriggersCount": {
+        "type": "object",
+        "properties": {
+          "primary_schedule": {
+            "type": "object",
+            "properties": {
+              "schedule": {
+                "type": "string"
+              }
+            }
+          },
+          "schedule_count": {
+            "type": "number"
+          },
+          "http_routes_count": {
+            "type": "number"
+          },
+          "webhook_count": {
+            "type": "number"
+          },
+          "email_count": {
+            "type": "number"
+          }
+        }
       },
       "Group": {
         "type": "object",
@@ -14951,6 +17599,16 @@
             "additionalProperties": {
               "type": "boolean"
             }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -14992,6 +17650,36 @@
           },
           "wm_version": {
             "type": "string"
+          },
+          "last_job_id": {
+            "type": "string"
+          },
+          "last_job_workspace_id": {
+            "type": "string"
+          },
+          "occupancy_rate": {
+            "type": "number"
+          },
+          "occupancy_rate_15s": {
+            "type": "number"
+          },
+          "occupancy_rate_5m": {
+            "type": "number"
+          },
+          "occupancy_rate_30m": {
+            "type": "number"
+          },
+          "memory": {
+            "type": "number"
+          },
+          "vcpus": {
+            "type": "number"
+          },
+          "memory_usage": {
+            "type": "number"
+          },
+          "wm_memory_usage": {
+            "type": "number"
           }
         },
         "required": [
@@ -15148,6 +17836,12 @@
           }
         ]
       },
+      "ExtraPerms": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      },
       "FlowMetadata": {
         "type": "object",
         "properties": {
@@ -15168,10 +17862,7 @@
             "type": "boolean"
           },
           "extra_perms": {
-            "type": "object"
-          },
-          "additionalProperties": {
-            "type": "boolean"
+            "$ref": "#/components/schemas/ExtraPerms"
           },
           "starred": {
             "type": "boolean"
@@ -15286,6 +17977,12 @@
         "type": "object",
         "properties": {
           "triggerables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object"
+            }
+          },
+          "triggerables_v2": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -15424,7 +18121,9 @@
             "type": "string",
             "format": "date-time"
           },
-          "value": {},
+          "value": {
+            "type": "object"
+          },
           "policy": {
             "$ref": "#/components/schemas/Policy"
           },
@@ -15485,6 +18184,25 @@
         },
         "required": [
           "version"
+        ]
+      },
+      "FlowVersion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deployment_msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at"
         ]
       },
       "SlackToken": {
@@ -15581,6 +18299,32 @@
           },
           "public_resource": {
             "type": "boolean"
+          },
+          "secondary_storage": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "S3Storage",
+                    "AzureBlobStorage",
+                    "AzureWorkloadIdentity",
+                    "S3AwsOidc"
+                  ]
+                },
+                "s3_resource_path": {
+                  "type": "string"
+                },
+                "azure_blob_resource_path": {
+                  "type": "string"
+                },
+                "public_resource": {
+                  "type": "boolean"
+                }
+              }
+            }
           }
         }
       },
@@ -15705,6 +18449,31 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GitRepositorySettings"
+            }
+          }
+        }
+      },
+      "WorkspaceDeployUISettings": {
+        "type": "object",
+        "properties": {
+          "include_path": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_type": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "script",
+                "flow",
+                "app",
+                "resource",
+                "variable",
+                "secret"
+              ]
             }
           }
         }
@@ -15873,7 +18642,10 @@
               "mssql",
               "graphql",
               "nativets",
-              "bun"
+              "bun",
+              "php",
+              "rust",
+              "ansible"
             ]
           }
         },
@@ -15886,20 +18658,143 @@
       "ConcurrencyGroup": {
         "type": "object",
         "properties": {
-          "concurrency_id": {
+          "concurrency_key": {
             "type": "string"
           },
-          "job_uuids": {
+          "total_running": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "concurrency_key",
+          "total_running"
+        ]
+      },
+      "ExtendedJobs": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          },
+          "obscured_jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObscuredJob"
+            }
+          },
+          "omitted_obscured_jobs": {
+            "description": "Obscured jobs omitted for security because of too specific filtering",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "jobs",
+          "obscured_jobs"
+        ]
+      },
+      "ExportedUser": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password_hash": {
+            "type": "string"
+          },
+          "super_admin": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "first_time_user": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "super_admin",
+          "verified",
+          "first_time_user"
+        ]
+      },
+      "GlobalSetting": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      },
+      "Config": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ExportedInstanceGroup": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "emails": {
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "id": {
+            "type": "string"
+          },
+          "scim_display_name": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
           }
         },
         "required": [
-          "concurrency_id",
-          "job_uuids"
+          "name"
         ]
+      },
+      "JobSearchHit": {
+        "type": "object",
+        "properties": {
+          "dancer": {
+            "type": "string"
+          }
+        }
       },
       "StaticTransform": {
         "type": "object",
@@ -15979,7 +18874,8 @@
               "snowflake",
               "mssql",
               "graphql",
-              "nativets"
+              "nativets",
+              "php"
             ]
           },
           "path": {
@@ -16002,6 +18898,9 @@
           },
           "concurrency_time_window_s": {
             "type": "number"
+          },
+          "custom_concurrency_key": {
+            "type": "string"
           }
         },
         "required": [
@@ -16031,6 +18930,9 @@
             "enum": [
               "script"
             ]
+          },
+          "tag_override": {
+            "type": "string"
           }
         },
         "required": [
@@ -16079,6 +18981,31 @@
               "skip_if_stopped": {
                 "type": "boolean"
               },
+              "expr": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "expr"
+            ]
+          },
+          "stop_after_all_iters_if": {
+            "type": "object",
+            "properties": {
+              "skip_if_stopped": {
+                "type": "boolean"
+              },
+              "expr": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "expr"
+            ]
+          },
+          "skip_if": {
+            "type": "object",
+            "properties": {
               "expr": {
                 "type": "string"
               }
@@ -16138,6 +19065,9 @@
                 "type": "boolean"
               },
               "hide_cancel": {
+                "type": "boolean"
+              },
+              "continue_on_disapprove_timeout": {
                 "type": "boolean"
               }
             }
@@ -16419,11 +19349,17 @@
           "failure_module": {
             "$ref": "#/components/schemas/FlowModule"
           },
+          "preprocessor_module": {
+            "$ref": "#/components/schemas/FlowModule"
+          },
           "same_worker": {
             "type": "boolean"
           },
           "concurrent_limit": {
             "type": "number"
+          },
+          "concurrency_key": {
+            "type": "string"
           },
           "concurrency_time_window_s": {
             "type": "number"
@@ -16490,6 +19426,9 @@
           "count": {
             "type": "integer"
           },
+          "progress": {
+            "type": "integer"
+          },
           "iterator": {
             "type": "object",
             "properties": {
@@ -16507,6 +19446,12 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "flow_jobs_success": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
             }
           },
           "branch_chosen": {
@@ -16559,6 +19504,16 @@
                 "approver"
               ]
             }
+          },
+          "failed_retries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "skipped": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -16579,6 +19534,13 @@
           },
           "user_states": {
             "additionalProperties": true
+          },
+          "preprocessor_module": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FlowStatusModule"
+              }
+            ]
           },
           "failure_module": {
             "allOf": [

@@ -13,6 +13,7 @@
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
+	import type { ScheduleTrigger } from '$lib/components/triggers'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -53,6 +54,7 @@
 	})
 	const flowStateStore = writable<FlowState>({})
 
+	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	async function loadFlow() {
 		loading = true
 		let flow: Flow = {
@@ -97,6 +99,7 @@
 
 			flow = state.flow
 			pathStoreInit = state.path
+			savedPrimarySchedule = state.primarySchedule
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -172,6 +175,7 @@
 	{flowStateStore}
 	{selectedId}
 	{loading}
+	{savedPrimarySchedule}
 >
 	<UnsavedConfirmationModal savedValue={savedFlow} modifiedValue={$flowStore} /></FlowBuilder
 >

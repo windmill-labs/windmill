@@ -257,10 +257,7 @@ class Windmill:
         assert job_type, f"{job} is not a valid job"
         if job_type.lower() == "completedjob":
             return "COMPLETED"
-        additional_properties = job.get("additional_properties", {})
-        if "running" not in additional_properties:
-            raise Exception(f"{job_id} is not running")
-        if additional_properties.get("running"):
+        if job.get("running"):
             return "RUNNING"
         return "WAITING"
 

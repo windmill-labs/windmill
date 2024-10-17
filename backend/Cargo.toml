@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.407.2"
+version = "1.409.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -14,6 +14,7 @@ members = [
     "./windmill-audit",
     "./windmill-git-sync",
     "./windmill-indexer",
+    "./windmill-macros",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -23,11 +24,11 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml",
+    "./parsers/windmill-parser-yaml", "windmill-macros",
 ]
 
 [workspace.package]
-version = "1.407.2"
+version = "1.409.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -38,6 +39,9 @@ path = "./src/main.rs"
 [profile.dev]
 opt-level = 0
 incremental = true
+
+[profile.release]
+lto = "thin"
 
 [features]
 default = []
@@ -113,6 +117,7 @@ windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-indexer = {path = "./windmill-indexer"}
+windmill-macros = {path = "./windmill-macros"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -278,6 +283,8 @@ triomphe = "^0"
 
 tantivy = "0.22.0"
 
+# Macro-related
+proc-macro2 = "1.0"
 pulldown-cmark = "0.9"
 toml = "0.7"
 syn = { version = "2.0.74", features = ["full"] }

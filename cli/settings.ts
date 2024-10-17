@@ -1,7 +1,7 @@
 import { yamlStringify } from "./deps.ts";
 import { Confirm } from "./deps.ts";
 import { colors } from "./deps.ts";
-import { yamlParse } from "./deps.ts";
+import { yamlParseFile } from "./deps.ts";
 import { log } from "./deps.ts";
 import { compareInstanceObjects } from "./instance.ts";
 import { isSuperset } from "./types.ts";
@@ -259,17 +259,24 @@ export async function pushWorkspaceKey(
   }
 }
 
+export async function readInstanceSettings() {
+  let localSettings: GlobalSetting[] = [];
+
+  try {
+    localSettings = (await yamlParseFile(
+      "instance_settings.yaml"
+    )) as GlobalSetting[];
+  } catch {
+    log.warn("No instance_settings.yaml found");
+  }
+  return localSettings;
+}
+
 export async function pullInstanceSettings(preview = false) {
   const remoteSettings = await wmill.listGlobalSettings();
 
   if (preview) {
-    let localSettings: GlobalSetting[] = [];
-
-    try {
-      localSettings = yamlParse(
-        await Deno.readTextFile("instance_settings.yaml")
-      ) as GlobalSetting[];
-    } catch {}
+    const localSettings: GlobalSetting[] = await readInstanceSettings();
 
     return compareInstanceObjects(
       remoteSettings,
@@ -294,9 +301,7 @@ export async function pushInstanceSettings(
   baseUrl?: string
 ) {
   const remoteSettings = await wmill.listGlobalSettings();
-  let localSettings = (await Deno.readTextFile("instance_settings.yaml")
-    .then((raw) => yamlParse(raw))
-    .catch(() => [])) as GlobalSetting[];
+  let localSettings: GlobalSetting[] = await readInstanceSettings();
 
   if (baseUrl) {
     localSettings = localSettings.filter((s) => s.name !== "base_url");
@@ -354,6 +359,17 @@ export async function pushInstanceSettings(
   }
 }
 
+export async function readLocalConfigs() {
+  let localConfigs: Config[] = [];
+
+  try {
+    localConfigs = (await yamlParseFile("instance_configs.yaml")) as Config[];
+  } catch {
+    log.warn("No instance_configs.yaml found");
+  }
+  return localConfigs;
+}
+
 export async function pullInstanceConfigs(preview = false) {
   const remoteConfigs = (await wmill.listConfigs()).map((x) => {
     return {
@@ -363,12 +379,7 @@ export async function pullInstanceConfigs(preview = false) {
   });
 
   if (preview) {
-    let localConfigs: Config[] = [];
-    try {
-      localConfigs = yamlParse(
-        await Deno.readTextFile("instance_configs.yaml")
-      ) as Config[];
-    } catch {}
+    const localConfigs: Config[] = await readLocalConfigs();
 
     return compareInstanceObjects(
       remoteConfigs,
@@ -395,9 +406,7 @@ export async function pushInstanceConfigs(preview: boolean = false) {
       name: removeWorkerPrefix(x.name),
     };
   });
-  const localConfigs = (await Deno.readTextFile("instance_configs.yaml")
-    .then((raw) => yamlParse(raw))
-    .catch(() => [])) as Config[];
+  const localConfigs = await readLocalConfigs();
 
   if (preview) {
     return compareInstanceObjects(
@@ -415,7 +424,9 @@ export async function pushInstanceConfigs(preview: boolean = false) {
       }
       try {
         await wmill.updateConfig({
-          name: config.name.startsWith('worker__') ? config.name : `worker__${config.name}`,
+          name: config.name.startsWith("worker__")
+            ? config.name
+            : `worker__${config.name}`,
           requestBody: config.config,
         });
       } catch (err) {
