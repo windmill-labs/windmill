@@ -2161,7 +2161,7 @@ paths:
             text/plain:
               schema:
                 type: number
-  
+
   /w/{workspace}/workspaces/used_triggers:
     get:
       summary: get used triggers
@@ -2179,9 +2179,9 @@ paths:
                 type: object
                 properties:
                   http_routes_used:
-                    type: bool
+                    type: boolean
                   websocket_used:
-                    type: bool
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
