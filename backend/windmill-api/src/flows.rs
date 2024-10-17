@@ -63,6 +63,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
         .route("/history/p/*path", get(get_flow_history))
+        .route("/get_latest_version/*path", get(get_latest_version))
         .route(
             "/history_update/v/:version/p/*path",
             post(update_flow_history),
@@ -536,6 +537,31 @@ async fn get_flow_history(
     tx.commit().await?;
 
     Ok(Json(flows))
+}
+
+async fn get_latest_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<FlowVersion>> {
+
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let version = sqlx::query_as!(
+        FlowVersion,
+        "SELECT flow_version.id, flow_version.created_at, deployment_metadata.deployment_msg FROM flow_version 
+        LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
+        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 
+        ORDER BY flow_version.created_at DESC",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(version))
 }
 
 async fn get_flow_version(

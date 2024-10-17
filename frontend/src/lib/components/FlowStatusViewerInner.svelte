@@ -945,6 +945,7 @@
 						</div>
 
 						<FlowGraphV2
+							triggerNode={true}
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}

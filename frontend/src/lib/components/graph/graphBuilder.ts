@@ -155,7 +155,7 @@ export default function graphBuilder(
 			}
 		}
 
-		if (extra.path) {
+		if (extra.path && triggerProps != undefined) {
 			const triggerNode: Node = {
 				id: 'Trigger',
 				position: { x: -1, y: -1 },
