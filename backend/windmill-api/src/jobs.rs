@@ -70,7 +70,10 @@ use windmill_common::{
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin,
+        Pagination, StripPath,
+    },
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -4751,7 +4754,6 @@ async fn get_job_update(
                 &w_id,
                  job_id,
                 "progress_perc"
-                
             )
             .fetch_optional(&db)
             .await?.and_then(|inner| inner)

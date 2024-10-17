@@ -48,8 +48,9 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
+use windmill_common::auth::fetch_authed_from_permissioned_as;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
-use windmill_common::users::truncate_token;
+use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::{paginate, send_email};
 use windmill_common::worker::{CLOUD_HOSTED, SMTP_CONFIG};
 use windmill_common::{
@@ -734,6 +735,28 @@ where
             .map(|authed| Self(Some(authed)))
             .or_else(|_| Ok(Self(None)))
     }
+}
+
+pub async fn fetch_api_authed(
+    username: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: String,
+) -> error::Result<ApiAuthed> {
+    let permissioned_as = username_to_permissioned_as(username.as_str());
+    let authed =
+        fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+    Ok(ApiAuthed {
+        username: username,
+        email: email,
+        is_admin: authed.is_admin,
+        is_operator: authed.is_operator,
+        groups: authed.groups,
+        folders: authed.folders,
+        scopes: authed.scopes,
+        username_override: Some(username_override),
+    })
 }
 
 #[derive(FromRow, Serialize)]

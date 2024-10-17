@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1)",
+  "query": "SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE path = $1 AND workspace_id = $2)",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,7 @@
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -18,5 +19,5 @@
       null
     ]
   },
-  "hash": "9ebb9c16948a695a053068d9a1df0152691271ac33d8c82db47be11746ccbcef"
+  "hash": "2238aaed46031f71b17c1cabcef935a0d3b2ca6d057f446ed9b02d4386e2ddd9"
 }

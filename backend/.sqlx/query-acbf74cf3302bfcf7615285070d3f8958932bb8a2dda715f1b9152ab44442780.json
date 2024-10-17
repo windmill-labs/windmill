@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE websocket_trigger SET url = $1, script_path = $2, path = $3, is_flow = $4, filters = $5, edited_by = $6, email = $7, edited_at = now(), server_id = NULL, last_server_ping = NULL, error = NULL\n            WHERE workspace_id = $8 AND path = $9",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "JsonbArray",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "acbf74cf3302bfcf7615285070d3f8958932bb8a2dda715f1b9152ab44442780"
+}

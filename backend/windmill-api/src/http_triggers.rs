@@ -12,10 +12,8 @@ use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
-    auth::fetch_authed_from_permissioned_as,
     db::UserDB,
     error::{self, JsonResult},
-    users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
@@ -27,7 +25,7 @@ use crate::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
-    users::OptAuthed,
+    users::{fetch_api_authed, OptAuthed},
 };
 
 lazy_static::lazy_static! {
@@ -66,7 +64,6 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_trigger))
         .route("/delete/*path", delete(delete_trigger))
         .route("/exists/*path", get(exists_trigger))
-        .route("/used", get(used))
         .route("/route_exists", post(exists_route))
 }
 
@@ -346,17 +343,6 @@ async fn delete_trigger(
     Ok(format!("HTTP trigger {path} deleted"))
 }
 
-async fn used(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> JsonResult<bool> {
-    let used = sqlx::query_scalar!(
-        r#"SELECT EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1)"#,
-        w_id,
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-    Ok(Json(used))
-}
-
 async fn exists_trigger(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -419,28 +405,6 @@ struct TriggerRoute {
     edited_by: String,
     email: String,
     http_method: HttpMethod,
-}
-
-async fn fetch_api_authed(
-    username: String,
-    email: String,
-    w_id: &str,
-    db: &DB,
-    username_override: String,
-) -> error::Result<ApiAuthed> {
-    let permissioned_as = username_to_permissioned_as(username.as_str());
-    let authed =
-        fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
-    Ok(ApiAuthed {
-        username: username,
-        email: email,
-        is_admin: authed.is_admin,
-        is_operator: authed.is_operator,
-        groups: authed.groups,
-        folders: authed.folders,
-        scopes: authed.scopes,
-        username_override: Some(username_override),
-    })
 }
 
 async fn get_http_route_trigger(

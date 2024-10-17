@@ -1,17 +1,22 @@
 <script lang="ts">
-	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { WebsocketTriggerService, type WebsocketTrigger } from '$lib/gen'
+	import {
+		canWrite,
+		displayDate,
+		getLocalSetting,
+		sendUserToast,
+		storeLocalSetting
+	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import RouteEditor from '$lib/components/triggers/RouteEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash } from 'lucide-svelte'
+	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -20,21 +25,63 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
+	import WebsocketTriggerEditor from '$lib/components/triggers/WebsocketTriggerEditor.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
-	type TriggerW = HttpTrigger & { canWrite: boolean }
+	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
 
 	async function loadTriggers(): Promise<void> {
-		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await WebsocketTriggerService.listWebsocketTriggers({ workspace: $workspaceStore! })
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		loading = false
+	}
+
+	let status: {
+		[path: string]: { error: string | undefined; last_server_ping: string | undefined }
+	} = {}
+
+	let interval = setInterval(async () => {
+		try {
+			status = (
+				await WebsocketTriggerService.listWebsocketTriggers({
+					workspace: $workspaceStore!
+				})
+			).reduce((acc, x) => {
+				acc[x.path] = x
+				return acc
+			}, {})
+		} catch (err) {
+			console.error(err)
+		}
+	}, 5000)
+
+	onDestroy(() => {
+		clearInterval(interval)
+	})
+
+	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+		try {
+			await WebsocketTriggerService.setWebsocketTriggerEnabled({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { enabled }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` websocket trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
 	}
 
 	$: {
@@ -42,7 +89,7 @@
 			loadTriggers()
 		}
 	}
-	let routeEditor: RouteEditor
+	let websocketTriggerEditor: WebsocketTriggerEditor
 
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
@@ -147,7 +194,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
-<RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
+<WebsocketTriggerEditor on:update={loadTriggers} bind:this={websocketTriggerEditor} />
 
 <SearchItems
 	{filter}
@@ -158,23 +205,24 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Custom HTTP routes"
-		tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
+		title="Websocket triggers"
+		tooltip="Windmill can listen to websocket events and trigger scripts or flows based on them."
 	>
-		{#if $userStore?.is_admin || $userStore?.is_super_admin}
-			<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-				New&nbsp;route
-			</Button>
-		{/if}
+		<Button
+			size="md"
+			startIcon={{ icon: Plus }}
+			on:click={() => websocketTriggerEditor.openNew(false)}
+		>
+			New&nbsp;WS trigger
+		</Button>
 	</PageHeader>
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
+			<input type="text" placeholder="Search WS triggers" bind:value={filter} class="search-item" />
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Route" icon={Route} />
+					<ToggleButton small value="trigger" label="WS Trigger" icon={Unplug} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -197,11 +245,12 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No websocket triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, enabled } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+					{@const wsStatus = status[path] ?? { error, last_server_ping }}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -212,7 +261,7 @@
 
 							<a
 								href="#{path}"
-								on:click={() => routeEditor?.openEdit(path, is_flow)}
+								on:click={() => websocketTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -221,7 +270,7 @@
 											{@html marked}
 										</span>
 									{:else}
-										{http_method.toUpperCase()} /{route_path}
+										{url}
 									{/if}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
@@ -236,9 +285,49 @@
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</div>
 
+							<div class="w-10">
+								{#if enabled}
+									{@const ping = wsStatus.last_server_ping
+										? new Date(wsStatus.last_server_ping)
+										: undefined}
+									{#if !ping || ping.getTime() < new Date().getTime() - 15 * 1000 || wsStatus.error}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-red-600 animate-ping absolute inline-flex fill-current"
+													size={12}
+												/>
+												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+											</span>
+											<div slot="text">
+												Websocket is not connected{wsStatus.error ? ': ' + wsStatus.error : ''}
+											</div>
+										</Popover>
+									{:else}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-green-600 relative inline-flex fill-current"
+													size={12}
+												/>
+											</span>
+											<div slot="text"> Websocket is connected </div>
+										</Popover>
+									{/if}
+								{/if}
+							</div>
+
+							<Toggle
+								checked={enabled}
+								disabled={!canWrite}
+								on:change={(e) => {
+									setTriggerEnabled(path, e.detail)
+								}}
+							/>
+
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => routeEditor?.openEdit(path, is_flow)}
+									on:click={() => websocketTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -262,9 +351,9 @@
 											displayName: 'Delete',
 											type: 'delete',
 											icon: Trash,
-											disabled: !canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+											disabled: !canWrite,
 											action: async () => {
-												await HttpTriggerService.deleteHttpTrigger({
+												await WebsocketTriggerService.deleteWebsocketTrigger({
 													workspace: $workspaceStore ?? '',
 													path
 												})
@@ -275,7 +364,7 @@
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
 											action: () => {
-												routeEditor?.openEdit(path, is_flow)
+												websocketTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
 										{
@@ -287,7 +376,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'http_trigger')
+												shareModal.openDrawer(path, 'websocket_trigger')
 											}
 										}
 									]}

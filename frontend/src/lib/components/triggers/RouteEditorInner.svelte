@@ -39,6 +39,7 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			dirtyRoutePath = false
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
@@ -58,6 +59,7 @@
 			requires_auth = false
 			initialRoutePath = ''
 			route_path = ''
+			dirtyRoutePath = false
 			http_method = 'post'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -73,6 +75,7 @@
 	let path: string = ''
 	let pathError = ''
 	let routeError = ''
+	let dirtyRoutePath = false
 	let is_async = false
 	let requires_auth = false
 	let initialRoutePath = ''
@@ -239,6 +242,9 @@
 								class={routeError === ''
 									? ''
 									: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+								on:input={() => {
+									dirtyRoutePath = true
+								}}
 							/>
 						</label>
 
@@ -272,7 +278,10 @@
 									}}
 								/>
 							</div>
-							<div class="text-red-600 dark:text-red-400 text-2xs">{routeError}</div>
+
+							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+								>{dirtyRoutePath ? routeError : ''}</div
+							>
 						</div>
 					</div>
 				</Section>
