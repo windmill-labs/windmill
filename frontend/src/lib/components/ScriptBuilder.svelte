@@ -331,7 +331,7 @@
 				} else if (enabled) {
 					await createSchedule(script.path)
 				}
-			} else if (scheduleExists) {
+			} else if (scheduleExists && !$triggersCount?.primary_schedule) {
 				await ScheduleService.deleteSchedule({
 					workspace: $workspaceStore ?? '',
 					path: script.path

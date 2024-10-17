@@ -330,7 +330,7 @@
 								requestBody: { enabled }
 							})
 						}
-					} else if (scheduleExists) {
+					} else if (scheduleExists && !$triggersCount?.primary_schedule) {
 						await ScheduleService.deleteSchedule({
 							workspace: $workspaceStore ?? '',
 							path: $pathStore
