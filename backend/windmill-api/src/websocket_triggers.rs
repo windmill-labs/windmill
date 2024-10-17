@@ -21,7 +21,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
-    worker::to_raw_value,
+    worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
 use windmill_queue::PushArgsOwned;
@@ -156,6 +156,11 @@ async fn create_websocket_trigger(
     Path(w_id): Path<String>,
     Json(ct): Json<NewWebsocketTrigger>,
 ) -> error::Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Websocket triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
+        ));
+    }
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
