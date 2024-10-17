@@ -953,9 +953,10 @@ async fn get_latest_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ScriptHistory> {
+) -> JsonResult<Option<ScriptHistory>> {
     let mut tx = user_db.begin(&authed).await?;
-    let row = sqlx::query!(
+    let row_o = sqlx::query!(
+
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
@@ -963,15 +964,21 @@ async fn get_latest_version(
         w_id,
         path.to_path(),
     )
-    .fetch_one(&mut *tx)
+
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
-    let result = ScriptHistory {
-        script_hash: ScriptHash(row.hash),
-        deployment_msg: row.deployment_msg, //
-    };
-    return Ok(Json(result));
+    if let Some(row) = row_o {
+        let result = ScriptHistory {
+            script_hash: ScriptHash(row.hash),
+            deployment_msg: row.deployment_msg, //
+        };
+        return Ok(Json(Some(result)));
+    } else {
+        return Ok(Json(None));
+    }
+
 }
 
 async fn update_script_history(

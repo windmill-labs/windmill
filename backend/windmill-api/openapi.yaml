@@ -4106,6 +4106,9 @@ paths:
           description: Script version/hash
           content:
             application/json:
+
+              required: false
+
               schema:
                 $ref: "#/components/schemas/ScriptHistory"
 
@@ -4611,6 +4614,8 @@ paths:
           description: Flow version
           content:
             application/json:
+              required: false
+
               schema:
                 $ref: "#/components/schemas/FlowVersion"
 
@@ -5182,6 +5187,7 @@ paths:
           description: App version
           content:
             application/json:
+              required: false
               schema:
                 $ref: "#/components/schemas/AppHistory"
 
