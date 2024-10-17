@@ -38,6 +38,8 @@ mod annotations_tests {
     pub struct SlashedAnnotations {
         pub ann1: bool,
         pub ann2: bool,
+        pub ann3: bool,
+        pub ann4: bool,
     }
 
     #[annotations("--")]
@@ -51,9 +53,10 @@ mod annotations_tests {
     #[test]
     fn slashed_annotations() {
         let cont = "// ann1
-// ann2";
+// ann2
+//ann3";
         assert_eq!(
-            SlashedAnnotations { ann1: true, ann2: true },
+            SlashedAnnotations { ann1: true, ann2: true, ann3: true, ann3: false },
             SlashedAnnotations::parse(cont)
         );
     }
