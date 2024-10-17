@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.409.4](https://github.com/windmill-labs/windmill/compare/v1.409.3...v1.409.4) (2024-10-17)
+
+
+### Bug Fixes
+
+* fix flow viewer renderer outside of flow details and editor context ([59a1e67](https://github.com/windmill-labs/windmill/commit/59a1e67465cd21ded5539cb5b829bc0d4e7169ed))
+
 ## [1.409.3](https://github.com/windmill-labs/windmill/compare/v1.409.2...v1.409.3) (2024-10-17)
 
 
