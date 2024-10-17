@@ -281,13 +281,27 @@
 	}
 
 	async function syncWithDeployed(){
-			let latestScript = await ScriptService.getScriptByPath({
+			const latestScript = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: script.path,
 				withStarredInfo: true
 			});
 
-			deployedValue = latestScript;
+			deployedValue = {
+				...latestScript,
+				starred: undefined,
+				workspace_id: undefined,
+				archived: undefined,
+				created_at: undefined,
+				created_by: undefined,
+				deleted: undefined,
+				extra_perms: undefined,
+				is_template: undefined,
+				lock: undefined,
+				lock_error_logs: undefined,
+				parent_hashes: undefined,
+			};
+
 			deployedBy = latestScript.created_by;
 	}
 

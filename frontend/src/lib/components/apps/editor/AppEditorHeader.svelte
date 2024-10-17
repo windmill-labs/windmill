@@ -390,15 +390,25 @@
 		}
 	}
 
-	async function syncWithDeployed(){
-			let deployedApp = await AppService.getAppByPath({
-				workspace: $workspaceStore!,
-				path: appPath,
-				withStarredInfo: true
-			})
+	async function syncWithDeployed() {
+		const deployedApp = await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path: appPath,
+			withStarredInfo: true
+		})
 
-			deployedBy = deployedApp.created_by;
-			deployedValue = deployedApp
+		deployedBy = deployedApp.created_by
+
+		// Strip off extra information
+		deployedValue = {
+			...deployedApp,
+			starred: undefined,
+			id: undefined,
+			created_at: undefined,
+			created_by: undefined,
+			versions: undefined,
+			extra_perms: undefined //
+		}
 	}
 
 	async function updateApp(npath: string) {

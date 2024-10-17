@@ -294,12 +294,23 @@
 		}
 	}
 	async function syncWithDeployed(){
-			let flow = await FlowService.getFlowByPath({
+			const flow = await FlowService.getFlowByPath({
 				workspace: $workspaceStore!,
 				path: $pathStore,
 				withStarredInfo: true
 			})
-			deployedValue = flow
+			deployedValue = {
+				...flow,
+				starred: undefined,
+				id: undefined,
+				edited_at: undefined,
+				edited_by: undefined,
+				workspace_id: undefined,
+				archived: undefined,
+				same_worker: undefined,
+				visible_to_runner_only: undefined,
+				ws_error_handler_muted: undefined,
+			}
 			deployedBy = flow.edited_by
 	}
 
