@@ -9,7 +9,6 @@ use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
-use windmill_common::worker::get_sql_annotations;
 
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
@@ -266,7 +265,7 @@ pub async fn do_snowflake(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let annotations = get_sql_annotations(query);
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let qualified_username = format!(
         "{}.{}",
