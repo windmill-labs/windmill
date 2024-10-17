@@ -39,7 +39,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use windmill_common::db::UserDB;
-use windmill_common::worker::ALL_TAGS;
+use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
 use windmill_common::{BASE_URL, INSTANCE_NAME};
 
 use crate::scim_ee::has_scim_token;
@@ -246,7 +246,9 @@ pub async fn run_server(
         }
     };
 
-    websocket_triggers::start_websockets(db.clone(), rsmq).await;
+    if !*CLOUD_HOSTED {
+        websocket_triggers::start_websockets(db.clone(), rsmq).await;
+    }
 
     // build our application with a route
     let app = Router::new()

@@ -9,7 +9,7 @@
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -28,6 +28,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import WebsocketTriggerEditor from '$lib/components/triggers/WebsocketTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
@@ -216,6 +217,13 @@
 			New&nbsp;WS trigger
 		</Button>
 	</PageHeader>
+
+	{#if isCloudHosted()}
+		<Alert title="Not compatible with multi-tenant cloud" type="warning">
+			Websocket triggers are disabled in the multi-tenant cloud.
+		</Alert>
+		<div class="py-4" />
+	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
 			<input type="text" placeholder="Search WS triggers" bind:value={filter} class="search-item" />

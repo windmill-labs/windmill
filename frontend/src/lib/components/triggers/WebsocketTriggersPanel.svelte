@@ -10,6 +10,7 @@
 	import type { TriggerContext } from '../triggers'
 	import { getContext } from 'svelte'
 	import WebsocketTriggerEditor from './WebsocketTriggerEditor.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	export let isFlow: boolean
 	export let path: string
@@ -49,7 +50,11 @@
 
 <div class="flex flex-col gap-4">
 	{#if !newItem}
-		{#if $userStore?.is_admin || $userStore?.is_super_admin}
+		{#if isCloudHosted()}
+			<Alert title="Not compatible with multi-tenant cloud" type="warning">
+				Websocket triggers are disabled in the multi-tenant cloud.
+			</Alert>
+		{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button
 				on:click={() => wsTriggerEditor?.openNew(isFlow, path)}
 				variant="border"
