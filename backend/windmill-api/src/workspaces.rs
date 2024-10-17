@@ -116,7 +116,8 @@ pub fn workspaced_service() -> Router {
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_id", post(change_workspace_id))
-        .route("/usage", get(get_usage));
+        .route("/usage", get(get_usage))
+        .route("/used_triggers", get(get_used_triggers));
 
     #[cfg(feature = "stripe")]
     {
@@ -1486,6 +1487,30 @@ async fn set_encryption_key(
     }
 
     return Ok(());
+}
+
+#[derive(Serialize)]
+struct UsedTriggers {
+    pub websocket_used: bool,
+    pub http_routes_used: bool,
+}
+
+async fn get_used_triggers(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<UsedTriggers> {
+    let mut tx = user_db.begin(&authed).await?;
+    let websocket_used = sqlx::query_as!(
+        UsedTriggers,
+        r#"SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!""#,
+        w_id,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(websocket_used))
 }
 
 async fn list_workspaces_as_super_admin(

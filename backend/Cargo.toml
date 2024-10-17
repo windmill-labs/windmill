@@ -291,3 +291,4 @@ syn = { version = "2.0.74", features = ["full"] }
 quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
+tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }

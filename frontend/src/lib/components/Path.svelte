@@ -13,7 +13,8 @@
 		ScheduleService,
 		ScriptService,
 		HttpTriggerService,
-		VariableService
+		VariableService,
+		WebsocketTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -35,6 +36,7 @@
 		| 'app'
 		| 'raw_app'
 		| 'http_trigger'
+		| 'websocket_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -218,6 +220,11 @@
 				workspace: $workspaceStore!,
 				path: path
 			})
+		} else if (kind == 'websocket_trigger') {
+			return await WebsocketTriggerService.existsWebsocketTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
 		} else {
 			return false
 		}
@@ -231,10 +238,10 @@
 			error = 'This name is not valid'
 			return false
 		} else if (meta.owner == '' && meta.ownerKind == 'folder') {
-			error = 'Folder need to be chosen'
+			error = 'Folder needs to be chosen'
 			return false
 		} else if (meta.owner == '' && meta.ownerKind == 'group') {
-			error = 'Group need to be chosen'
+			error = 'Group needs to be chosen'
 			return false
 		} else {
 			return true
@@ -455,10 +462,10 @@
 			/>
 			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 		</div>
-		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
+		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	</div>
 
-	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
+	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && kind != 'websocket_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables
