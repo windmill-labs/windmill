@@ -4092,6 +4092,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/ScriptHistory"
 
+  /w/{workspace}/scripts/get_latest_version/{path}:
+    get:
+      summary: get scripts's latest version (hash)
+      operationId: getScriptLatestVersion
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - script
+      responses:
+        "200":
+          description: Script version/hash
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptHistory"
+
   /w/{workspace}/scripts/history_update/h/{hash}/p/{path}:
     post:
       summary: update history of a script
@@ -4579,6 +4596,23 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowVersion"
+
+  /w/{workspace}/flows/get_latest_version/{path}:
+    get:
+      summary: get flow's latest version
+      operationId: getFlowLatestVersion
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - flow
+      responses:
+        "200":
+          description: Flow version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowVersion"
 
   /w/{workspace}/flows/get/v/{version}/p/{path}:
     get:
@@ -5133,6 +5167,23 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AppHistory"
+
+  /w/{workspace}/apps/get_latest_version/{path}:
+    get:
+      summary: get apps's latest version
+      operationId: getAppLatestVersion
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - app
+      responses:
+        "200":
+          description: App version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppHistory"
 
   /w/{workspace}/apps/history_update/a/{id}/v/{version}:
     post:

@@ -152,6 +152,7 @@ pub fn workspaced_service() -> Router {
             post(toggle_workspace_error_handler),
         )
         .route("/history/p/*path", get(get_script_history))
+        .route("/get_latest_version/*path", get(get_latest_version))
         .route(
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
@@ -945,6 +946,31 @@ async fn get_script_history(
             deployment_msg: row.deployment_msg,
         })
         .collect();
+    return Ok(Json(result));
+}
+
+async fn get_latest_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<ScriptHistory> {
+    let mut tx = user_db.begin(&authed).await?;
+    let row = sqlx::query!(
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
+        WHERE s.workspace_id = $1 AND s.path = $2
+        ORDER by created_at DESC",
+        w_id,
+        path.to_path(),
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let result = ScriptHistory {
+        script_hash: ScriptHash(row.hash),
+        deployment_msg: row.deployment_msg, //
+    };
     return Ok(Json(result));
 }
 
