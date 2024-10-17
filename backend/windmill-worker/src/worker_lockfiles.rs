@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{get_annotation_ts, to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -953,10 +953,10 @@ async fn lock_modules<'c>(
                 }
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
-                    let anns = get_annotation_ts(&content);
-                    if anns.native_mode && language == ScriptLang::Bun {
+                    let anns = windmill_common::worker::TypeScriptAnnotations::parse(&content);
+                    if anns.native && language == ScriptLang::Bun {
                         language = ScriptLang::Bunnative;
-                    } else if !anns.native_mode && language == ScriptLang::Bunnative {
+                    } else if !anns.native && language == ScriptLang::Bunnative {
                         language = ScriptLang::Bun;
                     };
                 }
@@ -1003,10 +1003,10 @@ async fn lock_modules<'c>(
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
     if language == &ScriptLang::Bun || language == &ScriptLang::Bunnative {
-        let anns = get_annotation_ts(&content);
-        if anns.native_mode && language == &ScriptLang::Bun {
+        let anns = windmill_common::worker::TypeScriptAnnotations::parse(&content);
+        if anns.native && language == &ScriptLang::Bun {
             return false;
-        } else if !anns.native_mode && language == &ScriptLang::Bunnative {
+        } else if !anns.native && language == &ScriptLang::Bunnative {
             return false;
         };
     }
@@ -1077,11 +1077,13 @@ async fn lock_modules_app(
                             match new_lock {
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, db).await;
-                                    let anns = get_annotation_ts(&content);
-                                    let nlang = if anns.native_mode && language == ScriptLang::Bun {
+                                    let anns =
+                                        windmill_common::worker::TypeScriptAnnotations::parse(
+                                            &content,
+                                        );
+                                    let nlang = if anns.native && language == ScriptLang::Bun {
                                         Some(ScriptLang::Bunnative)
-                                    } else if !anns.native_mode && language == ScriptLang::Bunnative
-                                    {
+                                    } else if !anns.native && language == ScriptLang::Bunnative {
                                         Some(ScriptLang::Bun)
                                     } else {
                                         None
@@ -1437,7 +1439,7 @@ async fn capture_dependency_job(
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
             let npm_mode = npm_mode.unwrap_or_else(|| {
-                windmill_common::worker::get_annotation_ts(job_raw_code).npm_mode
+                windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm
             });
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code)?;

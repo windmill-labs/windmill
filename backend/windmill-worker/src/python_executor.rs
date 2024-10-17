@@ -898,7 +898,7 @@ async fn handle_python_deps(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let annotation = windmill_common::worker::get_annotation_python(inner_content);
+            let annotation = windmill_common::worker::PythonAnnotations::parse(inner_content);
             let mut already_visited = vec![];
 
             let requirements = windmill_parser_py_imports::parse_python_imports(

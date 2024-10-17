@@ -4193,10 +4193,10 @@ async fn run_dependencies_job(
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
         if language == ScriptLang::Bun {
-            let annotation = windmill_common::worker::get_annotation_ts(&raw_code);
+            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(&raw_code);
             hm.insert(
                 "npm_mode".to_string(),
-                JsonRawValue::from_string(annotation.npm_mode.to_string()).unwrap(),
+                JsonRawValue::from_string(annotation.npm.to_string()).unwrap(),
             );
         }
         (PushArgs { extra: Some(hm), args: &ehm }, deps)
