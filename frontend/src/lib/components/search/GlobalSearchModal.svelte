@@ -676,40 +676,40 @@
 										</QuickMenuItem>
 									{/each}
 								</div>
-								{#if selectedItem === undefined}
-									Select a result to preview
-								{:else}
-									<div class="w-8/12 max-h-[70vh]">
+								<div class="w-8/12 max-h-[70vh]">
+									{#if selectedItem === undefined}
+										Select a result to preview
+									{:else}
 										<div class="h-[95%] overflow-y-scroll">
 											<JobPreview
 												id={selectedItem?.document?.id[0]}
 												workspace={selectedWorkspace}
 											/>
 										</div>
-										<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
-											{#if indexMetadata.indexed_until}
-												<span class="px-2">
-												Most recent indexed job was created <TimeAgo
-													agoOnlyIfRecent
-													date={indexMetadata.indexed_until || ''}
-												/>
-												</span>
-											{/if}
-											{#if indexMetadata.lost_lock_ownership}
-												<Popover notClickable placement="top">
-													<AlertTriangle size={16} class="text-gray-500" />
-													<svelte:fragment slot="text">
-														The current indexer is no longer indexing new jobs. This is most likely
-														because of an ongoing deployment and indexing will resume once it's
-														complete.
-													</svelte:fragment>
-												</Popover>
-											{/if}
-										</div>
+									{/if}
+									<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
+										{#if indexMetadata.indexed_until}
+											<span class="px-2">
+											Most recently indexed job was created <TimeAgo
+												agoOnlyIfRecent
+												date={indexMetadata.indexed_until || ''}
+											/>
+											</span>
+										{/if}
+										{#if indexMetadata.lost_lock_ownership}
+											<Popover notClickable placement="top">
+												<AlertTriangle size={16} class="text-gray-500" />
+												<svelte:fragment slot="text">
+													The current indexer is no longer indexing new jobs. This is most likely
+													because of an ongoing deployment and indexing will resume once it's
+													complete.
+												</svelte:fragment>
+											</Popover>
+										{/if}
 									</div>
-								{/if}
+								</div>
 							{:else}
-								<div class="flex w-full justify-center items-center h-48">
+								<div class="flex flex-col w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
 										{#if searchTerm === RUNS_PREFIX}
 											<div class="text-2xl font-bold">Enter your search terms</div>
@@ -731,6 +731,26 @@
 											</Alert>
 										{/if}
 									</div>
+										<div class="flex flex-row pt-10 text-xs text-secondary">
+											{#if indexMetadata.indexed_until}
+												<span class="px-2">
+												Most recently indexed job was created <TimeAgo
+													agoOnlyIfRecent
+													date={indexMetadata.indexed_until}
+												/>
+												</span>
+											{/if}
+											{#if indexMetadata.lost_lock_ownership}
+												<Popover notClickable placement="top">
+													<AlertTriangle size={16} class="text-gray-500" />
+													<svelte:fragment slot="text">
+														The current indexer is no longer indexing new jobs. This is most likely
+														because of an ongoing deployment and indexing will resume once it's
+														complete.
+													</svelte:fragment>
+												</Popover>
+											{/if}
+										</div>
 								</div>
 							{/if}
 						</div>
