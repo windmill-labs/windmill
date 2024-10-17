@@ -19,9 +19,9 @@
 	let clientWidth = window.innerWidth
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
-	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
-		'webhooks'
-	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
@@ -48,6 +48,7 @@
 						>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
+							<slot slot="websockets" name="websockets" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
@@ -81,6 +82,7 @@
 						<DetailPageTriggerPanel bind:triggerSelected={$selectedTriggerStore}>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
+							<slot slot="websockets" name="websockets" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />

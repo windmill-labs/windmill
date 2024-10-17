@@ -64,7 +64,6 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_trigger))
         .route("/delete/*path", delete(delete_trigger))
         .route("/exists/*path", get(exists_trigger))
-        .route("/used", get(used))
         .route("/route_exists", post(exists_route))
 }
 
@@ -342,17 +341,6 @@ async fn delete_trigger(
     tx.commit().await?;
 
     Ok(format!("HTTP trigger {path} deleted"))
-}
-
-async fn used(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> JsonResult<bool> {
-    let used = sqlx::query_scalar!(
-        r#"SELECT EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1)"#,
-        w_id,
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-    Ok(Json(used))
 }
 
 async fn exists_trigger(

@@ -2161,6 +2161,30 @@ paths:
             text/plain:
               schema:
                 type: number
+  
+  /w/{workspace}/workspaces/used_triggers:
+    get:
+      summary: get used triggers
+      operationId: getUsedTriggers
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  http_routes_used:
+                    type: bool
+                  websocket_used:
+                    type: bool
+                required:
+                  - http_routes_used
+                  - websocket_used
 
   /w/{workspace}/users/list:
     get:
@@ -7152,22 +7176,6 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/http_triggers/used:
-    get:
-      summary: whether http triggers are used
-      operationId: areHttpTriggersUsed
-      tags:
-        - http_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: whether http triggers are used
-          content:
-            application/json:
-              schema:
-                type: boolean
-
   /w/{workspace}/websocket_triggers/create:
     post:
       summary: create websocket trigger
@@ -7297,22 +7305,6 @@ paths:
       responses:
         "200":
           description: websocket trigger exists
-          content:
-            application/json:
-              schema:
-                type: boolean
-
-  /w/{workspace}/websocket_triggers/used:
-    get:
-      summary: whether websocket triggers are used
-      operationId: areWebsocketTriggersUsed
-      tags:
-        - websocket_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: whether websocket triggers are used
           content:
             application/json:
               schema:
@@ -11395,6 +11387,8 @@ components:
         webhook_count:
           type: number
         email_count:
+          type: number
+        websocket_count:
           type: number
 
     WebsocketTrigger:

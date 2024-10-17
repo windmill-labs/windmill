@@ -6,7 +6,13 @@
 	import FlowViewerInner from '../FlowViewerInner.svelte'
 	import DetailPageTriggerPanel from './DetailPageTriggerPanel.svelte'
 
-	export let triggerSelected: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' = 'webhooks'
+	export let triggerSelected:
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 
 	export let isOperator: boolean = false
@@ -45,6 +51,7 @@
 						<DetailPageTriggerPanel bind:triggerSelected>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
+							<slot slot="websockets" name="websockets" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />

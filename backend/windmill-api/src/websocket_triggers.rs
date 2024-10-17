@@ -43,7 +43,6 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_websocket_trigger))
         .route("/exists/*path", get(exists_websocket_trigger))
         .route("/setenabled/*path", post(set_enabled))
-        .route("/used", get(used))
 }
 
 #[derive(Deserialize)]
@@ -308,17 +307,6 @@ async fn delete_websocket_trigger(
     tx.commit().await?;
 
     Ok(format!("Websocket trigger {path} deleted"))
-}
-
-async fn used(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> JsonResult<bool> {
-    let used = sqlx::query_scalar!(
-        r#"SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1)"#,
-        w_id,
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-    Ok(Json(used))
 }
 
 async fn exists_websocket_trigger(

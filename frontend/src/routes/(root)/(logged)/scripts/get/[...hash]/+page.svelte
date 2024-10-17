@@ -84,6 +84,7 @@
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -725,6 +726,11 @@
 			<svelte:fragment slot="routes">
 				<div class="p-2">
 					<RoutesPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="websockets">
+				<div class="p-2">
+					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">

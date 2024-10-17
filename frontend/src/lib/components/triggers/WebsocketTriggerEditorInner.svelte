@@ -144,7 +144,6 @@
 			}
 			validateTimeout = undefined
 		}, 500)
-		validateTimeout = undefined
 	}
 	$: validateUrl(url)
 </script>
@@ -235,9 +234,9 @@
 									? ''
 									: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
 							/>
-							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-								>{dirtyUrl ? urlError : ''}</div
-							>
+							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
+								{dirtyUrl ? urlError : ''}
+							</div>
 						</label>
 					</div>
 				</Section>

@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { Tabs, Tab } from '$lib/components/common'
-	import { CalendarCheck2, MailIcon, Route, Terminal, Webhook } from 'lucide-svelte'
+	import { CalendarCheck2, MailIcon, Route, Terminal, Webhook, Unplug } from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
 
-	export let triggerSelected: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' = 'webhooks'
+	export let triggerSelected:
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets' = 'webhooks'
 </script>
 
 <HighlightTheme />
@@ -26,6 +32,12 @@
 		<span class="flex flex-row gap-2 items-center">
 			<Route size={14} />
 			HTTP
+		</span>
+	</Tab>
+	<Tab value="websockets">
+		<span class="flex flex-row gap-2 items-center">
+			<Unplug size={14} />
+			Websockets
 		</span>
 	</Tab>
 	<Tab value="emails">
@@ -52,6 +64,8 @@
 			<slot name="emails" />
 		{:else if triggerSelected === 'schedules'}
 			<slot name="schedules" />
+		{:else if triggerSelected === 'websockets'}
+			<slot name="websockets" />
 		{:else if triggerSelected === 'cli'}
 			<slot name="cli" />
 		{/if}

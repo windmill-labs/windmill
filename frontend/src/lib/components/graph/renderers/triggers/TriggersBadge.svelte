@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
@@ -85,6 +85,22 @@
 		>
 			<TriggerCount count={$triggersCount?.http_routes_count} />
 			<Route size={12} />
+		</TriggerButton>
+	</Popover>
+{/if}
+
+{#if !showOnlyWithCount || ($triggersCount?.websocket_count ?? 0) > 0}
+	<Popover>
+		<svelte:fragment slot="text">Websockets</svelte:fragment>
+		<TriggerButton
+			on:click={() => {
+				$selectedTrigger = 'websockets'
+				dispatch('select')
+			}}
+			selected={selected && $selectedTrigger === 'websockets'}
+		>
+			<TriggerCount count={$triggersCount?.websocket_count} />
+			<Unplug size={12} />
 		</TriggerButton>
 	</Popover>
 {/if}

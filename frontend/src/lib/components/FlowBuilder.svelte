@@ -398,9 +398,9 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
-	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
-		'webhooks'
-	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
@@ -420,7 +420,9 @@
 		selectedIdStore.set(selectedId)
 	}
 
-	function selectTrigger(selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes') {
+	function selectTrigger(
+		selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	) {
 		selectedTriggerStore.set(selectedTrigger)
 	}
 
