@@ -544,6 +544,7 @@ async fn get_latest_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<FlowVersion>> {
+
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 

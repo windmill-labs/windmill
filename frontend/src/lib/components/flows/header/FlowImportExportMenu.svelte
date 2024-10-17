@@ -14,7 +14,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#if $flowStore}
-			<FlowViewer flow={cleanInputs($flowStore)} tab="raw" />
+			<FlowViewer triggerNode={false} flow={cleanInputs($flowStore)} tab="raw" />
 		{/if}
 	</DrawerContent>
 </Drawer>

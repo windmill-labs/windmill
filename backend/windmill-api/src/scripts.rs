@@ -956,6 +956,7 @@ async fn get_latest_version(
 ) -> JsonResult<Option<ScriptHistory>> {
     let mut tx = user_db.begin(&authed).await?;
     let row_o = sqlx::query!(
+
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
@@ -963,6 +964,7 @@ async fn get_latest_version(
         w_id,
         path.to_path(),
     )
+
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -976,6 +978,7 @@ async fn get_latest_version(
     } else {
         return Ok(Json(None));
     }
+
 }
 
 async fn update_script_history(

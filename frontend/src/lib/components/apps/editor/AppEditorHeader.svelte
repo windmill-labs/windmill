@@ -633,6 +633,7 @@
 			path: appPath
 		})
 		onLatest = version === appVersion?.version
+
 	}
 	$: saveDrawerOpen && compareVersions()
 

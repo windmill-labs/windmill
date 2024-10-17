@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.409.2
+  version: 1.409.4
   title: Windmill API
 
   contact:
@@ -4106,7 +4106,9 @@ paths:
           description: Script version/hash
           content:
             application/json:
+
               required: false
+
               schema:
                 $ref: "#/components/schemas/ScriptHistory"
 
@@ -4613,6 +4615,7 @@ paths:
           content:
             application/json:
               required: false
+
               schema:
                 $ref: "#/components/schemas/FlowVersion"
 
