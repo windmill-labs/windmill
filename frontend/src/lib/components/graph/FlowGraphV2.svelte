@@ -61,6 +61,7 @@
 	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
 		undefined
 	)
+	export let triggerNode = false
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -178,9 +179,11 @@
 		$useDataflow,
 		$selectedId,
 		moving,
-		{
-			path
-		}
+		triggerNode
+			? {
+					path
+			  }
+			: undefined
 	)
 
 	const nodes = writable<Node[]>([])
