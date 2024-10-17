@@ -414,9 +414,30 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
         return -1;
     }
     let pid = if nsjail {
-        // This is a bit hacky, but the process id of the nsjail process is the pid of nsjail + 1.
-        // Ideally, we would get the number from fork() itself. This works in MOST cases.
-        pid.unwrap() + 1
+        // Read /proc/<nsjail_pid>/task/<nsjail_pid>/children and extract pid
+        let nsjail_pid = pid.unwrap();
+        let children_path = format!("/proc/{}/task/{}/children", nsjail_pid, nsjail_pid);
+        if let Ok(mut file) = File::open(children_path).await {
+            let mut contents = String::new();
+            if tokio::io::AsyncReadExt::read_to_string(&mut file, &mut contents)
+                .await
+                .is_ok()
+            {
+                if let Some(child_pid) = contents.split_whitespace().next() {
+                    if let Ok(child_pid) = child_pid.parse::<u32>() {
+                        child_pid
+                    } else {
+                        return -1;
+                    }
+                } else {
+                    return -1;
+                }
+            } else {
+                return -1;
+            }
+        } else {
+            return -1;
+        }
     } else {
         pid.unwrap()
     };
