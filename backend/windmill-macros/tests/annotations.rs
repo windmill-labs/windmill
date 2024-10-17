@@ -56,7 +56,7 @@ mod annotations_tests {
 // ann2
 //ann3";
         assert_eq!(
-            SlashedAnnotations { ann1: true, ann2: true, ann3: true, ann3: false },
+            SlashedAnnotations { ann1: true, ann2: true, ann3: true, ann4: false },
             SlashedAnnotations::parse(cont)
         );
     }
