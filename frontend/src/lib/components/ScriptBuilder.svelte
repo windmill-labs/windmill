@@ -395,7 +395,7 @@
 				} else if (enabled) {
 					await createSchedule(script.path)
 				}
-			} else if (scheduleExists) {
+			} else if (scheduleExists && !$triggersCount?.primary_schedule) {
 				await ScheduleService.deleteSchedule({
 					workspace: $workspaceStore ?? '',
 					path: script.path
@@ -1166,7 +1166,7 @@
 				</div>
 
 				<div class="gap-4 flex">
-					{#if $primaryScheduleStore && $primaryScheduleStore?.enabled}
+					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1179,7 +1179,11 @@
 								$selectedTriggerStore = 'schedules'
 							}}
 						>
-							{$primaryScheduleStore?.cron ?? ''}
+							{$primaryScheduleStore != undefined
+								? $primaryScheduleStore
+									? $primaryScheduleStore?.cron
+									: ''
+								: $triggersCount?.primary_schedule?.schedule}
 						</Button>
 					{/if}
 					{#if customUi?.topBar?.path != false}
