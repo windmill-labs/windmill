@@ -559,6 +559,11 @@
 						<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
 							>{result.error.stack ?? ''}</pre
 						>
+						{#if result.error?.extra}
+							<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
+								>{JSON.stringify(result.error.extra, null, 4)}</pre
+							>
+						{/if}
 						<slot />
 					</div>
 					{#if language === 'bun'}
