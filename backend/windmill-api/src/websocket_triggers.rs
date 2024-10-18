@@ -592,7 +592,7 @@ async fn listen_to_websocket(
                                     } else {
                                         tracing::error!("Websocket {} closed", url);
                                         if let None =
-                                            update_ping(db.clone(), &ws_trigger, Some("Websocket cloesd")).await
+                                            update_ping(db.clone(), &ws_trigger, Some("Websocket closed")).await
                                         {
                                             return;
                                         }
