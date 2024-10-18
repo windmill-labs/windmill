@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.410.0](https://github.com/windmill-labs/windmill/compare/v1.409.4...v1.410.0) (2024-10-18)
+
+
+### Features
+
+* **typescript-bun:** support relative imports without the .ts extension ([248fdc2](https://github.com/windmill-labs/windmill/commit/248fdc24a61aca946902b20b9d8187101a9b7bfa))
+* websocket triggers ([#4505](https://github.com/windmill-labs/windmill/issues/4505)) ([8807e99](https://github.com/windmill-labs/windmill/commit/8807e99f06caf3e26c526eefdc83dbc2f7aa93ee))
+
+
+### Bug Fixes
+
+* cache js static assets by default ([08595c6](https://github.com/windmill-labs/windmill/commit/08595c6f14a89df1559974e8835e63881a1a9601))
+* **frontend:** add back script lockfile to script details pae ([549b11d](https://github.com/windmill-labs/windmill/commit/549b11dcfb39a60acd6d3899fce51b31149f8594))
+* improve cancelling of jobs on public apps for anonymous users ([d7cf5ea](https://github.com/windmill-labs/windmill/commit/d7cf5ea37db313e78865708bc22e87a1feea9e0d))
+
 ## [1.409.4](https://github.com/windmill-labs/windmill/compare/v1.409.3...v1.409.4) (2024-10-17)
 
 
