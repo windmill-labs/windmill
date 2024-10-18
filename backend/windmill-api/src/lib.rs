@@ -247,7 +247,8 @@ pub async fn run_server(
     };
 
     if !*CLOUD_HOSTED {
-        websocket_triggers::start_websockets(db.clone(), rsmq).await;
+        let ws_killpill_rx = rx.resubscribe();
+        websocket_triggers::start_websockets(db.clone(), rsmq, ws_killpill_rx).await;
     }
 
     // build our application with a route
