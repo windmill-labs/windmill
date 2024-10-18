@@ -17,6 +17,7 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
+mod autoscaling_ee;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod db;
