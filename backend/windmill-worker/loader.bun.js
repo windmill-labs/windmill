@@ -8,29 +8,65 @@ const p = {
       "localhost",
       "127.0.0.1"
     );
+
     const w_id = "W_ID";
     const current_path = "CURRENT_PATH";
+    const token = "TOKEN";
+
+    const cdir = resolve("./");
+    const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
+    const filterResolve = new RegExp(
+      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+    );
+
+    let cdirNodeModules = `${cdir}/node_modules/`;
+
+    const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
+    const transpiler = new Bun.Transpiler({
+      loader: "tsx",
+    });
+
+    function replaceRelativeImports(code) {
+      const imports = transpiler.scanImports(code);
+      for (const imp of imports) {
+        if (imp.kind == "import-statement") {
+          if (imp.path.startsWith(".") && !imp.path.endsWith(".ts")) {
+            code = code.replaceAll(imp.path, imp.path + ".ts");
+          }
+        }
+      }
+      return {
+        contents: code,
+      };
+    }
+
+    build.onLoad({ filter: filterLoad }, async (args) => {
+      const code = readFileSync(args.path, "utf8");
+      return replaceRelativeImports(code);
+    });
 
     build.onLoad({ filter: /.*\.url$/ }, async (args) => {
       const url = readFileSync(args.path, "utf8");
-      const contents = await (
-        await fetch(url, {
-          method: "GET",
-          headers: { Authorization: "Bearer TOKEN" },
-        })
-      ).text();
+      const req = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer " + token,
+        },
+      });
+      if (!req.ok) {
+        throw new Error(
+          `Failed to find relative import at ${url}`,
+          req.statusText
+        );
+      }
+      const contents = await req.text();
       return {
-        contents,
+        contents: replaceRelativeImports(contents).contents,
         loader: "tsx",
       };
     });
-    const cdir = resolve("./");
-    const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
-    const filter = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
-    );
-    let cdirNodeModules = `${cdir}/node_modules/`;
-    build.onResolve({ filter }, (args) => {
+
+    build.onResolve({ filter: filterResolve }, (args) => {
       if (args.importer?.startsWith(cdirNodeModules)) {
         return undefined;
       }
@@ -41,9 +77,10 @@ const p = {
 
       const isRelative = !args.path.startsWith("/");
 
+      let endExt = args.path.endsWith(".ts") ? "" : ".ts";
       const url = isRelative
-        ? `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${file_path}/../${args.path}`
-        : `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${args.path}`;
+        ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${args.path}${endExt}`
+        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`;
       const file = isRelative
         ? resolve("./" + file_path + "/../" + args.path + ".url")
         : resolve("./" + args.path + ".url");
