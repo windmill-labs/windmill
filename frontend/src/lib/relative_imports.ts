@@ -26,5 +26,5 @@ export function approximateFindPythonRelativePath(code: string) {
 
 	// Use match to find all matches in the code
 	const matches = code.match(regex)
-	return [...(matches?.entries() ?? [])] || []
+	return [...(matches?.entries() ?? [])]
 }

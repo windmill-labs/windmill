@@ -17,38 +17,38 @@
 
 <Tabs bind:selected={triggerSelected}>
 	<Tab value="webhooks">
-		<span class="flex flex-row gap-2 items-center">
-			<Webhook size={14} />
+		<span class="flex flex-row gap-2 items-center text-xs">
+			<Webhook size={12} />
 			Webhooks
 		</span>
 	</Tab>
 	<Tab value="schedules">
-		<span class="flex flex-row gap-2 items-center">
-			<CalendarCheck2 size={14} />
+		<span class="flex flex-row gap-2 items-center text-xs">
+			<CalendarCheck2 size={12} />
 			Schedules
 		</span>
 	</Tab>
 	<Tab value="routes">
-		<span class="flex flex-row gap-2 items-center">
-			<Route size={14} />
+		<span class="flex flex-row gap-2 items-center text-xs">
+			<Route size={12} />
 			HTTP
 		</span>
 	</Tab>
 	<Tab value="websockets">
-		<span class="flex flex-row gap-2 items-center">
-			<Unplug size={14} />
+		<span class="flex flex-row gap-2 items-center text-xs">
+			<Unplug size={12} />
 			Websockets
 		</span>
 	</Tab>
 	<Tab value="emails">
-		<span class="flex flex-row gap-2 items-center">
-			<MailIcon size={14} />
+		<span class="flex flex-row gap-2 items-center text-xs">
+			<MailIcon size={12} />
 			Email
 		</span>
 	</Tab>
 	<Tab value="cli">
-		<span class="flex flex-row gap-2 items-center">
-			<Terminal size={14} />
+		<span class="flex flex-row gap-2 items-center text-xs">
+			<Terminal size={12} />
 			CLI
 		</span>
 	</Tab>
