@@ -136,7 +136,7 @@
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
-			| 'error_handler') ?? 'userss'
+			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
 
 	const latestGitSyncHubScript = hubPaths.gitSync
