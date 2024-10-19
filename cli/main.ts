@@ -101,9 +101,13 @@ const command = new Command()
       "wmill.yaml",
       yamlStringify({
         defaultTs: "bun",
-        includes: ["**"],
+        includes: ["f/**"],
         excludes: [],
         codebases: [],
+        skipVariables: true,
+        skipResources: true,
+        skipSecrets: true,
+        includeSchedules: false,
       })
     );
     log.info(colors.green("wmill.yaml created"));
