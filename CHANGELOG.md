@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.410.1](https://github.com/windmill-labs/windmill/compare/v1.410.0...v1.410.1) (2024-10-19)
+
+
+### Bug Fixes
+
+* **cli:** improve wmill init behavior ([26a40d1](https://github.com/windmill-labs/windmill/commit/26a40d19441aa816ee711ce30f3435dddd3542a7))
+
 ## [1.410.0](https://github.com/windmill-labs/windmill/compare/v1.409.4...v1.410.0) (2024-10-18)
 
 
