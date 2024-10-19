@@ -217,9 +217,11 @@ function isMain() {
     const isMain = import.meta.main;
     if (isMain) {
       if (!Deno.args.includes("completions")) {
-        log.warn(
-          "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli"
-        );
+        if (Deno.env.get("SKIP_DENO_DEPRECATION_WARNING") !== "true") {
+          log.warn(
+            "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli. To skip this warning set SKIP_DENO_DEPRECATION_WARNING=true"
+          );
+        }
       }
     }
     return isMain;
