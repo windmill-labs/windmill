@@ -1626,8 +1626,10 @@
 
 						<pre class="overflow-auto max-h-screen"
 							><code
-								>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
+								>npm install -g windmill-cli
+wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
 wmill init
+# adjust wmill.yaml file configuraton as needed
 wmill sync pull
 git add -A
 git commit -m 'Initial commit'
