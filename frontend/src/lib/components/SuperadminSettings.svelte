@@ -22,11 +22,12 @@
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
+	import Toggle from './Toggle.svelte'
 	let drawer: Drawer
 	let filter = ''
 
 	export function openDrawer() {
-		listUsers()
+		listUsers(activeOnly)
 		drawer?.openDrawer?.()
 	}
 
@@ -45,10 +46,13 @@
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] = []
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	let activeOnly = false
 
-	async function listUsers(): Promise<void> {
-		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
+	async function listUsers(activeOnly: boolean): Promise<void> {
+		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000, activeOnly: activeOnly })
 	}
+
+	$: listUsers(activeOnly)
 
 	let tab: 'users' | string = 'users'
 
@@ -70,7 +74,7 @@
 		})
 		getAutomateUsernameCreationSetting()
 		sendUserToast('Automatic username creation enabled')
-		listUsers()
+		listUsers(activeOnly)
 	}
 
 	async function updateName(name: string | undefined, email: string) {
@@ -82,7 +86,7 @@
 				}
 			})
 			sendUserToast('User updated')
-			listUsers()
+			listUsers(activeOnly)
 		} catch (e) {
 			sendUserToast('Error updating user', true)
 		}
@@ -96,7 +100,12 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 
-<Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:close={removeHash}>
+<Drawer
+	bind:this={drawer}
+	on:open={() => listUsers(activeOnly)}
+	size="1200px"
+	on:close={removeHash}
+>
 	<DrawerContent overflow_y={true} title="Instance settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full w-full">
 			<div>
@@ -130,11 +139,16 @@
 							<div class="h-full">
 								{#if !automateUsernameCreation && !isCloudHosted()}
 									<div class="mb-4">
-										<h3 class="mb-2">
-											Automatic username creation
-										</h3>
+										<h3 class="mb-2"> Automatic username creation </h3>
 										<div class="mb-2">
-											<span class="text-primary text-sm">Automatically create a username for new users based on their email, shared across workspaces. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#automatic-username-creation">Learn more</a></span>
+											<span class="text-primary text-sm"
+												>Automatically create a username for new users based on their email, shared
+												across workspaces. <a
+													target="_blank"
+													href="https://www.windmill.dev/docs/advanced/instance_settings#automatic-username-creation"
+													>Learn more</a
+												></span
+											>
 										</div>
 										<Button
 											btnClasses="w-auto"
@@ -164,10 +178,20 @@
 								{/if}
 
 								<div class="py-2 mb-4">
-									<InviteGlobalUser on:new={listUsers} />
+									<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
 								</div>
 
-								<h3>All instance users</h3>
+								<div class="flex flex-row justify-between">
+									<h3>All instance users</h3>
+									<Toggle
+										bind:checked={activeOnly}
+										options={{
+											left: 'Show active users only',
+											leftTooltip:
+												'An active user is a user who has performed at least one action in the last 30 days'
+										}}
+									/>
+								</div>
 								<div class="pb-1" />
 								<div>
 									<input placeholder="Search users" bind:value={filter} class="input mt-1" />
@@ -181,12 +205,15 @@
 											{#if automateUsernameCreation}
 												<th>username</th>
 											{/if}
+											{#if activeOnly}
+												<th>kind</th>
+											{/if}
 											<th />
 											<th />
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name, username } (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name, username, operator_only } (email)}
 													<tr class="border">
 														<td>{email}</td>
 														<td>{login_type}</td>
@@ -203,10 +230,19 @@
 																			{email}
 																			isConflict
 																			on:renamed={() => {
-																				listUsers()
+																				listUsers(activeOnly)
 																			}}
 																		/>
 																	{/key}
+																{/if}
+															</td>
+														{/if}
+														{#if activeOnly}
+															<td>
+																{#if operator_only}
+																	Operator only
+																{:else}
+																	Developer
 																{/if}
 															</td>
 														{/if}
@@ -217,7 +253,7 @@
 																	console.log('BAR')
 																	if (email == $userStore?.email) {
 																		sendUserToast('You cannot demote yourself', true)
-																		listUsers()
+																		listUsers(activeOnly)
 																		return
 																	}
 																	await UserService.globalUserUpdate({
@@ -227,7 +263,7 @@
 																		}
 																	})
 																	sendUserToast('User updated')
-																	listUsers()
+																	listUsers(activeOnly)
 																}}
 															>
 																<ToggleButton value={false} size="xs" label="User" />
@@ -244,7 +280,7 @@
 																		updateName(e.detail, email)
 																	}}
 																	on:renamed={() => {
-																		listUsers()
+																		listUsers(activeOnly)
 																	}}
 																	{automateUsernameCreation}
 																/>
@@ -258,7 +294,7 @@
 																		deleteConfirmedCallback = async () => {
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
-																			listUsers()
+																			listUsers(activeOnly)
 																		}
 																	}}
 																>
