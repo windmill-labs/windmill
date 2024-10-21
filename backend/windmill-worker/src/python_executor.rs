@@ -1189,7 +1189,6 @@ pub async fn handle_python_reqs(
                     "--no-color",
                     "--isolated",
                     "--no-warn-conflicts",
-                    "--disable-pip-version-check",
                     "-t",
                     venv_p.as_str(),
                 ]

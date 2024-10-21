@@ -27,7 +27,6 @@ CMD="/usr/local/bin/uv pip install
 --no-color 
 --no-deps 
 -p 3.11
---disable-pip-version-check 
 $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG
 --index-strategy unsafe-best-match
 --system
