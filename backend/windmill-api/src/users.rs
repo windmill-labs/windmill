@@ -2290,6 +2290,8 @@ async fn login(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
+    let audit_author =
+        AuditAuthor { email: email.clone(), username: email.clone(), username_override: None };
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
@@ -2305,6 +2307,16 @@ async fn login(
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_err()
         {
+            audit_log(
+                &mut *tx,
+                &audit_author,
+                "users.login_failure",
+                ActionKind::Create,
+                "global",
+                None,
+                None,
+            )
+            .await?;
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
             if first_time_user {
@@ -2330,11 +2342,7 @@ async fn login(
 
             audit_log(
                 &mut *tx,
-                &AuditAuthor {
-                    username: email.clone(),
-                    email: email.clone(),
-                    username_override: None,
-                },
+                &audit_author,
                 "users.login",
                 ActionKind::Create,
                 "global",
@@ -2347,6 +2355,16 @@ async fn login(
             Ok(token)
         }
     } else {
+        audit_log(
+            &mut *tx,
+            &audit_author,
+            "users.login_failure",
+            ActionKind::Create,
+            "global",
+            None,
+            None,
+        )
+        .await?;
         Err(Error::BadRequest("Invalid login".to_string()))
     }
 }
