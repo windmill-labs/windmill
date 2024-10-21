@@ -15,9 +15,9 @@ pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
 
 use crate::{
     error::{self, to_anyhow, Error},
-    flow_status::{FlowStatus, RestartedFrom},
-    flows::{FlowValue, Retry},
-    get_latest_deployed_hash_for_path,
+    flow_status::{FlowStatusGetter, RestartedFrom},
+    flows::{FlowValue, FlowValueGetter, Retry},
+    get_latest_deployed_hash_for_path, impl_flow_status_getter, impl_flow_value_getter,
     scripts::{ScriptHash, ScriptLang},
     worker::{to_raw_value, TMP_DIR},
 };
@@ -119,10 +119,7 @@ pub struct QueuedJob {
 
 impl QueuedJob {
     pub fn script_path(&self) -> &str {
-        self.script_path
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("tmp/main")
+        self.script_path.as_deref().unwrap_or("tmp/main")
     }
     pub fn is_flow(&self) -> bool {
         matches!(
@@ -139,21 +136,10 @@ impl QueuedJob {
             self.script_path()
         )
     }
-
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow.as_ref().and_then(|v| {
-            let str = (**v).get();
-            // tracing::error!("raw_flow: {}", str);
-            return serde_json::from_str::<FlowValue>(str).ok();
-        })
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
-    }
 }
+
+impl_flow_status_getter!(QueuedJob);
+impl_flow_value_getter!(QueuedJob);
 
 impl Default for QueuedJob {
     fn default() -> Self {
@@ -266,22 +252,12 @@ impl CompletedJob {
     pub fn json_result(&self) -> Option<serde_json::Value> {
         self.result
             .as_ref()
-            .map(|r| serde_json::from_str(r.get()).ok())
-            .flatten()
-    }
-
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+            .and_then(|r| serde_json::from_str(r.get()).ok())
     }
 }
+
+impl_flow_status_getter!(CompletedJob);
+impl_flow_value_getter!(CompletedJob);
 
 #[derive(sqlx::FromRow)]
 pub struct BranchResults {
