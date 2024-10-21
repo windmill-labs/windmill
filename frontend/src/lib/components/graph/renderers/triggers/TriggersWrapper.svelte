@@ -40,7 +40,7 @@
 	let triggersToDisplay: TriggerType[]
 	$: triggersToDisplay = simplifiedTriggers
 		? ['schedules']
-		: ['webhooks', 'schedules', 'routes', 'websockets', 'emails']
+		: ['schedules', 'webhooks', 'routes', 'websockets', 'emails']
 
 	$: triggerItems = [
 		{
