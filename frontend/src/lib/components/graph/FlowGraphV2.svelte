@@ -187,7 +187,6 @@
 			},
 			simplifyFlow: (detail) => {
 				simplifyFlow = detail
-				console.log('simplifyFlow', detail)
 			}
 		},
 		success,
@@ -282,7 +281,6 @@
 				node.data.parentIds.includes('Input') &&
 				node.data?.module?.isTrigger
 		)
-		console.log('dbg', triggerNode)
 
 		if (!triggerNode) {
 			return undefined
@@ -301,7 +299,6 @@
 		}
 		return { triggerNode: triggerNode, forLoopNode: forLoopNode }
 	}
-	$: console.log('isSimplifiable', isSimplifiable(graph))
 
 	function updateStores() {
 		if (graph.error) {
@@ -310,14 +307,12 @@
 		let newGraph = graph
 
 		if (flowIsSimplifiable && simplifyFlow) {
-			console.log('simplifying flow')
 			newGraph = processGraph(graph, flowIsSimplifiable)
 		}
 
 		$nodes = layoutNodes(newGraph.nodes)
 		$edges = newGraph.edges
 
-		console.log('nodes', $nodes)
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
