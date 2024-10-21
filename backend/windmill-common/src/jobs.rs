@@ -640,9 +640,7 @@ pub async fn get_logs_from_store(
 
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
-            tracing::debug!("Getting logs from store: {file_index:?}");
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                tracing::debug!("object store client present, streaming from there");
 
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {

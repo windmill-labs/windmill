@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT *\n                    FROM websocket_trigger\n                    WHERE enabled IS TRUE AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+  "query": "SELECT *\n            FROM websocket_trigger\n            WHERE enabled IS TRUE AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
   "describe": {
     "columns": [
       {
@@ -94,5 +94,5 @@
       false
     ]
   },
-  "hash": "d490fef418e8567fa40aad60e5d46f233ce478086430d8070fe7b2b8a4f9580e"
+  "hash": "5303cb9dd5903aa4791ef8e5e5881a50a832e65c8c9632e2e12cd9c2747f2fc7"
 }

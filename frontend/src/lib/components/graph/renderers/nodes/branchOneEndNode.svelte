@@ -16,7 +16,7 @@
 
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
-		label={'Collect result from all branches'}
+		label={'Collect result from chosen branch'}
 		id={data.id}
 		selectable={true}
 		selected={false}

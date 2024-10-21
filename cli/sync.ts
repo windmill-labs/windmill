@@ -618,8 +618,8 @@ export async function elementsToMap(
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
     const path = entry.path;
-    if (json && path.endsWith(".yaml")) continue;
-    if (!json && path.endsWith(".json")) continue;
+    if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
+    if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;

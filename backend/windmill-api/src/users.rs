@@ -706,14 +706,17 @@ where
 }
 
 pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
-    authed
-        .scopes
-        .as_ref()?
-        .iter()
-        .find_map(|s| match s.split(":").collect::<Vec<_>>().as_slice() {
-            ["if_jobs", "filter_tags", tags] => Some(tags.split(",").collect::<Vec<_>>()),
-            _ => None,
-        })
+    authed.scopes.as_ref()?.iter().find_map(|s| {
+        if s.starts_with("if_jobs:filter_tags:") {
+            Some(
+                s.trim_start_matches("if_jobs:filter_tags:")
+                    .split(",")
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Clone, Debug)]
