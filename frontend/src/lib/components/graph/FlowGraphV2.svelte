@@ -77,6 +77,16 @@
 	let fullWidth = 0
 	let width = 0
 
+	export let simplifyFlow: boolean = false
+
+	let flowIsSimplifiable: boolean | { triggerNode: any; forLoopNode: any } = false
+
+	function updateFlowSimplifiability() {
+		flowIsSimplifiable = isSimplifiable(graph)
+	}
+
+	$: if (graph) updateFlowSimplifiability()
+
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
 		for (const n of nodes) {
@@ -174,6 +184,10 @@
 			},
 			selectedIteration: (detail, moduleId) => {
 				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+			},
+			simplifyFlow: (detail) => {
+				simplifyFlow = detail
+				console.log('simplifyFlow', detail)
 			}
 		},
 		success,
@@ -192,18 +206,121 @@
 
 	let height = 0
 
+	function removeInputNode(nodes, edges, id) {
+		const inputNode = nodes.find((node) => node.id === id)
+		if (!inputNode) return { nodes, edges }
+
+		// Find edges connected to the input node
+		const connectedEdges = edges.filter((edge) => edge.source === id || edge.target === id)
+
+		// Remove the input node
+		let updatedNodes = nodes.filter((node) => node.id !== id)
+
+		// Remove edges connected to the input node
+		let updatedEdges = edges.filter((edge) => edge.source !== id && edge.target !== id)
+
+		// Create new edges from the input node's parent to its children
+		const inputEdges = connectedEdges.filter((edge) => edge.target === id)
+		const outputEdges = connectedEdges.filter((edge) => edge.source === id)
+
+		inputEdges.forEach((inputEdge) => {
+			outputEdges.forEach((outputEdge) => {
+				const newEdge = {
+					id: `edge:${inputEdge.source}->${outputEdge.target}`,
+					source: inputEdge.source,
+					target: outputEdge.target,
+					type: 'empty',
+					data: {
+						...outputEdge.data,
+						sourceId: inputEdge.source,
+						targetId: outputEdge.target
+					}
+				}
+				updatedEdges.push(newEdge)
+			})
+		})
+
+		// Update parent ids of the nodes
+		updatedNodes = updatedNodes.map((node) => {
+			if (node.data && node.data.parentIds && node.data.parentIds.includes(id)) {
+				const updatedParentIds = node.data.parentIds.filter((parentId) => parentId !== id)
+				if (inputNode.data && inputNode.data.parentIds) {
+					updatedParentIds.push(...inputNode.data.parentIds)
+				}
+				return {
+					...node,
+					data: {
+						...node.data,
+						parentIds: [...new Set(updatedParentIds)] // Remove duplicates
+					}
+				}
+			}
+			return node
+		})
+
+		return { nodes: updatedNodes, edges: updatedEdges }
+	}
+
+	function processGraph(graph, simplifiable) {
+		let newGraph = { nodes: graph.nodes, edges: graph.edges }
+		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
+		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
+		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
+		return newGraph
+	}
+
+	function isSimplifiable(graph): boolean | { triggerNode: any; forLoopNode: any } {
+		if (!graph || !graph.nodes || graph.nodes.length < 6) {
+			return false
+		}
+
+		// Find the node that has 'Input' as parent in parentIds
+		const triggerNode = graph.nodes.find(
+			(node) =>
+				node.data?.parentIds &&
+				node.data.parentIds.includes('Input') &&
+				node.data?.module?.isTrigger
+		)
+		console.log('dbg', triggerNode)
+
+		if (!triggerNode) {
+			return false
+		}
+
+		// Check if there's a node which parent is triggerNode and that is a for loop
+		const forLoopNode = graph.nodes.find(
+			(node) =>
+				node.data?.parentIds &&
+				node.data.parentIds.includes(triggerNode.id) &&
+				node.data.value?.type === 'forloopflow'
+		)
+
+		if (!forLoopNode) {
+			return false
+		}
+		return { triggerNode: triggerNode, forLoopNode: forLoopNode }
+	}
+	$: console.log('isSimplifiable', isSimplifiable(graph))
+
 	function updateStores() {
 		if (graph.error) {
 			return
 		}
+		let newGraph = graph
 
-		$nodes = layoutNodes(graph?.nodes)
-		$edges = graph.edges
+		if (flowIsSimplifiable && simplifyFlow) {
+			console.log('simplifying flow')
+			newGraph = processGraph(graph, flowIsSimplifiable)
+		}
 
+		$nodes = layoutNodes(newGraph.nodes)
+		$edges = newGraph.edges
+
+		console.log('nodes', $nodes)
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
-	$: graph && updateStores()
+	$: (graph || simplifyFlow) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
