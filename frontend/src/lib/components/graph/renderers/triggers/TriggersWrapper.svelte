@@ -4,7 +4,7 @@
 	import { NODE } from '../../util'
 	import Popover from '$lib/components/Popover.svelte'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	import TriggersBadge from './TriggersBadge.svelte'
 	import InsertModuleButton from '../../../flows/map/InsertModuleButton.svelte'
@@ -13,6 +13,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import MapItem from '../../../flows/map/MapItem.svelte'
 	import { getStateColor } from '../../util'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	type TriggerType = 'webhooks' | 'emails' | 'schedules' | 'routes' | 'websockets'
 
@@ -30,6 +31,8 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let simplifiedTriggers = false
 	let triggerScriptModule: FlowModule | undefined = undefined
@@ -65,6 +68,46 @@
 	]
 
 	$: visibleTriggerItems = triggerItems.filter((item) => item.display)
+
+	function updateFlowSchema() {
+		if (!$flowStore || !$flowStateStore || !triggerScriptModule) {
+			return
+		}
+
+		if ($flowStateStore[triggerScriptModule?.id ?? '']?.schema && $flowStore.schema) {
+			const flowProperties = $flowStore.schema.properties || {}
+			const stepProperties =
+				$flowStateStore[triggerScriptModule?.id ?? '']?.schema?.properties || {}
+
+			const mergedProperties = Object.assign({}, flowProperties, stepProperties)
+			$flowStore.schema.properties = mergedProperties
+
+			const flowRequired = Array.isArray($flowStore.schema.required)
+				? $flowStore.schema.required
+				: []
+			const stepRequired = Array.isArray(
+				$flowStateStore[triggerScriptModule?.id ?? '']?.schema?.required
+			)
+				? $flowStateStore[triggerScriptModule?.id ?? '']?.schema?.required ?? []
+				: []
+			const mergedRequired = [...new Set([...flowRequired, ...stepRequired])]
+			$flowStore.schema.required = mergedRequired
+		}
+	}
+
+	const callUpdateFlowSchema = () => updateFlowSchema()
+
+	let prevTriggerSchema: any = null
+	$: {
+		if (triggerScriptModule && $flowStateStore) {
+			const triggerSchemaId = triggerScriptModule.id ?? ''
+			const triggerSchema = $flowStateStore[triggerSchemaId]?.schema
+			if (triggerSchema && triggerSchema !== prevTriggerSchema) {
+				callUpdateFlowSchema()
+				prevTriggerSchema = triggerSchema
+			}
+		}
+	}
 </script>
 
 <div style={`width: ${NODE.width}px;`} class="center-center">
