@@ -18,6 +18,8 @@
 	export let isFlow: boolean
 	export let selected: boolean
 	export let showOnlyWithCount: boolean
+	export let triggersToDisplay: ('webhooks' | 'schedules' | 'routes' | 'websockets' | 'emails')[] =
+		['emails']
 	const dispatch = createEventDispatcher()
 
 	onMount(() => {
@@ -39,84 +41,35 @@
 			})
 		}
 	}
+
+	$: triggerTypeConfig = {
+		webhooks: { icon: Webhook, countKey: 'webhook_count' },
+		schedules: { icon: Calendar, countKey: 'schedule_count' },
+		routes: { icon: Route, countKey: 'http_routes_count' },
+		websockets: { icon: Unplug, countKey: 'websocket_count' },
+		emails: { icon: Mail, countKey: 'email_count' }
+	}
+
+	$: filteredTriggerTypes = triggersToDisplay.map((type) => ({
+		type,
+		...triggerTypeConfig[type]
+	}))
 </script>
 
-{#if !showOnlyWithCount || ($triggersCount?.webhook_count ?? 0) > 0}
-	<Popover>
-		<svelte:fragment slot="text">Webhooks</svelte:fragment>
-		<TriggerButton
-			on:click={() => {
-				$selectedTrigger = 'webhooks'
-				dispatch('select')
-			}}
-			selected={selected && $selectedTrigger === 'webhooks'}
-		>
-			<TriggerCount count={$triggersCount?.webhook_count} />
-			<Webhook size={12} />
-		</TriggerButton>
-	</Popover>
-{/if}
-
-{#if !showOnlyWithCount || ($triggersCount?.schedule_count ?? 0) > 0}
-	<Popover>
-		<svelte:fragment slot="text">Schedules</svelte:fragment>
-		<TriggerButton
-			on:click={() => {
-				$selectedTrigger = 'schedules'
-				dispatch('select')
-			}}
-			selected={selected && $selectedTrigger === 'schedules'}
-		>
-			<TriggerCount count={$triggersCount?.schedule_count} />
-			<Calendar size={12} />
-		</TriggerButton>
-	</Popover>
-{/if}
-
-{#if !showOnlyWithCount || ($triggersCount?.http_routes_count ?? 0) > 0}
-	<Popover>
-		<svelte:fragment slot="text">HTTP Routes</svelte:fragment>
-		<TriggerButton
-			on:click={() => {
-				$selectedTrigger = 'routes'
-				dispatch('select')
-			}}
-			selected={selected && $selectedTrigger === 'routes'}
-		>
-			<TriggerCount count={$triggersCount?.http_routes_count} />
-			<Route size={12} />
-		</TriggerButton>
-	</Popover>
-{/if}
-
-{#if !showOnlyWithCount || ($triggersCount?.websocket_count ?? 0) > 0}
-	<Popover>
-		<svelte:fragment slot="text">Websockets</svelte:fragment>
-		<TriggerButton
-			on:click={() => {
-				$selectedTrigger = 'websockets'
-				dispatch('select')
-			}}
-			selected={selected && $selectedTrigger === 'websockets'}
-		>
-			<TriggerCount count={$triggersCount?.websocket_count} />
-			<Unplug size={12} />
-		</TriggerButton>
-	</Popover>
-{/if}
-
-{#if !showOnlyWithCount || ($triggersCount?.email_count ?? 0) > 0}
-	<Popover>
-		<svelte:fragment slot="text">Emails</svelte:fragment>
-		<TriggerButton
-			on:click={() => {
-				$selectedTrigger = 'emails'
-				dispatch('select')
-			}}
-			selected={selected && $selectedTrigger === 'emails'}
-		>
-			<TriggerCount count={$triggersCount?.email_count} />
-			<Mail size={12} />
-		</TriggerButton>
-	</Popover>
-{/if}
+{#each filteredTriggerTypes as { type, icon, countKey }}
+	{#if !showOnlyWithCount || ($triggersCount?.[countKey] ?? 0) > 0}
+		<Popover>
+			<svelte:fragment slot="text">{type.charAt(0).toUpperCase() + type.slice(1)}</svelte:fragment>
+			<TriggerButton
+				on:click={() => {
+					$selectedTrigger = type
+					dispatch('select')
+				}}
+				selected={selected && $selectedTrigger === type}
+			>
+				<TriggerCount count={$triggersCount?.[countKey]} />
+				<svelte:component this={icon} size={12} />
+			</TriggerButton>
+		</Popover>
+	{/if}
+{/each}

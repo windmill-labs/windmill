@@ -167,7 +167,8 @@ export default function graphBuilder(
 					flowIsSimplifiable: triggerProps?.flowIsSimplifiable,
 					path: triggerProps?.path,
 					newFlow: extra.newFlow,
-					eventHandlers: eventHandlers
+					eventHandlers: eventHandlers,
+					modules: modules
 				}
 			}
 			nodes.push(triggerNode)

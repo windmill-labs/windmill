@@ -35,12 +35,6 @@
 				kind: 'trigger',
 				inlineScript: e.detail.inlineScript
 			})
-			data?.eventHandlers.insert({
-				modules: data.modules,
-				index: 1,
-				kind: 'forloop',
-				light: true
-			})
 		}}
 		on:pickScript={(e) => {
 			data?.eventHandlers.insert({
@@ -48,12 +42,6 @@
 				index: 0,
 				kind: 'trigger',
 				script: e.detail
-			})
-			data?.eventHandlers.insert({
-				modules: data.modules,
-				index: 1,
-				kind: 'forloop',
-				light: true
 			})
 		}}
 		on:select={() => {

@@ -79,7 +79,7 @@
 
 	export let simplifyFlow: boolean = false
 
-	let flowIsSimplifiable: boolean | { triggerNode: any; forLoopNode: any } = false
+	let flowIsSimplifiable: { triggerNode: any; forLoopNode: any } | undefined = undefined
 
 	function updateFlowSimplifiability() {
 		flowIsSimplifiable = isSimplifiable(graph)
@@ -196,7 +196,8 @@
 		moving,
 		triggerNode
 			? {
-					path
+					path,
+					flowIsSimplifiable: flowIsSimplifiable ? true : false
 			  }
 			: undefined
 	)
@@ -269,9 +270,9 @@
 		return newGraph
 	}
 
-	function isSimplifiable(graph): boolean | { triggerNode: any; forLoopNode: any } {
+	function isSimplifiable(graph): undefined | { triggerNode: any; forLoopNode: any } {
 		if (!graph || !graph.nodes || graph.nodes.length < 6) {
-			return false
+			return undefined
 		}
 
 		// Find the node that has 'Input' as parent in parentIds
@@ -284,7 +285,7 @@
 		console.log('dbg', triggerNode)
 
 		if (!triggerNode) {
-			return false
+			return undefined
 		}
 
 		// Check if there's a node which parent is triggerNode and that is a for loop
@@ -296,7 +297,7 @@
 		)
 
 		if (!forLoopNode) {
-			return false
+			return undefined
 		}
 		return { triggerNode: triggerNode, forLoopNode: forLoopNode }
 	}
