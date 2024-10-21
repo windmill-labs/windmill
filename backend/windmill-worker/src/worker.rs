@@ -257,6 +257,7 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+const INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK: &str = include_str!("../nsjail/download_deps.py.pip.sh");
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
@@ -311,6 +312,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -725,6 +727,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             &worker_dir,
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
+        );
+
+        // TODO: Remove (Deprecated)
+        let _ = write_file(
+            &worker_dir,
+            "download_deps.py.pip.sh",
+            INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK,
         );
     }
 
