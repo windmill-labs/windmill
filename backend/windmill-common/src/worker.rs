@@ -308,6 +308,7 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_uv: bool,
+    pub no_uv_install: bool,
 }
 
 #[annotations("//")]
