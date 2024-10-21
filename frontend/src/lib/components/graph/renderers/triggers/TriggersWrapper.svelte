@@ -125,28 +125,6 @@
 									modules={data.modules ?? []}
 									moving={''}
 									flowJobs={undefined}
-									on:delete={(e) => {
-										data.eventHandlers.delete(e.detail, '')
-									}}
-									on:insert={(e) => {
-										data.eventHandlers.insert(e.detail)
-									}}
-									on:changeId={(e) => {
-										data.eventHandlers.changeId(e.detail)
-									}}
-									on:move={(e) => {
-										if (triggerScriptModule) {
-											data.eventHandlers.move(triggerScriptModule, data.modules)
-										}
-									}}
-									on:newBranch={(e) => {
-										if (triggerScriptModule) {
-											data.eventHandlers.newBranch(triggerScriptModule)
-										}
-									}}
-									on:select={(e) => {
-										data.eventHandlers.select(e.detail)
-									}}
 								/>
 							</div>
 						{/if}
