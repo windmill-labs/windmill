@@ -31,7 +31,6 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    jobs::QueuedJob,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
 };
@@ -536,11 +535,29 @@ pub async fn transform_json_value<'c>(
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
             let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
-            let job = sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+
+            #[derive(sqlx::FromRow, Debug)]
+            struct QueuedJobLite {
+                pub id: Uuid,
+                pub workspace_id: String,
+                pub parent_job: Option<Uuid>,
+                pub created_by: String,
+                pub email: String,
+                pub permissioned_as: String,
+                pub script_path: Option<String>,
+                pub schedule_path: Option<String>,
+                pub root_job: Option<Uuid>,
+                pub flow_step_id: Option<String>,
+                pub scheduled_for: chrono::DateTime<chrono::Utc>,
+            }
+
+            let job = sqlx::query_as!(
+                QueuedJobLite,
+                "SELECT id, workspace_id,parent_job, created_by, email, permissioned_as, script_path, schedule_path, root_job, flow_step_id, scheduled_for
+                 FROM queue WHERE id = $1 AND workspace_id = $2",
+                job_id.unwrap(),
+                workspace
             )
-            .bind(job_id.unwrap())
-            .bind(workspace)
             .fetch_optional(&mut *tx)
             .await?;
             tx.commit().await?;
