@@ -34,7 +34,7 @@
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let simplifiedTriggers = false
+	let simplifiedTriggers = true
 	let triggerScriptModule: FlowModule | undefined = undefined
 	$: triggerScriptModule = data.modules.find((mod) => mod.isTrigger)
 
@@ -141,11 +141,9 @@
 								disableAi={data.disableAi}
 								on:new={(e) => {
 									dispatch('new', e.detail)
-									simplifiedTriggers = true
 								}}
 								on:pickScript={(e) => {
 									dispatch('pickScript', e.detail)
-									simplifiedTriggers = true
 								}}
 								kind="trigger"
 								index={data?.index ?? 0}
@@ -157,7 +155,7 @@
 									'flex-shrink-0'
 								)}
 							/>
-						{:else if simplifiedTriggers}
+						{:else if simplifiedTriggers && data.flowIsSimplifiable}
 							<div
 								class="text-2xs text-secondary min-w-0 font-normal text-center rounded-sm grow shadow-md w-full border"
 							>
