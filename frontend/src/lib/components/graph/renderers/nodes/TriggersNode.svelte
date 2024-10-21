@@ -44,8 +44,8 @@
 				script: e.detail
 			})
 		}}
-		on:select={() => {
-			data?.eventHandlers?.select('triggers')
+		on:select={(e) => {
+			data?.eventHandlers?.select(e.detail)
 		}}
 		isFlow={true}
 		selected={$selectedId == 'triggers'}

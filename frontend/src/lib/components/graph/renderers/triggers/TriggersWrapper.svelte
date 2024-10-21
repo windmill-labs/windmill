@@ -118,7 +118,7 @@
 	<button
 		class=" w-full border rounded-sm bg-surface shadow-md center-center items-center max-w-full
 			{selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : ''}"
-		on:click={() => dispatch('select')}
+		on:click={() => dispatch('select', 'triggers')}
 	>
 		<div class="flex flex-row w-min-0 gap-2 w-fit max-w-full px-2 py-1">
 			{#each visibleTriggerItems as item (item.id)}
@@ -179,6 +179,7 @@
 									modules={data.modules ?? []}
 									moving={''}
 									flowJobs={undefined}
+									on:select
 								/>
 							</div>
 						{/if}
