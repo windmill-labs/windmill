@@ -14,6 +14,7 @@
 	import MapItem from '../../../flows/map/MapItem.svelte'
 	import { getStateColor } from '../../util'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import type { TriggerContext } from '$lib/components/triggers'
 
 	type TriggerType = 'webhooks' | 'emails' | 'schedules' | 'routes' | 'websockets'
 
@@ -31,6 +32,8 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -143,6 +146,13 @@
 								on:new={(e) => {
 									dispatch('new', e.detail)
 									simplifiedTriggers = true
+									$primarySchedule = {
+										summary: 'Trigger Schedule',
+										args: {},
+										cron: '*/5 * * * *',
+										timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+										enabled: true
+									}
 								}}
 								on:pickScript={(e) => {
 									dispatch('pickScript', e.detail)
