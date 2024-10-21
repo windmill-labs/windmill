@@ -43,7 +43,7 @@ lazy_static::lazy_static! {
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
     /// Use pip install
-    static ref USE_PIP: bool = std::env::var("USE_PIP")
+    static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
 
@@ -929,7 +929,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    annotations.no_uv,
+                    annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
                 .await
@@ -955,7 +955,7 @@ async fn handle_python_deps(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            annotations.no_uv_install,
+            annotations.no_uv || annotations.no_uv_install,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -987,12 +987,15 @@ pub async fn handle_python_reqs(
     let pip_extra_index_url;
     let pip_index_url;
 
-    no_uv_install |= *USE_PIP;
+    no_uv_install |= *USE_PIP_INSTALL;
+
     if no_uv_install {
         append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
         tracing::warn!("Fallback to pip");
     }
+
     if !*DISABLE_NSJAIL {
+        append_logs(&job_id, w_id, "\n Prepare NSJAIL", db).await;
         pip_extra_index_url = PIP_EXTRA_INDEX_URL
             .read()
             .await
