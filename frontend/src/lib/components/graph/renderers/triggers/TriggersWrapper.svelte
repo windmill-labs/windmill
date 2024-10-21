@@ -99,17 +99,42 @@
 		}
 	}
 
+	function removeStepSchemaFromFlowSchema(schemaToRemove: any) {
+		if (!$flowStore || !$flowStore.schema || !schemaToRemove) {
+			return
+		}
+
+		const stepProperties = schemaToRemove.properties || {}
+		const stepRequired = schemaToRemove.required || []
+
+		for (const prop in stepProperties) {
+			if ($flowStore.schema.properties && $flowStore.schema.properties[prop]) {
+				delete $flowStore.schema.properties[prop]
+			}
+		}
+
+		if (Array.isArray($flowStore.schema.required)) {
+			$flowStore.schema.required = $flowStore.schema.required.filter(
+				(field) => !stepRequired.includes(field)
+			)
+		}
+	}
+
 	const callUpdateFlowSchema = () => updateFlowSchema()
 
 	let prevTriggerSchema: any = null
 	$: {
-		if (triggerScriptModule && $flowStateStore) {
-			const triggerSchemaId = triggerScriptModule.id ?? ''
-			const triggerSchema = $flowStateStore[triggerSchemaId]?.schema
-			if (triggerSchema && triggerSchema !== prevTriggerSchema) {
-				callUpdateFlowSchema()
-				prevTriggerSchema = triggerSchema
+		const triggerSchemaId = triggerScriptModule?.id
+		const triggerSchema = triggerSchemaId && $flowStateStore?.[triggerSchemaId]?.schema
+
+		if (triggerSchema !== prevTriggerSchema) {
+			if (prevTriggerSchema) {
+				removeStepSchemaFromFlowSchema(prevTriggerSchema)
 			}
+			if (triggerSchema) {
+				callUpdateFlowSchema()
+			}
+			prevTriggerSchema = triggerSchema
 		}
 	}
 </script>
