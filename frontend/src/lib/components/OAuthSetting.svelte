@@ -3,6 +3,7 @@
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
+	import { onMount } from 'svelte'
 
 	export let name: string
 	export let value: any
@@ -12,6 +13,21 @@
 
 	let tenant: string = ''
 	$: name == 'microsoft' && changeTenantId(tenant)
+
+	onMount(() => {
+		try {
+			if (
+				name == 'microsoft' &&
+				value &&
+				value['login_config'] &&
+				typeof value['login_config']['auth_url'] == 'string'
+			) {
+				tenant = value['login_config']['auth_url'].split('/')[3]
+			}
+		} catch (e) {
+			console.error('Could not set tenantId', e)
+		}
+	})
 
 	function changeTenantId(tenant: string) {
 		if (value && tenant) {
