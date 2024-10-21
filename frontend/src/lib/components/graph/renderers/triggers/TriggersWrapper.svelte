@@ -41,16 +41,17 @@
 	$: data.eventHandlers.simplifyFlow(simplifiedTriggers)
 
 	let triggersToDisplay: TriggerType[]
-	$: triggersToDisplay = simplifiedTriggers
-		? ['schedules']
-		: ['schedules', 'webhooks', 'routes', 'websockets', 'emails']
+	$: triggersToDisplay =
+		simplifiedTriggers && data.flowIsSimplifiable
+			? ['schedules']
+			: ['schedules', 'webhooks', 'routes', 'websockets', 'emails']
 
 	$: triggerItems = [
 		{
 			id: 1,
 			type: 'text',
 			data: { text: 'Triggers' },
-			display: !simplifiedTriggers
+			display: !(simplifiedTriggers && data.flowIsSimplifiable)
 		},
 		{
 			id: 2,
@@ -141,9 +142,11 @@
 								disableAi={data.disableAi}
 								on:new={(e) => {
 									dispatch('new', e.detail)
+									simplifiedTriggers = true
 								}}
 								on:pickScript={(e) => {
 									dispatch('pickScript', e.detail)
+									simplifiedTriggers = true
 								}}
 								kind="trigger"
 								index={data?.index ?? 0}
