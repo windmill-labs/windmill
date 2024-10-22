@@ -46,6 +46,7 @@
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
+	export let isTrigger: boolean = false
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
@@ -185,7 +186,11 @@
 				>
 					<Square size={12} />
 				</div>
-				<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+				<svelte:fragment slot="text"
+					>{isTrigger
+						? 'Stop early if there are no new events'
+						: 'Early stop/break'}</svelte:fragment
+				>
 			</Popover>
 		{/if}
 		{#if skip}

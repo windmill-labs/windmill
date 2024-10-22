@@ -20,7 +20,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		triggersCount: triggersCount
+		triggersCount: triggersCount,
+		viewSimplifiedTriggers: writable(false)
 	})
 
 	async function loadFlow(path: string) {

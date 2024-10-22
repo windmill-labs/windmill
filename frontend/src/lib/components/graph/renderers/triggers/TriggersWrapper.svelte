@@ -33,7 +33,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { selectedTrigger, primarySchedule } = getContext<TriggerContext>('TriggerContext')
+	const { viewSimplifiedTriggers, selectedTrigger, primarySchedule } =
+		getContext<TriggerContext>('TriggerContext')
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -137,6 +138,8 @@
 			prevTriggerSchema = triggerSchema
 		}
 	}
+
+	$: $viewSimplifiedTriggers = simplifiedTriggers && data.flowIsSimplifiable
 </script>
 
 <div style={`width: ${NODE.width}px;`} class="center-center">
@@ -209,6 +212,7 @@
 									moving={''}
 									flowJobs={undefined}
 									on:select
+									isTrigger={true}
 								/>
 							</div>
 						{/if}

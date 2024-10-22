@@ -26,7 +26,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
-		triggersCount
+		triggersCount,
+		viewSimplifiedTriggers: writable(false)
 	})
 </script>
 

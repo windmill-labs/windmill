@@ -106,6 +106,7 @@
 			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
 			: undefined
 	)
+	const viewSimplifiedTriggers = writable(false)
 	const selectedTriggerStore = writable<
 		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
@@ -138,7 +139,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
-		triggersCount
+		triggersCount,
+		viewSimplifiedTriggers
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
