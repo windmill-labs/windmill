@@ -892,7 +892,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for x in [
         LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
-        PIP_CACHE_DIR,
         UV_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,

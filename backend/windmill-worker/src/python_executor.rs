@@ -73,7 +73,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, TZ_ENV, UV_CACHE_DIR,
+    PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
 #[cfg(windows)]
@@ -1040,7 +1040,14 @@ pub async fn handle_python_reqs(
                 NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
             })
             .replace("{WORKER_DIR}", &worker_dir)
-            .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+            .replace(
+                "{CACHE_DIR}",
+                if no_uv_install {
+                    PIP_CACHE_DIR
+                } else {
+                    PY311_CACHE_DIR
+                },
+            )
             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
     };
@@ -1048,56 +1055,18 @@ pub async fn handle_python_reqs(
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
-        // let venv_p = format!(
-        //     "{UV_CACHE_DIR}/{}",
-        //     req.replace(' ', "").replace('/', "").replace(':', "")
-        // );
+        let py_prefix = if no_uv_install {
+            PIP_CACHE_DIR
+        } else {
+            PY311_CACHE_DIR
+        };
 
-        // tracing::error!("{:?}", &venv_p);
         let venv_p = format!(
-            "{PIP_CACHE_DIR}/{}",
+            "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(&venv_p).await.is_ok() {
-            // TODO: remove (Deperecated)
-            if no_uv_install {
-                // e.g.: /tmp/windmill/cache/pip/wmill==1.408.1/wmill-1.408.1.dist-info/INSTALLER
-                let installer_file_path = format!(
-                    "{PIP_CACHE_DIR}/{}/{}.dist-info/INSTALLER",
-                    req.replace(' ', "").replace('/', "").replace(':', ""),
-                    req.replace(' ', "")
-                        .replace('/', "")
-                        .replace(':', "")
-                        // We want this form of dependency (with _ )
-                        // typing_extensions-4.12.2.dist-info
-                        .replace('-', "_")
-                        .replace("==", "-")
-                );
-
-                append_logs(
-                    &job_id,
-                    w_id,
-                    format!("\nLooking into: {}", installer_file_path),
-                    db,
-                )
-                .await;
-
-                // There is metadata which package manager downloaded library
-                // It is stored in *.dist-info/INSTALLER
-                // So if we fallback to pip and we see library installed by uv
-                // we want to override this installation
-                // TODO: If error, override anyway
-                if "uv" == std::fs::read_to_string(installer_file_path)? {
-                    // Rmdir to make it pure
-                    std::fs::remove_dir_all(&venv_p)?;
-                    // Push it for installation
-                    req_with_penv.push((req.to_string(), venv_p));
-                } else {
-                    req_paths.push(venv_p);
-                }
-            } else {
-                req_paths.push(venv_p);
-            }
+            req_paths.push(venv_p);
         } else {
             req_with_penv.push((req.to_string(), venv_p));
         }
@@ -1242,8 +1211,6 @@ pub async fn handle_python_reqs(
                     "3.11",
                     // Prevent uv from discovering configuration files.
                     "--no-config",
-                    // "--no-warn-conflicts",
-                    "--disable-pip-version-check",
                     // TODO: Doublecheck it
                     "--system",
                     // Prefer main index over extra
