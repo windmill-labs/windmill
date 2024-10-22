@@ -116,7 +116,7 @@ shouldUsePortal={true} -->
 		</div>
 
 		<div class="flex flex-row grow min-h-0">
-			{#if kind === 'script' || kind == 'trigger'}
+			{#if kind === 'script'}
 				<div class="flex-none flex flex-col text-xs text-primary">
 					<TopLevelNode
 						label="Action"
