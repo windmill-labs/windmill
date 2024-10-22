@@ -1059,7 +1059,45 @@ pub async fn handle_python_reqs(
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(&venv_p).await.is_ok() {
-            req_paths.push(venv_p);
+            // TODO: remove (Deperecated)
+            if no_uv_install {
+                // e.g.: /tmp/windmill/cache/pip/wmill==1.408.1/wmill-1.408.1.dist-info/INSTALLER
+                let installer_file_path = format!(
+                    "{PIP_CACHE_DIR}/{}/{}.dist-info/INSTALLER",
+                    req.replace(' ', "").replace('/', "").replace(':', ""),
+                    req.replace(' ', "")
+                        .replace('/', "")
+                        .replace(':', "")
+                        // We want this form of dependency (with _ )
+                        // typing_extensions-4.12.2.dist-info
+                        .replace('-', "_")
+                        .replace("==", "-")
+                );
+
+                append_logs(
+                    &job_id,
+                    w_id,
+                    format!("\nLooking into: {}", installer_file_path),
+                    db,
+                )
+                .await;
+
+                // There is metadata which package manager downloaded library
+                // It is stored in *.dist-info/INSTALLER
+                // So if we fallback to pip and we see library installed by uv
+                // we want to override this installation
+                // TODO: If error, override anyway
+                if "uv" == std::fs::read_to_string(installer_file_path)? {
+                    // Rmdir to make it pure
+                    std::fs::remove_dir_all(&venv_p)?;
+                    // Push it for installation
+                    req_with_penv.push((req.to_string(), venv_p));
+                } else {
+                    req_paths.push(venv_p);
+                }
+            } else {
+                req_paths.push(venv_p);
+            }
         } else {
             req_with_penv.push((req.to_string(), venv_p));
         }
