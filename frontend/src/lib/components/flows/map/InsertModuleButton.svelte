@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Cross, Zap } from 'lucide-svelte'
+	import { Cross } from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowModule } from '$lib/gen'
@@ -11,6 +11,7 @@
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
+	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -82,7 +83,7 @@ shouldUsePortal={true} -->
 			on:pointerup={pointerup}
 		>
 			{#if kind === 'trigger'}
-				<Zap size={12} />
+				<SchedulePollIcon size={14} />
 			{:else}
 				<Cross size={12} />
 			{/if}
