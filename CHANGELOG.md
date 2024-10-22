@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.411.0](https://github.com/windmill-labs/windmill/compare/v1.410.3...v1.411.0) (2024-10-21)
+
+
+### Features
+
+* **cli:** encrypt sensitive instance settings ([#4561](https://github.com/windmill-labs/windmill/issues/4561)) ([b8a6a11](https://github.com/windmill-labs/windmill/commit/b8a6a116354b10f5977e54edb365d6711e160538))
+
+
+### Bug Fixes
+
+* Do not ignore file resources with json file ext ([#4562](https://github.com/windmill-labs/windmill/issues/4562)) ([2079b2e](https://github.com/windmill-labs/windmill/commit/2079b2e7e19aa2fe327f2ae66d1b5eba988b9b0a))
+* update bun to 1.1.31 and deno to 2.0.2 ([0d90396](https://github.com/windmill-labs/windmill/commit/0d9039641b3348e75599937188c35dd89a000584))
+
 ## [1.410.3](https://github.com/windmill-labs/windmill/compare/v1.410.2...v1.410.3) (2024-10-20)
 
 
