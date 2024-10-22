@@ -40,11 +40,11 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
-COPY --from=oven/bun:1.1.30 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.31 /usr/local/bin/bun /usr/bin/bun
 
 ARG TARGETPLATFORM
 
-RUN curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip 
+RUN curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.2/deno-x86_64-unknown-linux-gnu.zip -o deno.zip 
 # RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
 
 RUN unzip deno.zip && rm deno.zip && mv deno /usr/bin/deno

@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.411.0](https://github.com/windmill-labs/windmill/compare/v1.410.3...v1.411.0) (2024-10-21)
+
+
+### Features
+
+* **cli:** encrypt sensitive instance settings ([#4561](https://github.com/windmill-labs/windmill/issues/4561)) ([b8a6a11](https://github.com/windmill-labs/windmill/commit/b8a6a116354b10f5977e54edb365d6711e160538))
+
+
+### Bug Fixes
+
+* Do not ignore file resources with json file ext ([#4562](https://github.com/windmill-labs/windmill/issues/4562)) ([2079b2e](https://github.com/windmill-labs/windmill/commit/2079b2e7e19aa2fe327f2ae66d1b5eba988b9b0a))
+* update bun to 1.1.31 and deno to 2.0.2 ([0d90396](https://github.com/windmill-labs/windmill/commit/0d9039641b3348e75599937188c35dd89a000584))
+
+## [1.410.3](https://github.com/windmill-labs/windmill/compare/v1.410.2...v1.410.3) (2024-10-20)
+
+
+### Bug Fixes
+
+* **go-client:** reduce runtime dependencies by bumping oai-codeen to v2.4.1 ([87f5c07](https://github.com/windmill-labs/windmill/commit/87f5c078dd63cd3e0ba3e719c2da7b83f1458e2c))
+
+## [1.410.1](https://github.com/windmill-labs/windmill/compare/v1.410.0...v1.410.1) (2024-10-19)
+
+
+### Bug Fixes
+
+* **cli:** improve wmill init behavior ([26a40d1](https://github.com/windmill-labs/windmill/commit/26a40d19441aa816ee711ce30f3435dddd3542a7))
+* **frontend:** improve display of error handlers ([a92a2fd](https://github.com/windmill-labs/windmill/commit/a92a2fd6fd67c11c04554a90b8ae6d7a0dd9067c))
+
+## [1.410.1](https://github.com/windmill-labs/windmill/compare/v1.410.0...v1.410.1) (2024-10-19)
+
+
+### Bug Fixes
+
+* **cli:** improve wmill init behavior ([26a40d1](https://github.com/windmill-labs/windmill/commit/26a40d19441aa816ee711ce30f3435dddd3542a7))
+
+## [1.410.0](https://github.com/windmill-labs/windmill/compare/v1.409.4...v1.410.0) (2024-10-18)
+
+
+### Features
+
+* **typescript-bun:** support relative imports without the .ts extension ([248fdc2](https://github.com/windmill-labs/windmill/commit/248fdc24a61aca946902b20b9d8187101a9b7bfa))
+* websocket triggers ([#4505](https://github.com/windmill-labs/windmill/issues/4505)) ([8807e99](https://github.com/windmill-labs/windmill/commit/8807e99f06caf3e26c526eefdc83dbc2f7aa93ee))
+
+
+### Bug Fixes
+
+* cache js static assets by default ([08595c6](https://github.com/windmill-labs/windmill/commit/08595c6f14a89df1559974e8835e63881a1a9601))
+* **frontend:** add back script lockfile to script details pae ([549b11d](https://github.com/windmill-labs/windmill/commit/549b11dcfb39a60acd6d3899fce51b31149f8594))
+* improve cancelling of jobs on public apps for anonymous users ([d7cf5ea](https://github.com/windmill-labs/windmill/commit/d7cf5ea37db313e78865708bc22e87a1feea9e0d))
+
 ## [1.409.4](https://github.com/windmill-labs/windmill/compare/v1.409.3...v1.409.4) (2024-10-17)
 
 
