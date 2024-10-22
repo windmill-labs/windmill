@@ -214,7 +214,7 @@
 				type="text"
 				id="cron-schedule"
 				name="cron-schedule"
-				placeholder="*/30 * * * *"
+				placeholder="0 0 */1 * * *"
 				bind:value={schedule}
 				{disabled}
 			/>
