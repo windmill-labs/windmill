@@ -112,13 +112,13 @@
 		// If using the basic editor, set the cron string based on the selected options
 		if (executeEvery === 'second') {
 			if (seconds > 0) {
-				nschedule = `*/${seconds} * * * *`
+				nschedule = `*/${seconds} * * * * *`
 			} else {
-				nschedule = `* * * * *`
+				nschedule = `* * * * * *`
 			}
 		} else if (executeEvery === 'minute') {
 			if (minutes > 0) {
-				nschedule = `0 */${minutes} * * *`
+				nschedule = `0 */${minutes} * * * *`
 			} else {
 				nschedule = `* * * * *`
 			}
