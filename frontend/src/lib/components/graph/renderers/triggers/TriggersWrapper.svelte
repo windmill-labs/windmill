@@ -266,8 +266,8 @@
 						on:click|preventDefault|stopPropagation={(event) =>
 							dispatch('delete', {
 								event,
-								id: triggerScriptModule.id,
-								type: triggerScriptModule.value.type
+								id: triggerScriptModule?.id,
+								type: triggerScriptModule?.value?.type
 							})}
 					>
 						<X class="mx-[3px]" size={12} strokeWidth={2} />
