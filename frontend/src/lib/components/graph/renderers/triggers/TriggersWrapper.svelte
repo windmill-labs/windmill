@@ -15,6 +15,8 @@
 	import { getStateColor } from '../../util'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import type { TriggerContext } from '$lib/components/triggers'
+	import { saveSchedule } from '$lib/components/flows/scheduleUtils'
+	import { workspaceStore } from '$lib/stores'
 
 	type TriggerType = 'webhooks' | 'emails' | 'schedules' | 'routes' | 'websockets'
 
@@ -33,7 +35,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { viewSimplifiedTriggers, selectedTrigger, primarySchedule } =
+	const { viewSimplifiedTriggers, selectedTrigger, primarySchedule, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -140,19 +142,35 @@
 	}
 
 	$: $viewSimplifiedTriggers = simplifiedTriggers && data.flowIsSimplifiable
+
+	function addSchedule() {
+		$primarySchedule = {
+			summary: 'Trigger Schedule',
+			args: {},
+			cron: '0 0 /5 * * * *',
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			enabled: true
+		}
+		$triggersCount = {
+			...($triggersCount ?? {}),
+			schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
+			primary_schedule: { schedule: $primarySchedule.cron }
+		}
+		saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
+	}
 </script>
 
 <div style={`width: ${NODE.width}px;`} class="center-center">
 	<button
-		class=" w-full border rounded-sm bg-surface shadow-md center-center items-center max-w-full
+		class="w-full border rounded-sm bg-surface shadow-md center-center items-center max-w-full
 			{selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : ''}"
 		on:click={() => dispatch('select', 'triggers')}
 	>
-		<div class="flex flex-row w-min-0 gap-1 w-fit max-w-full px-2 py-1">
+		<div class="flex flex-row w-min-0 gap-2 w-fit max-w-full px-1 py-1">
 			{#each visibleTriggerItems as item (item.id)}
 				<div class="grow {item.grow ? 'grow' : 'shrink-0'} min-w-0 center-center">
 					{#if item.type === 'triggersBadge'}
-						<div class="flex flex-ro gap-1">
+						<div class="flex flex-row gap-2">
 							<TriggersBadge
 								triggersToDisplay={item.data.triggersToDisplay}
 								showOnlyWithCount={false}
@@ -174,17 +192,12 @@
 								on:new={(e) => {
 									dispatch('new', e.detail)
 									simplifiedTriggers = true
-									$primarySchedule = {
-										summary: 'Trigger Schedule',
-										args: {},
-										cron: '*/5 * * * *',
-										timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-										enabled: true
-									}
+									addSchedule()
 								}}
 								on:pickScript={(e) => {
 									dispatch('pickScript', e.detail)
 									simplifiedTriggers = true
+									addSchedule()
 								}}
 								on:select={() => {
 									dispatch('select', 'triggers')
