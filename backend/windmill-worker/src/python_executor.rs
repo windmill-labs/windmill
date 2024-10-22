@@ -1002,33 +1002,64 @@ pub async fn handle_python_reqs(
             .clone()
             .map(handle_ephemeral_token);
 
-        if let Some(url) = pip_extra_index_url.as_ref() {
-            vars.push(("EXTRA_INDEX_URL", url));
-        }
+        if no_uv_install {
+            if let Some(url) = pip_extra_index_url.as_ref() {
+                vars.push(("EXTRA_INDEX_URL", url));
+            }
 
-        pip_index_url = PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
+            pip_index_url = PIP_INDEX_URL
+                .read()
+                .await
+                .clone()
+                .map(handle_ephemeral_token);
 
-        if let Some(url) = pip_index_url.as_ref() {
-            vars.push(("INDEX_URL", url));
-        }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            vars.push(("PIP_INDEX_CERT", cert_path));
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-            vars.push(("TRUSTED_HOST", host));
-        }
-        if let Some(http_proxy) = HTTP_PROXY.as_ref() {
-            vars.push(("HTTP_PROXY", http_proxy));
-        }
-        if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
-            vars.push(("HTTPS_PROXY", https_proxy));
-        }
-        if let Some(no_proxy) = NO_PROXY.as_ref() {
-            vars.push(("NO_PROXY", no_proxy));
+            if let Some(url) = pip_index_url.as_ref() {
+                vars.push(("INDEX_URL", url));
+            }
+            if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+                vars.push(("PIP_INDEX_CERT", cert_path));
+            }
+            if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+                vars.push(("TRUSTED_HOST", host));
+            }
+            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
+                vars.push(("HTTP_PROXY", http_proxy));
+            }
+            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
+                vars.push(("HTTPS_PROXY", https_proxy));
+            }
+            if let Some(no_proxy) = NO_PROXY.as_ref() {
+                vars.push(("NO_PROXY", no_proxy));
+            }
+        } else {
+            if let Some(url) = pip_extra_index_url.as_ref() {
+                vars.push(("UV_EXTRA_INDEX_URL", url));
+            }
+
+            pip_index_url = PIP_INDEX_URL
+                .read()
+                .await
+                .clone()
+                .map(handle_ephemeral_token);
+
+            if let Some(url) = pip_index_url.as_ref() {
+                vars.push(("UV_INDEX_URL", url));
+            }
+            if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+                vars.push(("PIP_INDEX_CERT", cert_path));
+            }
+            if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+                vars.push(("TRUSTED_HOST", host));
+            }
+            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
+                vars.push(("HTTP_PROXY", http_proxy));
+            }
+            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
+                vars.push(("HTTPS_PROXY", https_proxy));
+            }
+            if let Some(no_proxy) = NO_PROXY.as_ref() {
+                vars.push(("NO_PROXY", no_proxy));
+            }
         }
 
         let _ = write_file(
