@@ -10,7 +10,8 @@
 		| 'schedules'
 		| 'cli'
 		| 'routes'
-		| 'websockets' = 'webhooks'
+		| 'websockets'
+		| 'scheduledPoll' = 'webhooks'
 </script>
 
 <HighlightTheme />

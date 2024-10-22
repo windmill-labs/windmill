@@ -11,6 +11,7 @@
 	import { getContext } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
+	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -30,6 +31,9 @@
 			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 			<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
 			<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
+			<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
+				>Scheduled Poll</Tab
+			>
 
 			<svelte:fragment slot="content">
 				{#if $selectedTrigger === 'webhooks'}
@@ -69,7 +73,7 @@
 				{/if}
 
 				{#if $selectedTrigger === 'schedules'}
-					<div class="p-2">
+					<div class="p-4">
 						<RunPageSchedules
 							{schema}
 							{isFlow}
@@ -77,6 +81,12 @@
 							{newItem}
 							can_write={canWrite(currentPath, {}, $userStore)}
 						/>
+					</div>
+				{/if}
+
+				{#if $selectedTrigger === 'scheduledPoll'}
+					<div class="p-4">
+						<ScheduledPollPanel />
 					</div>
 				{/if}
 			</svelte:fragment>

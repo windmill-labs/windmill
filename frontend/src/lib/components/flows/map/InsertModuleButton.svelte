@@ -79,7 +79,10 @@ shouldUsePortal={true} -->
 						'text-secondary',
 						'bg-surface focus:outline-none hover:bg-surface-hover rounded '
 				  )}
-			on:pointerdown|preventDefault|stopPropagation={pointerdown}
+			on:pointerdown|preventDefault|stopPropagation={() => {
+				pointerdown()
+				dispatch('select')
+			}}
 			on:pointerup={pointerup}
 		>
 			{#if kind === 'trigger'}

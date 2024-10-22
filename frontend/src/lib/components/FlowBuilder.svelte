@@ -125,7 +125,6 @@
 		})
 
 		onLatest = version === flowVersion?.id
-
 	}
 
 	const dispatch = createEventDispatcher()
@@ -277,8 +276,7 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
-
-		await compareVersions();
+		await compareVersions()
 		if (onLatest) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
@@ -294,27 +292,26 @@
 			open = true
 		}
 	}
-	async function syncWithDeployed(){
-			const flow = await FlowService.getFlowByPath({
-				workspace: $workspaceStore!,
-				path: $pathStore,
-				withStarredInfo: true
-			})
-			deployedValue = {
-				...flow,
-				starred: undefined,
-				id: undefined,
-				edited_at: undefined,
-				edited_by: undefined,
-				workspace_id: undefined,
-				archived: undefined,
-				same_worker: undefined,
-				visible_to_runner_only: undefined,
-				ws_error_handler_muted: undefined,
-			}
-			deployedBy = flow.edited_by
+	async function syncWithDeployed() {
+		const flow = await FlowService.getFlowByPath({
+			workspace: $workspaceStore!,
+			path: $pathStore,
+			withStarredInfo: true
+		})
+		deployedValue = {
+			...flow,
+			starred: undefined,
+			id: undefined,
+			edited_at: undefined,
+			edited_by: undefined,
+			workspace_id: undefined,
+			archived: undefined,
+			same_worker: undefined,
+			visible_to_runner_only: undefined,
+			ws_error_handler_muted: undefined
+		}
+		deployedBy = flow.edited_by
 	}
-
 
 	async function saveFlow(deploymentMsg?: string): Promise<void> {
 		loadingSave = true
@@ -462,7 +459,7 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
 	export function getSelectedId() {
@@ -484,7 +481,14 @@
 	}
 
 	function selectTrigger(
-		selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		selectedTrigger:
+			| 'webhooks'
+			| 'emails'
+			| 'schedules'
+			| 'cli'
+			| 'routes'
+			| 'websockets'
+			| 'scheduledPoll'
 	) {
 		selectedTriggerStore.set(selectedTrigger)
 	}

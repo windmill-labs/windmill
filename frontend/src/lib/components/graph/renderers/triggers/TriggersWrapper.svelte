@@ -33,7 +33,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
+	const { selectedTrigger, primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -182,6 +182,10 @@
 								on:pickScript={(e) => {
 									dispatch('pickScript', e.detail)
 									simplifiedTriggers = true
+								}}
+								on:select={() => {
+									dispatch('select', 'triggers')
+									$selectedTrigger = 'scheduledPoll'
 								}}
 								kind="trigger"
 								index={data?.index ?? 0}
