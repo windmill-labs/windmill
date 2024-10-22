@@ -28,7 +28,7 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
-    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage') || contains(github.event.comment.body, '/buildimage_all'))
+    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage_all') || contains(github.event.comment.body, '/buildimage_base'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +90,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage_ee') || contains(github.event.comment.body, '/buildimage_all'))
+    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage_ee') || contains(github.event.comment.body, '/buildimage_nsjail')) || contains(github.event.comment.body, '/buildimage_all')
     steps:
       - uses: actions/checkout@v4
         with:
