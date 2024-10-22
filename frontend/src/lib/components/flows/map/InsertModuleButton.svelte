@@ -11,7 +11,7 @@
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
-	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
+	import { SchedulePollIcon } from '$lib/components/icons'
 
 	// import type { Writable } from 'svelte/store'
 

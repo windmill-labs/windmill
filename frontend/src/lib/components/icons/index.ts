@@ -19,6 +19,7 @@ import Slack from './Slack.svelte'
 import TogglIcon from './TogglIcon.svelte'
 import WindmillIcon from './WindmillIcon.svelte'
 import WindmillIcon2 from './WindmillIcon2.svelte'
+import SchedulePollIcon from './SchedulePollIcon.svelte'
 import MailchimpIcon from './MailchimpIcon.svelte'
 import SendgridIcon from './SendgridIcon.svelte'
 import SendflakeIcon from './SendflakeIcon.svelte'
@@ -213,6 +214,7 @@ export {
 	TogglIcon,
 	WindmillIcon,
 	WindmillIcon2,
+	SchedulePollIcon,
 	MailchimpIcon,
 	SendgridIcon,
 	LinkedinIcon,
