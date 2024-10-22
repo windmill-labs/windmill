@@ -1108,7 +1108,10 @@ pub async fn handle_python_reqs(
                 .map(|(req, venv_p)| {
                     let os = os.clone();
                     async move {
-                        if pull_from_tar(os, venv_p.clone()).await.is_ok() {
+                        if pull_from_tar(os, venv_p.clone(), no_uv_install)
+                            .await
+                            .is_ok()
+                        {
                             PullFromTar::Pulled(venv_p.to_string())
                         } else {
                             PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
@@ -1323,7 +1326,7 @@ pub async fn handle_python_reqs(
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {
                 let venv_p = venv_p.clone();
-                tokio::spawn(build_tar_and_push(os, venv_p));
+                tokio::spawn(build_tar_and_push(os, venv_p, no_uv_install));
             }
         }
         req_paths.push(venv_p);
