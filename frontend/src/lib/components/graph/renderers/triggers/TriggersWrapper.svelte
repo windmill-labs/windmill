@@ -147,7 +147,7 @@
 		$primarySchedule = {
 			summary: 'Trigger Schedule',
 			args: {},
-			cron: '0 0 /5 * * * *',
+			cron: '0 */5 * * * *',
 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 			enabled: true
 		}
