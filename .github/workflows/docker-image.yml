@@ -1,8 +1,10 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.repository ||
+  IMAGE_NAME:
+    ${{ github.event_name != 'pull_request' && github.repository ||
     'windmill-labs/windmill-test' }}
-  DEV_SHA: ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
+  DEV_SHA:
+    ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
     github.event.number) }}
 
 name: Build windmill:main
