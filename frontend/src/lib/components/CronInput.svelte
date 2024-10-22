@@ -120,18 +120,18 @@
 			if (minutes > 0) {
 				nschedule = `0 */${minutes} * * * *`
 			} else {
-				nschedule = `* * * * *`
+				nschedule = `* * * * * *`
 			}
 		} else if (executeEvery === 'hour') {
 			if (hours > 0) {
-				nschedule = `0 0 */${hours} * *`
+				nschedule = `0 0 */${hours} * * *`
 			} else {
-				nschedule = `* * * * *`
+				nschedule = `* * * * * *`
 			}
 		} else if (executeEvery === 'day-month') {
-			nschedule = `0 ${s_AtUTCMinutes} ${s_AtUTCHours} ${s_daysOfMonth} *`
+			nschedule = `0 ${s_AtUTCMinutes} ${s_AtUTCHours} ${s_daysOfMonth} * *`
 		} else if (executeEvery === 'month') {
-			nschedule = `0 ${s_AtUTCMinutes} ${s_AtUTCHours} ${s_daysOfMonth} ${s_months}`
+			nschedule = `0 ${s_AtUTCMinutes} ${s_AtUTCHours} ${s_daysOfMonth} ${s_months} *`
 		} else if (executeEvery === 'day-week') {
 			nschedule = `0 ${s_AtUTCMinutes} ${s_AtUTCHours} * * ${s_daysOfWeek}`
 		}
