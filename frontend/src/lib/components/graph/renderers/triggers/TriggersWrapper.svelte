@@ -148,11 +148,11 @@
 			{selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : ''}"
 		on:click={() => dispatch('select', 'triggers')}
 	>
-		<div class="flex flex-row w-min-0 gap-2 w-fit max-w-full px-2 py-1">
+		<div class="flex flex-row w-min-0 gap-1 w-fit max-w-full px-2 py-1">
 			{#each visibleTriggerItems as item (item.id)}
 				<div class="grow {item.grow ? 'grow' : 'shrink-0'} min-w-0 center-center">
 					{#if item.type === 'triggersBadge'}
-						<div class="flex flex-ro gap-2">
+						<div class="flex flex-ro gap-1">
 							<TriggersBadge
 								triggersToDisplay={item.data.triggersToDisplay}
 								showOnlyWithCount={false}
