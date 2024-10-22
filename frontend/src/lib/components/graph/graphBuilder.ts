@@ -14,6 +14,7 @@ export type GraphEventHandlers = {
 	move: (module: FlowModule, modules: FlowModule[]) => void
 	selectedIteration: (detail, moduleId: string) => void
 	changeId: (newId: string) => void
+	simplifyFlow: (detail: boolean) => void
 }
 
 export default function graphBuilder(
@@ -28,6 +29,7 @@ export default function graphBuilder(
 	moving: string | undefined,
 	triggerProps?: {
 		path?: string
+		flowIsSimplifiable?: boolean
 	}
 ): {
 	nodes: Node[]
@@ -162,9 +164,11 @@ export default function graphBuilder(
 				position: { x: -1, y: -1 },
 				type: 'trigger',
 				data: {
+					flowIsSimplifiable: triggerProps?.flowIsSimplifiable,
 					path: triggerProps?.path,
 					newFlow: extra.newFlow,
-					eventHandlers: eventHandlers
+					eventHandlers: eventHandlers,
+					modules: modules
 				}
 			}
 			nodes.push(triggerNode)
@@ -480,8 +484,6 @@ export default function graphBuilder(
 						addNode(module, currentOffset, 'module', modules)
 
 						previousId = module.id
-
-
 					}
 
 					if (index === 0) {
@@ -498,8 +500,6 @@ export default function graphBuilder(
 						})
 					}
 				})
-
-
 			}
 		}
 

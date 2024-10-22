@@ -12,6 +12,8 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
+	import { loadSchedules, saveSchedule } from './flows/scheduleUtils'
+	import { type Writable, writable } from 'svelte/store'
 
 	export let schema: any
 	export let isFlow: boolean
@@ -22,103 +24,33 @@
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	let scheduleEditor: ScheduleEditor
+	let schedules: Writable<Schedule[] | undefined> = writable(undefined)
+	let initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined> = writable(undefined)
 
-	$: loadSchedules(false) || path
-
-	let schedules: Schedule[] | undefined = undefined
-	let initialPrimarySchedule: ScheduleTrigger | false | undefined = undefined
-	async function loadSchedules(forceRefresh: boolean) {
-		if (!path || path == '') {
-			schedules = []
-			if ($primarySchedule == undefined) {
-				$primarySchedule = false
-			}
-			initialPrimarySchedule = structuredClone($primarySchedule)
-			return
-		}
-		try {
-			const allSchedules = await ScheduleService.listSchedules({
-				workspace: $workspaceStore ?? '',
-				path: path,
-				isFlow
-			})
-			const primary = allSchedules.find((s) => s.path == path)
-			let remotePrimarySchedule = primary
-				? {
-						summary: primary.summary,
-						args: primary.args ?? {},
-						cron: primary.schedule,
-						timezone: primary.timezone,
-						enabled: primary.enabled
-				  }
-				: false
-			if ($primarySchedule == undefined || forceRefresh) {
-				$primarySchedule = remotePrimarySchedule
-			}
-			initialPrimarySchedule = structuredClone(remotePrimarySchedule)
-
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: allSchedules.length,
-				primary_schedule: $primarySchedule ? { schedule: $primarySchedule.cron } : undefined
-			}
-			schedules = allSchedules.filter((s) => s.path != path)
-		} catch (e) {
-			console.error('impossible to load schedules', e)
-		}
+	async function updateSchedules(forceRefresh: boolean) {
+		loadSchedules(
+			forceRefresh,
+			path,
+			isFlow,
+			schedules,
+			primarySchedule,
+			initialPrimarySchedule,
+			$workspaceStore ?? '',
+			triggersCount
+		)
 	}
 
+	$: updateSchedules(false) || path
+
 	async function save() {
-		const scheduleExists =
-			path != '' &&
-			!newItem &&
-			(await ScheduleService.existsSchedule({
-				workspace: $workspaceStore!,
-				path
-			}))
-		if (scheduleExists) {
-			console.log('primary schedule exists')
-			if ($primarySchedule) {
-				await ScheduleService.updateSchedule({
-					workspace: $workspaceStore!,
-					path,
-					requestBody: {
-						summary: $primarySchedule.summary,
-						args: $primarySchedule.args,
-						schedule: $primarySchedule.cron,
-						timezone: $primarySchedule.timezone
-					}
-				})
-				sendUserToast(`Primary schedule updated`)
-			} else {
-				await ScheduleService.deleteSchedule({ workspace: $workspaceStore!, path })
-				sendUserToast(`Primary schedule deleted`)
-			}
-		} else {
-			if ($primarySchedule) {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path,
-						script_path: path,
-						is_flow: isFlow,
-						summary: $primarySchedule.summary,
-						args: $primarySchedule.args,
-						schedule: $primarySchedule.cron,
-						timezone: $primarySchedule.timezone,
-						enabled: $primarySchedule.enabled
-					}
-				})
-				sendUserToast(`Primary schedule created`)
-			}
-		}
-		loadSchedules(true)
+		saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
+		updateSchedules(true)
 	}
 </script>
 
 <ScheduleEditor
 	on:update={() => {
-		loadSchedules(true)
+		updateSchedules(true)
 	}}
 	bind:this={scheduleEditor}
 />
@@ -204,7 +136,7 @@
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}
 
-		{#if initialPrimarySchedule != false}
+		{#if $initialPrimarySchedule != false}
 			<div class="flex">
 				<Button size="xs" color="light" on:click={() => scheduleEditor?.openEdit(path, isFlow)}
 					>Advanced</Button
@@ -235,7 +167,7 @@
 			>
 				Set Primary Schedule
 			</Button>
-			{#if initialPrimarySchedule != undefined && initialPrimarySchedule != false && !newItem}
+			{#if $initialPrimarySchedule != undefined && $initialPrimarySchedule != false && !newItem}
 				<Button on:click={save} color="dark" size="md" startIcon={{ icon: Save }}>
 					Apply changes now
 				</Button>
@@ -274,12 +206,12 @@
 		{/if}
 
 		<Label label="Other schedules">
-			{#if schedules}
-				{#if schedules?.length == 0 || schedules == undefined}
+			{#if $schedules}
+				{#if $schedules.length == 0 || $schedules == undefined}
 					<div class="text-xs text-tertiary"> No other schedules </div>
 				{:else}
 					<div class="flex flex-col divide-y">
-						{#each schedules as schedule (schedule.path)}
+						{#each $schedules as schedule (schedule.path)}
 							<div class="grid grid-cols-6 text-xs items-center py-2">
 								<div class="col-span-3 truncate">{schedule.path}</div>
 								<div class="col-span-2 flex flex-row gap-4 flex-nowrap">

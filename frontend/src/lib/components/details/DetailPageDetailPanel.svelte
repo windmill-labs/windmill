@@ -12,7 +12,8 @@
 		| 'schedules'
 		| 'cli'
 		| 'routes'
-		| 'websockets' = 'webhooks'
+		| 'websockets'
+		| 'scheduledPoll' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 
 	export let isOperator: boolean = false
