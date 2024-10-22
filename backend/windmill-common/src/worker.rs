@@ -309,6 +309,7 @@ pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_uv: bool,
     pub no_uv_install: bool,
+    pub no_uv_compile: bool,
 }
 
 #[annotations("//")]
