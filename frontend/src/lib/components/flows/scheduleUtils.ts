@@ -52,7 +52,7 @@ export async function loadSchedules(
 			isFlow
 		})
 		const primary = allSchedules.find((s) => s.path == path)
-		let remotePrimarySchedule = primary
+		let remotePrimarySchedule: ScheduleTrigger | false | undefined = primary
 			? {
 					summary: primary.summary,
 					args: primary.args ?? {},
