@@ -15,8 +15,6 @@
 	import { getStateColor } from '../../util'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { saveSchedule } from '$lib/components/flows/scheduleUtils'
-	import { workspaceStore } from '$lib/stores'
 
 	type TriggerType = 'webhooks' | 'emails' | 'schedules' | 'routes' | 'websockets'
 
@@ -146,6 +144,7 @@
 	$: $viewSimplifiedTriggers = simplifiedTriggers && data.flowIsSimplifiable
 
 	function addSchedule() {
+		let overridePrimarySchedule = !!$primarySchedule
 		$primarySchedule = {
 			summary: 'Trigger Schedule',
 			args: {},
@@ -155,10 +154,9 @@
 		}
 		$triggersCount = {
 			...($triggersCount ?? {}),
-			schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
+			schedule_count: ($triggersCount?.schedule_count ?? 0) + (overridePrimarySchedule ? 0 : 1),
 			primary_schedule: { schedule: $primarySchedule.cron }
 		}
-		saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
 	}
 </script>
 
