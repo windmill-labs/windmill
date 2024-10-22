@@ -16,6 +16,8 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "Dockerfile"
+  issue_comment:
+    types: [created, edited, deleted]
 
 concurrency:
   group: ${{ github.ref }}
@@ -26,6 +28,7 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
+    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage') || contains(github.event.comment.body, '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,6 +90,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
+    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage_ee') || contains(github.event.comment.body, '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -436,7 +440,7 @@ jobs:
   build_ee_nsjail:
     needs: [build_ee]
     runs-on: ubicloud
-    if: github.event_name != 'pull_request'
+    if: (github.event_name != 'issue_comment') || (github.event_name != 'pull_request') || (contains(github.event.comment.body, '/buildimage_nsjail') || contains(github.event.comment.body, '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:
