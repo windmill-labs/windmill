@@ -28,7 +28,7 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || (github.event_name == 'pull_request' && contains(github.event.pull_request.changed_files, 'Dockerfile')) || (contains(github.event.comment.body, '/buildimage') || contains(github.event.comment.body, '/buildimage_all'))
+    if: (github.event_name != 'comment') || (contains(github.event.comment.body, '/buildimage') || contains(github.event.comment.body, '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +90,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || (github.event_name == 'pull_request' && contains(github.event.pull_request.changed_files, 'Dockerfile')) || (contains(github.event.comment.body, '/buildimage_ee') || contains(github.event.comment.body, '/buildimage_all'))
+    if: (github.event_name != 'comment') || (contains(github.event.comment.body, '/buildimage_ee') || contains(github.event.comment.body, '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -440,7 +440,7 @@ jobs:
   build_ee_nsjail:
     needs: [build_ee]
     runs-on: ubicloud
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || (github.event_name != 'pull_request') || (contains(github.event.comment.body, '/buildimage_nsjail') || contains(github.event.comment.body, '/buildimage_all'))
+    if: (github.event_name != 'comment') || (github.event_name != 'pull_request') || (contains(github.event.comment.body, '/buildimage_nsjail') || contains(github.event.comment.body, '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:
