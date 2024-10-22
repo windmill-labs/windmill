@@ -47,6 +47,9 @@
 		on:select={(e) => {
 			data?.eventHandlers?.select(e.detail)
 		}}
+		on:delete={(e) => {
+			data?.eventHandlers?.delete(e.detail.id, e.detail.type)
+		}}
 		isFlow={true}
 		selected={$selectedId == 'triggers'}
 		newItem={data.newFlow}

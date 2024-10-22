@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Maximize2, Minimize2 } from 'lucide-svelte'
+	import { Maximize2, Minimize2, X } from 'lucide-svelte'
 
 	import { NODE } from '../../util'
 	import Popover from '$lib/components/Popover.svelte'
@@ -39,6 +39,8 @@
 		getContext<TriggerContext>('TriggerContext')
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let hover = true
 
 	let simplifiedTriggers = true
 	let triggerScriptModule: FlowModule | undefined = undefined
@@ -255,6 +257,17 @@
 						>
 					</Popover>
 				</div>
+			{/if}
+
+			{#if data.flowIsSimplifiable && simplifiedTriggers && triggerScriptModule}
+				<button
+					class="absolute top-[12px] -right-[30px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
+	 {hover || selected ? '' : '!hidden'}"
+					title="Delete"
+				>
+					<X class="mx-[3px]" size={12} strokeWidth={2} />
+				</button>
 			{/if}
 		</div>
 	</button>
