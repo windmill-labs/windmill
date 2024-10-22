@@ -16,8 +16,6 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "Dockerfile"
-  issue_comment:
-    types: [created, edited, deleted]
 
 concurrency:
   group: ${{ github.ref }}
