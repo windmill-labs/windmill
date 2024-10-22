@@ -40,7 +40,7 @@
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let hover = true
+	let hover = false
 
 	let simplifiedTriggers = true
 	let triggerScriptModule: FlowModule | undefined = undefined
@@ -167,6 +167,8 @@
 		class="w-full border rounded-sm bg-surface shadow-md center-center items-center max-w-full
 			{selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : ''}"
 		on:click={() => dispatch('select', 'triggers')}
+		on:mouseenter={() => (hover = true)}
+		on:mouseleave={() => (hover = false)}
 	>
 		<div class="flex flex-row w-min-0 gap-2 w-fit max-w-full px-1 py-1">
 			{#each visibleTriggerItems as item (item.id)}
@@ -236,38 +238,44 @@
 			{/each}
 
 			{#if data.flowIsSimplifiable}
-				<div class="absolute -top-5 right-0 text-2xs">
-					<Popover notClickable placement="auto">
-						<button
-							class="absolute top-[12px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+				<Popover notClickable placement="auto">
+					<button
+						class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-nord-950 hover:text-white"
-							on:click|preventDefault|stopPropagation={() =>
-								(simplifiedTriggers = !simplifiedTriggers)}
-						>
-							{#if simplifiedTriggers}
-								<Maximize2 size={12} strokeWidth={2} />
-							{:else}
-								<Minimize2 size={12} strokeWidth={2} />
-							{/if}
-						</button>
-						<svelte:fragment slot="text"
-							>{simplifiedTriggers
-								? 'Expand schedule poll nodes'
-								: 'Collapse schedule poll nodes'}</svelte:fragment
-						>
-					</Popover>
-				</div>
+						on:click|preventDefault|stopPropagation={() =>
+							(simplifiedTriggers = !simplifiedTriggers)}
+					>
+						{#if simplifiedTriggers}
+							<Maximize2 size={12} strokeWidth={2} />
+						{:else}
+							<Minimize2 size={12} strokeWidth={2} />
+						{/if}
+					</button>
+					<svelte:fragment slot="text"
+						>{simplifiedTriggers
+							? 'Expand schedule poll nodes'
+							: 'Collapse schedule poll nodes'}</svelte:fragment
+					>
+				</Popover>
 			{/if}
 
 			{#if data.flowIsSimplifiable && simplifiedTriggers && triggerScriptModule}
-				<button
-					class="absolute top-[12px] -right-[30px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+				<Popover notClickable placement="auto">
+					<button
+						class="absolute -top-[10px] right-[14px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
 	 {hover || selected ? '' : '!hidden'}"
-					title="Delete"
-				>
-					<X class="mx-[3px]" size={12} strokeWidth={2} />
-				</button>
+						on:click|preventDefault|stopPropagation={(event) =>
+							dispatch('delete', {
+								event,
+								id: triggerScriptModule.id,
+								type: triggerScriptModule.value.type
+							})}
+					>
+						<X class="mx-[3px]" size={12} strokeWidth={2} />
+					</button>
+					<svelte:fragment slot="text">Delete scheduled poll trigger</svelte:fragment>
+				</Popover>
 			{/if}
 		</div>
 	</button>

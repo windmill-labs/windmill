@@ -48,7 +48,7 @@
 			data?.eventHandlers?.select(e.detail)
 		}}
 		on:delete={(e) => {
-			data?.eventHandlers?.delete(e.detail.id, e.detail.type)
+			data.eventHandlers.delete(e, '')
 		}}
 		isFlow={true}
 		selected={$selectedId == 'triggers'}
