@@ -41,6 +41,7 @@
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
+	export let path: string = ''
 	export let modType: string | undefined = undefined
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
@@ -243,11 +244,22 @@
 				<slot name="icon" />
 			</div>
 		{/if}
-		<div
-			class="absolute left-1/2 transform -translate-x-1/2 text-center truncate"
-			class:font-bold={bold}
-			style="max-width: calc(100% - {marginLeft}px)">{label}</div
+
+		<Popover
+			class="absolute left-1/2 transform -translate-x-1/2 center-center"
+			style="max-width: calc(100% - {marginLeft}px)"
 		>
+			<div class="text-center truncate {bold ? '!font-bold' : 'font-normal'}">
+				{label}
+			</div>
+			<svelte:fragment slot="text">
+				<div>
+					<div>{label}</div>
+					{#if path != ''}<div>{path}</div>{/if}
+				</div>
+			</svelte:fragment>
+		</Popover>
+
 		<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
 			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
 				<Badge color="indigo" wrapperClass="max-w-full" baseClass="max-w-full truncate" title={id}>

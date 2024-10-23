@@ -2,6 +2,7 @@
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	import { ExternalLink } from 'lucide-svelte'
 
@@ -73,7 +74,10 @@
 			use:popperContent={popperOptions}
 			on:mouseenter={open}
 			on:mouseleave={close}
-			class="z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left {popupClass}"
+			class={twMerge(
+				'z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left',
+				popupClass
+			)}
 		>
 			<div class="max-w-sm break-words">
 				<slot name="text" />
