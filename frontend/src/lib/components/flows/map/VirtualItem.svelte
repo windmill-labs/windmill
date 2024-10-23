@@ -53,7 +53,7 @@
 >
 	<div
 		style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
-		class="flex gap-1 justify-between {center
+		class="flex flex-row gap-1 justify-between {center
 			? 'items-center'
 			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
 	>
@@ -61,8 +61,7 @@
 			<slot name="icon" />
 			<span class="mr-2" />
 		{/if}
-		<div />
-		<div class="flex flex-col w-full">
+		<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
 			{#if label}
 				<div class="truncate text-center">{label}</div>
 			{/if}
@@ -70,10 +69,12 @@
 				<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
 			{/if}
 		</div>
-		<div class="flex items-center space-x-2">
-			{#if id && !hideId}
-				<Badge color="indigo">{id}</Badge>
-			{/if}
-		</div>
+		{#if id && !hideId}
+			<div class="flex items-center shrink min-w-0">
+				<Badge color="indigo" wrapperClass="w-full" baseClass="max-w-full" title={id}>
+					<span class="max-w-full text-2xs truncate">{id}</span>
+				</Badge>
+			</div>
+		{/if}
 	</div>
 </div>
