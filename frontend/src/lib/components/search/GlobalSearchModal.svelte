@@ -39,7 +39,6 @@
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
-	import ServiceLogsInner from '../ServiceLogsInner.svelte'
 
 	let open: boolean = false
 
