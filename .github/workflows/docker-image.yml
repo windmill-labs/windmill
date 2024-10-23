@@ -10,7 +10,7 @@ env:
 name: Build windmill:main
 on:
   push:
-    branches: [main]
+    branches: [main, python-uv]
     tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
