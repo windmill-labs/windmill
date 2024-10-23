@@ -9,6 +9,18 @@
 	import Tooltip from './Tooltip.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
+	function updateChangesMade() {
+		changesMade = JSON.stringify(alerts) !== JSON.stringify(originalAlerts)
+	}
+
+	function handleInput(event) {
+		const target = event.target
+		console.log(target)
+		if (target.tagName.toLowerCase() === 'input') {
+			updateChangesMade()
+		}
+	}
+
 	type Alert = {
 		name: string
 		tags_to_monitor: string[]
@@ -70,16 +82,20 @@
 	}
 
 	function startEditing(index) {
+		if (editingIndex !== -1) {
+			const success = saveAlert(editingIndex)
+			if (!success) return
+		}
 		editingIndex = index
 		updateWorkerTags()
 	}
 
-	function saveAlert(index) {
+	function saveAlert(index): boolean {
 		const newAlert = alerts[index]
 
 		if (newAlert.tags_to_monitor.length === 0) {
 			sendUserToast('Please add at least one tag before saving.', true)
-			return
+			return false
 		}
 
 		if (
@@ -88,7 +104,7 @@
 			newAlert.alert_time_threshold_seconds <= 0
 		) {
 			sendUserToast('All numeric values must be strictly positive.', true)
-			return
+			return false
 		}
 
 		const alertExists = originalAlerts.some(
@@ -99,13 +115,15 @@
 		)
 
 		if (alertExists) {
-			sendUserToast('An identical alert already exists.', true)
-			return
+			sendUserToast('You can only define one alert per identical set of tags', true)
+			return false
 		}
 
 		editingIndex = -1
-		changesMade = JSON.stringify(alerts) !== JSON.stringify(originalAlerts)
+		updateChangesMade()
+
 		stagedNewAlert = false
+		return true
 	}
 
 	function stageDeleteAlert(index) {
@@ -130,12 +148,13 @@
 
 	function removeTag(alertIndex, tag) {
 		alerts[alertIndex].tags_to_monitor = alerts[alertIndex].tags_to_monitor.filter((t) => t !== tag)
+		updateChangesMade()
 	}
 
 	async function applyConfig() {
-		if (stagedNewAlert) {
-			sendUserToast('New alert staged. Please save or cancel the changes before applying.', true)
-			return
+		if (editingIndex !== -1) {
+			const success = saveAlert(editingIndex)
+			if (!success) return
 		}
 
 		try {
@@ -146,6 +165,7 @@
 			removedAlerts = []
 			changesMade = false
 			stagedNewAlert = false
+			editingIndex = -1
 		} catch (error) {
 			console.error('Failed to update config:', error)
 		}
@@ -177,6 +197,7 @@
 		alerts = [...alerts, newAlert]
 		editingIndex = alerts.length - 1
 		stagedNewAlert = true
+		updateChangesMade()
 		updateWorkerTags()
 	}
 
@@ -192,24 +213,30 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Queue Metrics" on:close={drawer.closeDrawer}>
+<Drawer bind:this={drawer} size="1000px">
+	<DrawerContent
+		title="Queues"
+		on:close={drawer.closeDrawer}
+		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#queue-metrics"
+	>
 		<Section
 			label="Queue Alert Settings"
 			collapsable={true}
-			tooltip="Manage queue alerts for monitoring queue metrics. These alerts will trigger a critical alert notification if the queue metrics are met."
+			tooltip="A critical alert is triggered when the number of jobs in the queue exceeds the set threshold and they have been waiting for at least the specified time. After an alert, no new alerts will be triggered during the cooldown period."
 			eeOnly={true}
 		>
 			{#if $enterpriseLicense}
 				{#if changesMade}
 					<div class="text-red-600 text-xs whitespace-nowrap pb-2">Non applied changes</div>
-					<div class="flex gap-2 pb-2">
-						<Button color="blue" size="xs" on:click={applyConfig}>
-							<SaveIcon size={16} /> Apply Config
-						</Button>
-						<Button color="light" size="xs" on:click={cancelChanges}>Cancel</Button>
-					</div>
 				{/if}
+				<div class="flex gap-2 pb-2">
+					<Button color="blue" size="xs" on:click={applyConfig} disabled={!changesMade}>
+						<SaveIcon size={16} /> Apply Config
+					</Button>
+					<Button color="light" size="xs" on:click={cancelChanges} disabled={!changesMade}>
+						Cancel
+					</Button>
+				</div>
 
 				{#if alerts.length > 0}
 					<div>
@@ -217,7 +244,7 @@
 							<table class="w-full border-collapse mb-2 text-xs table-auto">
 								<thead class="bg-gray-200 dark:bg-slate-600 text-left text-xs">
 									<tr>
-										<th class="p-2 min-w-[120px]">
+										<th class="p-2 min-w-[220px]">
 											Name
 											<Tooltip
 												markdownTooltip="The name of the alert. This will be used in the crticial alert notification and help identify the alert."
@@ -230,25 +257,25 @@
 										<th class="p-2 min-w-[65px]">
 											Jobs
 											<Tooltip
-												markdownTooltip="Number of jobs threshold. An alert will be triggerd if more than this number of jobs are in the queue for at least the time threshold."
+												markdownTooltip="Number of jobs threshold: An alert will be triggered if the number of jobs in the queue exceeds this threshold and they have been waiting for at least the specified time threshold."
 											/>
 										</th>
 										<th class="p-2 min-w-[115px]">
 											Cooldown (s)
 											<Tooltip
-												markdownTooltip="Cooldown period in seconds. The cooldown period is the time after an alert is triggered that no new alerts will be triggered."
+												markdownTooltip="Cooldown period in seconds: This defines the time interval after an alert is triggered during which no additional alerts will be sent."
 											/>
 										</th>
 										<th class="p-2 min-w-[105px]">
 											Time (s)
 											<Tooltip
-												markdownTooltip="Time threshold in seconds. An alert will be triggered if more than 'n jobs threshold' have been in the queue for at least this amount of time."
+												markdownTooltip="Time threshold in seconds: An alert will be triggered if the number of jobs in the queue exceeds the job threshold and they have remained in the queue for at least this duration."
 											/>
 										</th>
 										<th class="p-2 min-w-[100px]"> Actions </th>
 									</tr>
 								</thead>
-								<tbody>
+								<tbody on:input={handleInput}>
 									{#each alerts as alert, index}
 										<tr
 											class={removedAlerts.includes(alert)
@@ -401,6 +428,7 @@
 				</p>
 			{/if}
 		</Section>
+		<h1 class="pt-4">Queue Metrics</h1>
 		<div class="p-8">
 			<QueueMetricsDrawerInner />
 		</div>
