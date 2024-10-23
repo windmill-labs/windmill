@@ -140,7 +140,7 @@
 	<ul>
 		{#each items as item, index (item.path)}
 			<li class="w-full">
-				<Popover class="w-full " placement="right">
+				<Popover class="w-full" placement="right" forceOpen={index === selected}>
 					<svelte:fragment slot="text">
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0"

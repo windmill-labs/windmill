@@ -107,7 +107,7 @@
 	<ul>
 		{#each filteredWithOwner ?? [] as { path, hash, summary, marked }, index}
 			<li class="w-full">
-				<Popover class="w-full " placement="right">
+				<Popover class="w-full " placement="right" forceOpen={index === selected}>
 					<svelte:fragment slot="text">
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0">{summary ?? ''}</div>

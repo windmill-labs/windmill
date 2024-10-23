@@ -14,6 +14,7 @@
 	export let appearTimeout = 300
 	export let documentationLink: string | undefined = undefined
 	export let style: string | undefined = undefined
+	export let forceOpen = false
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
@@ -48,6 +49,8 @@
 		inTimeout = undefined
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
+
+	$: forceOpen ? open() : close()
 </script>
 
 {#if notClickable}
