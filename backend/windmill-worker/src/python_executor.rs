@@ -1246,6 +1246,7 @@ pub async fn handle_python_reqs(
                     "3.11",
                     // Prevent uv from discovering configuration files.
                     "--no-config",
+                    "--link-mode=copy",
                     // TODO: Doublecheck it
                     "--system",
                     // Prefer main index over extra
