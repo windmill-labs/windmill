@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { copyToClipboard, pluralize, truncate } from '$lib/utils'
+	import { copyToClipboard, truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
-	import { Badge } from '../common'
 	import { computeKey } from './utils'
-	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
+	import { Button } from '$lib/components/common'
 
 	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -19,7 +18,6 @@
 	export let collapsed = (level != 0 && level % 3 == 0) || Array.isArray(json)
 	export let rawKey = false
 	export let topBrackets = false
-	export let topLevelNode = false
 	export let allowCopy = true
 	export let collapseLevel: number | undefined = undefined
 
@@ -73,28 +71,32 @@
 			{#if level != 0 && keys.length > 1}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<span class="cursor-pointer border hover:bg-surface-hover px-1 rounded" on:click={collapse}>
-					-
-				</span>
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={collapse}
+					wrapperClasses="inline-flex w-fit h-5"
+					btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
+				>
 			{/if}
 			{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
 			<ul class={`w-full pl-2 ${level === 0 ? 'border-none' : 'border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<button on:click={() => selectProp(key)} class="whitespace-nowrap">
-							{#if topLevelNode}
-								<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
-							{:else}
-								<span
-									class="key {pureViewer
-										? 'cursor-auto'
-										: 'border '} font-semibold rounded px-1 hover:bg-surface-hover text-2xs text-secondary"
-								>
-									{!isArray ? key : index}</span
-								>
-							{/if}:
-						</button>
-
+						<Button
+							on:click={() => selectProp(key)}
+							size="xs2"
+							color="dark"
+							variant="contained"
+							wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
+							btnClasses="font-normal rounded-[0.275rem]"
+						>
+							<span class={pureViewer ? 'cursor-auto' : ''}>
+								{!isArray ? key : index}
+							</span>
+						</Button>
+						:
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
 								json={json[key]}
@@ -114,9 +116,12 @@
 									json[key]
 								)}"
 								on:click={() => selectProp(key, json[key])}
+								disabled={true}
 							>
 								{#if json[key] === NEVER_TESTED_THIS_FAR}
-									<WarningMessage />
+									<span class="text-2xs text-tertiary font-normal">
+										Test the flow to see a value
+									</span>
 								{:else if json[key] == undefined}
 									<span class="text-2xs">undefined</span>
 								{:else if json[key] == null}
@@ -167,17 +172,18 @@
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<span
-		class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200"
-		class:hidden={!fullyCollapsed}
-		on:click={collapse}
-	>
-		{openBracket}{collapsedSymbol}{closeBracket}
-	</span>
+
 	{#if fullyCollapsed}
-		<span class="text-tertiary text-xs">
-			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
-		</span>
+		<Button
+			color="light"
+			size="xs2"
+			variant="border"
+			on:click={collapse}
+			wrapperClasses="inline-flex w-fit h-5"
+			btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+		>
+			{openBracket}{collapsedSymbol}{closeBracket}
+		</Button>
 	{/if}
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>
@@ -200,14 +206,14 @@
 		@apply text-tertiary;
 	}
 	.val.string {
-		@apply text-green-600 dark:text-green-400/80;
+		@apply text-primary;
 	}
 
 	.val.number {
-		@apply text-orange-600 dark:text-orange-400/90;
+		@apply text-primary;
 		@apply font-mono;
 	}
 	.val.boolean {
-		@apply text-blue-600 dark:text-blue-400/90;
+		@apply text-primary;
 	}
 </style>
