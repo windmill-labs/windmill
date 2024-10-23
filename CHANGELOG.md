@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.411.1](https://github.com/windmill-labs/windmill/compare/v1.411.0...v1.411.1) (2024-10-22)
+
+
+### Bug Fixes
+
+* update bun to 1.1.32 ([#4568](https://github.com/windmill-labs/windmill/issues/4568)) ([0586446](https://github.com/windmill-labs/windmill/commit/058644667129f0d79ec147aacdda449142ae0ab9))
+
 ## [1.411.0](https://github.com/windmill-labs/windmill/compare/v1.410.3...v1.411.0) (2024-10-21)
 
 

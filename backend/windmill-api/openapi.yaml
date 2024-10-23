@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.411.0
+  version: 1.411.1
   title: Windmill API
 
   contact:
@@ -10747,6 +10747,7 @@ components:
             - "users.impersonate"
             - "users.leave_workspace"
             - "oauth.login"
+            - "oauth.login_failure"
             - "oauth.signup"
             - "variables.create"
             - "variables.delete"
