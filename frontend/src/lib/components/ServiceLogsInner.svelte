@@ -59,8 +59,6 @@
 		getAllLogs(minTsManual ?? maxTs, maxTsManual)
 	}
 
-	let hostnames: string[] = []
-
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
 		loading = true
@@ -69,15 +67,6 @@
 			.then((res) => {
 				loading = false
 
-				hostnames = []
-				Object.entries(allLogs ?? {}).forEach(([mode, wgs]) => {
-					Object.entries(wgs).forEach(([wg, keys]) => {
-						Object.entries(keys).forEach(([key, _log_files]) => {
-							hostnames.push(`${mode},${wg},${key}`)
-						})
-					})
-				})
-
 				let minTsN: number | undefined = undefined
 				let maxTsN: number | undefined = undefined
 				if (minTsManual) {
@@ -85,7 +74,6 @@
 					Object.values(allLogs ?? {}).forEach((mode) => {
 						Object.values(mode).forEach((wg) => {
 							Object.keys(wg).forEach((key) => {
-								hostnames.push(key)
 								wg[key] = wg[key].filter(
 									(x) => !minTsManual || x.ts >= new Date(minTsManual).getTime()
 								)
@@ -152,7 +140,7 @@
 				if (upToIsLatest && selected) {
 					upTo = getLatestUpTo(selected)
 				}
-				if (autoRefresh && !maxTsManual) {
+				if (autoRefresh && searchTerm === '' && !maxTsManual) {
 					timeout = setTimeout(() => {
 						let minMax = manualPicker?.computeMinMax()
 						if (minMax) {
@@ -297,7 +285,13 @@
 
 	let countsPerHost: any
 
-	async function searchLogs(searchTerm: string, selected: [string, string, string] | undefined) {
+	async function searchLogs(
+		searchTerm: string,
+		selected: [string, string, string] | undefined,
+		minTs: string | undefined,
+		maxTs: string | undefined,
+		allLogs: ByMode | undefined
+	) {
 		if (searchTerm.trim() === '') {
 			clearTimeout(debounceTimeout)
 			logs = undefined
@@ -311,21 +305,34 @@
 		loadingLogs = true
 		clearTimeout(debounceTimeout)
 		debounceTimeout = setTimeout(async () => {
-			const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
-				searchQuery: searchTerm,
-				hosts: hostnames.join(',')
-			})
-			countsPerHost = countLogsResponse.count_per_host
-			queryParseErrors = countLogsResponse.query_parse_errors ?? []
-			loadingLogCounts = false
+			if (allLogs) {
+				const hostnames: string[] = []
+				Object.entries(allLogs).forEach(([mode, wgs]) => {
+					Object.entries(wgs).forEach(([wg, keys]) => {
+						Object.entries(keys).forEach(([key, _log_files]) => {
+							hostnames.push(`${mode},${wg},${key}`)
+						})
+					})
+				})
+				const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
+					searchQuery: searchTerm,
+					hosts: hostnames.join(','),
+					minTs,
+					maxTs
+				})
+				countsPerHost = countLogsResponse.count_per_host
+				queryParseErrors = countLogsResponse.query_parse_errors ?? []
+				loadingLogCounts = false
+			}
 
 			if (selected) {
-				clearTimeout(debounceTimeout)
 				logs = await IndexSearchService.searchLogsIndex({
 					searchQuery: searchTerm,
 					mode: selected[0],
 					workerGroup: selected[1] != '' ? selected[1] : undefined,
-					hostname: selected[2]
+					hostname: selected[2],
+					minTs,
+					maxTs
 				})
 			}
 
@@ -341,10 +348,15 @@
 	let content: string = ''
 	let hitLineNumber: number | undefined = undefined
 
-	async function seeLogContext(lineNumber: number, path: string, hostname: string, jsonFmt: boolean) {
+	async function seeLogContext(
+		lineNumber: number,
+		path: string,
+		hostname: string,
+		jsonFmt: boolean
+	) {
 		const res = await ServiceLogsService.getLogFile({ path: `${hostname}/${path}` })
 
-		content = processLogWithJsonFmt( ansi_up.ansi_to_html(res), jsonFmt)
+		content = processLogWithJsonFmt(ansi_up.ansi_to_html(res), jsonFmt)
 		hitLineNumber = lineNumber
 		logDrawerOpen = true
 
@@ -353,7 +365,7 @@
 		if (el) scroll_into_view_if_needed_polyfill(el, false)
 	}
 
-	$: searchLogs(searchTerm, selected)
+	$: searchLogs(searchTerm, selected, minTs, maxTs, allLogs)
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
@@ -370,11 +382,13 @@
 				Copy to clipboard
 			</Button>
 		</svelte:fragment>
-		<div
-			class="w-fit">
+		<div class="w-fit">
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre border rounded-md"
-				>...<br/>{#each content.split('\n') as line, index}<div id={`log-line-${index}`} class={index === hitLineNumber ? "bg-yellow-200 bg-opacity-20" : ""}>{@html line}</div>{/each}...</pre
+				>...<br />{#each content.split('\n') as line, index}<div
+						id={`log-line-${index}`}
+						class={index === hitLineNumber ? 'bg-yellow-200 bg-opacity-20' : ''}>{@html line}</div
+					>{/each}...</pre
 			>
 		</div>
 	</DrawerContent>
@@ -446,6 +460,7 @@
 					<Toggle
 						size="xs"
 						bind:checked={autoRefresh}
+						disabled={searchTerm != ''}
 						on:change={(e) => {
 							if (e.detail) {
 								getAllLogs(maxTs, undefined)
@@ -498,7 +513,7 @@
 											<!-- svelte-ignore a11y-click-events-have-key-events -->
 											<!-- svelte-ignore a11y-no-static-element-interactions -->
 											<div
-												class="w-full flex items-baseline rounded px-1 hover:bg-surface-hover cursor-pointer {selected &&
+												class="w-full flex items-baseline justify-between rounded px-1 hover:bg-surface-hover cursor-pointer {selected &&
 												selected[0] == mode &&
 												selected[1] == wg &&
 												selected[2] == hn
@@ -516,6 +531,14 @@
 													title={hn}
 													style="width: 90px;">{truncateRev(hn, 8)}</div
 												>
+												{#if loadingLogCounts}
+													<Loader2 size={15} class="animate-spin" />
+												{:else if countsPerHost}
+													{@const hostKey = `${mode},${wg},${hn}`}
+													<div class="text-tertiary text-xs">
+														{countsPerHost[hostKey]?.count} matches
+													</div>
+												{:else}
 												<div class="relative grow h-8 mr-2">
 													{#each files as file}
 														{@const okHeight = 100.0 * ((file.ok_lines * 1.0) / (max_lines ?? 1))}
@@ -532,13 +555,6 @@
 														/>
 													{/each}
 												</div>
-												{#if loadingLogCounts}
-													<Loader2 size={15} class="animate-spin" />
-												{:else if countsPerHost}
-													{@const hostKey = `${mode},${wg},${hn}`}
-													<div class="text-tertiary text-xs">
-														{countsPerHost[hostKey].count} matches
-													</div>
 												{/if}
 											</div>
 										{/each}
@@ -567,13 +583,14 @@
 							<div class="flex flex-col min-w-full w-fit">
 								{#each logs.hits as { snippet_fragment, snippet_highlighted, document }}
 									<LogSnippetViewer
-										content={snippet_fragment}
+										content={snippet_fragment || document.logs[0]}
 										highlighted={snippet_highlighted}
 										on:click={() => {
 											let logLineNumber = document.line_number[0]
 											let logFile = document.file_name[0]
 											let host = document.host[0]
-											seeLogContext(logLineNumber, logFile, host)
+											let jsonFmt = document.json_fmt[0]
+											seeLogContext(logLineNumber, logFile, host, jsonFmt)
 										}}
 									/>
 								{/each}

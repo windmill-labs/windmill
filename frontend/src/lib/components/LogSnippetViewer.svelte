@@ -3,9 +3,6 @@
 
 	export let content: string
 	export let highlighted: any[]
-	export let logLineNumber
-	export let logFile
-	export let host
 
 	const ansi_up = new AnsiUp()
 	ansi_up.use_classes = true

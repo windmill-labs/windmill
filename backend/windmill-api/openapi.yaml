@@ -9313,6 +9313,18 @@ paths:
           required: true
           schema:
             type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: search results
@@ -9349,6 +9361,18 @@ paths:
           required: true
           schema:
             type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: search results
