@@ -22,7 +22,8 @@
 		ServerCog,
 		Settings,
 		UserCog,
-		Plus
+		Plus,
+		Unplug
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -78,6 +79,13 @@
 			icon: Route,
 			disabled: $userStore?.operator,
 			kind: 'http'
+		},
+		{
+			label: 'Websockets',
+			href: '/websocket_triggers',
+			icon: Unplug,
+			disabled: $userStore?.operator,
+			kind: 'ws'
 		}
 	]
 

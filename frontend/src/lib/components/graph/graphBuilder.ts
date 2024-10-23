@@ -36,14 +36,15 @@ export default function graphBuilder(
 } {
 	const nodes: Node[] = []
 	const edges: Edge[] = []
-
 	try {
 		if (!modules) {
 			return { nodes, edges }
 		}
 
 		function addNode(module: FlowModule, offset: number, type: string, subModules?: FlowModule[]) {
-			if (nodes.some((n) => n.id === module.id)) {
+			const duplicated = nodes.find((n) => n.id === module.id)
+			if (duplicated) {
+				console.log('Duplicated node detected: ', module, duplicated)
 				throw new Error(`Duplicated node detected: ${module.id}`)
 			}
 
@@ -155,7 +156,7 @@ export default function graphBuilder(
 			}
 		}
 
-		if (extra.path) {
+		if (extra.path && triggerProps != undefined) {
 			const triggerNode: Node = {
 				id: 'Trigger',
 				position: { x: -1, y: -1 },
@@ -199,7 +200,8 @@ export default function graphBuilder(
 			nextNode: Node,
 			currentOffset = 0,
 			disableMoveIds: string[] = [],
-			parentIndex?: string
+			parentIndex?: string,
+			branchChosen?: boolean
 		) {
 			let previousId: string | undefined = undefined
 
@@ -428,13 +430,15 @@ export default function graphBuilder(
 
 						addEdge(module.id, defaultBranch.id, { type: 'empty' })
 
+						const branchChosen = extra.flowModuleStates?.[module.id]?.branchChosen
 						processModules(
 							module.value.default,
 							defaultBranch,
 							endNode,
 							currentOffset,
 							localDisableMoveIds,
-							parentIndex ? `${parentIndex}-${index}` : index.toString()
+							parentIndex ? `${parentIndex}-${index}` : index.toString(),
+							branchChosen == 0
 						)
 
 						module.value.branches.forEach((branch, branchIndex) => {
@@ -466,7 +470,8 @@ export default function graphBuilder(
 								endNode,
 								currentOffset,
 								localDisableMoveIds,
-								parentIndex ? `${parentIndex}-${index}` : index.toString()
+								parentIndex ? `${parentIndex}-${index}` : index.toString(),
+								branchChosen == branchIndex + 1
 							)
 						})
 
@@ -475,6 +480,8 @@ export default function graphBuilder(
 						addNode(module, currentOffset, 'module', modules)
 
 						previousId = module.id
+
+
 					}
 
 					if (index === 0) {
@@ -492,26 +499,28 @@ export default function graphBuilder(
 					}
 				})
 
-				if (failureModule) {
-					const id = parentIndex ? `failure-${parentIndex}` : 'failure'
-					const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
 
-					if (failureState && failureState.parent_module) {
-						addNode(
-							{
-								...failureModule,
-								id: id
-							},
-							0,
-							'module'
-						)
-						addEdge(failureState.parent_module, id, { type: 'empty' })
-					}
-				}
 			}
 		}
 
 		processModules(modules, inputNode, resultNode)
+
+		if (failureModule) {
+			let toAdd: Record<string, string> = {}
+			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
+				if (id.startsWith('failure-')) {
+					const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
+					if (failureState?.parent_module) {
+						toAdd[failureState.parent_module] = id
+					}
+				}
+			})
+
+			Object.entries(toAdd).forEach((x) => {
+				addNode({ ...failureModule, id: x[1] }, 0, 'module')
+				addEdge(x[0], x[1], { type: 'empty' })
+			})
+		}
 
 		if (preprocessorModule) {
 			addNode(preprocessorModule, 0, 'module')

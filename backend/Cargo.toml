@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.409.2"
+version = "1.411.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -28,7 +28,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.409.2"
+version = "1.411.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -219,7 +219,7 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "0.7.2"
-async-stripe = { version = "0.34.1", features = [
+async-stripe = { version = "0.39.1", features = [
     "runtime-tokio-hyper",
     "checkout",
     "billing",
@@ -291,3 +291,4 @@ syn = { version = "2.0.74", features = ["full"] }
 quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
+tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }

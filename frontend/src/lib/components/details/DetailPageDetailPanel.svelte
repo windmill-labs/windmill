@@ -6,7 +6,13 @@
 	import FlowViewerInner from '../FlowViewerInner.svelte'
 	import DetailPageTriggerPanel from './DetailPageTriggerPanel.svelte'
 
-	export let triggerSelected: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' = 'webhooks'
+	export let triggerSelected:
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 
 	export let isOperator: boolean = false
@@ -25,12 +31,11 @@
 			{/if}
 			{#if flow_json}
 				<Tab value="raw">Export</Tab>
+			{:else}
+				<Tab value="script">Script</Tab>
 			{/if}
 			{#if selected == 'flow_step'}
 				<Tab value="flow_step">Step</Tab>
-			{/if}
-			{#if !flow_json && !isOperator}
-				<Tab value="schema">Schema</Tab>
 			{/if}
 
 			<svelte:fragment slot="content">
@@ -41,10 +46,14 @@
 					<TabContent value="schema" class="flex flex-col flex-1 h-full">
 						<slot name="schema" />
 					</TabContent>
+					<TabContent value="script" class="flex flex-col flex-1 h-full">
+						<slot name="script" />
+					</TabContent>
 					<TabContent value="triggers" class="flex flex-col flex-1 h-full pt-2">
 						<DetailPageTriggerPanel bind:triggerSelected>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
+							<slot slot="websockets" name="websockets" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />

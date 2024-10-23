@@ -21,7 +21,6 @@
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
-	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
@@ -84,6 +83,7 @@
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -685,17 +685,6 @@
 					</div>
 				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="schema">
-				<div class="p-1 relative">
-					<button
-						on:click={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
-						class="absolute top-2 right-2"
-					>
-						<ClipboardCopy size={14} />
-					</button>
-					<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
-				</div>
-			</svelte:fragment>
 			<svelte:fragment slot="save_inputs">
 				{#if args}
 					<SavedInputs
@@ -727,6 +716,11 @@
 					<RoutesPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
+			<svelte:fragment slot="websockets">
+				<div class="p-2">
+					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
 			<svelte:fragment slot="emails">
 				<div class="p-2">
 					<EmailTriggerPanel
@@ -747,26 +741,14 @@
 					/>
 				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="details">
+			<svelte:fragment slot="script">
 				<div>
 					<Skeleton {loading} layout={[[20]]} />
 
 					<Tabs selected="code">
 						<Tab value="code" size="xs">Code</Tab>
 						<Tab value="dependencies" size="xs">Lockfile</Tab>
-						<Tab value="arguments" size="xs">
-							<span class="inline-flex items-center gap-1">
-								Inputs
-								<Tooltip>
-									The jsonschema defines the constraints that the payload must respect to be
-									compatible with the input parameters of this script. The UI form is generated
-									automatically from the script jsonschema. See
-									<a href="https://json-schema.org/" class="text-blue-500">
-										jsonschema documentation
-									</a>
-								</Tooltip>
-							</span>
-						</Tab>
+						<Tab value="schema" size="xs">Schema</Tab>
 						<svelte:fragment slot="content">
 							<TabContent value="code">
 								<div class="p-2 w-full overflow-auto">
@@ -802,9 +784,15 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="arguments">
-								<div class="p-2">
-									<SchemaViewer schema={script.schema} />
+							<TabContent value="schema">
+								<div class="p-1 relative">
+									<button
+										on:click={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
+										class="absolute top-2 right-2"
+									>
+										<ClipboardCopy size={14} />
+									</button>
+									<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
 								</div>
 							</TabContent>
 						</svelte:fragment>

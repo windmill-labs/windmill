@@ -54,7 +54,7 @@
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
-		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'route' | 'script_flow') ?? 'route'
+		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'trigger' | 'script_flow') ?? 'trigger'
 	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
 
 	$: storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
@@ -62,12 +62,12 @@
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TriggerW,
-		selectedFilterKind: 'route' | 'script_flow',
+		selectedFilterKind: 'trigger' | 'script_flow',
 		filterUserFolders: boolean
 	) {
 		if ($workspaceStore == 'admins') return true
 		if (filterUserFolders) {
-			if (selectedFilterKind === 'route') {
+			if (selectedFilterKind === 'trigger') {
 				return (
 					!item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
 				)
@@ -84,15 +84,15 @@
 
 	$: preFilteredItems =
 		ownerFilter != undefined
-			? selectedFilterKind === 'route'
+			? selectedFilterKind === 'trigger'
 				? triggers?.filter(
 						(x) =>
-							x.path.startsWith(ownerFilter + '/' ?? '') &&
+							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
 				  )
 				: triggers?.filter(
 						(x) =>
-							x.script_path.startsWith(ownerFilter + '/' ?? '') &&
+							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
 				  )
 			: triggers?.filter((x) =>
@@ -104,7 +104,7 @@
 	}
 
 	$: owners =
-		selectedFilterKind === 'route'
+		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 			  ).sort()
@@ -133,7 +133,7 @@
 		let queryFilterKind = url.searchParams.get(TRIGGER_PATH_KIND_FILTER_SETTING)
 		let queryFilterUserFolders = url.searchParams.get(FILTER_USER_FOLDER_SETTING_NAME)
 		if (queryFilterKind) {
-			selectedFilterKind = queryFilterKind as 'route' | 'script_flow'
+			selectedFilterKind = queryFilterKind as 'trigger' | 'script_flow'
 		}
 		if (queryFilterUserFolders) {
 			filterUserFolders = queryFilterUserFolders == 'true'
@@ -174,7 +174,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="route" label="Route" icon={Route} />
+					<ToggleButton small value="trigger" label="Route" icon={Route} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>

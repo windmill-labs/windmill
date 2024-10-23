@@ -320,6 +320,7 @@
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			triggerNode={true}
 			path={$pathStore}
 			{newFlow}
 			{disableAi}

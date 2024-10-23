@@ -25,10 +25,12 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
-		sleep
+		sleep,
+		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { Drawer } from '$lib/components/common'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	import { setContext, tick, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
@@ -102,8 +104,29 @@
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let version: number | undefined = undefined
+
+	// Used by multiplayer deploy collision warning
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	$: setContext('customUi', customUi)
+
+	let onLatest = true
+	async function compareVersions() {
+		if (version === undefined) {
+			return
+		}
+		const flowVersion = await FlowService.getFlowLatestVersion({
+			workspace: $workspaceStore!,
+			path: $pathStore
+		})
+
+		onLatest = version === flowVersion?.id
+
+	}
 
 	const dispatch = createEventDispatcher()
 
@@ -253,6 +276,46 @@
 		)
 	}
 
+	async function handleSaveFlow(deploymentMsg?: string) {
+
+		await compareVersions();
+		if (onLatest) {
+			// Handle directly
+			await saveFlow(deploymentMsg)
+		} else {
+			// We need it for diff
+			await syncWithDeployed()
+
+			// Handle through confirmation modal
+			confirmCallback = async () => {
+				await saveFlow(deploymentMsg)
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+	async function syncWithDeployed(){
+			const flow = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path: $pathStore,
+				withStarredInfo: true
+			})
+			deployedValue = {
+				...flow,
+				starred: undefined,
+				id: undefined,
+				edited_at: undefined,
+				edited_by: undefined,
+				workspace_id: undefined,
+				archived: undefined,
+				same_worker: undefined,
+				visible_to_runner_only: undefined,
+				ws_error_handler_muted: undefined,
+			}
+			deployedBy = flow.edited_by
+	}
+
+
 	async function saveFlow(deploymentMsg?: string): Promise<void> {
 		loadingSave = true
 		try {
@@ -330,7 +393,7 @@
 								requestBody: { enabled }
 							})
 						}
-					} else if (scheduleExists) {
+					} else if (scheduleExists && !$triggersCount?.primary_schedule) {
 						await ScheduleService.deleteSchedule({
 							workspace: $workspaceStore ?? '',
 							path: $pathStore
@@ -398,9 +461,9 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
-	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
-		'webhooks'
-	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
@@ -420,7 +483,9 @@
 		selectedIdStore.set(selectedId)
 	}
 
-	function selectTrigger(selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes') {
+	function selectTrigger(
+		selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	) {
 		selectedTriggerStore.set(selectedTrigger)
 	}
 
@@ -1122,6 +1187,15 @@
 
 <slot />
 
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={$flowStore}
+/>
+
 {#key renderCount}
 	{#if !$userStore?.operator}
 		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
@@ -1286,14 +1360,17 @@
 							color="light"
 							variant="border"
 							size="xs"
-							on:click={() => {
+							on:click={async () => {
 								if (!savedFlow) {
 									return
 								}
+
+								await syncWithDeployed()
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
-									deployed: savedFlow,
+									deployed: deployedValue ?? savedFlow,
 									draft: savedFlow['draft'],
 									current: { ...$flowStore, path: $pathStore }
 								})
@@ -1335,7 +1412,9 @@
 							loading={loadingSave}
 							size="xs"
 							startIcon={{ icon: Save }}
-							on:click={() => saveFlow()}
+							on:click={async () => {
+								await handleSaveFlow()
+							}}
 							dropdownItems={!newFlow ? dropdownItems : undefined}
 						>
 							Deploy
@@ -1346,16 +1425,16 @@
 									type="text"
 									placeholder="Deployment message"
 									bind:value={deploymentMsg}
-									on:keydown={(e) => {
+									on:keydown={async (e) => {
 										if (e.key === 'Enter') {
-											saveFlow(deploymentMsg)
+											await handleSaveFlow(deploymentMsg)
 										}
 									}}
 									bind:this={msgInput}
 								/>
 								<Button
 									size="xs"
-									on:click={() => saveFlow(deploymentMsg)}
+									on:click={async () => await handleSaveFlow(deploymentMsg)}
 									endIcon={{ icon: CornerDownLeft }}
 									loading={loadingSave}
 								>

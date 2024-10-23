@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as \"websocket_used!\", EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as \"http_routes_used!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "websocket_used!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "http_routes_used!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "db24f1f6ef1e26b7de7926bd3f32d1fa673c4970c25ff9ad98f0fdf199801b53"
+}

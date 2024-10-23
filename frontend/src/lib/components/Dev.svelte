@@ -475,9 +475,9 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
-	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
-		'webhooks'
-	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)

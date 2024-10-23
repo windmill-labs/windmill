@@ -10,6 +10,7 @@
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
+	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -27,6 +28,7 @@
 			<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
 			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
+			<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
 			<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 
 			<svelte:fragment slot="content">
@@ -57,6 +59,12 @@
 				{#if $selectedTrigger === 'routes'}
 					<div class="p-4">
 						<RoutesPanel {newItem} path={currentPath} {isFlow} />
+					</div>
+				{/if}
+
+				{#if $selectedTrigger === 'websockets'}
+					<div class="p-4">
+						<WebsocketTriggersPanel {newItem} path={currentPath} {isFlow} />
 					</div>
 				{/if}
 
