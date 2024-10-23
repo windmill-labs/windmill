@@ -5,6 +5,7 @@
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let kind: HubScriptKind & string = 'script'
 	export let filter = ''
@@ -25,6 +26,7 @@
 		app: string
 		kind: HubScriptKind
 	}[] = []
+	export let displayPath = false
 
 	export let apps: string[] = []
 	let allApps: string[] = []
@@ -138,32 +140,56 @@
 	<ul>
 		{#each items as item, index (item.path)}
 			<li class="w-full">
-				<button
-					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
-					selected
-						? 'bg-surface-hover'
-						: ''}"
-					on:click={() => dispatch('pickScript', item)}
-				>
-					<div class={classNames('flex justify-center items-center')}>
-						{#if item['app'] in APP_TO_ICON_COMPONENT}
-							<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} height={14} width={14} />
-						{:else}
-							<div
-								class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
+				<Popover class="w-full " placement="right">
+					<svelte:fragment slot="text">
+						<div class="flex flex-col">
+							<div class="text-left text-xs font-normal leading-tight py-0"
+								>{item.summary ?? ''}</div
 							>
-								<Circle size="12" />
+							<div class="text-left text-2xs font-normal">
+								{item.path ?? ''}
 							</div>
-						{/if}
-					</div>
+						</div>
+					</svelte:fragment>
+					<button
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
+						selected
+							? 'bg-surface-hover'
+							: ''}"
+						on:click={() => dispatch('pickScript', item)}
+					>
+						<div class={classNames('flex justify-center items-center')}>
+							{#if item['app'] in APP_TO_ICON_COMPONENT}
+								<svelte:component
+									this={APP_TO_ICON_COMPONENT[item['app']]}
+									height={14}
+									width={14}
+								/>
+							{:else}
+								<div
+									class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
+								>
+									<Circle size="12" />
+								</div>
+							{/if}
+						</div>
 
-					<span class="grow truncate text-left text-2xs text-primary font-normal">
-						{item.summary ?? ''}
-					</span>
-					{#if index === selected}
-						<kbd class="!text-xs">&crarr;</kbd>
-					{/if}
-				</button>
+						<div class="flex flex-col grow min-w-0">
+							<div
+								class="grow truncate text-left text-2xs text-primary font-normal leading-tight py-0.5"
+								>{item.summary ?? ''}</div
+							>
+							{#if displayPath && item.path}
+								<div class="grow truncate text-left text-2xs text-secondary font-[220]">
+									{item.path}
+								</div>
+							{/if}
+						</div>
+						{#if index === selected}
+							<kbd class="!text-xs">&crarr;</kbd>
+						{/if}
+					</button>
+				</Popover>
 			</li>
 		{/each}
 	</ul>

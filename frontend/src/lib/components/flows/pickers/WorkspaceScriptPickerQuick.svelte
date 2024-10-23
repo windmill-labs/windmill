@@ -7,11 +7,13 @@
 	import { emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor' =
 		'script'
 	export let isTemplate: boolean | undefined = undefined
 	export let selected: number | undefined = undefined
+	export let displayPath = false
 
 	type Item = {
 		path: string
@@ -105,35 +107,52 @@
 	<ul>
 		{#each filteredWithOwner ?? [] as { path, hash, summary, marked }, index}
 			<li class="w-full">
-				<button
-					class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
-					selected
-						? 'bg-surface-hover'
-						: ''}"
-					on:click={() => {
-						if (kind == 'flow') {
-							dispatch('pickFlow', { path: path })
-						} else {
-							dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
-						}
-					}}
-				>
-					{#if kind == 'flow'}
-						<BarsStaggered size={14} class="shrink-0" />
-					{:else}
-						<Code2 size={14} />
-					{/if}
-					<span class="grow min-w-0 truncate text-left text-2xs text-primary font-normal">
-						{#if marked}
-							{@html marked}
-						{:else}
-							{!summary || summary.length == 0 ? path : summary}
-						{/if}</span
+				<Popover class="w-full " placement="right">
+					<svelte:fragment slot="text">
+						<div class="flex flex-col">
+							<div class="text-left text-xs font-normal leading-tight py-0">{summary ?? ''}</div>
+							<div class="text-left text-2xs font-normal">
+								{path ?? ''}
+							</div>
+						</div>
+					</svelte:fragment>
+					<button
+						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
+						selected
+							? 'bg-surface-hover'
+							: ''}"
+						on:click={() => {
+							if (kind == 'flow') {
+								dispatch('pickFlow', { path: path })
+							} else {
+								dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
+							}
+						}}
 					>
-					{#if index === selected}
-						<kbd class="!text-xs">&crarr;</kbd>
-					{/if}
-				</button>
+						{#if kind == 'flow'}
+							<BarsStaggered size={14} class="shrink-0" />
+						{:else}
+							<Code2 size={14} />
+						{/if}
+						<div class="flex flex-col grow min-w-0">
+							<div class="grow min-w-0 truncate text-left text-2xs text-primary font-normal">
+								{#if marked}
+									{@html marked}
+								{:else}
+									{!summary || summary.length == 0 ? path : summary}
+								{/if}
+							</div>
+							{#if displayPath && path}
+								<div class="grow min-w-0 truncate text-left text-2xs text-secondary font-[220]">
+									{path}
+								</div>
+							{/if}
+						</div>
+						{#if index === selected}
+							<kbd class="!text-xs">&crarr;</kbd>
+						{/if}
+					</button>
+				</Popover>
 			</li>
 		{/each}
 	</ul>
