@@ -95,9 +95,9 @@ shouldUsePortal={true} -->
 		id="flow-editor-insert-module"
 		class="flex flex-col h-[400px] {small
 			? 'w-[450px]'
-			: 'w-[650px]'} pt-1 pr-1 pl-1 gap-1.5 resize overflow-auto min-w-[{small
-			? '450px'
-			: '650px'}] min-h-[400px]"
+			: 'w-[650px]'} pt-1 pr-1 pl-1 gap-1.5 resize overflow-auto {small
+			? 'min-w-[450px]'
+			: 'min-w-[650px]'} min-h-[400px]"
 		on:wheel={(e) => {
 			e.stopPropagation()
 		}}
