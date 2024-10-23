@@ -7,12 +7,17 @@
 	import LogViewer from './LogViewer.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { truncateRev } from '$lib/utils'
+	import { copyToClipboard, truncateRev } from '$lib/utils'
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
+	import { Button, Drawer, DrawerContent } from './common'
+	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
+	import AnsiUp from 'ansi_up'
+	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
 
 	export let searchTerm: string
+	export let queryParseErrors: string[] = []
 
 	let minTs: undefined | string = undefined
 	let maxTs: undefined | string = undefined
@@ -54,6 +59,8 @@
 		getAllLogs(minTsManual ?? maxTs, maxTsManual)
 	}
 
+	let hostnames: string[] = []
+
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
 		loading = true
@@ -62,6 +69,15 @@
 			.then((res) => {
 				loading = false
 
+				hostnames = []
+				Object.entries(allLogs ?? {}).forEach(([mode, wgs]) => {
+					Object.entries(wgs).forEach(([wg, keys]) => {
+						Object.entries(keys).forEach(([key, _log_files]) => {
+							hostnames.push(`${mode},${wg},${key}`)
+						})
+					})
+				})
+
 				let minTsN: number | undefined = undefined
 				let maxTsN: number | undefined = undefined
 				if (minTsManual) {
@@ -69,6 +85,7 @@
 					Object.values(allLogs ?? {}).forEach((mode) => {
 						Object.values(mode).forEach((wg) => {
 							Object.keys(wg).forEach((key) => {
+								hostnames.push(key)
 								wg[key] = wg[key].filter(
 									(x) => !minTsManual || x.ts >= new Date(minTsManual).getTime()
 								)
@@ -276,32 +293,96 @@
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 400
 	let loadingLogs = false
+	let loadingLogCounts = false
 
-	async function searchLogs(searchTerm: string) {
+	let countsPerHost: any
+
+	async function searchLogs(searchTerm: string, selected: [string, string, string] | undefined) {
 		if (searchTerm.trim() === '') {
+			clearTimeout(debounceTimeout)
 			logs = undefined
+			countsPerHost = undefined
 			loadingLogs = false
+			loadingLogCounts = false
 			return
 		}
 
+		loadingLogCounts = true
 		loadingLogs = true
 		clearTimeout(debounceTimeout)
 		debounceTimeout = setTimeout(async () => {
-			clearTimeout(debounceTimeout)
-			logs = await IndexSearchService.searchLogsIndex({ searchQuery: searchTerm })
-			loadingLogs = false
+			const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
+				searchQuery: searchTerm,
+				hosts: hostnames.join(',')
+			})
+			countsPerHost = countLogsResponse.count_per_host
+			queryParseErrors = countLogsResponse.query_parse_errors ?? []
+			loadingLogCounts = false
+
+			if (selected) {
+				clearTimeout(debounceTimeout)
+				logs = await IndexSearchService.searchLogsIndex({
+					searchQuery: searchTerm,
+					mode: selected[0],
+					workerGroup: selected[1] != '' ? selected[1] : undefined,
+					hostname: selected[2]
+				})
+			}
 
 			loadingLogs = false
-			console.log(logs)
 		}, debouncePeriod)
 	}
 
-	$: selected && searchLogs(searchTerm)
+	const ansi_up = new AnsiUp()
+	ansi_up.use_classes = true
+
+	let logDrawer: Drawer
+	let logDrawerOpen: boolean
+	let content: string = ''
+	let hitLineNumber: number | undefined = undefined
+
+	async function seeLogContext(lineNumber: number, path: string, hostname: string, jsonFmt: boolean) {
+		const res = await ServiceLogsService.getLogFile({ path: `${hostname}/${path}` })
+
+		content = processLogWithJsonFmt( ansi_up.ansi_to_html(res), jsonFmt)
+		hitLineNumber = lineNumber
+		logDrawerOpen = true
+
+		await tick()
+		let el = document.getElementById(`log-line-${lineNumber}`)
+		if (el) scroll_into_view_if_needed_polyfill(el, false)
+	}
+
+	$: searchLogs(searchTerm, selected)
 </script>
+
+<Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
+	<DrawerContent title="See context" on:close={logDrawer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<Button
+				on:click={() => copyToClipboard(content)}
+				color="light"
+				size="xs"
+				startIcon={{
+					icon: ClipboardCopy
+				}}
+			>
+				Copy to clipboard
+			</Button>
+		</svelte:fragment>
+		<div
+			class="w-fit">
+			<pre
+				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre border rounded-md"
+				>...<br/>{#each content.split('\n') as line, index}<div id={`log-line-${index}`} class={index === hitLineNumber ? "bg-yellow-200 bg-opacity-20" : ""}>{@html line}</div>{/each}...</pre
+			>
+		</div>
+	</DrawerContent>
+</Drawer>
 
 <div class="w-full h-[70vh]" on:scroll|preventDefault>
 	<Splitpanes>
-		<Pane size={40} minSize={20}>
+		<Pane size={25} minSize={20}>
 			<div class="p-1">
 				<div
 					class="flex flex-col lg:flex-row gap-y-1 justify-between w-full relative pb-4 gap-x-0.5"
@@ -451,6 +532,14 @@
 														/>
 													{/each}
 												</div>
+												{#if loadingLogCounts}
+													<Loader2 size={15} class="animate-spin" />
+												{:else if countsPerHost}
+													{@const hostKey = `${mode},${wg},${hn}`}
+													<div class="text-tertiary text-xs">
+														{countsPerHost[hostKey].count} matches
+													</div>
+												{/if}
 											</div>
 										{/each}
 									</div>
@@ -461,7 +550,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={60} minSize={20}
+		<Pane size={75} minSize={20}
 			><div class="relative h-full flex flex-col gap-1"
 				><div class="w-full bg-surface-primary-inverse text-tertiary text-xs text-center"
 					>1 min delay: logs are compacted before being available</div
@@ -475,9 +564,20 @@
 								</div>
 							</div>
 						{:else if logs != undefined}
-							{#each logs.hits as { snippet, errors }}
-								<LogSnippetViewer searchQuery={searchTerm} content={snippet} />
-							{/each}
+							<div class="flex flex-col min-w-full w-fit">
+								{#each logs.hits as { snippet_fragment, snippet_highlighted, document }}
+									<LogSnippetViewer
+										content={snippet_fragment}
+										highlighted={snippet_highlighted}
+										on:click={() => {
+											let logLineNumber = document.line_number[0]
+											let logFile = document.file_name[0]
+											let host = document.host[0]
+											seeLogContext(logLineNumber, logFile, host)
+										}}
+									/>
+								{/each}
+							</div>
 						{:else}
 							{#each getLogs(selected, upTo) as file}
 								<div
@@ -514,7 +614,7 @@
 										{:else if logsContent[file.file_path].content}
 											<!-- svelte-ignore a11y-click-events-have-key-events -->
 											<!-- svelte-ignore a11y-no-static-element-interactions -->
-											<div on:click|preventDefault
+											<div on:click|preventDefault class="pr-2"
 												><LogViewer
 													noAutoScroll
 													noMaxH

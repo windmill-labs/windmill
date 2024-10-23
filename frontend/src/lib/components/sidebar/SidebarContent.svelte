@@ -9,6 +9,7 @@
 		Calendar,
 		DollarSign,
 		Eye,
+		Logs,
 		FolderCog,
 		FolderOpen,
 		Github,
@@ -159,7 +160,29 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Audit Logs', href: `${base}/audit_logs`, icon: Eye, disabled: $userStore?.operator }
+		!$superadmin
+			? {
+					label: 'Audit Logs',
+					href: `${base}/audit_logs`,
+					icon: Eye,
+					disabled: $userStore?.operator
+			  }
+			: {
+					label: 'Logs',
+					icon: Logs,
+					subItems: [
+						{
+							label: 'Audit Logs',
+							href: `${base}/audit_logs`,
+							icon: Eye
+						},
+						{
+							label: 'Service Logs',
+							href: `${base}/service_logs`,
+							icon: Logs
+						}
+					]
+			  }
 	]
 
 	let hasNewChangelogs = false
