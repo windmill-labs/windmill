@@ -142,6 +142,7 @@
 				}
 				if (autoRefresh && searchTerm === '' && !maxTsManual) {
 					timeout = setTimeout(() => {
+						if (searchTerm !== '') return
 						let minMax = manualPicker?.computeMinMax()
 						if (minMax) {
 							maxTsManual = minMax?.maxTs
@@ -278,7 +279,7 @@
 
 	let logs: any
 
-	let debounceTimeout: any = undefined
+	let debounceTimeout: NodeJS.Timeout | undefined = undefined
 	const debouncePeriod: number = 400
 	let loadingLogs = false
 	let loadingLogCounts = false
@@ -293,17 +294,18 @@
 		allLogs: ByMode | undefined
 	) {
 		if (searchTerm.trim() === '') {
-			clearTimeout(debounceTimeout)
+			debounceTimeout && clearTimeout(debounceTimeout)
 			logs = undefined
 			countsPerHost = undefined
 			loadingLogs = false
 			loadingLogCounts = false
 			return
 		}
+		timeout && clearTimeout(timeout)
 
 		loadingLogCounts = true
 		loadingLogs = true
-		clearTimeout(debounceTimeout)
+		debounceTimeout && clearTimeout(debounceTimeout)
 		debounceTimeout = setTimeout(async () => {
 			if (allLogs) {
 				const hostnames: string[] = []
@@ -365,7 +367,7 @@
 		if (el) scroll_into_view_if_needed_polyfill(el, false)
 	}
 
-	$: searchLogs(searchTerm, selected, minTs, maxTs, allLogs)
+	$: searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs)
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
@@ -415,7 +417,11 @@
 								: 'min datetime'}
 							disabled
 						/>
-						<CalendarPicker label="min datetime" date={minTs} />
+						<CalendarPicker
+							label="min datetime"
+							date={minTsManual}
+							on:change={({ detail }) => (minTsManual = detail)}
+						/>
 					</div>
 					<ManuelDatePicker
 						bind:minTs={minTsManual}
@@ -429,7 +435,7 @@
 							getAllLogs(minTsManual, maxTsManual)
 						}}
 						serviceLogsChoices
-						loadText="Last 1000 logfiles"
+						loadText={searchTerm === '' ? 'Last 1000 logfiles' : 'All time'}
 					/>
 					<div class="flex relative">
 						<input
@@ -444,7 +450,11 @@
 								: 'max datetime'}
 							disabled
 						/>
-						<CalendarPicker label="max datetime" date={maxTs} />
+						<CalendarPicker
+							label="max datetime"
+							date={maxTsManual}
+							on:change={({ detail }) => (maxTsManual = detail)}
+						/>
 					</div>
 				</div>
 				<div class="flex w-full flex-row-reverse pb-4 -mt-2 gap-2"
@@ -539,22 +549,23 @@
 														{countsPerHost[hostKey]?.count} matches
 													</div>
 												{:else}
-												<div class="relative grow h-8 mr-2">
-													{#each files as file}
-														{@const okHeight = 100.0 * ((file.ok_lines * 1.0) / (max_lines ?? 1))}
-														{@const errHeight = 100.0 * ((file.err_lines * 1.0) / (max_lines ?? 1))}
-														<div
-															class=" w-2 bg-red-400 absolute"
-															style="left: {((file.ts - minTsN) / diff) *
-																100}%; height: {errHeight}%; bottom: {okHeight}%;"
-														/>
-														<div
-															class="w-2 bg-surface-secondary-inverse absolute bottom-0"
-															style="left: {((file.ts - minTsN) / diff) *
-																100}%; height: {okHeight}%"
-														/>
-													{/each}
-												</div>
+													<div class="relative grow h-8 mr-2">
+														{#each files as file}
+															{@const okHeight = 100.0 * ((file.ok_lines * 1.0) / (max_lines ?? 1))}
+															{@const errHeight =
+																100.0 * ((file.err_lines * 1.0) / (max_lines ?? 1))}
+															<div
+																class=" w-2 bg-red-400 absolute"
+																style="left: {((file.ts - minTsN) / diff) *
+																	100}%; height: {errHeight}%; bottom: {okHeight}%;"
+															/>
+															<div
+																class="w-2 bg-surface-secondary-inverse absolute bottom-0"
+																style="left: {((file.ts - minTsN) / diff) *
+																	100}%; height: {okHeight}%"
+															/>
+														{/each}
+													</div>
 												{/if}
 											</div>
 										{/each}
@@ -594,6 +605,17 @@
 										}}
 									/>
 								{/each}
+								{#if logs.hits.length === 0}
+									<div class="text-center py-20 text-bold text-xl text-tertiary">
+										No logs
+									</div>
+								{/if}
+								{#if logs.hits.length === 30}
+									<div class="pl-6 py-6 text-sm text-secondary">
+									Older matches were truncated from this search, try refining your filters to get more precise results.
+									</div>
+								{/if}
+								<div class="py-20" />
 							</div>
 						{:else}
 							{#each getLogs(selected, upTo) as file}
@@ -651,61 +673,63 @@
 							{/each}
 						{/if}
 					</div>
-					<div class="flex w-full items-center gap-4">
-						<div class="text-tertiary px-1 text-2xs">Last 5 log files up to:</div>
-						<div class="flex grow text-xs justify-center px-2 items-center gap-2">
-							{#if upTo}
-								<button
-									on:click={() => {
-										if (upTo) {
-											upToIsLatest = false
-											upTo = new Date(new Date(upTo).getTime() - 5 * 60 * 1000).toISOString()
-										}
-									}}>{'<'} 5m</button
-								>
-							{:else}
-								<div />
-							{/if}
+					{#if searchTerm == ''}
+						<div class="flex w-full items-center gap-4">
+							<div class="text-tertiary px-1 text-2xs">Last 5 log files up to:</div>
+							<div class="flex grow text-xs justify-center px-2 items-center gap-2">
+								{#if upTo}
+									<button
+										on:click={() => {
+											if (upTo) {
+												upToIsLatest = false
+												upTo = new Date(new Date(upTo).getTime() - 5 * 60 * 1000).toISOString()
+											}
+										}}>{'<'} 5m</button
+									>
+								{:else}
+									<div />
+								{/if}
 
-							<div class="flex gap-1 relative items-center"
-								><div class="flex gap-1 relative">
-									<input
-										type="text"
-										value={upTo
-											? new Date(upTo).toLocaleTimeString([], {
-													day: '2-digit',
-													month: '2-digit',
-													hour: '2-digit',
-													minute: '2-digit'
-											  })
-											: ''}
-										disabled
-									/><CalendarPicker bind:date={upTo} label="Logs up to" /></div
-								></div
-							>
-							{#if upTo}
-								<button
-									on:click={() => {
-										if (upTo) {
-											upToIsLatest = false
-											upTo = new Date(new Date(upTo).getTime() + 5 * 60 * 1000).toISOString()
-										}
-									}}>5m {'>'}</button
+								<div class="flex gap-1 relative items-center"
+									><div class="flex gap-1 relative">
+										<input
+											type="text"
+											value={upTo
+												? new Date(upTo).toLocaleTimeString([], {
+														day: '2-digit',
+														month: '2-digit',
+														hour: '2-digit',
+														minute: '2-digit'
+												  })
+												: ''}
+											disabled
+										/><CalendarPicker bind:date={upTo} label="Logs up to" /></div
+									></div
 								>
-							{:else}
-								<div />
-							{/if}
+								{#if upTo}
+									<button
+										on:click={() => {
+											if (upTo) {
+												upToIsLatest = false
+												upTo = new Date(new Date(upTo).getTime() + 5 * 60 * 1000).toISOString()
+											}
+										}}>5m {'>'}</button
+									>
+								{:else}
+									<div />
+								{/if}
+							</div>
+							<div>
+								<button
+									class="text-xs"
+									on:click={() => {
+										upTo = new Date().toISOString()
+										upToIsLatest = true
+									}}>now</button
+								>
+							</div>
 						</div>
-						<div>
-							<button
-								class="text-xs"
-								on:click={() => {
-									upTo = new Date().toISOString()
-									upToIsLatest = true
-								}}>now</button
-							>
-						</div>
-					</div>
+					{/if}
 				{:else}
 					<div class="flex justify-center items-center pt-8">Select a host to see its logs</div>
 				{/if}</div

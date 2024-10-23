@@ -483,7 +483,7 @@
 	}
 
 	function maxModalWidth(tab: SearchMode) {
-		if (tab === 'runs' || tab === 'logs') {
+		if (tab === 'runs') {
 			return 'max-w-7xl'
 		} else {
 			return 'max-w-4xl'
@@ -491,7 +491,7 @@
 	}
 
 	function maxModalHeight(tab: SearchMode) {
-		if (tab === 'runs' || tab === 'logs') {
+		if (tab === 'runs') {
 			return ''
 		} else if (tab === 'content') {
 			return 'max-h-[70vh]'
@@ -615,7 +615,16 @@
 									Service logs are only available to superadmins
 								</Alert>
 							{:else}
-								<ServiceLogsInner searchTerm={removePrefix(searchTerm, "!")} />
+								<QuickMenuItem
+									on:select={() =>
+										gotoPage(
+											`/service_logs?query=${encodeURIComponent(removePrefix(searchTerm, '!'))}`
+										)}
+									id="goto_service_logs_search"
+									hovered={true}
+									label={`Search '${removePrefix(searchTerm, '!')}' in Windmill's service logs`}
+									icon={Search}
+								/>
 							{/if}
 						</div>
 					{:else if tab === 'runs'}
@@ -690,10 +699,10 @@
 									<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
 										{#if indexMetadata.indexed_until}
 											<span class="px-2">
-											Most recently indexed job was created <TimeAgo
-												agoOnlyIfRecent
-												date={indexMetadata.indexed_until || ''}
-											/>
+												Most recently indexed job was created <TimeAgo
+													agoOnlyIfRecent
+													date={indexMetadata.indexed_until || ''}
+												/>
 											</span>
 										{/if}
 										{#if indexMetadata.lost_lock_ownership}
@@ -731,26 +740,26 @@
 											</Alert>
 										{/if}
 									</div>
-										<div class="flex flex-row pt-10 text-xs text-secondary">
-											{#if indexMetadata.indexed_until}
-												<span class="px-2">
+									<div class="flex flex-row pt-10 text-xs text-secondary">
+										{#if indexMetadata.indexed_until}
+											<span class="px-2">
 												Most recently indexed job was created <TimeAgo
 													agoOnlyIfRecent
 													date={indexMetadata.indexed_until}
 												/>
-												</span>
-											{/if}
-											{#if indexMetadata.lost_lock_ownership}
-												<Popover notClickable placement="top">
-													<AlertTriangle size={16} class="text-gray-500" />
-													<svelte:fragment slot="text">
-														The current indexer is no longer indexing new jobs. This is most likely
-														because of an ongoing deployment and indexing will resume once it's
-														complete.
-													</svelte:fragment>
-												</Popover>
-											{/if}
-										</div>
+											</span>
+										{/if}
+										{#if indexMetadata.lost_lock_ownership}
+											<Popover notClickable placement="top">
+												<AlertTriangle size={16} class="text-gray-500" />
+												<svelte:fragment slot="text">
+													The current indexer is no longer indexing new jobs. This is most likely
+													because of an ongoing deployment and indexing will resume once it's
+													complete.
+												</svelte:fragment>
+											</Popover>
+										{/if}
+									</div>
 								</div>
 							{/if}
 						</div>
