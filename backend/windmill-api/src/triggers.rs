@@ -17,6 +17,7 @@ pub struct TriggersCount {
     http_routes_count: i64,
     webhook_count: i64,
     email_count: i64,
+    websocket_count: i64,
 }
 pub(crate) async fn get_triggers_count_internal(
     db: &DB,
@@ -45,6 +46,16 @@ pub(crate) async fn get_triggers_count_internal(
 
     let http_routes_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM http_trigger WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
+        path,
+        is_flow,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    let websocket_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM websocket_trigger WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
         path,
         is_flow,
         w_id
@@ -93,6 +104,7 @@ pub(crate) async fn get_triggers_count_internal(
         http_routes_count,
         webhook_count,
         email_count,
+        websocket_count,
     }))
 }
 

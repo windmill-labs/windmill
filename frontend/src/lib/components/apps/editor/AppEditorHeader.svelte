@@ -40,7 +40,8 @@
 		cleanValueProperties,
 		copyToClipboard,
 		truncateRev,
-		orderedJsonStringify
+		orderedJsonStringify,
+		type Value
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -85,6 +86,7 @@
 	import Summary from '$lib/components/Summary.svelte'
 	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	async function hash(message) {
 		try {
@@ -120,6 +122,11 @@
 	export let leftPanelHidden: boolean = false
 	export let rightPanelHidden: boolean = false
 	export let bottomPanelHidden: boolean = false
+
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	const {
 		app,
@@ -360,6 +367,50 @@
 		}
 	}
 
+	async function handleUpdateApp(npath: string) {
+
+		// We have to make sure there is no updates when we clicked the button
+		await compareVersions();
+
+		if (onLatest) {
+			// Handle directly
+			await updateApp(npath)
+		} else {
+		  // There is onLatest, but we need more information while deploying 
+		  // We need it to show diff
+			// Handle through confirmation modal
+			await syncWithDeployed();
+
+			confirmCallback = async () => {
+				open = false
+				await updateApp(npath)
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+
+	async function syncWithDeployed() {
+		const deployedApp = await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path: appPath,
+			withStarredInfo: true
+		})
+
+		deployedBy = deployedApp.created_by
+
+		// Strip off extra information
+		deployedValue = {
+			...deployedApp,
+			starred: undefined,
+			id: undefined,
+			created_at: undefined,
+			created_by: undefined,
+			versions: undefined,
+			extra_perms: undefined //
+		}
+	}
+
 	async function updateApp(npath: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
@@ -577,11 +628,12 @@
 		if (version === undefined) {
 			return
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
+		const appVersion = await AppService.getAppLatestVersion({
 			workspace: $workspaceStore!,
 			path: appPath
 		})
-		onLatest = version === appHistory[0]?.version
+		onLatest = version === appVersion?.version
+
 	}
 	$: saveDrawerOpen && compareVersions()
 
@@ -706,14 +758,18 @@
 		{
 			displayName: 'Diff',
 			icon: DiffIcon,
-			action: () => {
+			action: async () => {
 				if (!savedApp) {
 					return
 				}
+
+				// deployedValue should be syncronized when we open Diff
+				await syncWithDeployed();
+
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					mode: 'normal',
-					deployed: savedApp,
+					deployed: deployedValue ?? savedApp,
 					draft: savedApp.draft,
 					current: {
 						summary: $summary,
@@ -759,6 +815,20 @@
 	{diffDrawer}
 	savedValue={savedApp}
 	modifiedValue={{
+		summary: $summary,
+		value: $app,
+		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		policy
+	}}
+/>
+
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={{
 		summary: $summary,
 		value: $app,
 		path: newPath || savedApp?.draft?.path || savedApp?.path,
@@ -823,8 +893,8 @@
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#if !onLatest}
-			<Alert title="You're not on the latest app version" type="warning">
-				By deploying, you may overwrite changes made by other users.
+			<Alert title="You're not on the latest app version. " type="warning">
+				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
 			<div class="py-2" />
 		{/if}
@@ -880,15 +950,18 @@
 				variant="border"
 				color="light"
 				disabled={!savedApp || savedApp.draft_only}
-				on:click={() => {
+				on:click={async () => {
 					if (!savedApp) {
 						return
 					}
+					// deployedValue should be syncronized when we open Diff
+					await syncWithDeployed();
+
 					saveDrawerOpen = false
 					diffDrawer?.openDrawer()
 					diffDrawer?.setDiff({
 						mode: 'normal',
-						deployed: savedApp,
+						deployed: deployedValue ?? savedApp,
 						draft: savedApp.draft,
 						current: {
 							summary: $summary,
@@ -902,7 +975,7 @@
 								if (appPath == '') {
 									createApp(newPath)
 								} else {
-									updateApp(newPath)
+									handleUpdateApp(newPath)
 								}
 							}
 						}
@@ -921,7 +994,7 @@
 					if (appPath == '') {
 						createApp(newPath)
 					} else {
-						updateApp(newPath)
+						handleUpdateApp(newPath)
 					}
 				}}
 			>

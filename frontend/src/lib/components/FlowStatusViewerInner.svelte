@@ -197,6 +197,7 @@
 								args: job?.args,
 								tag: job?.tag
 							}
+
 							setModuleState(mod.id ?? '', newState)
 						})
 						.catch((e) => {
@@ -207,7 +208,6 @@
 					(mod.type == 'Success' || mod.type == 'Failure') &&
 					!['Success', 'Failure'].includes($localModuleStates?.[mod.id ?? '']?.type)
 				) {
-					// console.log(mod.id, 'FOO')
 					setModuleState(
 						mod.id ?? '',
 						{
@@ -423,6 +423,11 @@
 					started_at
 				})
 			} else {
+				const parent_module = mod['parent_module']
+
+				// Delete existing failure node attached to the same parent module
+				removeFailureNode(mod.id, parent_module)
+
 				setModuleState(
 					mod.id,
 					{
@@ -432,7 +437,7 @@
 						result: job['result'],
 						job_id: job.id,
 						tag: job.tag,
-						parent_module: mod['parent_module'],
+						parent_module,
 						duration_ms: job['duration_ms'],
 						started_at: started_at,
 						flow_jobs: mod.flow_jobs,
@@ -444,6 +449,7 @@
 					},
 					force
 				)
+
 				setDurationStatusByJob(mod.id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at,
@@ -608,6 +614,23 @@
 
 	let storedListJobs: Record<number, Job> = {}
 	let wrapperHeight: number = 0
+
+	function removeFailureNode(id: string, parent_module: any) {
+		if (id?.startsWith('failure-') && parent_module) {
+			;[...globalModuleStates, localModuleStates].forEach((stateMapStore) => {
+				stateMapStore.update((stateMap) => {
+					if (id) {
+						Object.keys(stateMap).forEach((key) => {
+							if (stateMap[key]?.parent_module == parent_module) {
+								delete stateMap[key]
+							}
+						})
+					}
+					return stateMap
+				})
+			})
+		}
+	}
 </script>
 
 {#if notAnonynmous}
@@ -857,7 +880,7 @@
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
-											render={failedRetry == retry_selected}
+											render={failedRetry == retry_selected && render}
 											reducedPolling={false}
 											{workspaceId}
 											jobId={failedRetry}
@@ -945,6 +968,7 @@
 						</div>
 
 						<FlowGraphV2
+							triggerNode={true}
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}

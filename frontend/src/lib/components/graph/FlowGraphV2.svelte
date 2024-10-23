@@ -37,6 +37,7 @@
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
+	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -61,6 +62,7 @@
 	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
 		undefined
 	)
+	export let triggerNode = false
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -178,9 +180,11 @@
 		$useDataflow,
 		$selectedId,
 		moving,
-		{
-			path
-		}
+		triggerNode
+			? {
+					path
+			  }
+			: undefined
 	)
 
 	const nodes = writable<Node[]>([])
@@ -212,7 +216,7 @@
 		whileLoopStart: ForLoopStartNode,
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
-		branchOneEnd: BranchAllEndNode,
+		branchOneEnd: BranchOneEndNode,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode
 	} as any
@@ -263,7 +267,7 @@
 
 <div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
 	{#if graph?.error}
-		<div class="center-center">
+		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
 				{graph.error}
 

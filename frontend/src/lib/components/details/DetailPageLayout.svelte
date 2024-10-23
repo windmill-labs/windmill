@@ -19,9 +19,9 @@
 	let clientWidth = window.innerWidth
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
-	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
-		'webhooks'
-	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
@@ -48,13 +48,13 @@
 						>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
+							<slot slot="websockets" name="websockets" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
-							<slot slot="details" name="details" />
+							<slot slot="script" name="script" />
 							<slot slot="save_inputs" name="save_inputs" />
 							<slot slot="flow_step" name="flow_step" />
-							<slot slot="schema" name="schema" />
 						</DetailPageDetailPanel>
 					</Pane>
 				</Splitpanes>
@@ -69,6 +69,10 @@
 				{#if !isOperator}
 					<Tab value="triggers">Triggers</Tab>
 				{/if}
+				{#if !flow_json}
+					<Tab value="script">Script</Tab>
+				{/if}
+
 				<svelte:fragment slot="content">
 					<TabContent value="form" class="flex flex-col flex-1 h-full">
 						<slot name="form" />
@@ -81,10 +85,15 @@
 						<DetailPageTriggerPanel bind:triggerSelected={$selectedTriggerStore}>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
+							<slot slot="script" name="script" />
+							<slot slot="websockets" name="websockets" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
 						</DetailPageTriggerPanel>
+					</TabContent>
+					<TabContent value="script" class="flex flex-col flex-1 h-full">
+						<slot name="script" />
 					</TabContent>
 				</svelte:fragment>
 			</Tabs>

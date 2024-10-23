@@ -10,7 +10,7 @@ export type ScheduleTrigger = {
 }
 
 export type TriggerContext = {
-	selectedTrigger: Writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>
+	selectedTrigger: Writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'>
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>
 }

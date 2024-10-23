@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -37,7 +36,8 @@
 		X,
 		Plus,
 		Loader2,
-		Save
+		Save,
+		ExternalLink
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -140,30 +140,6 @@
 	let usingOpenaiClientCredentialsOauth = false
 
 	const latestGitSyncHubScript = hubPaths.gitSync
-	// function getDropDownItems(username: string): DropdownItem[] {
-	// 	return [
-	// 		{
-	// 			displayName: 'Manage user',
-	// 			href: `/admin/user/manage/${username}`
-	// 		},
-	// 		{
-	// 			displayName: 'Delete',
-	// 			action: () => deleteUser(username)
-	// 		}
-	// 	];
-	// }
-
-	// async function deleteUser(username: string): Promise<void> {
-	// 	try {
-	// 		await UserService.deleteUser({ workspace: $workspaceStore!, username });
-	// 		users = await UserService.listUsers({ workspace: $workspaceStore! });
-	// 		fuse?.setCollection(users);
-	// 		sendUserToast(`User ${username} has been removed`);
-	// 	} catch (err) {
-	// 		console.error(err);
-	// 		sendUserToast(`Cannot delete user: ${err}`, true);
-	// 	}
-	// }
 
 	async function editSlackCommand(): Promise<void> {
 		initialPath = scriptPath
@@ -520,11 +496,7 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadSettings()
-		}
-	}
+	$: $workspaceStore && loadSettings()
 
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
@@ -602,31 +574,6 @@
 			timeout: 5000
 		})
 	}
-
-	let debounced: NodeJS.Timeout | undefined = undefined
-	export function setQueryWithoutLoad(
-		url: URL,
-		args: { key: string; value: string | null | undefined }[],
-		bounceTime?: number
-	): void {
-		debounced && clearTimeout(debounced)
-		debounced = setTimeout(() => {
-			const nurl = new URL(url.toString())
-			for (const { key, value } of args) {
-				if (value) {
-					nurl.searchParams.set(key, value)
-				} else {
-					nurl.searchParams.delete(key)
-				}
-			}
-
-			try {
-				replaceState(nurl.toString(), $page.state)
-			} catch (e) {
-				console.error(e)
-			}
-		}, bounceTime ?? 200)
-	}
 </script>
 
 <Portal name="workspace-settings">
@@ -652,7 +599,9 @@
 			<Tabs
 				bind:selected={tab}
 				on:selected={() => {
-					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
+					// setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
+					$page.url.searchParams.set('tab', tab)
+					goto(`?${$page.url.searchParams.toString()}`)
 				}}
 			>
 				<Tab size="xs" value="users">
@@ -933,6 +882,7 @@
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
+				<div class="pb-2" />
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -1261,26 +1211,33 @@
 				<div class="mb-2" />
 			{/if}
 			{#if gitSyncSettings != undefined}
-				{#if $enterpriseLicense}
-					<div class="flex mt-5 mb-5 gap-1">
-						<Button
-							color="blue"
-							disabled={gitSyncSettings?.repositories?.some((elmt) =>
+				<div class="flex mt-5 mb-5 gap-8">
+					<Button
+						color="blue"
+						disabled={!$enterpriseLicense ||
+							gitSyncSettings?.repositories?.some((elmt) =>
 								emptyString(elmt.git_repo_resource_path)
 							)}
-							on:click={() => {
-								editWindmillGitSyncSettings()
-								console.log('Saving git sync settings', gitSyncSettings)
-							}}>Save Git sync settings</Button
-						>
-					</div>
-				{/if}
+						on:click={() => {
+							editWindmillGitSyncSettings()
+							console.log('Saving git sync settings', gitSyncSettings)
+						}}>Save git sync settings {!$enterpriseLicense ? '(ee only)' : ''}</Button
+					>
+
+					<Button
+						color="dark"
+						target="_blank"
+						endIcon={{ icon: ExternalLink }}
+						href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}
+						>See sync jobs</Button
+					>
+				</div>
 
 				<div class="flex flex-wrap gap-20">
 					<div class="max-w-md w-full">
 						{#if Array.isArray(gitSyncSettings?.include_path)}
 							<h4 class="flex gap-2 mb-4"
-								>Filter on path<Tooltip>
+								>Path filters<Tooltip>
 									Only scripts, flows and apps with their path matching one of those filters will be
 									synced to the Git repositories below. The filters allow '*'' and '**' characters,
 									with '*'' matching any character allowed in paths until the next slash (/) and
@@ -1320,11 +1277,16 @@
 								Add filter
 							</Button>
 						</div>
+						<div class="pt-2" />
+						<Alert type="info" title="Only new updates trigger git sync">
+							Only new changes matching the filters will trigger a git sync. You still need to
+							initalize the repo to the desired state first.
+						</Alert>
 					</div>
 
 					<div class="max-w-md w-full">
 						<h4 class="flex gap-2 mb-4"
-							>Filter on type<Tooltip>
+							>Type filters<Tooltip>
 								On top of the filter path above, you can include only certain type of object to be
 								synced with the Git repository.
 								<br />By default everything is synced.
@@ -1645,13 +1607,15 @@
 
 						<br />
 
-						. For the git repo to be representative of the entire workspace, it is recommended to
-						set it up using the Windmill CLI before turning this option on.
+						For the git repo to be representative of the entire workspace, it is recommended to set
+						it up using the Windmill CLI before turning this option on.
 
 						<br /><br />
 
 						Not familiar with Windmill CLI?
-						<a href="https://www.windmill.dev/docs/advanced/cli">Check out the docs</a>
+						<a href="https://www.windmill.dev/docs/advanced/cli" class="text-primary"
+							>Check out the docs</a
+						>
 
 						<br /><br />
 
@@ -1662,9 +1626,11 @@
 
 						<pre class="overflow-auto max-h-screen"
 							><code
-								>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
-echo 'includes: ["f/**"]' > wmill.yaml
-wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
+								>npm install -g windmill-cli
+wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
+wmill init
+# adjust wmill.yaml file configuraton as needed
+wmill sync pull
 git add -A
 git commit -m 'Initial commit'
 git push</code

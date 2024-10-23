@@ -287,6 +287,7 @@
 			<h2 class="mt-10">Flow details</h2>
 			<div class="border border-gray-700">
 				<FlowGraphV2
+					triggerNode={false}
 					modules={job.raw_flow?.modules}
 					failureModule={job.raw_flow?.failure_module}
 					preprocessorModule={job.raw_flow?.preprocessor_module}

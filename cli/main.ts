@@ -60,7 +60,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.409.2";
+export const VERSION = "1.411.1";
 
 const command = new Command()
   .name("wmill")
@@ -101,9 +101,13 @@ const command = new Command()
       "wmill.yaml",
       yamlStringify({
         defaultTs: "bun",
-        includes: ["**"],
+        includes: ["f/**"],
         excludes: [],
         codebases: [],
+        skipVariables: true,
+        skipResources: true,
+        skipSecrets: true,
+        includeSchedules: false,
       })
     );
     log.info(colors.green("wmill.yaml created"));
@@ -213,9 +217,11 @@ function isMain() {
     const isMain = import.meta.main;
     if (isMain) {
       if (!Deno.args.includes("completions")) {
-        log.warn(
-          "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli"
-        );
+        if (Deno.env.get("SKIP_DENO_DEPRECATION_WARNING") !== "true") {
+          log.warn(
+            "Using the deno runtime for the Windmill CLI is deprecated, you can now use node: deno uninstall wmill && npm install -g windmill-cli. To skip this warning set SKIP_DENO_DEPRECATION_WARNING=true"
+          );
+        }
       }
     }
     return isMain;

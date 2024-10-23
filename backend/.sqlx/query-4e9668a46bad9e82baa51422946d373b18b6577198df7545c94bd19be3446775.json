@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO websocket_trigger (workspace_id, path, url, script_path, is_flow, enabled, filters, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "filters",
+        "type_info": "JsonbArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "JsonbArray",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4e9668a46bad9e82baa51422946d373b18b6577198df7545c94bd19be3446775"
+}

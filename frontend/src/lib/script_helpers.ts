@@ -514,7 +514,7 @@ export async function main(approver?: string) {
 const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook',
+		kind: 'http' | 'email' | 'webhook' | 'websocket',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -535,7 +535,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'wehbook',
+		kind: 'http' | 'email' | 'wehbook' | 'websocket',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -591,7 +591,7 @@ class Http(TypedDict):
 	headers: dict[str, str]
 
 class WmTrigger(TypedDict):
-    kind: Literal["http", "email", "webhook"]
+    kind: Literal["http", "email", "webhook", "websocket"]
     http: Http | None
 
 def preprocessor(
