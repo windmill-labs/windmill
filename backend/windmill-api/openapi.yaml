@@ -9298,6 +9298,21 @@ paths:
           required: true
           schema:
             type: string
+        - name: mode
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: worker_group
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: hostname
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           description: search results
@@ -9310,16 +9325,46 @@ paths:
                     description: a list of the terms that couldn't be parsed (and thus ignored)
                     type: array
                     items:
-                      type: object
-                      properties:
-                        dancer:
-                          type: string
+                      type: string
                   hits:
                     description: log files that matched the query
                     type: array
                     items:
                       $ref: "#/components/schemas/LogSearchHit"
 
+  /srch/index/search/count_service_logs:
+    get:
+      summary: Search and count the log line hits on every provided host
+      operationId: countSearchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: hosts
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: string
+                  count_per_host:
+                    description: count of log lines that matched the query per hostname
+                    type: object
 
 components:
   securitySchemes:

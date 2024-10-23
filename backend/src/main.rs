@@ -525,13 +525,13 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         #[cfg(not(feature = "tantivy"))]
-        let (index_reader, index_writer) = (None, None);
+        let index_reader = None;
 
         #[cfg(not(feature = "tantivy"))]
         let indexer_f = async { Ok(()) as anyhow::Result<()> };
 
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
-        let (log_index_reader, log_index_writer) = (None, None);
+        let log_index_reader = None;
 
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };

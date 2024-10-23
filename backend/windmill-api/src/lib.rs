@@ -162,7 +162,7 @@ pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     job_index_reader: Option<IndexReader>,
-    log_index_reader: Option<windmill_indexer::service_logs_ee::ServiceLogIndexReader>,
+    log_index_reader: Option<ServiceLogIndexReader>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
