@@ -53,6 +53,9 @@ lazy_static::lazy_static! {
     static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
+    static ref NO_UV_RUN: bool = std::env::var("NO_UV_RUN")
+        .ok().map(|flag| flag == "true").unwrap_or(false);
+
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -288,35 +291,52 @@ impl PyVersion {
         version: &str,
         // If not set, will default to INSTANCE_PYTHON_VERSION
     ) -> error::Result<String> {
-        let mut logs = String::new();
+        // let mut logs = String::new();
         // let v_with_dot = self.to_string_with_dots();
         let mut child_cmd = Command::new("uv");
-        child_cmd
+        let output = child_cmd
             .current_dir("/tmp/windmill")
             .args(["python", "find", version])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            // .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await?;
 
-        let child_process = start_child_process(child_cmd, "uv python find").await?;
+        // Check if the command was successful
+        if output.status.success() {
+            // Convert the output to a String
+            let stdout =
+                String::from_utf8(output.stdout).expect("Failed to convert output to String");
+            return Ok(stdout);
+            // println!("Output:\n{}", stdout);
+        } else {
+            // If the command failed, print the error
+            let stderr =
+                String::from_utf8(output.stderr).expect("Failed to convert error output to String");
+            eprintln!("Error:\n{}", stderr);
+            panic!();
+        }
 
-        append_logs(&job_id, &w_id, logs, db).await;
-        handle_child(
-            job_id,
-            db,
-            mem_peak,
-            &mut None,
-            child_process,
-            false,
-            worker_name,
-            &w_id,
-            "uv python find",
-            None,
-            false,
-            occupancy_metrics,
-        )
-        .await;
+        // let child_process = start_child_process(child_cmd, "uv python find").await?;
 
-        Ok("".into())
+        // // append_logs(&job_id, &w_id, logs, db).await;
+        // handle_child(
+        //     job_id,
+        //     db,
+        //     mem_peak,
+        //     &mut None,
+        //     child_process,
+        //     false,
+        //     worker_name,
+        //     &w_id,
+        //     "uv python find",
+        //     None,
+        //     false,
+        //     occupancy_metrics,
+        // )
+        // .await;
+
+        // Ok("".into())
         //  .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
         // let output = Command::new("uv")
         //  .args([
@@ -724,6 +744,9 @@ pub async fn handle_python_job(
         &mut Some(occupancy_metrics),
     )
     .await?;
+    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
+
+    let no_uv = *NO_UV_RUN | annotations.no_uv | annotations.no_uv_run;
 
     append_logs(
         &job.id,
@@ -936,10 +959,15 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut python_cmd = Command::new(python_path.as_str());
+        // let mut python_cmd = Command::new(PYTHON_PATH.as_str());
+        // tracing::error!("{}", python_path);
+        let mut python_cmd = if no_uv {
+            Command::new(PYTHON_PATH.as_str())
+        } else {
+            Command::new(python_path.as_str())
+        };
+
         let args = vec!["-u", "-m", "wrapper"];
-        // let args = vec!["run"];
-        // let mut python_cmd = Command::new("uv");
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -956,7 +984,11 @@ mount {{
         #[cfg(windows)]
         python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
+        if no_uv {
+            start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
+        } else {
+            start_child_process(python_cmd, python_path.as_str()).await?
+        }
     };
 
     handle_child(
@@ -1357,10 +1389,15 @@ pub async fn handle_python_reqs(
         tracing::warn!("Fallback to pip");
     }
 
-    // let py_version = requirements[0];
+    if let Err(err) = py_version
+        .get_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+        .await
+    {
+        tracing::error!("{}", err);
+    }
 
     if !*DISABLE_NSJAIL {
-        append_logs(&job_id, w_id, "\n Prepare NSJAIL", db).await;
+        append_logs(&job_id, w_id, "\nPrepare NSJAIL\n", db).await;
         pip_extra_index_url = PIP_EXTRA_INDEX_URL
             .read()
             .await
@@ -1451,6 +1488,10 @@ pub async fn handle_python_reqs(
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
+        // Ignore # py-3.xy
+        if req.starts_with('#') {
+            continue;
+        }
         let py_prefix = if no_uv_install {
             PIP_CACHE_DIR
         } else {
