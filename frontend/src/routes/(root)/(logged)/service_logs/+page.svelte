@@ -1,20 +1,27 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert } from '$lib/components/common'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ServiceLogsInner from '$lib/components/ServiceLogsInner.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { superadmin } from '$lib/stores'
 	import { Search, AlertTriangle } from 'lucide-svelte'
-
 
 	let searchTerm = $page.url.searchParams.get('query') ?? ''
 	let queryParseErrors: string[] | undefined = undefined
 </script>
 
-<CenteredPage class="max-w-full">
-	<PageHeader title="Service Logs" tooltip="Search windmill service logs" />
+<div class="w-full h-screen">
+	<div class="px-2">
+		<div class="flex items-center space-x-2 flex-row justify-between">
+			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
+				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Service logs</h1>
+				<Tooltip >
+					Explore and search Windmill service logs from within Windmill!
+				</Tooltip>
+			</div>
+		</div>
+	</div>
 
 	{#if !$superadmin}
 		<Alert title="Service logs are only available to superadmins" type="warning">
@@ -35,8 +42,8 @@
 				<Popover notClickable placement="bottom-start">
 					<AlertTriangle size={16} class="text-yellow-500" />
 					<svelte:fragment slot="text">
-						Some of your search terms have been ignored because one or more parse errors:<br
-						/><br />
+						Some of your search terms have been ignored because one or more parse errors:<br /><br
+						/>
 						<ul>
 							{#each queryParseErrors as msg}
 								<li>- {msg}</li>
@@ -49,7 +56,7 @@
 
 		<ServiceLogsInner {searchTerm} bind:queryParseErrors />
 	{/if}
-</CenteredPage>
+</div>
 
 <style>
 	.quick-search-input {

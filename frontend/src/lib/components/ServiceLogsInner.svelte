@@ -15,6 +15,7 @@
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
 	import AnsiUp from 'ansi_up'
 	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
+	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 
 	export let searchTerm: string
 	export let queryParseErrors: string[] = []
@@ -396,9 +397,9 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="w-full h-[70vh]" on:scroll|preventDefault>
+	<SplitPanesWrapper class="hidden md:block">
 	<Splitpanes>
-		<Pane size={25} minSize={20}>
+		<Pane size={30} minSize={25}>
 			<div class="p-1">
 				<div
 					class="flex flex-col lg:flex-row gap-y-1 justify-between w-full relative pb-4 gap-x-0.5"
@@ -577,7 +578,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={75} minSize={20}
+		<Pane size={70} minSize={25}
 			><div class="relative h-full flex flex-col gap-1"
 				><div class="w-full bg-surface-primary-inverse text-tertiary text-xs text-center"
 					>1 min delay: logs are compacted before being available</div
@@ -736,4 +737,4 @@
 			></Pane
 		>
 	</Splitpanes>
-</div>
+</SplitPanesWrapper>
