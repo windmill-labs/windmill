@@ -397,7 +397,7 @@
 	</DrawerContent>
 </Drawer>
 
-	<SplitPanesWrapper class="hidden md:block">
+<SplitPanesWrapper class="hidden md:block">
 	<Splitpanes>
 		<Pane size={30} minSize={25}>
 			<div class="p-1">
@@ -421,7 +421,13 @@
 						<CalendarPicker
 							label="min datetime"
 							date={minTsManual}
-							on:change={({ detail }) => (minTsManual = detail)}
+							on:change={({ detail }) => {
+								minTs = undefined
+								maxTs = undefined
+								allLogs = undefined
+								minTsManual = detail
+								getAllLogs(minTsManual, maxTsManual)
+							}}
 						/>
 					</div>
 					<ManuelDatePicker
@@ -454,7 +460,13 @@
 						<CalendarPicker
 							label="max datetime"
 							date={maxTsManual}
-							on:change={({ detail }) => (maxTsManual = detail)}
+							on:change={({ detail }) => {
+								minTs = undefined
+								maxTs = undefined
+								allLogs = undefined
+								maxTsManual = detail
+								getAllLogs(minTsManual, maxTsManual)
+							}}
 						/>
 					</div>
 				</div>
@@ -490,27 +502,29 @@
 					{@const minTsN = new Date(minTs).getTime()}
 					{@const maxTsN = new Date(maxTs).getTime()}
 					{@const diff = maxTsN - minTsN}
-					<div class="flex w-full text-2xs text-tertiary pb-6">
-						<div style="width: 60px;" />
+					{#if searchTerm === ''}
+						<div class="flex w-full text-2xs text-tertiary pb-6">
+							<div style="width: 60px;" />
 
-						<div class="flex justify-between w-full"
-							><div
-								>{new Date(minTs).toLocaleTimeString([], {
-									day: '2-digit',
-									month: '2-digit',
-									hour: '2-digit',
-									minute: '2-digit'
-								})}</div
-							><div
-								>{new Date(maxTs).toLocaleTimeString([], {
-									day: '2-digit',
-									month: '2-digit',
-									hour: '2-digit',
-									minute: '2-digit'
-								})}</div
-							></div
-						>
-					</div>
+							<div class="flex justify-between w-full"
+								><div
+									>{new Date(minTs).toLocaleTimeString([], {
+										day: '2-digit',
+										month: '2-digit',
+										hour: '2-digit',
+										minute: '2-digit'
+									})}</div
+								><div
+									>{new Date(maxTs).toLocaleTimeString([], {
+										day: '2-digit',
+										month: '2-digit',
+										hour: '2-digit',
+										minute: '2-digit'
+									})}</div
+								></div
+							>
+						</div>
+					{/if}
 					{#each Object.entries(allLogs) as [mode, o1]}
 						<div class="w-full pb-8">
 							<h2 class="pb-2 text-2xl">{mode}s</h2>
@@ -520,7 +534,17 @@
 										<h4 class="pt-4">{wg}</h4>
 									{/if}
 									<div class="divide-y flex flex-col">
-										{#each Object.entries(o2) as [hn, files]}
+										{#each Object.entries(o2).filter(([hn, files]) => {
+											if (selected && selected[0] === mode && selected[1] === wg && selected[2] === hn) {
+												return true
+											}
+											const hostKey = `${mode},${wg},${hn}`
+											if (countsPerHost && countsPerHost[hostKey] && countsPerHost[hostKey].count === 0) {
+												return false
+											}
+											return true
+										}) as [hn, files]}
+											{@const hostKey = `${mode},${wg},${hn}`}
 											<!-- svelte-ignore a11y-click-events-have-key-events -->
 											<!-- svelte-ignore a11y-no-static-element-interactions -->
 											<div
@@ -545,7 +569,6 @@
 												{#if loadingLogCounts}
 													<Loader2 size={15} class="animate-spin" />
 												{:else if countsPerHost}
-													{@const hostKey = `${mode},${wg},${hn}`}
 													<div class="text-tertiary text-xs">
 														{countsPerHost[hostKey]?.count} matches
 													</div>
@@ -607,13 +630,12 @@
 									/>
 								{/each}
 								{#if logs.hits.length === 0}
-									<div class="text-center py-20 text-bold text-xl text-tertiary">
-										No logs
-									</div>
+									<div class="text-center py-20 text-bold text-xl text-tertiary"> No logs </div>
 								{/if}
 								{#if logs.hits.length === 30}
 									<div class="pl-6 py-6 text-sm text-secondary">
-									Older matches were truncated from this search, try refining your filters to get more precise results.
+										Older matches were truncated from this search, try refining your filters to get
+										more precise results.
 									</div>
 								{/if}
 								<div class="py-20" />
