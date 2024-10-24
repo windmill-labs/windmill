@@ -13,7 +13,7 @@
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
+	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
 	import { WorkerService, type WorkerPing, ConfigService, SettingService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'

@@ -38,7 +38,7 @@
 		result: undefined as string | undefined
 	})
 
-	$: !value && handleDefault(resolvedConfig.defaultValue)
+	$: handleDefault(resolvedConfig.defaultValue)
 
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
 		if (formatString === '') {
