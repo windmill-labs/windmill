@@ -26,7 +26,9 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
+};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -1283,7 +1285,7 @@ async fn python_dep(
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
-    let py_version = annotations.get_python_version();
+    let mut annotated_py_version = PyVersion::from_py_annotations(annotations);
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
@@ -1294,11 +1296,15 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        &py_version,
+        &mut annotated_py_version,
         annotations.no_uv || annotations.no_uv_compile,
         annotations.no_cache,
     )
     .await;
+    let final_version = annotated_py_version.unwrap_or_else(|| {
+        tracing::error!("Version is supposed to be Some");
+        PyVersion::Py311
+    });
     // install the dependencies to pre-fill the cache
     if let Ok(req) = req.as_ref() {
         let r = handle_python_reqs(
@@ -1312,7 +1318,7 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            &py_version,
+            final_version,
             annotations.no_uv || annotations.no_uv_install,
         )
         .await;
