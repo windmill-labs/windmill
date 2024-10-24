@@ -188,7 +188,7 @@
 		}
 
 		const newAlert = {
-			name: 'New Alert',
+			name: 'Job Queue Alert',
 			tags_to_monitor: [],
 			jobs_num_threshold: 3,
 			alert_cooldown_seconds: 600,
@@ -215,7 +215,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1000px">
+<Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		title="Queues"
 		on:close={drawer.closeDrawer}
@@ -246,12 +246,6 @@
 							<table class="w-full border-collapse mb-2 text-xs table-auto">
 								<thead class="bg-gray-200 dark:bg-slate-600 text-left text-xs">
 									<tr>
-										<th class="p-2 min-w-[220px]">
-											Name
-											<Tooltip
-												markdownTooltip="The name of the alert. This will be used in the crticial alert notification and help identify the alert."
-											/>
-										</th>
 										<th class="p-2 w-full">
 											Queue Tags to Monitor
 											<Tooltip markdownTooltip="Queue tags to monitor for this alert." />
@@ -284,13 +278,6 @@
 												? 'bg-red-100 dark:bg-red-900 pointer-events-none opacity-50'
 												: ''}
 										>
-											<td class="border p-2">
-												{#if editingIndex === index}
-													<input type="text" bind:value={alert.name} class="w-full p-1" />
-												{:else}
-													{alert.name}
-												{/if}
-											</td>
 											<td class="border p-2">
 												{#if editingIndex === index}
 													<div class="flex flex-wrap gap-1 mb-2">
