@@ -281,7 +281,7 @@ fn check_cargo_exists() -> Result<(), Error> {
 #[cfg(feature = "enterprise")]
 fn check_cargo_exists() -> Result<(), Error> {
     if !Path::new(CARGO_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
+        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
         return Err(Error::NotFound(msg));
     }
     Ok(())
