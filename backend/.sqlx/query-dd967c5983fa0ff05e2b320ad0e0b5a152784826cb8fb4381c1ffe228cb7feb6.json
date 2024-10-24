@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                        hostname,\n                        mode::text,\n                        worker_group,\n                        log_ts,\n                        file_path,\n                        ok_lines,\n                        err_lines,\n                        json_fmt\n                    FROM log_file\n                    ORDER BY log_ts ASC LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hostname",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "mode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "worker_group",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "log_ts",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "file_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "ok_lines",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "err_lines",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "json_fmt",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "dd967c5983fa0ff05e2b320ad0e0b5a152784826cb8fb4381c1ffe228cb7feb6"
+}
