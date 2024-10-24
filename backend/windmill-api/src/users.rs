@@ -789,6 +789,8 @@ pub struct GlobalUserInfo {
     name: Option<String>,
     company: Option<String>,
     username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operator_only: Option<bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -1001,24 +1003,48 @@ async fn list_user_usage(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct ActiveUsersOnly {
+    active_only: Option<bool>,
+}
+
 async fn list_users_as_super_admin(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(pagination): Query<Pagination>,
+    Query(ActiveUsersOnly { active_only }): Query<ActiveUsersOnly>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     require_super_admin(&db, &authed.email).await?;
     let per_page = pagination.per_page.unwrap_or(10000).max(1);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
 
-    let rows = sqlx::query_as!(
-        GlobalUserInfo,
-        "SELECT email, login_type::text, verified, super_admin, name, company, username from password ORDER BY super_admin DESC, email LIMIT \
-         $1 OFFSET $2",
-        per_page as i32,
-        offset as i32
-    )
-    .fetch_all(&db)
-    .await?;
+    let rows = if active_only.is_some_and(|x| x) {
+        sqlx::query_as!(
+            GlobalUserInfo,
+            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
+            authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, name, company, username
+            FROM password
+            WHERE email IN (SELECT email FROM active_users)
+            ORDER BY super_admin DESC
+            LIMIT $1 OFFSET $2",
+            per_page as i32,
+            offset as i32
+        )
+        .fetch_all(&db)
+        .await?
+    } else {
+        sqlx::query_as!(
+            GlobalUserInfo,
+            "SELECT email, login_type::text, verified, super_admin, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, email LIMIT \
+            $1 OFFSET $2",
+            per_page as i32,
+            offset as i32
+        )
+        .fetch_all(&db)
+        .await?
+    };
+
     Ok(Json(rows))
 }
 
@@ -1173,7 +1199,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, verified, name, company, username FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
          email = $1",
         email
     )
@@ -1192,6 +1218,7 @@ async fn global_whoami(
             name: None,
             company: None,
             username: None,
+            operator_only: None,
         }))
     } else {
         Err(user.unwrap_err())

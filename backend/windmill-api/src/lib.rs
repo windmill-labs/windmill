@@ -456,9 +456,13 @@ async fn ee_license() -> &'static str {
 
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
-    use windmill_common::ee::LICENSE_KEY_ID;
+    use windmill_common::ee::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    LICENSE_KEY_ID.read().await.clone()
+    if *LICENSE_KEY_VALID.read().await {
+        LICENSE_KEY_ID.read().await.clone()
+    } else {
+        "".to_string()
+    }
 }
 
 async fn openapi() -> &'static str {

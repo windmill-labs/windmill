@@ -650,24 +650,33 @@
 														{@const attemptedAt = new Date(
 															latestKeyRenewalAttempt.attempted_at
 														).toLocaleString()}
+														{@const isTrial =
+															latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 														<div class="relative">
 															<Popover notClickable>
 																<div class="flex flex-row items-center gap-1">
 																	{#if latestKeyRenewalAttempt.result === 'success'}
 																		<BadgeCheck class="text-green-600" size={12} />
 																	{:else}
-																		<BadgeX class="text-red-600" size={12} />
+																		<BadgeX
+																			class={isTrial ? 'text-yellow-600' : 'text-red-600'}
+																			size={12}
+																		/>
 																	{/if}
 																	<span
 																		class={classNames(
 																			'text-xs',
 																			latestKeyRenewalAttempt.result === 'success'
 																				? 'text-green-600'
+																				: isTrial
+																				? 'text-yellow-600'
 																				: 'text-red-600'
 																		)}
 																	>
 																		{latestKeyRenewalAttempt.result === 'success'
 																			? 'Latest key renewal succeeded'
+																			: isTrial
+																			? 'Latest key renewal ignored because in trial'
 																			: 'Latest key renewal failed'}
 																		on {attemptedAt}
 																	</span>
@@ -676,6 +685,10 @@
 																	{#if latestKeyRenewalAttempt.result === 'success'}
 																		<span class="text-green-300">
 																			Latest key renewal succeeded on {attemptedAt}
+																		</span>
+																	{:else if isTrial}
+																		<span class="text-yellow-300">
+																			License key cannot be renewed during trial ({attemptedAt})
 																		</span>
 																	{:else}
 																		<span class="text-red-300">
