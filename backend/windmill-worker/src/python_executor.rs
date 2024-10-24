@@ -1,4 +1,8 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{
+    collections::HashMap,
+    process::Stdio,
+    sync::{Arc, RwLock},
+};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -16,7 +20,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
-    worker::{write_file, INSTANCE_PYTHON_VERSION, WORKER_CONFIG},
+    worker::{write_file, PythonAnnotations, INSTANCE_PYTHON_VERSION, WORKER_CONFIG},
     DB,
 };
 
@@ -78,6 +82,266 @@ use crate::{
     PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
+#[derive(Default, Eq, PartialEq, Clone, Copy)]
+pub enum PyVersion {
+    Py310,
+    // TODO: Default should be inferred from INSTANCE_PYTHON_VERSION
+    #[default]
+    Py311,
+    Py312,
+    Py313,
+}
+
+impl PyVersion {
+    /// e.g.: `/tmp/windmill/cache/python_3xy`
+    pub fn to_cache_dir(&self) -> String {
+        use windmill_common::worker::ROOT_CACHE_DIR;
+        format!("{ROOT_CACHE_DIR}python_{}", self.to_string_no_dots())
+    }
+
+    /// e.g.: `3xy`
+    pub fn to_string_no_dots(&self) -> String {
+        self.to_string_with_dots().replace('.', "")
+    }
+
+    /// e.g.: `3.xy`
+    pub fn to_string_with_dots(&self) -> &str {
+        use PyVersion::*;
+        match self {
+            Py310 => "3.10",
+            Py311 => "3.11",
+            Py312 => "3.12",
+            Py313 => "3.13",
+        }
+    }
+
+    pub fn from_string_with_dots(value: &str) -> Option<Self> {
+        use PyVersion::*;
+        match value {
+            "3.10" => Some(Py310),
+            "3.11" => Some(Py311),
+            "3.12" => Some(Py312),
+            "3.13" => Some(Py313),
+            _ => None,
+        }
+    }
+    /// e.g.: `# py-3.xy` -> `PyVersion::Py3XY`
+    pub fn parse_lockfile(line: &str) -> Option<Self> {
+        Self::from_string_with_dots(line.replace("# py-", "").as_str())
+    }
+
+    pub fn from_py_annotations(a: PythonAnnotations) -> Option<Self> {
+        let PythonAnnotations { py310, py311, py312, py313, .. } = a;
+        use PyVersion::*;
+        if py313 {
+            Some(Py313)
+        } else if py312 {
+            Some(Py312)
+        } else if py311 {
+            Some(Py311)
+        } else if py310 {
+            Some(Py310)
+        } else {
+            None
+        }
+    }
+
+    pub async fn install_python(
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+        version: &str,
+    ) -> error::Result<()> {
+        let logs = String::new();
+        // let v_with_dot = self.to_string_with_dots();
+        let mut child_cmd = Command::new("uv");
+        child_cmd
+            .current_dir("/tmp/windmill")
+            .args(["python", "install", version])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let child_process = start_child_process(child_cmd, "uv python install").await?;
+
+        append_logs(&job_id, &w_id, logs, db).await;
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            &mut None,
+            child_process,
+            false,
+            worker_name,
+            &w_id,
+            "uv python install",
+            None,
+            false,
+            occupancy_metrics,
+        )
+        .await
+    }
+
+    async fn get_python_inner(
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+        version: &str,
+    ) -> error::Result<String> {
+        let py_path = Self::find_python(
+            job_id,
+            mem_peak,
+            db,
+            worker_name,
+            w_id,
+            occupancy_metrics,
+            version,
+        )
+        .await;
+
+        // Python is not installed
+        if py_path.is_err() {
+            // Install it
+            Self::install_python(
+                job_id,
+                mem_peak,
+                db,
+                worker_name,
+                w_id,
+                occupancy_metrics,
+                version,
+            )
+            .await?;
+            // Try to find one more time
+            let py_path = Self::find_python(
+                job_id,
+                mem_peak,
+                db,
+                worker_name,
+                w_id,
+                occupancy_metrics,
+                version,
+            )
+            .await;
+
+            if let Err(ref err) = py_path {
+                tracing::error!("Cannot find python version {err}");
+            }
+
+            // TODO: Cache the result
+            py_path
+        } else {
+            py_path
+        }
+    }
+
+    pub async fn get_python(
+        &self,
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    ) -> error::Result<String> {
+        lazy_static::lazy_static! {
+            static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        }
+
+        // TODO
+        // if let Some(path) = (*PYTHON_PATHS.read().unwrap()).get(self){
+        //     return Ok(path.as_str());
+        // }
+
+        Self::get_python_inner(
+            job_id,
+            mem_peak,
+            db,
+            worker_name,
+            w_id,
+            occupancy_metrics,
+            self.to_string_with_dots(),
+        )
+        .await
+        // {
+        //     return Ok(path);
+        //     // PYTHON_PATHS.borrow_mut().
+        // }
+    }
+
+    async fn find_python(
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+        version: &str,
+        // If not set, will default to INSTANCE_PYTHON_VERSION
+    ) -> error::Result<String> {
+        let mut logs = String::new();
+        // let v_with_dot = self.to_string_with_dots();
+        let mut child_cmd = Command::new("uv");
+        child_cmd
+            .current_dir("/tmp/windmill")
+            .args(["python", "find", version])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let child_process = start_child_process(child_cmd, "uv python find").await?;
+
+        append_logs(&job_id, &w_id, logs, db).await;
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            &mut None,
+            child_process,
+            false,
+            worker_name,
+            &w_id,
+            "uv python find",
+            None,
+            false,
+            occupancy_metrics,
+        )
+        .await;
+
+        Ok("".into())
+        //  .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+        // let output = Command::new("uv")
+        //  .args([
+        //      "python",
+        //      "find",
+        //      v_with_dot
+
+        //  ]) // Add any arguments you want to pass to the command
+        //  .stdout(Stdio::piped()); // Capture the standard output;
+        // .output() // Execute the command
+        // .expect("Failed to execute command");
+
+        // Check if the command was successful
+        // if output.status.success() {
+        //     // Convert the output to a String and print it
+        //     let stdout = String::from_utf8_lossy(&output.stdout);
+        //     println!("Output:\n{}", stdout);
+        // } else {
+        //     // If the command failed, print the error
+        //     let stderr = String::from_utf8_lossy(&output.stderr);
+        //     eprintln!("Error:\n{}", stderr);
+        // }
+    }
+}
+
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
 
@@ -122,8 +386,8 @@ pub async fn uv_pip_compile(
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // If not set, will default to INSTANCE_PYTHON_VERSION
-    // If set, then returned python version will be equal
-    py_version: Option<&str>,
+    // Will always be Some after execution
+    annotated_py_version: &mut Option<PyVersion>,
     // Fallback to pip-compile. Will be removed in future
     mut no_uv: bool,
     // Debug-only flag
@@ -132,6 +396,21 @@ pub async fn uv_pip_compile(
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
+
+    // Precendence:
+    // 1. Annotated version
+    // 2. Instance version
+    // 3. Hardcoded 3.11
+    let mut final_py_version = annotated_py_version.unwrap_or(
+        PyVersion::from_string_with_dots(&INSTANCE_PYTHON_VERSION).unwrap_or_else(|| {
+            tracing::error!(
+                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
+                *INSTANCE_PYTHON_VERSION
+            );
+            PyVersion::Py311
+        }),
+    );
+
     let requirements = if let Some(pip_local_dependencies) =
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
     {
@@ -201,47 +480,36 @@ pub async fn uv_pip_compile(
         .fetch_optional(db)
         .await?
         {
-            let cached_version = cached.lines().next().unwrap();
-
-            if !cached_version.starts_with("# py-") {
-                // Not possible py_version to be Some
-
-                // if not in form of: # py-3.x
-                // Assign version to it
-                // py_version = py_version.or(Some(&*INSTANCE_PYTHON_VERSION));
-
-                if &*INSTANCE_PYTHON_VERSION == "3.11" {
-                    sqlx::query!(
-                        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
-                        req_hash,
-                        format!("# py-{}\n{cached}",py_version.unwrap_or(&*INSTANCE_PYTHON_VERSION))
-                    ).fetch_optional(db).await?;
-
-                    logs.push_str(&format!(
-                        "\nFound cached resolution without assigned python version: {req_hash}"
-                    ));
-                    logs.push_str(&format!("\nAssigned new python version: 3.11"));
-                    return Ok(cached);
+            if let Some(line) = cached.lines().next() {
+                if let Some(cached_version) = PyVersion::parse_lockfile(line) {
+                    // If annotated version is given, it should overwrite cached version
+                    if let Some(ref annotated_version) = annotated_py_version {
+                        if *annotated_version == cached_version {
+                            // All good we found cache
+                            logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
+                            return Ok(cached);
+                        } else {
+                            // Annotated version should be used, thus lockfile regenerated
+                            final_py_version = *annotated_version;
+                        }
+                    } else {
+                    }
+                    // But if there is no annotated version provided, then we keep cached version takes
+                    // if cached_version == actual
+                } else {
+                    tracing::info!(
+                        "There is no assigned python version to script in job: {job_id:?}\n"
+                    )
+                    // We will assign a python version to this script
                 }
-                // else:
-                // Recalculate lock if instance python version is not 3.11
-            } else if let Some(py_version) = py_version {
-                // ^^^^ Will be some only if python version explicitly specified by annotation
-                // Meaning adjusting INSTANCE_PYTHON_VERSION is not affecting existing
-                if py_version == cached_version {
-                    logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
-                    logs.push_str(&format!("\nAssigned python version: {cached_version}"));
-                    return Ok(cached);
-                }
+            } else {
+                tracing::error!("No requirement specified in uv_pip_compile");
             }
-            // Possible only if there is no annotated python version
-            // And there is python version saved in lockfile
-            // In that case we dont care what instance python version
-            else {
-                logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
-                logs.push_str(&format!("\nAssigned python version: {cached_version}"));
-                return Ok(cached);
-            }
+
+            // logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
+            // // logs.push_str(&format!("\nAssigned python version: {cached_version}"));
+            // return Ok(cached);
+            // }
         }
     }
     let file = "requirements.in";
@@ -333,7 +601,7 @@ pub async fn uv_pip_compile(
             "--cache-dir",
             UV_CACHE_DIR,
             "-p",
-            py_version,
+            final_py_version.to_string_with_dots(),
         ];
         if no_cache {
             args.extend(["--no-cache"]);
@@ -399,17 +667,26 @@ pub async fn uv_pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
-    let lockfile = req_content
-        .lines()
-        .filter(|x| !x.trim_start().starts_with('#'))
-        .map(|x| x.to_string())
-        .collect::<Vec<String>>()
-        .join("\n");
+    let lockfile = format!(
+        "# py-{}\n{}",
+        final_py_version.to_string_with_dots(),
+        req_content
+            .lines()
+            .filter(|x| !x.trim_start().starts_with('#'))
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>()
+            .join("\n")
+    );
     sqlx::query!(
         "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
         req_hash,
-        format!("# py-{}\n{lockfile}",py_version.unwrap_or(&*INSTANCE_PYTHON_VERSION))
+        // format!("# py-{}\n{lockfile}",py_version.unwrap_or(&*INSTANCE_PYTHON_VERSION))
+        // format!("# py-{}\n{lockfile}",py_version)
+        lockfile
     ).fetch_optional(db).await?;
+
+    // Give value back
+    *annotated_py_version = Some(final_py_version);
     Ok(lockfile)
 }
 
@@ -432,7 +709,7 @@ pub async fn handle_python_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.script_path());
-    let additional_python_paths = handle_python_deps(
+    let (py_version, additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
         inner_content,
@@ -623,6 +900,18 @@ mount {{
         "started python code execution {}",
         job.id
     );
+
+    let python_path = py_version
+        .get_python(
+            &job.id,
+            mem_peak,
+            db,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+        )
+        .await?;
+
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -647,7 +936,10 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut python_cmd = Command::new(PYTHON_PATH.as_str());
+        let mut python_cmd = Command::new(python_path.as_str());
+        let args = vec!["-u", "-m", "wrapper"];
+        // let args = vec!["run"];
+        // let mut python_cmd = Command::new("uv");
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -657,7 +949,7 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(vec!["-u", "-m", "wrapper"])
+            .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -949,7 +1241,7 @@ async fn handle_python_deps(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-) -> error::Result<Vec<String>> {
+) -> error::Result<(PyVersion, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
@@ -961,6 +1253,7 @@ async fn handle_python_deps(
         .clone();
 
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
+    let mut version = PyVersion::from_py_annotations(annotations);
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
@@ -976,6 +1269,8 @@ async fn handle_python_deps(
             .await?
             .join("\n");
             if requirements.is_empty() {
+                // TODO: "# py-3.11".to_string()
+                // TODO: Still check lockfile
                 "".to_string()
             } else {
                 uv_pip_compile(
@@ -988,7 +1283,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    &annotations.get_python_version(),
+                    &mut version,
                     annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
@@ -999,6 +1294,11 @@ async fn handle_python_deps(
             }
         }
     };
+
+    let final_version = version.unwrap_or_else(|| {
+        tracing::error!("Version is supposed to be Some");
+        PyVersion::Py311
+    });
 
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
@@ -1015,13 +1315,13 @@ async fn handle_python_deps(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            &annotations.get_python_version(),
+            final_version,
             annotations.no_uv || annotations.no_uv_install,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
     }
-    Ok(additional_python_paths)
+    Ok((final_version, additional_python_paths))
 }
 
 lazy_static::lazy_static! {
@@ -1040,11 +1340,12 @@ pub async fn handle_python_reqs(
     job_dir: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    py_version: &str,
+    py_version: PyVersion,
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
+    // TODO: Add uv python path and preferences
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
     let pip_extra_index_url;
     let pip_index_url;
@@ -1055,6 +1356,8 @@ pub async fn handle_python_reqs(
         append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
         tracing::warn!("Fallback to pip");
     }
+
+    // let py_version = requirements[0];
 
     if !*DISABLE_NSJAIL {
         append_logs(&job_id, w_id, "\n Prepare NSJAIL", db).await;
@@ -1151,7 +1454,7 @@ pub async fn handle_python_reqs(
         let py_prefix = if no_uv_install {
             PIP_CACHE_DIR
         } else {
-            PY311_CACHE_DIR
+            &py_version.to_cache_dir()
         };
 
         let venv_p = format!(
@@ -1305,7 +1608,7 @@ pub async fn handle_python_reqs(
                     "--no-deps",
                     "--no-color",
                     "-p",
-                    "3.11",
+                    py_version.to_string_with_dots(),
                     // Prevent uv from discovering configuration files.
                     "--no-config",
                     "--link-mode=copy",

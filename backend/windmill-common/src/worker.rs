@@ -306,6 +306,7 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
+#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
