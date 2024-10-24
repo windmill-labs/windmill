@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, PythonAnnotations};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -1280,8 +1280,10 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
+    let py_version = annotations.get_python_version();
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
@@ -1292,8 +1294,9 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        false,
-        false,
+        &py_version,
+        annotations.no_uv || annotations.no_uv_compile,
+        annotations.no_cache,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1309,7 +1312,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            false,
+            &py_version,
+            annotations.no_uv || annotations.no_uv_install,
         )
         .await;
 
@@ -1343,6 +1347,7 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
+            // panic!("{}", job_raw_code);
             let reqs = if raw_deps {
                 job_raw_code.to_string()
             } else {
@@ -1359,6 +1364,8 @@ async fn capture_dependency_job(
                 .join("\n")
             };
 
+            let annotations = windmill_common::worker::PythonAnnotations::parse(job_raw_code);
+
             python_dep(
                 reqs,
                 job_id,
@@ -1370,6 +1377,7 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                annotations,
             )
             .await
         }
@@ -1393,6 +1401,7 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                PythonAnnotations::default(),
             )
             .await
         }
