@@ -21,7 +21,10 @@ use uuid::Uuid;
 use windmill_common::{
     error,
     jobs::QueuedJob,
-    worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
+    worker::{
+        to_raw_value, write_file, write_file_at_user_defined_location, PythonAnnotations,
+        WORKER_CONFIG,
+    },
 };
 use windmill_parser_yaml::AnsibleRequirements;
 use windmill_queue::{append_logs, CanceledBy};
@@ -71,6 +74,7 @@ async fn handle_ansible_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
+    let py_version = PythonAnnotations::default().get_python_version();
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
@@ -90,6 +94,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
+                    &py_version,
                     false,
                     false,
                 )
@@ -116,6 +121,7 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
+            &py_version,
             false,
         )
         .await?;

@@ -16,7 +16,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
-    worker::{write_file, WORKER_CONFIG},
+    worker::{write_file, INSTANCE_PYTHON_VERSION, WORKER_CONFIG},
     DB,
 };
 
@@ -26,6 +26,9 @@ use windmill_common::variables::get_secret_value_as_admin;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
+
+
+    // Default python
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
@@ -50,7 +53,6 @@ lazy_static::lazy_static! {
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
     static ref EPHEMERAL_TOKEN_CMD: Option<String> = std::env::var("EPHEMERAL_TOKEN_CMD").ok();
-
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
@@ -108,6 +110,7 @@ pub fn handle_ephemeral_token(x: String) -> String {
     x
 }
 
+/// Returns lockfile and python version
 pub async fn uv_pip_compile(
     job_id: &Uuid,
     requirements: &str,
@@ -118,6 +121,9 @@ pub async fn uv_pip_compile(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    // If not set, will default to INSTANCE_PYTHON_VERSION
+    // If set, then returned python version will be equal
+    py_version: Option<&str>,
     // Fallback to pip-compile. Will be removed in future
     mut no_uv: bool,
     // Debug-only flag
@@ -172,15 +178,70 @@ pub async fn uv_pip_compile(
         //     py-000..000-no_uv
     }
     if !no_cache {
+        /*
+            There are several scenarious of flow
+                1. Cache does not exist for script
+                2. Cache exists and in cached lockfile there is no python version
+                3. Cache exists and in cached lockfile there is python version
+            Flows:
+                1: We calculate lockfile and add python version to it
+                2: Only possible if script exists since versions of windmill that dont support multipython
+                    1. If INSTANCE_PYTHON_VERSION == 3.11 assign this version to lockfile and return
+                    3. If INSTANCE_PYTHON_VERSION != 3.11 recalculate lockfile
+                3:
+                    1. if cached_lockfile != annotated_version recalculate lockfile
+                    else: return cache
+        */
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            // Python version is not included in hash,
+            // meaning hash will stay the same independant from python version
             req_hash
         )
         .fetch_optional(db)
         .await?
         {
-            logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
-            return Ok(cached);
+            let cached_version = cached.lines().next().unwrap();
+
+            if !cached_version.starts_with("# py-") {
+                // Not possible py_version to be Some
+
+                // if not in form of: # py-3.x
+                // Assign version to it
+                // py_version = py_version.or(Some(&*INSTANCE_PYTHON_VERSION));
+
+                if &*INSTANCE_PYTHON_VERSION == "3.11" {
+                    sqlx::query!(
+                        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+                        req_hash,
+                        format!("# py-{}\n{cached}",py_version.unwrap_or(&*INSTANCE_PYTHON_VERSION))
+                    ).fetch_optional(db).await?;
+
+                    logs.push_str(&format!(
+                        "\nFound cached resolution without assigned python version: {req_hash}"
+                    ));
+                    logs.push_str(&format!("\nAssigned new python version: 3.11"));
+                    return Ok(cached);
+                }
+                // else:
+                // Recalculate lock if instance python version is not 3.11
+            } else if let Some(py_version) = py_version {
+                // ^^^^ Will be some only if python version explicitly specified by annotation
+                // Meaning adjusting INSTANCE_PYTHON_VERSION is not affecting existing
+                if py_version == cached_version {
+                    logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
+                    logs.push_str(&format!("\nAssigned python version: {cached_version}"));
+                    return Ok(cached);
+                }
+            }
+            // Possible only if there is no annotated python version
+            // And there is python version saved in lockfile
+            // In that case we dont care what instance python version
+            else {
+                logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
+                logs.push_str(&format!("\nAssigned python version: {cached_version}"));
+                return Ok(cached);
+            }
         }
     }
     let file = "requirements.in";
@@ -271,10 +332,8 @@ pub async fn uv_pip_compile(
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
             UV_CACHE_DIR,
-            // We dont want UV to manage python installations
-            "--python-preference",
-            "only-system",
-            "--no-python-downloads",
+            "-p",
+            py_version,
         ];
         if no_cache {
             args.extend(["--no-cache"]);
@@ -349,7 +408,7 @@ pub async fn uv_pip_compile(
     sqlx::query!(
         "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
         req_hash,
-        lockfile
+        format!("# py-{}\n{lockfile}",py_version.unwrap_or(&*INSTANCE_PYTHON_VERSION))
     ).fetch_optional(db).await?;
     Ok(lockfile)
 }
@@ -929,6 +988,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
+                    &annotations.get_python_version(),
                     annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
@@ -955,6 +1015,7 @@ async fn handle_python_deps(
             job_dir,
             worker_dir,
             occupancy_metrics,
+            &annotations.get_python_version(),
             annotations.no_uv || annotations.no_uv_install,
         )
         .await?;
@@ -979,6 +1040,7 @@ pub async fn handle_python_reqs(
     job_dir: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    py_version: &str,
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
 ) -> error::Result<Vec<String>> {
