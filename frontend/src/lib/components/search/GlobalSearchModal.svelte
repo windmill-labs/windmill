@@ -39,6 +39,7 @@
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
+	import Logs from 'lucide-svelte/icons/logs'
 
 	let open: boolean = false
 
@@ -77,13 +78,6 @@
 			action: () => switchMode('content'),
 			shortcutKey: CONTENT_SEARCH_PREFIX,
 			icon: SearchCode
-		},
-		{
-			search_id: 'switchto:log-search',
-			label: 'Search Windmill logs',
-			action: () => switchMode('logs'),
-			shortcutKey: LOGS_PREFIX,
-			icon: Search
 		}
 	]
 	let defaultMenuItems: quickMenuItem[] = [
@@ -107,7 +101,14 @@
 			action: () => gotoPage('/schedules'),
 			icon: CalendarIcon
 		},
-		...switchModeItems
+		...switchModeItems,
+		{
+			search_id: 'nav:service_logs',
+			label: 'Explore windmill service logs',
+			action: () => gotoPage('/service_logs'),
+			shortcutKey: LOGS_PREFIX,
+			icon: Logs
+		}
 	]
 
 	let itemMap = {
@@ -621,8 +622,10 @@
 										)}
 									id="goto_service_logs_search"
 									hovered={true}
-									label={`Search '${removePrefix(searchTerm, '!')}' in Windmill's service logs`}
-									icon={Search}
+									label={searchTerm === '!'
+										? 'Explore Windmill service logs'
+										: `Search '${removePrefix(searchTerm, '!')}' in Windmill's service logs`}
+									icon={searchTerm === '!' ? Logs : Search}
 								/>
 							{/if}
 						</div>

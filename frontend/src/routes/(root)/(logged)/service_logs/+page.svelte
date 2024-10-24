@@ -28,7 +28,7 @@
 			Service logs are only available to superadmins
 		</Alert>
 	{:else}
-		<div class="px-2 flex flex-row gap-1 items-center border-2 rounded-lg">
+		<div class="m-1 px-2 flex flex-row gap-1 items-center border-2 rounded-lg">
 			<Search size="16" />
 			<input
 				id="quickSearchInput"
