@@ -150,6 +150,7 @@ impl PyVersion {
     }
 
     pub async fn install_python(
+        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -161,14 +162,14 @@ impl PyVersion {
     ) -> error::Result<()> {
         let logs = String::new();
         // let v_with_dot = self.to_string_with_dots();
-        let mut child_cmd = Command::new("uv");
+        let mut child_cmd = Command::new(UV_PATH.as_str());
         child_cmd
-            .current_dir("/tmp/windmill")
+            .current_dir(job_dir)
             .args(["python", "install", version])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let child_process = start_child_process(child_cmd, "uv python install").await?;
+        let child_process = start_child_process(child_cmd, "uv").await?;
 
         append_logs(&job_id, &w_id, logs, db).await;
         handle_child(
@@ -180,7 +181,7 @@ impl PyVersion {
             false,
             worker_name,
             &w_id,
-            "uv python install",
+            "uv",
             None,
             false,
             occupancy_metrics,
@@ -189,6 +190,7 @@ impl PyVersion {
     }
 
     async fn get_python_inner(
+        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -199,6 +201,7 @@ impl PyVersion {
         version: &str,
     ) -> error::Result<String> {
         let py_path = Self::find_python(
+            job_dir,
             job_id,
             mem_peak,
             db,
@@ -212,7 +215,8 @@ impl PyVersion {
         // Python is not installed
         if py_path.is_err() {
             // Install it
-            Self::install_python(
+            if let Err(err) = Self::install_python(
+                job_dir,
                 job_id,
                 mem_peak,
                 db,
@@ -221,9 +225,13 @@ impl PyVersion {
                 occupancy_metrics,
                 version,
             )
-            .await?;
+            .await
+            {
+                tracing::error!("Cannot install python: {err}");
+            }
             // Try to find one more time
             let py_path = Self::find_python(
+                job_dir,
                 job_id,
                 mem_peak,
                 db,
@@ -247,6 +255,7 @@ impl PyVersion {
 
     pub async fn get_python(
         &self,
+        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -265,6 +274,7 @@ impl PyVersion {
         // }
 
         Self::get_python_inner(
+            job_dir,
             job_id,
             mem_peak,
             db,
@@ -281,6 +291,7 @@ impl PyVersion {
     }
 
     async fn find_python(
+        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -293,9 +304,9 @@ impl PyVersion {
     ) -> error::Result<String> {
         // let mut logs = String::new();
         // let v_with_dot = self.to_string_with_dots();
-        let mut child_cmd = Command::new("uv");
+        let mut child_cmd = Command::new(UV_PATH.as_str());
         let output = child_cmd
-            .current_dir("/tmp/windmill")
+            .current_dir(job_dir)
             .args(["python", "find", version])
             // .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -307,6 +318,7 @@ impl PyVersion {
             // Convert the output to a String
             let stdout =
                 String::from_utf8(output.stdout).expect("Failed to convert output to String");
+            tracing::error!("{}", &stdout);
             return Ok(stdout);
             // println!("Output:\n{}", stdout);
         } else {
@@ -314,7 +326,9 @@ impl PyVersion {
             let stderr =
                 String::from_utf8(output.stderr).expect("Failed to convert error output to String");
             eprintln!("Error:\n{}", stderr);
-            panic!();
+            tracing::error!("{}", &stderr);
+            // panic!();
+            return Err(error::Error::ExitStatus(1999));
         }
 
         // let child_process = start_child_process(child_cmd, "uv python find").await?;
@@ -926,6 +940,7 @@ mount {{
 
     let python_path = py_version
         .get_python(
+            job_dir,
             &job.id,
             mem_peak,
             db,
@@ -1389,12 +1404,23 @@ pub async fn handle_python_reqs(
         tracing::warn!("Fallback to pip");
     }
 
-    if let Err(err) = py_version
-        .get_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
-        .await
-    {
+    let py_path = py_version
+        .get_python(
+            job_dir,
+            job_id,
+            mem_peak,
+            db,
+            worker_name,
+            w_id,
+            occupancy_metrics,
+        )
+        .await;
+    if let Err(ref err) = py_path {
         tracing::error!("{}", err);
     }
+
+    // TODO: Refactor
+    let py_path = py_path?.replace('\n', "");
 
     if !*DISABLE_NSJAIL {
         append_logs(&job_id, w_id, "\nPrepare NSJAIL\n", db).await;
@@ -1649,12 +1675,12 @@ pub async fn handle_python_reqs(
                     "--no-deps",
                     "--no-color",
                     "-p",
-                    py_version.to_string_with_dots(),
+                    &py_path,
                     // Prevent uv from discovering configuration files.
                     "--no-config",
                     "--link-mode=copy",
                     // TODO: Doublecheck it
-                    "--system",
+                    // "--system",
                     // Prefer main index over extra
                     // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
                     // TODO: Use env variable that can be toggled from UI
@@ -1665,6 +1691,7 @@ pub async fn handle_python_reqs(
                     "--no-cache",
                 ]
             };
+            // panic!("{:?}", command_args);
             let pip_extra_index_url = PIP_EXTRA_INDEX_URL
                 .read()
                 .await
@@ -1705,6 +1732,16 @@ pub async fn handle_python_reqs(
 
             tracing::debug!("pip install command: {:?}", command_args);
 
+            // panic!(
+            //     "{:?}",
+            //     [
+            //         "-x",
+            //         &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
+            //         "--command",
+            //         &command_args.join(" "),
+            //     ]
+            //     .join(" ")
+            // );
             #[cfg(unix)]
             {
                 let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
