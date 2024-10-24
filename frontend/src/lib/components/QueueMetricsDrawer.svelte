@@ -144,6 +144,7 @@
 		}
 		newTag = ''
 		filteredTags = []
+		updateChangesMade()
 	}
 
 	function removeTag(alertIndex, tag) {
@@ -209,7 +210,8 @@
 		alerts[alertIndex].tags_to_monitor = [
 			...new Set([...alerts[alertIndex].tags_to_monitor, ...workerTags])
 		]
-		alerts = alerts // Trigger reactivity
+		alerts = [...alerts]
+		updateChangesMade()
 	}
 </script>
 
@@ -309,8 +311,9 @@
 														<input
 															type="text"
 															bind:value={newTag}
-															placeholder="Add tag"
+															placeholder="{workerTags.length === alert.tags_to_monitor.length ? 'All tags already added' : 'Add tag from dropdown' }"
 															on:input={(e) => filterTags(e)}
+															disabled={workerTags.length === alert.tags_to_monitor.length}
 															class="p-1 flex-grow mr-1"
 														/>
 														<button on:click={() => addTag(index, newTag)} aria-label="Add Tag">
@@ -321,6 +324,7 @@
 													<button
 														on:click={() => addAllTags(index)}
 														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded px-2 py-1 mt-1"
+														disabled={workerTags.length === alert.tags_to_monitor.length}
 													>
 														Add All Tags
 													</button>
@@ -329,6 +333,7 @@
 															class="autocomplete-list border max-h-36 overflow-y-auto absolute z-50"
 														>
 															{#each filteredTags as tag}
+																{#if !alert.tags_to_monitor.includes(tag)}
 																<li>
 																	<button
 																		type="button"
@@ -338,6 +343,7 @@
 																		{tag}
 																	</button>
 																</li>
+																{/if}
 															{/each}
 														</ul>
 													{/if}
