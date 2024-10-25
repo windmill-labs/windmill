@@ -765,7 +765,10 @@ pub async fn handle_python_job(
     append_logs(
         &job.id,
         &job.workspace_id,
-        "\n\n--- PYTHON CODE EXECUTION ---\n".to_string(),
+        format!(
+            "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+            py_version.to_string_with_dots()
+        ),
         db,
     )
     .await;
