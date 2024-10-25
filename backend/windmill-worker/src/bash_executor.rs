@@ -59,11 +59,42 @@ pub async fn handle_bash_job(
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
     write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
-    write_file(
-        job_dir,
-        "wrapper.sh",
-        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n {bash} ./main.sh \"$@\" 2>&1 | tee bp\nwait $!", bash = BIN_BASH.as_str()),
-    )?;
+    let script = format!(
+        r#"
+set -o pipefail
+set -e
+
+# Function to kill child processes
+cleanup() {{
+    echo "Terminating child processes..."
+
+    # Ignore SIGTERM and SIGINT
+    trap '' SIGTERM SIGINT
+
+    # Kill the process group of the script (negative PID value)
+    pkill -P $$
+    exit
+}}
+
+
+# Trap SIGTERM (or other signals) and call cleanup function
+trap cleanup SIGTERM SIGINT
+
+# Create a named pipe
+mkfifo bp
+
+# Start background processes
+cat bp | tail -1 >> ./result2.out &
+
+# Run main.sh in the same process group
+{bash} ./main.sh "$@" 2>&1 | tee bp &
+
+# Wait for all background processes to finish
+wait
+"#,
+        bash = BIN_BASH.as_str(),
+    );
+    write_file(job_dir, "wrapper.sh", &script)?;
 
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
