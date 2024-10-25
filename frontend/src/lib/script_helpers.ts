@@ -638,6 +638,8 @@ inventory:
 # files:
   # - resource: u/user/fabulous_jinja_template
   #   target:  ./config_template.j2
+  # - variable: u/user/ssh_key
+  #   target:  ./ssh_key
 
 # Define the arguments of the windmill script
 extra_vars:
