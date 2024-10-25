@@ -206,7 +206,8 @@
 		'basecamp',
 		'linkedin',
 		'quickbooks',
-		'visma'
+		'visma',
+		'spotify'
 	]
 
 	let oauth_name = undefined
