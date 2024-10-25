@@ -315,7 +315,7 @@ pub fn parse_ansible_reqs(
                         }
                     }
                 }
-                Yaml::String(key) if key == "file_resources" => {
+                Yaml::String(key) if key == "files" || key == "file_resources" => {
                     if let Yaml::Array(file_resources) = value {
                         let resources: anyhow::Result<Vec<FileResource>> =
                             file_resources.iter().map(parse_file_resource).collect();

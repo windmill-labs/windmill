@@ -635,7 +635,7 @@ inventory:
 
 # File resources will be written in the relative \`target\` location before
 # running the playbook
-# file_resources:
+# files:
   # - resource: u/user/fabulous_jinja_template
   #   target:  ./config_template.j2
 
