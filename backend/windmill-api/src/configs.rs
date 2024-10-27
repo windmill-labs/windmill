@@ -192,7 +192,6 @@ struct AutoscalingEvent {
 }
 
 async fn list_autoscaling_events(
-    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(worker_group): Path<String>,
 ) -> error::JsonResult<Vec<AutoscalingEvent>> {
