@@ -29,6 +29,10 @@ pub fn global_service() -> Router {
         .route("/update/:name", post(update_config).delete(delete_config))
         .route("/get/:name", get(get_config))
         .route("/list", get(list_configs))
+        .route(
+            "/list_autoscaling_events/:worker_group",
+            get(list_autoscaling_events),
+        )
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -175,6 +179,31 @@ async fn delete_config(
         )));
     }
     Ok(format!("Deleted config {name}"))
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+struct AutoscalingEvent {
+    id: i64,
+    worker_group: String,
+    event_type: Option<String>,
+    desired_workers: i32,
+    reason: Option<String>,
+    applied_at: chrono::NaiveDateTime,
+}
+
+async fn list_autoscaling_events(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(worker_group): Path<String>,
+) -> error::JsonResult<Vec<AutoscalingEvent>> {
+    let events = sqlx::query_as!(
+        AutoscalingEvent,
+        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT 5",
+        worker_group
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(events))
 }
 
 #[cfg(feature = "enterprise")]

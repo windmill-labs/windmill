@@ -17,7 +17,7 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
-mod autoscaling_ee;
+pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod db;
@@ -33,9 +33,8 @@ pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod queue;
 pub mod s3_helpers;
-
-pub mod auth;
 pub mod schedule;
 pub mod scripts;
 pub mod server;

@@ -13,17 +13,18 @@
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
+	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
 	import { WorkerService, type WorkerPing, ConfigService, SettingService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, CopyIcon, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { AlertTriangle, LineChart, List, Plus, Search } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
+	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -326,7 +327,7 @@
 			<p>No workers seem to be available</p>
 		{/if}
 
-		<div class="py-4 w-full flex justify-between"
+		<div class="pt-4 pb-8 w-full flex justify-between items-center"
 			><h4
 				>{groupWorkers?.length} Worker Groups <Tooltip
 					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
@@ -336,6 +337,7 @@
 				</Tooltip></h4
 			>
 			<div />
+
 			{#if $superadmin}
 				<div class="flex flex-row items-center">
 					<Popup
@@ -346,29 +348,27 @@
 							<div class="flex items-center gap-2">
 								<Button
 									size="sm"
-									color="light"
-									startIcon={{ icon: CopyIcon }}
-									on:click={() => {
-										if (!workerGroups) {
-											return sendUserToast('No worker groups found', true)
-										}
-
-										const workersConfig = Object.entries(workerGroups).map(([name, config]) => ({
-											name,
-											...config
-										}))
-										navigator.clipboard.writeText(YAML.stringify(workersConfig))
-										sendUserToast('Worker groups config copied to clipboard as YAML')
-									}}
-								>
-									<span class="hidden md:block">Copy groups config</span>
-								</Button>
-								<Button
-									size="sm"
 									startIcon={{ icon: Plus }}
 									nonCaptureEvent
 									dropdownItems={$enterpriseLicense
 										? [
+												{
+													label: 'Copy groups config as YAML',
+													onClick: () => {
+														if (!workerGroups) {
+															return sendUserToast('No worker groups found', true)
+														}
+
+														const workersConfig = Object.entries(workerGroups).map(
+															([name, config]) => ({
+																name,
+																...config
+															})
+														)
+														navigator.clipboard.writeText(YAML.stringify(workersConfig))
+														sendUserToast('Worker groups config copied to clipboard as YAML')
+													}
+												},
 												{
 													label: 'Import groups config from YAML',
 													onClick: () => {
@@ -644,7 +644,8 @@
 				{/if}
 			{/if}
 		</div>
-		<div class="pb-4" />
+		<div class="pb-20" />
+		<AutoscalingEvents worker_group={selectedTab} />
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(4) as _}

@@ -27,7 +27,7 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{worker_groups_alerts, jobs_waiting_alerts};
+use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -1068,6 +1068,15 @@ pub async fn monitor_db(
         }
     };
 
+    let apply_autoscaling_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Err(e) = windmill_autoscaling::apply_all_autoscaling(db).await {
+                tracing::error!("Error applying autoscaling: {:?}", e);
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1075,6 +1084,7 @@ pub async fn monitor_db(
         verify_license_key_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        apply_autoscaling_f,
     );
 }
 
@@ -1092,19 +1102,11 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         .unwrap_or(true);
 
     if metrics_enabled || save_metrics {
-        let queue_counts = sqlx::query!(
-            "SELECT tag, count(*) as count FROM queue WHERE
-                scheduled_for <= now() - ('3 seconds')::interval AND running = false
-                GROUP BY tag"
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
+        let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
         for q in queue_counts {
-            let count = q.count.unwrap_or(0);
-            let tag = q.tag;
+            let count = q.1;
+            let tag = q.0;
             if metrics_enabled {
                 let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);
