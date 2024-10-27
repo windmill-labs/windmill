@@ -10426,6 +10426,7 @@ dependencies = [
  "uuid 1.11.0",
  "windmill-api",
  "windmill-api-client",
+ "windmill-autoscaling",
  "windmill-common",
  "windmill-git-sync",
  "windmill-indexer",
@@ -10547,6 +10548,21 @@ dependencies = [
  "sqlx",
  "tracing",
  "windmill-common",
+]
+
+[[package]]
+name = "windmill-autoscaling"
+version = "1.412.0"
+dependencies = [
+ "anyhow",
+ "rsmq_async",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tracing",
+ "uuid 1.11.0",
+ "windmill-common",
+ "windmill-queue",
 ]
 
 [[package]]
