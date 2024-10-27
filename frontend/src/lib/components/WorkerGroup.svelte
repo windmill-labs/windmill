@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
-	import { Alert, Button, Drawer } from './common'
+	import { Alert, Badge, Button, Drawer } from './common'
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -18,6 +18,8 @@
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
+	import type { AutoscalingConfig } from './worker_group'
+	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
 
 	export let name: string
 	export let config:
@@ -31,6 +33,7 @@
 				additional_python_paths?: string[]
 				pip_local_dependencies?: string[]
 				min_alive_workers_alert_threshold?: number
+				autoscaling?: AutoscalingConfig
 		  }
 	export let activeWorkers: number
 	export let customTags: string[] | undefined
@@ -65,6 +68,7 @@
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
+		autoscaling?: AutoscalingConfig
 	} = {}
 
 	function loadNConfig() {
@@ -438,7 +442,7 @@
 										</Tooltip>
 									</svelte:fragment>
 									<Multiselect
-										outerDivClass="text-secondary !bg-surface-disabled"
+										outerDivClass="text-secondary !bg-surface-disabled !border-0"
 										disabled={!$enterpriseLicense}
 										bind:selected={selectedPriorityTags}
 										on:change={(e) => {
@@ -451,6 +455,9 @@
 												if (nconfig.priority_tags) {
 													delete nconfig.priority_tags[e.detail.option]
 												}
+												dirty = true
+											} else if (e.detail.type === 'removeAll') {
+												nconfig.priority_tags = undefined
 												dirty = true
 											} else {
 												console.error(
@@ -779,6 +786,21 @@
 					</Button>
 				</div>
 			{/if}
+		</Section>
+		<div class="mt-8" />
+
+		<Section label="Autoscaling" collapsable>
+			<div slot="header" class="ml-4 flex flex-row gap-2 items-center">
+				<Badge>Beta</Badge>
+				{#if nconfig.autoscaling?.enabled}
+					<Badge color="green">Enabled</Badge>
+				{/if}
+			</div>
+			<AutoscalingConfigEditor
+				on:dirty={() => (dirty = true)}
+				worker_tags={nconfig.worker_tags}
+				bind:config={nconfig.autoscaling}
+			/>
 		</Section>
 		<div class="mt-8" />
 
