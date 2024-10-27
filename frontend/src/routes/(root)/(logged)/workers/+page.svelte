@@ -350,6 +350,7 @@
 									size="sm"
 									startIcon={{ icon: Plus }}
 									nonCaptureEvent
+									disabled={!$enterpriseLicense}
 									dropdownItems={$enterpriseLicense
 										? [
 												{
@@ -378,7 +379,9 @@
 										  ]
 										: undefined}
 								>
-									<span class="hidden md:block">New group config</span>
+									<span class="hidden md:block"
+										>New group config {!$enterpriseLicense ? '(EE)' : ''}</span
+									>
 
 									<Tooltip light>
 										Worker Group configs are propagated to every workers in the worker group
