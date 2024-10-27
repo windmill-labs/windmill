@@ -28,6 +28,9 @@
 
 <div>
 	<h6
+		class={!$enterpriseLicense || (events != undefined && events.length == 0)
+			? 'text-tertiary'
+			: ''}
 		>Autoscaling events {#if $enterpriseLicense}<span class="text-xs text-tertiary">(5 last)</span>
 			<span class="inline-flex ml-6">
 				<Button
