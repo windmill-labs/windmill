@@ -14,6 +14,7 @@
 	export let displayContext = true
 	export let notSelectable: boolean
 	export let error: boolean = false
+	export let allowCopy = false
 
 	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
@@ -81,7 +82,7 @@
 		</div>
 		<div class="overflow-y-auto mb-2">
 			<ObjectViewer
-				allowCopy={false}
+				{allowCopy}
 				pureViewer={!$propPickerConfig}
 				json={flowInputsFiltered}
 				prefix="flow_input"
@@ -92,7 +93,7 @@
 			<span class="font-normal text-sm text-secondary">Error</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
-					allowCopy={false}
+					{allowCopy}
 					pureViewer={!$propPickerConfig}
 					json={{
 						error: {
@@ -110,7 +111,7 @@
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
-							allowCopy={false}
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
@@ -122,7 +123,7 @@
 				<span class="font-normal text-sm text-secondary">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						collapsed={true}
 						json={resultByIdFiltered}
@@ -136,7 +137,7 @@
 				<span class="font-normal text-sm text-secondary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						json={Object.fromEntries(
 							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
@@ -150,7 +151,7 @@
 				<span class="font-normal text-sm text-secondary">Resume payloads</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						json={{
 							resume: 'The resume payload',
@@ -166,7 +167,7 @@
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
-							allowCopy={false}
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
@@ -191,7 +192,7 @@
 					{/if}
 
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						bind:collapsed={allResultsCollapsed}
 						json={resultByIdFiltered}
@@ -219,7 +220,7 @@
 					>
 
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={variables}
@@ -258,7 +259,7 @@
 						btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
 					>
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={resources}
