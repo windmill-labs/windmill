@@ -437,7 +437,6 @@ Windmill Community Edition {GIT_VERSION}
         // if not valid and not server mode just quit
         // if not expired and server mode then force renewal
         // if key still invalid and num_workers > 0, set to 0
-        // schedule key renewal
         if let Err(err) = reload_license_key(&db).await {
             tracing::error!("Failed to reload license key: {err:#}");
         }
