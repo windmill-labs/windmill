@@ -12,6 +12,7 @@
 	import { Button } from './common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { fade } from 'svelte/transition'
 
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
@@ -191,14 +192,14 @@
 {#if arg != undefined}
 	<div
 		class={twMerge(
-			'p-2 ml-2 relative hover:bg-surface hover:shadow-[0_0_10px_5px_rgba(0,0,0,0.1)] transition-all duration-200',
+			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
 			$propPickerConfig?.propName == argName
-				? 'bg-surface rounded-l-md shadow-[0_0_10px_5px_rgba(0,0,0,0.1)] z-2000'
+				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-2000'
 				: 'hover:rounded-md',
 			$$props.class
 		)}
 	>
-		<div class="flex flex-row justify-between gap-1 pb-1">
+		<div class="flex flex-row justify-between gap-1 pb-1 px-2">
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
@@ -352,7 +353,7 @@
 
 		<div class="max-w-xs" />
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="relative p-2" on:keyup={stepInputGen?.onKeyUp}>
+		<div class="relative" on:keyup={stepInputGen?.onKeyUp}>
 			{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
@@ -362,110 +363,134 @@
 			{/if}
 			<!-- {inputCat}
 			{propertyType} -->
-			{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-				{#if argName && schema?.properties?.[argName]?.description}
-					<div class="text-xs italic pb-1 text-secondary">
-						<pre class="font-main">{schema.properties[argName].description}</pre>
-					</div>
-				{/if}
-				<div class="mt-2 min-h-[28px]">
-					{#if arg}
-						<TemplateEditor
-							bind:this={monacoTemplate}
-							{extraLib}
+			<div class="relative flex flex-row items-top gap-2 justify-between">
+				<div class="min-w-0 grow">
+					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+						{#if argName && schema?.properties?.[argName]?.description}
+							<div class="text-xs italic pb-1 text-secondary">
+								<pre class="font-main">{schema.properties[argName].description}</pre>
+							</div>
+						{/if}
+						<div class="mt-2 min-h-[28px]">
+							{#if arg}
+								<TemplateEditor
+									bind:this={monacoTemplate}
+									{extraLib}
+									on:focus={onFocus}
+									on:blur={() => {
+										focused = false
+									}}
+									bind:code={arg.value}
+									fontSize={14}
+									on:change={() => {
+										dispatch('change', { argName })
+									}}
+								/>
+							{/if}
+						</div>
+					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
+						<ArgInput
+							{resourceTypes}
+							noMargin
+							compact
+							bind:this={argInput}
 							on:focus={onFocus}
 							on:blur={() => {
 								focused = false
 							}}
-							bind:code={arg.value}
-							fontSize={14}
+							shouldDispatchChanges
 							on:change={() => {
 								dispatch('change', { argName })
 							}}
+							label={argName}
+							bind:editor={monaco}
+							bind:description={schema.properties[argName].description}
+							bind:value={arg.value}
+							type={schema.properties[argName].type}
+							oneOf={schema.properties[argName].oneOf}
+							required={schema.required?.includes(argName)}
+							bind:pattern={schema.properties[argName].pattern}
+							bind:valid={inputCheck}
+							defaultValue={schema.properties[argName].default}
+							bind:enum_={schema.properties[argName].enum}
+							bind:format={schema.properties[argName].format}
+							contentEncoding={schema.properties[argName].contentEncoding}
+							bind:itemsType={schema.properties[argName].items}
+							properties={schema.properties[argName].properties}
+							nestedRequired={schema.properties[argName].required}
+							displayHeader={false}
+							extra={argExtra}
+							{variableEditor}
+							{itemPicker}
+							bind:pickForField
+							showSchemaExplorer
+							nullable={schema.properties[argName].nullable}
+							bind:title={schema.properties[argName].title}
+							bind:placeholder={schema.properties[argName].placeholder}
 						/>
+					{:else if arg.expr != undefined}
+						<div class="border mt-2">
+							<SimpleEditor
+								bind:this={monaco}
+								bind:code={arg.expr}
+								on:change={() => {
+									dispatch('change', { argName })
+								}}
+								{extraLib}
+								lang="javascript"
+								shouldBindKey={false}
+								on:focus={() => {
+									focused = true
+									focusProp(argName, 'insert', (path) => {
+										monaco?.insertAtCursor(path)
+										return false
+									})
+								}}
+								on:change={() => {
+									dispatch('change', { argName })
+								}}
+								on:blur={() => {
+									focused = false
+								}}
+								autoHeight
+							/>
+						</div>
+						<DynamicInputHelpBox />
+						<div class="mb-2" />
+					{:else}
+						Not recognized input type {argName} ({arg.expr}, {propertyType})
+						<div class="flex mt-2">
+							<Button
+								variant="border"
+								size="xs"
+								on:click={() => {
+									arg.expr = ''
+								}}>Set expr to empty string</Button
+							></div
+						>
 					{/if}
 				</div>
-			{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
-				<ArgInput
-					{resourceTypes}
-					noMargin
-					compact
-					bind:this={argInput}
-					on:focus={onFocus}
-					on:blur={() => {
-						focused = false
-					}}
-					shouldDispatchChanges
-					on:change={() => {
-						dispatch('change', { argName })
-					}}
-					label={argName}
-					bind:editor={monaco}
-					bind:description={schema.properties[argName].description}
-					bind:value={arg.value}
-					type={schema.properties[argName].type}
-					oneOf={schema.properties[argName].oneOf}
-					required={schema.required?.includes(argName)}
-					bind:pattern={schema.properties[argName].pattern}
-					bind:valid={inputCheck}
-					defaultValue={schema.properties[argName].default}
-					bind:enum_={schema.properties[argName].enum}
-					bind:format={schema.properties[argName].format}
-					contentEncoding={schema.properties[argName].contentEncoding}
-					bind:itemsType={schema.properties[argName].items}
-					properties={schema.properties[argName].properties}
-					nestedRequired={schema.properties[argName].required}
-					displayHeader={false}
-					extra={argExtra}
-					{variableEditor}
-					{itemPicker}
-					bind:pickForField
-					showSchemaExplorer
-					nullable={schema.properties[argName].nullable}
-					bind:title={schema.properties[argName].title}
-					bind:placeholder={schema.properties[argName].placeholder}
-				/>
-			{:else if arg.expr != undefined}
-				<div class="border mt-2">
-					<SimpleEditor
-						bind:this={monaco}
-						bind:code={arg.expr}
-						on:change={() => {
-							dispatch('change', { argName })
-						}}
-						{extraLib}
-						lang="javascript"
-						shouldBindKey={false}
-						on:focus={() => {
-							focused = true
-							focusProp(argName, 'insert', (path) => {
-								monaco?.insertAtCursor(path)
-								return false
-							})
-						}}
-						on:change={() => {
-							dispatch('change', { argName })
-						}}
-						on:blur={() => {
-							focused = false
-						}}
-						autoHeight
-					/>
-				</div>
-				<DynamicInputHelpBox />
-				<div class="mb-2" />
-			{:else}
-				Not recognized input type {argName} ({arg.expr}, {propertyType})
-				<div class="flex mt-2">
-					<Button
-						variant="border"
-						size="xs"
-						on:click={() => {
-							arg.expr = ''
-						}}>Set expr to empty string</Button
-					></div
-				>
-			{/if}
+
+				{#if $propPickerConfig?.propName == argName}
+					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<polyline points="24 24 12 12 24 0" />
+						</svg>
+					</div>
+				{:else}
+					<div class="w-0" />
+				{/if}
+			</div>
 		</div>
 	</div>
 {/if}
