@@ -206,14 +206,14 @@
 		@apply text-tertiary;
 	}
 	.val.string {
-		@apply text-primary;
+		@apply text-green-600 dark:text-green-400/80;
 	}
 
 	.val.number {
-		@apply text-primary;
+		@apply text-orange-600 dark:text-orange-400/90;
 		@apply font-mono;
 	}
 	.val.boolean {
-		@apply text-primary;
+		@apply text-blue-600 dark:text-blue-400/90;
 	}
 </style>
