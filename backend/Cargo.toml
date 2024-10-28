@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.408.1"
+version = "1.412.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -13,7 +13,9 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-git-sync",
+    "./windmill-autoscaling",
     "./windmill-indexer",
+    "./windmill-macros",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -23,11 +25,11 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml",
+    "./parsers/windmill-parser-yaml", "windmill-macros",
 ]
 
 [workspace.package]
-version = "1.408.1"
+version = "1.412.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -39,9 +41,12 @@ path = "./src/main.rs"
 opt-level = 0
 incremental = true
 
+[profile.release]
+lto = "thin"
+
 [features]
 default = []
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
@@ -68,6 +73,7 @@ windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
+windmill-autoscaling = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
@@ -112,7 +118,9 @@ windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
+windmill-autoscaling = { path = "./windmill-autoscaling" }
 windmill-indexer = {path = "./windmill-indexer"}
+windmill-macros = {path = "./windmill-macros"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -214,7 +222,7 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "0.7.2"
-async-stripe = { version = "0.34.1", features = [
+async-stripe = { version = "0.39.1", features = [
     "runtime-tokio-hyper",
     "checkout",
     "billing",
@@ -278,9 +286,12 @@ triomphe = "^0"
 
 tantivy = "0.22.0"
 
+# Macro-related
+proc-macro2 = "1.0"
 pulldown-cmark = "0.9"
 toml = "0.7"
 syn = { version = "2.0.74", features = ["full"] }
 quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
+tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }

@@ -38,6 +38,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
+	import { isJobCancelable } from '$lib/utils'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -494,10 +495,6 @@
 	async function cancelSelectedJobs() {
 		jobIdsToCancel = selectedIds
 		isCancelingVisibleJobs = true
-	}
-
-	function isJobCancelable(j: Job): boolean {
-		return j.type === 'QueuedJob' && !j.schedule_path
 	}
 
 	function jobCountString(count: number) {

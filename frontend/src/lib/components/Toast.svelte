@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import type { ToastAction } from '$lib/toast'
+	import { processMessage } from './toast'
 
 	export let message: string
 	export let toastId: string
@@ -37,7 +38,7 @@
 				{/if}
 			</div>
 			<div class="ml-3 flex-1 w-0">
-				<p class="text-sm text-secondary break-words">{message}</p>
+				<p class="text-sm text-secondary break-words">{@html processMessage(message)}</p>
 				{#if errorMessage}
 					<p
 						class="text-sm text-secondary border bg-surface-secondary p-2 w-full overflow-auto mt-2"

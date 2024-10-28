@@ -9,6 +9,18 @@
 	import Tooltip from './Tooltip.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
+	function updateChangesMade() {
+		changesMade = JSON.stringify(alerts) !== JSON.stringify(originalAlerts)
+	}
+
+	function handleInput(event) {
+		const target = event.target
+		console.log(target)
+		if (target.tagName.toLowerCase() === 'input') {
+			updateChangesMade()
+		}
+	}
+
 	type Alert = {
 		name: string
 		tags_to_monitor: string[]
@@ -70,16 +82,20 @@
 	}
 
 	function startEditing(index) {
+		if (editingIndex !== -1) {
+			const success = saveAlert(editingIndex)
+			if (!success) return
+		}
 		editingIndex = index
 		updateWorkerTags()
 	}
 
-	function saveAlert(index) {
+	function saveAlert(index): boolean {
 		const newAlert = alerts[index]
 
 		if (newAlert.tags_to_monitor.length === 0) {
 			sendUserToast('Please add at least one tag before saving.', true)
-			return
+			return false
 		}
 
 		if (
@@ -88,7 +104,7 @@
 			newAlert.alert_time_threshold_seconds <= 0
 		) {
 			sendUserToast('All numeric values must be strictly positive.', true)
-			return
+			return false
 		}
 
 		const alertExists = originalAlerts.some(
@@ -99,13 +115,15 @@
 		)
 
 		if (alertExists) {
-			sendUserToast('An identical alert already exists.', true)
-			return
+			sendUserToast('You can only define one alert per identical set of tags', true)
+			return false
 		}
 
 		editingIndex = -1
-		changesMade = JSON.stringify(alerts) !== JSON.stringify(originalAlerts)
+		updateChangesMade()
+
 		stagedNewAlert = false
+		return true
 	}
 
 	function stageDeleteAlert(index) {
@@ -126,16 +144,18 @@
 		}
 		newTag = ''
 		filteredTags = []
+		updateChangesMade()
 	}
 
 	function removeTag(alertIndex, tag) {
 		alerts[alertIndex].tags_to_monitor = alerts[alertIndex].tags_to_monitor.filter((t) => t !== tag)
+		updateChangesMade()
 	}
 
 	async function applyConfig() {
-		if (stagedNewAlert) {
-			sendUserToast('New alert staged. Please save or cancel the changes before applying.', true)
-			return
+		if (editingIndex !== -1) {
+			const success = saveAlert(editingIndex)
+			if (!success) return
 		}
 
 		try {
@@ -146,6 +166,7 @@
 			removedAlerts = []
 			changesMade = false
 			stagedNewAlert = false
+			editingIndex = -1
 		} catch (error) {
 			console.error('Failed to update config:', error)
 		}
@@ -167,7 +188,7 @@
 		}
 
 		const newAlert = {
-			name: 'New Alert',
+			name: 'Job Queue Alert',
 			tags_to_monitor: [],
 			jobs_num_threshold: 3,
 			alert_cooldown_seconds: 600,
@@ -177,6 +198,7 @@
 		alerts = [...alerts, newAlert]
 		editingIndex = alerts.length - 1
 		stagedNewAlert = true
+		updateChangesMade()
 		updateWorkerTags()
 	}
 
@@ -188,41 +210,42 @@
 		alerts[alertIndex].tags_to_monitor = [
 			...new Set([...alerts[alertIndex].tags_to_monitor, ...workerTags])
 		]
-		alerts = alerts // Trigger reactivity
+		alerts = [...alerts]
+		updateChangesMade()
 	}
 </script>
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Queue Metrics" on:close={drawer.closeDrawer}>
+	<DrawerContent
+		title="Queues"
+		on:close={drawer.closeDrawer}
+		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#queue-metrics"
+	>
 		<Section
 			label="Queue Alert Settings"
 			collapsable={true}
-			tooltip="Manage queue alerts for monitoring queue metrics. These alerts will trigger a critical alert notification if the queue metrics are met."
+			tooltip="A critical alert is triggered when the number of jobs in the queue exceeds the set threshold and they have been waiting for at least the specified time. After an alert, no new alerts will be triggered during the cooldown period."
 			eeOnly={true}
 		>
 			{#if $enterpriseLicense}
 				{#if changesMade}
 					<div class="text-red-600 text-xs whitespace-nowrap pb-2">Non applied changes</div>
-					<div class="flex gap-2 pb-2">
-						<Button color="blue" size="xs" on:click={applyConfig}>
-							<SaveIcon size={16} /> Apply Config
-						</Button>
-						<Button color="light" size="xs" on:click={cancelChanges}>Cancel</Button>
-					</div>
 				{/if}
+				<div class="flex gap-2 pb-2">
+					<Button color="blue" size="xs" on:click={applyConfig} disabled={!changesMade}>
+						<SaveIcon size={16} /> Apply Config
+					</Button>
+					<Button color="light" size="xs" on:click={cancelChanges} disabled={!changesMade}>
+						Cancel
+					</Button>
+				</div>
 
 				{#if alerts.length > 0}
 					<div>
 						<form on:submit|preventDefault>
 							<table class="w-full border-collapse mb-2 text-xs table-auto">
-								<thead class="bg-gray-200 text-left text-xs">
+								<thead class="bg-gray-200 dark:bg-slate-600 text-left text-xs">
 									<tr>
-										<th class="p-2 min-w-[120px]">
-											Name
-											<Tooltip
-												markdownTooltip="The name of the alert. This will be used in the crticial alert notification and help identify the alert."
-											/>
-										</th>
 										<th class="p-2 w-full">
 											Queue Tags to Monitor
 											<Tooltip markdownTooltip="Queue tags to monitor for this alert." />
@@ -230,47 +253,43 @@
 										<th class="p-2 min-w-[65px]">
 											Jobs
 											<Tooltip
-												markdownTooltip="Number of jobs threshold. An alert will be triggerd if more than this number of jobs are in the queue for at least the time threshold."
+												markdownTooltip="Number of jobs threshold: An alert will be triggered if the number of jobs in the queue exceeds this threshold and they have been waiting for at least the specified time threshold."
 											/>
 										</th>
 										<th class="p-2 min-w-[115px]">
 											Cooldown (s)
 											<Tooltip
-												markdownTooltip="Cooldown period in seconds. The cooldown period is the time after an alert is triggered that no new alerts will be triggered."
+												markdownTooltip="Cooldown period in seconds: This defines the time interval after an alert is triggered during which no additional alerts will be sent."
 											/>
 										</th>
 										<th class="p-2 min-w-[105px]">
 											Time (s)
 											<Tooltip
-												markdownTooltip="Time threshold in seconds. An alert will be triggered if more than 'n jobs threshold' have been in the queue for at least this amount of time."
+												markdownTooltip="Time threshold in seconds: An alert will be triggered if the number of jobs in the queue exceeds the job threshold and they have remained in the queue for at least this duration."
 											/>
 										</th>
 										<th class="p-2 min-w-[100px]"> Actions </th>
 									</tr>
 								</thead>
-								<tbody>
+								<tbody on:input={handleInput}>
 									{#each alerts as alert, index}
 										<tr
-											class:staged-for-deletion={removedAlerts.includes(alert)}
-											class:non-interactable={removedAlerts.includes(alert)}
+											class={removedAlerts.includes(alert)
+												? 'bg-red-100 dark:bg-red-900 pointer-events-none opacity-50'
+												: ''}
 										>
-											<td class="border p-2">
-												{#if editingIndex === index}
-													<input type="text" bind:value={alert.name} class="w-full p-1" />
-												{:else}
-													{alert.name}
-												{/if}
-											</td>
 											<td class="border p-2">
 												{#if editingIndex === index}
 													<div class="flex flex-wrap gap-1 mb-2">
 														{#each alert.tags_to_monitor as tag}
-															<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs">
+															<span
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
+															>
 																{tag}
 																<button
 																	on:click={() => removeTag(index, tag)}
 																	aria-label="Remove Tag"
-																	class="ml-1 text-black text-xs">x</button
+																	class="ml-1 text-xs">x</button
 																>
 															</span>
 														{/each}
@@ -279,8 +298,9 @@
 														<input
 															type="text"
 															bind:value={newTag}
-															placeholder="Add tag"
+															placeholder="{workerTags.length === alert.tags_to_monitor.length ? 'All tags already added' : 'Add tag from dropdown' }"
 															on:input={(e) => filterTags(e)}
+															disabled={workerTags.length === alert.tags_to_monitor.length}
 															class="p-1 flex-grow mr-1"
 														/>
 														<button on:click={() => addTag(index, newTag)} aria-label="Add Tag">
@@ -290,25 +310,35 @@
 													<!-- Add the new "Add All Tags" button here -->
 													<button
 														on:click={() => addAllTags(index)}
-														class="text-xs hover:bg-gray-200 rounded px-2 py-1 mt-1"
+														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded px-2 py-1 mt-1"
+														disabled={workerTags.length === alert.tags_to_monitor.length}
 													>
 														Add All Tags
 													</button>
 													{#if filteredTags.length > 0}
-														<ul class="autocomplete-list">
+														<ul
+															class="autocomplete-list border max-h-36 overflow-y-auto absolute z-50"
+														>
 															{#each filteredTags as tag}
+																{#if !alert.tags_to_monitor.includes(tag)}
 																<li>
-																	<button type="button" on:click={() => addTag(index, tag)}
-																		>{tag}</button
+																	<button
+																		type="button"
+																		class="w-full text-left p-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+																		on:click={() => addTag(index, tag)}
 																	>
+																		{tag}
+																	</button>
 																</li>
+																{/if}
 															{/each}
 														</ul>
 													{/if}
 												{:else}
 													<div class="flex flex-wrap gap-1">
 														{#each alert.tags_to_monitor as tag}
-															<span class="inline-block bg-blue-100 rounded px-2 py-1 text-xs"
+															<span
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
 																>{tag}</span
 															>
 														{/each}
@@ -380,39 +410,20 @@
 					</Button>
 				</div>
 			{:else}
-				<p class="text-gray-600 text-sm">
-					Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting jobs. Please upgrade to access this functionality. 
-					<a href="https://www.windmill.dev/docs/misc/plans_details" target="_blank" class="text-blue-500 underline">Learn more about our plans.</a>
+				<p class="text-sm">
+					Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting
+					jobs. Please upgrade to access this functionality.
+					<a
+						href="https://www.windmill.dev/docs/misc/plans_details"
+						target="_blank"
+						class="text-blue-500 underline">Learn more about our plans.</a
+					>
 				</p>
 			{/if}
 		</Section>
+		<h1 class="pt-4">Queue Metrics</h1>
 		<div class="p-8">
 			<QueueMetricsDrawerInner />
 		</div>
 	</DrawerContent>
 </Drawer>
-
-<style>
-	.staged-for-deletion {
-		background-color: #f8d7da; /* Light red background for staged deletion */
-	}
-	.non-interactable {
-		pointer-events: none; /* Disable pointer events */
-		opacity: 0.5; /* Reduce opacity */
-	}
-	.autocomplete-list {
-		border: 1px solid #ccc;
-		max-height: 150px;
-		overflow-y: auto;
-		background-color: white;
-		position: absolute;
-		z-index: 1000;
-	}
-	.autocomplete-list li {
-		padding: 8px;
-		cursor: pointer;
-	}
-	.autocomplete-list li:hover {
-		background-color: #f0f0f0;
-	}
-</style>

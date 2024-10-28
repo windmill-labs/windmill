@@ -514,7 +514,7 @@ export async function main(approver?: string) {
 const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook',
+		kind: 'http' | 'email' | 'webhook' | 'websocket',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -535,7 +535,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'wehbook',
+		kind: 'http' | 'email' | 'wehbook' | 'websocket',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -591,7 +591,7 @@ class Http(TypedDict):
 	headers: dict[str, str]
 
 class WmTrigger(TypedDict):
-    kind: Literal["http", "email", "webhook"]
+    kind: Literal["http", "email", "webhook", "websocket"]
     http: Http | None
 
 def preprocessor(
@@ -635,9 +635,11 @@ inventory:
 
 # File resources will be written in the relative \`target\` location before
 # running the playbook
-# file_resources:
+# files:
   # - resource: u/user/fabulous_jinja_template
   #   target:  ./config_template.j2
+  # - variable: u/user/ssh_key
+  #   target:  ./ssh_key
 
 # Define the arguments of the windmill script
 extra_vars:

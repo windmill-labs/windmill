@@ -13,7 +13,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import type { ScheduleTrigger } from '$lib/components/triggers'
 
+	let version: undefined | number = undefined;
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
@@ -54,11 +56,23 @@
 	let selectedId: string = 'settings-metadata'
 
 	let nobackenddraft = false
+
+	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
+
+	let flowBuilder: FlowBuilder | undefined = undefined
+
 	async function loadFlow(): Promise<void> {
 		loading = true
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
 		if (stateLoadedFromUrl != undefined && statePath == $page.params.path) {
+			// Currently there is no way to get version of flow with flow.
+			// So we have to request it here
+			version = (await FlowService.getFlowLatestVersion({
+				workspace: $workspaceStore!,
+				path: statePath
+			})).id;
+
 			savedFlow = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: statePath
@@ -67,6 +81,7 @@
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
 			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
 			flow = stateLoadedFromUrl.flow
+			savedPrimarySchedule = stateLoadedFromUrl.primarySchedule
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
 				goto(`/flows/edit/${statePath}`)
@@ -96,6 +111,13 @@
 				])
 			}
 		} else {
+			// Currently there is no way to get version of flow with flow.
+			// So we have to request it here
+			version = (await FlowService.getFlowLatestVersion({
+				workspace: $workspaceStore!,
+				path: $page.params.path
+			})).id;
+
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: $page.params.path
@@ -113,6 +135,9 @@
 			}
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
+				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
+				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
 					const draft = cleanValueProperties(flow)
@@ -216,8 +241,11 @@
 	{selectedId}
 	{initialArgs}
 	{loading}
+	bind:this={flowBuilder}
 	bind:savedFlow
 	{diffDrawer}
+	{savedPrimarySchedule}
+	bind:version
 >
 	<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
 </FlowBuilder>

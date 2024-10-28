@@ -603,8 +603,11 @@ Windmill Community Edition {GIT_VERSION}
                     rx.recv().await?;
                 }
             }
-            tracing::info!("Starting phase 2 of shutdown");
-            killpill_phase2_tx.send(())?;
+            if killpill_phase2_tx.receiver_count() > 0 {
+                tracing::info!("Starting phase 2 of shutdown");
+                killpill_phase2_tx.send(())?;
+                tracing::info!("Phase 2 of shutdown completed");
+            }
             Ok(()) as anyhow::Result<()>
         };
 

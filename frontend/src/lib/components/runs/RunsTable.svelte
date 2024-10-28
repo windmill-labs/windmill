@@ -8,6 +8,7 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
+	import { isJobCancelable } from '$lib/utils'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
@@ -138,9 +139,6 @@
 		}
 	}
 	*/
-	function isJobCancelable(j: Job): boolean {
-		return j.type === 'QueuedJob' && !j.schedule_path
-	}
 
 	let allSelected: boolean = false
 

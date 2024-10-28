@@ -48,8 +48,9 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
+use windmill_common::auth::fetch_authed_from_permissioned_as;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
-use windmill_common::users::truncate_token;
+use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::{paginate, send_email};
 use windmill_common::worker::{CLOUD_HOSTED, SMTP_CONFIG};
 use windmill_common::{
@@ -128,7 +129,13 @@ pub fn make_unauthed_service() -> Router {
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
-        Some(label) if label.starts_with("webhook-") => Some(label),
+        Some(label)
+            if label.starts_with("webhook-")
+                || label.starts_with("http-")
+                || label.starts_with("email-") =>
+        {
+            Some(label)
+        }
         Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
             label
                 .trim_start_matches("ephemeral-script-end-user-")
@@ -270,9 +277,10 @@ impl AuthCache {
             _ => {
                 let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<String>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes, label",
+                     OR expiration IS NULL) AND (workspace_id IS NULL OR workspace_id = $2) RETURNING owner, email, super_admin, scopes, label",
                 )
                 .bind(token)
+                .bind(w_id.as_ref())
                 .fetch_optional(&self.db)
                 .await
                 .ok()
@@ -698,14 +706,17 @@ where
 }
 
 pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
-    authed
-        .scopes
-        .as_ref()?
-        .iter()
-        .find_map(|s| match s.split(":").collect::<Vec<_>>().as_slice() {
-            ["if_jobs", "filter_tags", tags] => Some(tags.split(",").collect::<Vec<_>>()),
-            _ => None,
-        })
+    authed.scopes.as_ref()?.iter().find_map(|s| {
+        if s.starts_with("if_jobs:filter_tags:") {
+            Some(
+                s.trim_start_matches("if_jobs:filter_tags:")
+                    .split(",")
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -727,6 +738,28 @@ where
             .map(|authed| Self(Some(authed)))
             .or_else(|_| Ok(Self(None)))
     }
+}
+
+pub async fn fetch_api_authed(
+    username: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: String,
+) -> error::Result<ApiAuthed> {
+    let permissioned_as = username_to_permissioned_as(username.as_str());
+    let authed =
+        fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+    Ok(ApiAuthed {
+        username: username,
+        email: email,
+        is_admin: authed.is_admin,
+        is_operator: authed.is_operator,
+        groups: authed.groups,
+        folders: authed.folders,
+        scopes: authed.scopes,
+        username_override: Some(username_override),
+    })
 }
 
 #[derive(FromRow, Serialize)]
@@ -839,6 +872,7 @@ pub struct NewToken {
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2283,6 +2317,8 @@ async fn login(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
+    let audit_author =
+        AuditAuthor { email: email.clone(), username: email.clone(), username_override: None };
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
@@ -2298,6 +2334,16 @@ async fn login(
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_err()
         {
+            audit_log(
+                &mut *tx,
+                &audit_author,
+                "users.login_failure",
+                ActionKind::Create,
+                "global",
+                None,
+                None,
+            )
+            .await?;
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
             if first_time_user {
@@ -2323,11 +2369,7 @@ async fn login(
 
             audit_log(
                 &mut *tx,
-                &AuditAuthor {
-                    username: email.clone(),
-                    email: email.clone(),
-                    username_override: None,
-                },
+                &audit_author,
                 "users.login",
                 ActionKind::Create,
                 "global",
@@ -2340,6 +2382,16 @@ async fn login(
             Ok(token)
         }
     } else {
+        audit_log(
+            &mut *tx,
+            &audit_author,
+            "users.login_failure",
+            ActionKind::Create,
+            "global",
+            None,
+            None,
+        )
+        .await?;
         Err(Error::BadRequest("Invalid login".to_string()))
     }
 }
@@ -2416,14 +2468,15 @@ async fn create_token(
     .unwrap_or(false);
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin, scopes)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            (token, email, label, expiration, super_admin, scopes, workspace_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)",
         token,
         authed.email,
         new_token.label,
         new_token.expiration,
         is_super_admin,
-        new_token.scopes.as_ref().map(|x| x.as_slice())
+        new_token.scopes.as_ref().map(|x| x.as_slice()),
+        new_token.workspace_id,
     )
     .execute(&mut *tx)
     .await?;

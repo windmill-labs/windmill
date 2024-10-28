@@ -11,10 +11,14 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Script } from './gen'
+import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
+
+export function isJobCancelable(j: Job): boolean {
+	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
@@ -468,7 +472,7 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 }
 
 export function pluralize(quantity: number, word: string, customPlural?: string) {
-	if (quantity <= 1) {
+	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
 		return `${quantity} ${customPlural}}`
@@ -494,7 +498,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -504,7 +508,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null

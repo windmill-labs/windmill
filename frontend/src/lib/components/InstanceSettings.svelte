@@ -102,8 +102,8 @@
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
 		}
-		if (values['smtp_connect'] == undefined) {
-			values['smtp_connect'] = {}
+		if (values['smtp_settings'] == undefined) {
+			values['smtp_settings'] = {}
 		}
 		loading = false
 
@@ -206,7 +206,8 @@
 		'basecamp',
 		'linkedin',
 		'quickbooks',
-		'visma'
+		'visma',
+		'spotify'
 	]
 
 	let oauth_name = undefined

@@ -5,7 +5,8 @@
 		ScriptService,
 		type NewScriptWithDraft,
 		ScheduleService,
-		type Script
+		type Script,
+		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -16,7 +17,10 @@
 		emptyString,
 		encodeState,
 		formatCron,
-		orderedJsonStringify
+		orderedJsonStringify,
+
+		type Value
+
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -55,19 +59,16 @@
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
-	import ScriptSchedules from './ScriptSchedules.svelte'
 	import { writable } from 'svelte/store'
-	import {
-		type ScriptSchedule,
-		loadScriptSchedule,
-		defaultScriptLanguages,
-		processLangs
-	} from '$lib/scripts'
+	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import TriggersEditor from './triggers/TriggersEditor.svelte'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -84,6 +85,13 @@
 	export let replaceStateFn: (url: string) => void = (url) =>
 		window.history.replaceState(null, '', url)
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
+
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -95,28 +103,46 @@
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
 
-	let scheduleStore = writable<ScriptSchedule>({
-		summary: '',
-		cron: '0 */5 * * *',
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		args: {},
-		enabled: false
-	})
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
+	const triggersCount = writable<TriggersCount | undefined>(
+		savedPrimarySchedule
+			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+			: undefined
+	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
-	async function loadSchedule() {
-		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
-		if (scheduleRes) {
-			scheduleStore.set(scheduleRes)
-		}
+	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
+		primaryScheduleStore.set(schedule)
+		loadTriggers()
 	}
 
 	const dispatch = createEventDispatcher()
 
-	$: {
-		if (initialPath != '') {
-			loadSchedule()
+	$: initialPath != '' && loadTriggers()
+
+	async function loadTriggers() {
+		$triggersCount = await ScriptService.getTriggersCountOfScript({
+			workspace: $workspaceStore!,
+			path: initialPath
+		})
+		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
+			$triggersCount = {
+				...($triggersCount ?? {}),
+				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
+				primary_schedule: {
+					schedule: $primaryScheduleStore.cron
+				}
+			}
 		}
 	}
+
+	setContext<TriggerContext>('TriggerContext', {
+		selectedTrigger: selectedTriggerStore,
+		primarySchedule: primaryScheduleStore,
+		triggersCount
+	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 
@@ -180,7 +206,8 @@
 		})
 	}
 
-	$: !disableHistoryChange && replaceStateFn('#' + encodeState(script))
+	$: !disableHistoryChange &&
+		replaceStateFn('#' + encodeState({ ...script, primarySchedule: $primaryScheduleStore }))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -200,7 +227,10 @@
 	}
 
 	async function createSchedule(path: string) {
-		const { cron, timezone, args, enabled, summary } = $scheduleStore
+		if (!$primaryScheduleStore) {
+			return
+		}
+		const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
 
 		try {
 			await ScheduleService.createSchedule({
@@ -221,7 +251,62 @@
 		}
 	}
 
-	async function editScript(stay: boolean, deploymentMsg?: string): Promise<void> {
+	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void>{
+			// Fetch latest version and fetch entire script after if needed
+			let actual_parent_hash = (await ScriptService.getScriptLatestVersion({
+				workspace: $workspaceStore!,
+				path: script.path,
+			}))?.script_hash;
+
+
+			// Usually when we create new script, we put current hash as a parent_hash
+			// But if we specify parent_hash that is already used, than we get error
+			// In order to fix it we make sure that client's understanding of parent_hash 
+			// is aligns with understanding of backend.
+			if (script.parent_hash == actual_parent_hash) {
+				// Handle directly
+				await editScript(stay, actual_parent_hash, deployMsg);
+			} else {
+
+				// Fetch entire script, since we need it to show Diff
+				await syncWithDeployed()
+				
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					open = false
+					await editScript(stay, actual_parent_hash, deployMsg);
+				}
+				// Open confirmation modal
+				open = true
+			}
+	}
+
+	async function syncWithDeployed(){
+			const latestScript = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: script.path,
+				withStarredInfo: true
+			});
+
+			deployedValue = {
+				...latestScript,
+				starred: undefined,
+				workspace_id: undefined,
+				archived: undefined,
+				created_at: undefined,
+				created_by: undefined,
+				deleted: undefined,
+				extra_perms: undefined,
+				is_template: undefined,
+				lock: undefined,
+				lock_error_logs: undefined,
+				parent_hashes: undefined,
+			};
+
+			deployedBy = latestScript.created_by;
+	}
+
+	async function editScript(stay: boolean, parentHash: string, deploymentMsg?: string, ): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -245,7 +330,7 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: script.parent_hash,
+					parent_hash: parentHash,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
@@ -269,43 +354,53 @@
 				}
 			})
 
-			const { enabled, timezone, args, cron, summary } = $scheduleStore
-			const scheduleExists = await ScheduleService.existsSchedule({
-				workspace: $workspaceStore ?? '',
-				path: script.path
-			})
+			console.log('initialPath', initialPath)
+			const scheduleExists =
+				initialPath != '' &&
+				(await ScheduleService.existsSchedule({
+					workspace: $workspaceStore ?? '',
+					path: script.path
+				}))
+			if ($primaryScheduleStore) {
+				const { enabled, timezone, args, cron, summary } = $primaryScheduleStore
 
-			if (scheduleExists) {
-				const schedule = await ScheduleService.getSchedule({
+				if (scheduleExists) {
+					const schedule = await ScheduleService.getSchedule({
+						workspace: $workspaceStore ?? '',
+						path: script.path
+					})
+					if (
+						JSON.stringify(schedule.args) != JSON.stringify(args) ||
+						schedule.schedule != cron ||
+						schedule.timezone != timezone ||
+						schedule.summary != summary
+					) {
+						await ScheduleService.updateSchedule({
+							workspace: $workspaceStore ?? '',
+							path: script.path,
+							requestBody: {
+								schedule: formatCron(cron),
+								timezone,
+								args,
+								summary
+							}
+						})
+					}
+					if (enabled != schedule.enabled) {
+						await ScheduleService.setScheduleEnabled({
+							workspace: $workspaceStore ?? '',
+							path: script.path,
+							requestBody: { enabled }
+						})
+					}
+				} else if (enabled) {
+					await createSchedule(script.path)
+				}
+			} else if (scheduleExists && !$triggersCount?.primary_schedule) {
+				await ScheduleService.deleteSchedule({
 					workspace: $workspaceStore ?? '',
 					path: script.path
 				})
-				if (
-					JSON.stringify(schedule.args) != JSON.stringify(args) ||
-					schedule.schedule != cron ||
-					schedule.timezone != timezone ||
-					schedule.summary != summary
-				) {
-					await ScheduleService.updateSchedule({
-						workspace: $workspaceStore ?? '',
-						path: script.path,
-						requestBody: {
-							schedule: formatCron(cron),
-							timezone,
-							args,
-							summary
-						}
-					})
-				}
-				if (enabled != schedule.enabled) {
-					await ScheduleService.setScheduleEnabled({
-						workspace: $workspaceStore ?? '',
-						path: script.path,
-						requestBody: { enabled }
-					})
-				}
-			} else if (enabled) {
-				await createSchedule(script.path)
 			}
 
 			savedScript = structuredClone(script) as NewScriptWithDraft
@@ -405,7 +500,7 @@
 				requestBody: {
 					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
 					typ: 'script',
-					value: script
+					value: { ...script, primary_schedule: $primaryScheduleStore }
 				}
 			})
 
@@ -442,7 +537,7 @@
 						{
 							label: 'Deploy & Stay here',
 							onClick: () => {
-								editScript(true)
+								handleEditScript(true)
 							}
 						},
 						{
@@ -481,7 +576,7 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = 'metadata'
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
@@ -500,6 +595,14 @@
 <svelte:window on:keydown={onKeyDown} />
 <slot />
 
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={script}
+/>
 {#if !$userStore?.operator}
 	<Drawer
 		placement="right"
@@ -520,7 +623,7 @@
 						cannot be inferred from the type directly.
 					</Tooltip>
 				</Tab>
-				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
+				<Tab value="triggers">Triggers</Tab>
 				<svelte:fragment slot="content">
 					<div
 						class={selectedTab === 'ui' ? 'p-0' : 'p-4'}
@@ -1026,8 +1129,16 @@
 						<TabContent value="ui" class="h-full">
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
-						<TabContent value="schedule">
-							<ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} />
+						<TabContent value="triggers">
+							<TriggersEditor
+								{initialPath}
+								schema={script.schema}
+								noEditor={true}
+								isFlow={false}
+								currentPath={script.path}
+								newItem={initialPath == ''}
+							/>
+							<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
 						</TabContent>
 					</div>
 				</svelte:fragment>
@@ -1056,7 +1167,7 @@
 				</div>
 
 				<div class="gap-4 flex">
-					{#if $scheduleStore.enabled}
+					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1065,10 +1176,15 @@
 							size="xs"
 							on:click={async () => {
 								metadataOpen = true
-								selectedTab = 'schedule'
+								selectedTab = 'triggers'
+								$selectedTriggerStore = 'schedules'
 							}}
 						>
-							{$scheduleStore.cron ?? ''}
+							{$primaryScheduleStore != undefined
+								? $primaryScheduleStore
+									? $primaryScheduleStore?.cron
+									: ''
+								: $triggersCount?.primary_schedule?.schedule}
 						</Button>
 					{/if}
 					{#if customUi?.topBar?.path != false}
@@ -1111,14 +1227,16 @@
 							color="light"
 							variant="border"
 							size="xs"
-							on:click={() => {
+							on:click={async () => {
 								if (!savedScript) {
 									return
 								}
+								await syncWithDeployed()
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
-									deployed: savedScript,
+									deployed: deployedValue ?? savedScript,
 									draft: savedScript['draft'],
 									current: script
 								})
@@ -1163,7 +1281,7 @@
 							size="xs"
 							disabled={!fullyLoaded}
 							startIcon={{ icon: Save }}
-							on:click={() => editScript(false)}
+							on:click={() => handleEditScript(false)}
 							dropdownItems={computeDropdownItems(initialPath)}
 						>
 							Deploy
@@ -1177,13 +1295,13 @@
 									bind:this={msgInput}
 									on:keydown={(e) => {
 										if (e.key === 'Enter') {
-											editScript(false, deploymentMsg)
+											handleEditScript(false, deploymentMsg)
 										}
 									}}
 								/>
 								<Button
 									size="xs"
-									on:click={() => editScript(false, deploymentMsg)}
+									on:click={() => handleEditScript(false, deploymentMsg)}
 									endIcon={{ icon: CornerDownLeft }}
 									loading={loadingSave}
 								>

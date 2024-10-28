@@ -30,7 +30,7 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{get_sql_annotations, to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -85,7 +85,7 @@ fn do_postgresql_inner<'a>(
             let arg_t = arg
                 .otyp
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
+                .ok_or_else(|| anyhow::anyhow!("Missing otzyp for pg arg"))?;
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
@@ -191,7 +191,7 @@ pub async fn do_postgresql(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let annotations = get_sql_annotations(query);
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let sslmode = match database.sslmode.as_deref() {
         Some("allow") => "prefer".to_string(),
