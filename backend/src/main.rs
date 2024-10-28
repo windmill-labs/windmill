@@ -27,7 +27,7 @@ use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{schedule_key_renewal, LICENSE_KEY_ID, LICENSE_KEY_VALID};
+use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
     global_settings::{
@@ -447,7 +447,7 @@ Windmill Community Edition {GIT_VERSION}
         }
         if server_mode {
             // only force renewal if invalid but not empty (= expired)
-            let renewed_now = schedule_key_renewal(
+            let renewed_now = maybe_renew_license_key_on_start(
                 &HTTP_CLIENT,
                 &db,
                 !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
