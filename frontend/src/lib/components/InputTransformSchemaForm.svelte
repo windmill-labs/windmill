@@ -84,7 +84,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="z-10 pt-4">
+				<div class="z-10 pt-2 relative">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -128,7 +128,7 @@
 >
 	<div
 		slot="submission"
-		class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+		class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
 		<Button
 			variant="border"

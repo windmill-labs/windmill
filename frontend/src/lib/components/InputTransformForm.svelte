@@ -23,7 +23,7 @@
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
-
+	import { twMerge } from 'tailwind-merge'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
@@ -189,7 +189,15 @@
 </script>
 
 {#if arg != undefined}
-	<div class={$$props.class}>
+	<div
+		class={twMerge(
+			'p-2 ml-2 relative hover:bg-surface hover:shadow-[0_0_10px_5px_rgba(0,0,0,0.1)] transition-all duration-200',
+			$propPickerConfig?.propName == argName
+				? 'bg-surface rounded-l-md shadow-[0_0_10px_5px_rgba(0,0,0,0.1)] z-2000'
+				: 'hover:rounded-md',
+			$$props.class
+		)}
+	>
 		<div class="flex flex-row justify-between gap-1 pb-1">
 			<div class="flex flex-wrap grow">
 				<FieldHeader
@@ -344,12 +352,7 @@
 
 		<div class="max-w-xs" />
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div
-			class="relative {$propPickerConfig?.propName == argName
-				? 'outline outline-offset-1 outline-1 outline-blue-500 rounded-md'
-				: ''}"
-			on:keyup={stepInputGen?.onKeyUp}
-		>
+		<div class="relative p-2" on:keyup={stepInputGen?.onKeyUp}>
 			{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}

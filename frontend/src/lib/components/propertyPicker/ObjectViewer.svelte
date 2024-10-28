@@ -69,8 +69,6 @@
 	$: keyLimit = isArray ? 1 : 100
 
 	$: fullyCollapsed = keys.length > 1 && collapsed
-
-	$: console.log('dbg current path : ', currentPath)
 </script>
 
 <Portal name="object-viewer">
