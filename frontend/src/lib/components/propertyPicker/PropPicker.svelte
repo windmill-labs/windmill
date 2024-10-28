@@ -4,7 +4,6 @@
 	import { getContext } from 'svelte'
 	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
-	import { createEventDispatcher } from 'svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
@@ -22,7 +21,6 @@
 	let displayVariable = false
 	let displayResources = false
 	let allResultsCollapsed = true
-	const dispatch = createEventDispatcher()
 
 	const EMPTY_STRING = ''
 	let search = ''
@@ -86,12 +84,8 @@
 				allowCopy={false}
 				pureViewer={!$propPickerConfig}
 				json={flowInputsFiltered}
-				on:select={(e) => {
-					dispatch(
-						'select',
-						e.detail?.startsWith('[') ? `flow_input${e.detail}` : `flow_input.${e.detail}`
-					)
-				}}
+				prefix="flow_input"
+				on:select
 			/>
 		</div>
 		{#if error}
@@ -120,9 +114,8 @@
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
@@ -133,9 +126,8 @@
 						pureViewer={!$propPickerConfig}
 						collapsed={true}
 						json={resultByIdFiltered}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
@@ -149,9 +141,8 @@
 						json={Object.fromEntries(
 							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
 						)}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
@@ -166,9 +157,7 @@
 							resumes: 'All resume payloads from all approvers',
 							approvers: 'The list of approvers'
 						}}
-						on:select={(e) => {
-							dispatch('select', `${e.detail}`)
-						}}
+						on:select
 					/>
 				</div>
 			{/if}
@@ -181,9 +170,8 @@
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
@@ -207,9 +195,8 @@
 						pureViewer={!$propPickerConfig}
 						bind:collapsed={allResultsCollapsed}
 						json={resultByIdFiltered}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
@@ -236,7 +223,8 @@
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={variables}
-						on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
+						prefix="variable"
+						on:select
 					/>
 				{:else}
 					<Button
@@ -274,7 +262,8 @@
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={resources}
-						on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
+						prefix="resource"
+						on:select
 					/>
 				{:else}
 					<Button
