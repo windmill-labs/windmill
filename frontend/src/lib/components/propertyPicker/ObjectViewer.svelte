@@ -61,8 +61,7 @@
 	function selectProp(key: string, value: any | undefined = undefined) {
 		const fullKey = computeFullKey(key, rawKey)
 		if (pureViewer && allowCopy) {
-			const valueToCopy = value !== undefined ? value : fullKey
-			copyToClipboard(valueToCopy)
+			copyToClipboard(fullKey)
 		}
 		dispatch('select', fullKey)
 	}
@@ -125,31 +124,38 @@
 								collapsed={collapseLevel !== undefined ? level + 1 >= collapseLevel : undefined}
 							/>
 						{:else}
-							<button
-								class="val text-left {pureViewer
-									? 'cursor-auto'
-									: ''} rounded px-1 hover:bg-blue-100 dark:hover:bg-blue-100/10 {getTypeAsString(
-									json[key]
-								)}"
-								on:click={() => selectProp(key, json[key])}
-								disabled={true}
-							>
-								{#if json[key] === NEVER_TESTED_THIS_FAR}
-									<span class="text-2xs text-tertiary font-normal">
-										Test the flow to see a value
-									</span>
-								{:else if json[key] == undefined}
-									<span class="text-2xs">undefined</span>
-								{:else if json[key] == null}
-									<span class="text-2xs">null</span>
-								{:else if typeof json[key] == 'string'}
-									<span title={json[key]} class="text-2xs">"{truncate(json[key], 200)}"</span>
-								{:else}
-									<span title={JSON.stringify(json[key])} class="text-2xs">
-										{truncate(JSON.stringify(json[key]), 200)}
-									</span>
-								{/if}
-							</button>
+							<Popover disablePopup={!json[key]}>
+								<svelte:fragment slot="text">
+									{JSON.stringify(json[key])}
+								</svelte:fragment>
+								<button
+									class="val text-left {pureViewer
+										? 'cursor-auto'
+										: ''} rounded px-1 {getTypeAsString(json[key])}"
+									on:click={() => {
+										if (json[key]) {
+											copyToClipboard(json[key])
+										}
+									}}
+									disabled={false}
+								>
+									{#if json[key] === NEVER_TESTED_THIS_FAR}
+										<span class="text-2xs text-tertiary font-normal">
+											Test the flow to see a value
+										</span>
+									{:else if json[key] == undefined}
+										<span class="text-2xs">undefined</span>
+									{:else if json[key] == null}
+										<span class="text-2xs">null</span>
+									{:else if typeof json[key] == 'string'}
+										<span class="text-2xs">"{truncate(json[key], 200)}"</span>
+									{:else}
+										<span class="text-2xs">
+											{truncate(JSON.stringify(json[key]), 200)}
+										</span>
+									{/if}
+								</button>
+							</Popover>
 						{/if}
 					</li>
 				{/each}
