@@ -650,6 +650,10 @@ const command = new Command()
   .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pulling instance groups")
   .option("--include-workspaces", "Also pull workspaces")
+  .option(
+    "--instance <instance:string>",
+    "Name of the instance to push to, override the active instance"
+  )
   .action(instancePull as any)
   .command("push")
   .description(
