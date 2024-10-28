@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.413.1](https://github.com/windmill-labs/windmill/compare/v1.413.0...v1.413.1) (2024-10-28)
+
+
+### Bug Fixes
+
+* **cli:** fix wmill instance push --base-url and --instance ([8298710](https://github.com/windmill-labs/windmill/commit/82987105a6fd6ec272c170fb094453a0267143be))
+
 ## [1.413.0](https://github.com/windmill-labs/windmill/compare/v1.412.0...v1.413.0) (2024-10-28)
 
 
