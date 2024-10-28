@@ -58,18 +58,16 @@
 	use:clickOutside
 	on:click_outside={() => propPickerConfig.set(undefined)}
 >
-	<Splitpanes>
-		<Pane
-			minSize={20}
-			size={60}
-			class={twMerge('relative !transition-none', noPadding ? '' : 'p-2')}
-		>
+	<Splitpanes class="splitpanes-remove-splitter">
+		<Pane class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}>
 			<slot />
 		</Pane>
 		<Pane
 			minSize={20}
 			size={40}
-			class="pt-2 relative !transition-none {$propPickerConfig ? 'border-2 border-blue-500' : ''}"
+			class="pt-2 relative ml-[-1px] !transition-none z-1000 {$propPickerConfig
+				? 'shadow-[0_0_10px_5px_rgba(0,0,0,0.1)]'
+				: ''}"
 		>
 			{#if result}
 				<PropPickerResult
@@ -102,3 +100,14 @@
 		</Pane>
 	</Splitpanes>
 </div>
+
+<style>
+	:global(.splitpanes-remove-splitter > .splitpanes__pane) {
+		background-color: inherit !important;
+	}
+	:global(.splitpanes-remove-splitter > .splitpanes__splitter) {
+		background-color: transparent !important;
+		width: 0 !important;
+		border: none !important;
+	}
+</style>

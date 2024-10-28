@@ -870,9 +870,9 @@
 										'w-full',
 										valid
 											? ''
-											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+											: 'border  border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
 									)}
-									placeholder={placeholder ?? defaultValue ?? ''}
+									placeholder="blabla"
 									bind:value
 								/>
 							{/key}
