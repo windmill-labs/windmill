@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.413.0](https://github.com/windmill-labs/windmill/compare/v1.412.0...v1.413.0) (2024-10-28)
+
+
+### Features
+
+* autoscaling v0 ([#4593](https://github.com/windmill-labs/windmill/issues/4593)) ([fe7d044](https://github.com/windmill-labs/windmill/commit/fe7d044a66e8ec223a337cb704d3e58942dd1502))
+
+
+### Bug Fixes
+
+* add run immediately popover to run again ([e54d253](https://github.com/windmill-labs/windmill/commit/e54d25368541dc6109a0f99022a120d28455f9bd))
+* **docs:** smtp setup documentation link ([#4590](https://github.com/windmill-labs/windmill/issues/4590)) ([bac3205](https://github.com/windmill-labs/windmill/commit/bac32057259d893140d649c9dfec2ca75e395ad4))
+
 ## [1.412.0](https://github.com/windmill-labs/windmill/compare/v1.411.1...v1.412.0) (2024-10-25)
 
 
