@@ -150,7 +150,7 @@
 					$primarySchedule = {
 						summary: '',
 						args: {},
-						cron: '0 0 0 /1 * * *',
+						cron: '0 0 */1 * * *',
 						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 						enabled: true
 					}

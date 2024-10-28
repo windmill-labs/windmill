@@ -150,7 +150,7 @@
 					outputs?.inputs.set(inputs, true)
 				},
 				onRemove: (id, rowIndex) => {
-				if (inputs?.[id] == undefined) {
+					if (inputs?.[id] == undefined) {
 						return
 					}
 					delete inputs[id][rowIndex]
@@ -267,10 +267,24 @@
 
 		// Validate each column definition
 		columnDefs.forEach((colDef, index) => {
+			let noField = !colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === ''
+
 			// Check if 'field' property exists and is a non-empty string
-			if (!colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === '') {
+			if (noField && !(colDef.children && Array.isArray(colDef.children))) {
 				isValid = false
-				errors.push(`Column at index ${index} is missing a valid 'field' property.`)
+				errors.push(
+					`Column at index ${index} is missing a valid 'field' property nor having any children.`
+				)
+			}
+
+			if (colDef.children && Array.isArray(colDef.children)) {
+				const { isValid: isChildrenValid, errors: childrenErrors } = validateColumnDefs(
+					colDef.children
+				)
+				if (!isChildrenValid) {
+					isValid = false
+					errors.push(...childrenErrors.map((err) => `Error in children at index ${index}: ${err}`))
+				}
 			}
 		})
 

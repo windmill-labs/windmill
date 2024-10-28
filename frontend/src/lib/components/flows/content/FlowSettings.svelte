@@ -441,7 +441,7 @@
 					}}
 					options={{
 						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
+						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first. ${
 							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
 						}`
 					}}
