@@ -65,9 +65,9 @@
 		<Pane
 			minSize={20}
 			size={40}
-			class="pt-2 relative ml-[-1px] !transition-none z-1000 {$propPickerConfig
-				? 'shadow-[0_0_10px_5px_rgba(0,0,0,0.1)]'
-				: ''}"
+			class="pt-2 relative ml-[-1px] border-4 !transition-none z-1000 {$propPickerConfig
+				? 'rounded-l-md border-blue-500'
+				: 'border-transparent'}"
 		>
 			{#if result}
 				<PropPickerResult
