@@ -6,7 +6,7 @@
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-
+	import Popover from '$lib/components/Popover.svelte'
 	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -20,6 +20,7 @@
 	export let topBrackets = false
 	export let allowCopy = true
 	export let collapseLevel: number | undefined = undefined
+	export let prefix = ''
 
 	let s3FileViewer: S3FilePicker
 
@@ -48,17 +49,29 @@
 
 	const dispatch = createEventDispatcher()
 
+	function computeFullKey(key: string, rawKey: boolean) {
+		if (rawKey) {
+			return `${prefix}('${key}')`
+		}
+		const keyToSelect = computeKey(key, isArray, currentPath)
+		const separator = !prefix || keyToSelect.startsWith('[') ? '' : '.'
+		return prefix + separator + keyToSelect
+	}
+
 	function selectProp(key: string, value: any | undefined = undefined) {
+		const fullKey = computeFullKey(key, rawKey)
 		if (pureViewer && allowCopy) {
-			const valueToCopy = value !== undefined ? value : computeKey(key, isArray, currentPath)
+			const valueToCopy = value !== undefined ? value : fullKey
 			copyToClipboard(valueToCopy)
 		}
-		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
+		dispatch('select', fullKey)
 	}
 
 	$: keyLimit = isArray ? 1 : 100
 
 	$: fullyCollapsed = keys.length > 1 && collapsed
+
+	$: console.log('dbg current path : ', currentPath)
 </script>
 
 <Portal name="object-viewer">
@@ -84,24 +97,27 @@
 			<ul class={`w-full pl-2 ${level === 0 ? 'border-none' : 'border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<Button
-							on:click={() => selectProp(key)}
-							size="xs2"
-							color="dark"
-							variant="contained"
-							wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
-							btnClasses="font-normal rounded-[0.275rem]"
-						>
-							<span class={pureViewer ? 'cursor-auto' : ''}>
-								{!isArray ? key : index}
-							</span>
-						</Button>
+						<Popover>
+							<svelte:fragment slot="text">{computeFullKey(key, rawKey)}</svelte:fragment>
+							<Button
+								on:click={() => selectProp(key)}
+								size="xs2"
+								color="dark"
+								variant="contained"
+								wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
+								btnClasses="font-normal rounded-[0.275rem]"
+							>
+								<span class={pureViewer ? 'cursor-auto' : ''}>
+									{!isArray ? key : index}
+								</span>
+							</Button>
+						</Popover>
 						:
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
 								json={json[key]}
 								level={level + 1}
-								currentPath={computeKey(key, isArray, currentPath)}
+								currentPath={computeFullKey(key, isArray)}
 								{pureViewer}
 								{allowCopy}
 								on:select
