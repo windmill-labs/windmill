@@ -5,25 +5,9 @@ import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 
-export type InsertionMode = 'connect' | 'insert' | 'append'
-export type SelectCallback = (detail: any) => boolean
-
-export type PropPickerConfig = {
-	propName: string
-	insertionMode: InsertionMode
-	onSelect: SelectCallback
-}
-
-export type PropPickerWrapper = {
-	propPickerConfig: Writable<PropPickerConfig | undefined>
-	focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
-	clearFocus: () => void
-}
-
 export type FlowInput = Record<
 	string,
 	{
-		connectingInputs?: PropPickerWrapper
 		flowStepWarnings?: Record<
 			string,
 			{

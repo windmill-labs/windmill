@@ -1,15 +1,31 @@
+<script context="module" lang="ts">
+	type InsertionMode = 'append' | 'connect' | 'insert'
+
+	type SelectCallback = (path: string) => boolean
+
+	type PropPickerConfig = {
+		insertionMode: InsertionMode
+		propName: string
+		onSelect: SelectCallback
+	}
+
+	export type PropPickerWrapperContext = {
+		propPickerConfig: Writable<PropPickerConfig | undefined>
+		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
+		clearFocus: () => void
+	}
+</script>
+
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
-	import { getContext, createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
-	import type { FlowEditorContext } from '../types'
-	import { writable } from 'svelte/store'
-	import type { PropPickerConfig, InsertionMode, SelectCallback } from '../types'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
@@ -19,47 +35,23 @@
 	export let displayContext = true
 	export let notSelectable = false
 	export let noPadding: boolean = false
-	export let id: string
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
-	const { flowInputsStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
-	function setPropPickerConfig() {
-		if ($flowInputsStore && id && $flowInputsStore?.[id] === undefined) {
-			$flowInputsStore[id] = {
-				connectingInputs: {
-					propPickerConfig,
-					focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => {
-						propPickerConfig.set({
-							propName,
-							insertionMode,
-							onSelect
-						})
-					},
-					clearFocus: () => {
-						propPickerConfig.set(undefined)
-					}
-				}
-			}
-		} else if ($flowInputsStore && id) {
-			$flowInputsStore[id].connectingInputs = {
-				propPickerConfig,
-				focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => {
-					propPickerConfig.set({
-						propName,
-						insertionMode,
-						onSelect
-					})
-				},
-				clearFocus: () => {
-					propPickerConfig.set(undefined)
-				}
-			}
+	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
+		propPickerConfig,
+		focusProp: (propName, insertionMode, onSelect) => {
+			propPickerConfig.set({
+				propName,
+				insertionMode,
+				onSelect
+			})
+		},
+		clearFocus: () => {
+			propPickerConfig.set(undefined)
 		}
-	}
-
-	$: $flowInputsStore && setPropPickerConfig()
+	})
 </script>
 
 <div
@@ -77,10 +69,7 @@
 				baseRadius="4px"
 				wrapperClasses="h-full w-full pt-2"
 				marginWidth="4px"
-				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
-				$propPickerConfig?.insertionMode == 'append'
-					? '#3b82f6'
-					: 'transparent'}
+				ringColor={$propPickerConfig?.insertionMode == 'insert' ? '#3b82f6' : 'transparent'}
 				animationDuration="1s"
 			>
 				{#if result}
@@ -104,12 +93,11 @@
 						{notSelectable}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
-							//dispatch('select', detail)
+							dispatch('select', detail)
 							if ($propPickerConfig?.onSelect(detail)) {
 								propPickerConfig.set(undefined)
 							}
 						}}
-						{id}
 					/>
 				{/if}
 			</AnimatedButton>

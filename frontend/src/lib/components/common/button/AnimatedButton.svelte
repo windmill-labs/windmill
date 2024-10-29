@@ -4,7 +4,7 @@
 	export let marginWidth = '2px'
 	export let animationDuration = '2s'
 	export let baseRadius = '4px'
-	export let animate: boolean = true
+	export let animate = true
 	export let wrapperClasses = ''
 	export let ringColor = 'transparent'
 

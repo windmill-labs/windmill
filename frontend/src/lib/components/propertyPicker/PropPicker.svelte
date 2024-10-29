@@ -3,7 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import { Badge, Button } from '../common'
-	import type { FlowEditorContext } from '../flows/types'
+	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
@@ -15,7 +15,6 @@
 	export let notSelectable: boolean
 	export let error: boolean = false
 	export let allowCopy = false
-	export let id: string
 
 	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
@@ -27,9 +26,7 @@
 	const EMPTY_STRING = ''
 	let search = ''
 
-	const { flowInputsStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	$: propPickerConfig = flowInputsStore[id]?.connectingInputs?.propPickerConfig
+	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$: flowInputsFiltered =
 		search === EMPTY_STRING

@@ -6,7 +6,7 @@
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
-	import type { FlowEditorContext } from './flows/types'
+	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button } from '$lib/components/common'
@@ -39,7 +39,6 @@
 	export let argExtra: Record<string, any> = {}
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let enableAi = false
-	export let id: string
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
@@ -147,8 +146,6 @@
 
 	function onFocus() {
 		focused = true
-		if (!focusProp) return
-
 		if (isStaticTemplate(inputCat)) {
 			focusProp(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
@@ -169,7 +166,7 @@
 		}
 	}
 
-	const { flowInputsStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
 
@@ -192,14 +189,11 @@
 
 	loadResourceTypes()
 
-	$: propPickerConfig = $flowInputsStore[id]?.connectingInputs?.propPickerConfig
-	$: focusProp = $flowInputsStore[id]?.connectingInputs?.focusProp
-
 	$: connecting =
 		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
 </script>
 
-{#if arg != undefined && focusProp}
+{#if arg != undefined}
 	<div
 		class={twMerge(
 			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
@@ -482,7 +476,7 @@
 					{/if}
 				</div>
 
-				{#if $propPickerConfig?.propName == argName && ($propPickerConfig?.insertionMode == 'insert' || $propPickerConfig?.insertionMode == 'append')}
+				{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'insert'}
 					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"

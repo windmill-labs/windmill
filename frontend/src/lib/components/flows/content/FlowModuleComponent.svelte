@@ -13,7 +13,7 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext, tick, createEventDispatcher } from 'svelte'
+	import { afterUpdate, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -48,8 +48,6 @@
 	import { debounce } from '$lib/utils'
 	import { dfs } from '../dfs'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import { writable } from 'svelte/store'
-	import type { PropPickerConfig } from '../types'
 
 	const {
 		selectedId,
@@ -215,33 +213,6 @@
 		}
 		debouncedWarning(argName)
 	}
-
-	function setConnect() {
-		const dispatch = createEventDispatcher()
-		if ($flowInputsStore && flowModule.id && $flowInputsStore?.[flowModule.id] === undefined) {
-			$flowInputsStore[flowModule.id] = {}
-		}
-
-		const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
-		$flowInputsStore[flowModule.id] = {
-			connectingInputs: {
-				propPickerConfig,
-				focusProp: (propName, insertionMode, onSelect) => {
-					propPickerConfig.set({
-						propName,
-						insertionMode,
-						onSelect
-					})
-				},
-				clearFocus: () => {
-					propPickerConfig.set(undefined)
-					dispatch('connect', false)
-				}
-			}
-		}
-	}
-
-	setConnect()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -408,10 +379,6 @@
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
 										noPadding
-										on:connect={(e) => {
-											console.log('dbg connect', e.detail)
-										}}
-										id={flowModule.id}
 									>
 										<InputTransformSchemaForm
 											bind:this={inputTransformSchemaForm}
@@ -424,12 +391,7 @@
 											on:changeArg={(e) => {
 												const { argName } = e.detail
 												setFlowInput(argName)
-												console.log('dbg changeArg', argName)
 											}}
-											on:connect={(e) => {
-												console.log('dbg connect 3', e.detail)
-											}}
-											id={flowModule.id}
 										/>
 									</PropPickerWrapper>
 								</div>

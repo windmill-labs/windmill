@@ -23,7 +23,7 @@
 	export let noDynamicToggle = false
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let enableAi = false
-	export let id: string
+
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -102,11 +102,6 @@
 							const { argName } = e.detail
 							dispatch('changeArg', { argName })
 						}}
-						on:connect={(e) => {
-							dispatch('connect', e.detail)
-							console.log('dbg connect 2', e.detail)
-						}}
-						{id}
 					/>
 				</div>
 			{/if}
