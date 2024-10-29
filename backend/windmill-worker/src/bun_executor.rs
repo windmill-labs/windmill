@@ -67,7 +67,7 @@ pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
 
-fn spit_lockfile(lockfile: &str) -> (&str, Option<&str>, bool) {
+fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool) {
     if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT) {
         // Split using "\n//bun.lockb\n"
         let (before, after_with_sep) = lockfile.split_at(index);
@@ -785,7 +785,7 @@ async fn compute_bundle_local_and_remote_path(
 }
 
 pub async fn prepare_job_dir(reqs: &str, job_dir: &str) -> Result<()> {
-    let (pkg, lock, empty) = spit_lockfile(reqs);
+    let (pkg, lock, empty) = split_lockfile(reqs);
     let _ = write_file(job_dir, "package.json", pkg)?;
 
     if !empty {
@@ -900,7 +900,7 @@ pub async fn handle_bun_job(
     } else if let Some(codebase) = codebase.as_ref() {
         pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o.as_ref() {
-        let (pkg, lock, empty) = spit_lockfile(reqs);
+        let (pkg, lock, empty) = split_lockfile(reqs);
 
         if lock.is_none() && !annotation.npm {
             return Err(error::Error::ExecutionErr(
@@ -1588,7 +1588,7 @@ pub async fn start_worker(
     if let Some(codebase) = codebase.as_ref() {
         pull_codebase(w_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o {
-        let (pkg, lock, empty) = spit_lockfile(&reqs);
+        let (pkg, lock, empty) = split_lockfile(&reqs);
         if lock.is_none() {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
