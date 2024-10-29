@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.413.2](https://github.com/windmill-labs/windmill/compare/v1.413.1...v1.413.2) (2024-10-29)
+
+
+### Bug Fixes
+
+* **backend:** in flows, workspace scripts should use their set tags instead of the default one ([5b7c6d7](https://github.com/windmill-labs/windmill/commit/5b7c6d7d62dcfd09fec374e781bdf5c5bafe4a9d))
+* **cli:** fix wmill instance pull  --instance ([3c62f5e](https://github.com/windmill-labs/windmill/commit/3c62f5ea83d1da8bd3705468969d56e2fe680751))
+* **frontend:** fix script and flow renaming ([d743e00](https://github.com/windmill-labs/windmill/commit/d743e0056353a4fca445a7089e3afc1fd4e8c219))
+
 ## [1.413.1](https://github.com/windmill-labs/windmill/compare/v1.413.0...v1.413.1) (2024-10-28)
 
 
