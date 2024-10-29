@@ -1335,7 +1335,6 @@ mod tests {
                   },
                 "type": "script",
                 "path": "test",
-                "tag_override": Option::<String>::None,
               },
             },
             {
@@ -1379,14 +1378,12 @@ mod tests {
               "input_transforms": {},
               "type": "script",
               "path": "test",
-              "tag_override": Option::<String>::None,
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
                 "skip_if_stopped": false
             }
           },
-          "preprocessor_module": Option::<String>::None
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
     }

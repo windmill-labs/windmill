@@ -62,7 +62,7 @@
 			</SplitPanesWrapper>
 		</div>
 	{:else}
-		<div class="h-full">
+		<div class="h-full w-full">
 			<slot name="header" />
 			<Tabs bind:selected={mobileTab}>
 				<Tab value="form">Run form</Tab>
@@ -75,27 +75,29 @@
 				{/if}
 
 				<svelte:fragment slot="content">
-					<TabContent value="form" class="flex flex-col flex-1 h-full">
-						<slot name="form" />
-					</TabContent>
+					<div class="h-full">
+						<TabContent value="form" class="flex flex-col flex-1 h-full">
+							<slot name="form" />
+						</TabContent>
 
-					<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
-						<slot name="save_inputs" />
-					</TabContent>
-					<TabContent value="triggers" class="flex flex-col flex-1 h-full">
-						<DetailPageTriggerPanel bind:triggerSelected={$selectedTriggerStore}>
-							<slot slot="webhooks" name="webhooks" />
-							<slot slot="routes" name="routes" />
-							<slot slot="script" name="script" />
-							<slot slot="websockets" name="websockets" />
-							<slot slot="emails" name="emails" />
-							<slot slot="schedules" name="schedules" />
-							<slot slot="cli" name="cli" />
-						</DetailPageTriggerPanel>
-					</TabContent>
-					<TabContent value="script" class="flex flex-col flex-1 h-full">
-						<slot name="script" />
-					</TabContent>
+						<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
+							<slot name="save_inputs" />
+						</TabContent>
+						<TabContent value="triggers" class="flex flex-col flex-1 h-full">
+							<DetailPageTriggerPanel bind:triggerSelected={$selectedTriggerStore}>
+								<slot slot="webhooks" name="webhooks" />
+								<slot slot="routes" name="routes" />
+								<slot slot="script" name="script" />
+								<slot slot="websockets" name="websockets" />
+								<slot slot="emails" name="emails" />
+								<slot slot="schedules" name="schedules" />
+								<slot slot="cli" name="cli" />
+							</DetailPageTriggerPanel>
+						</TabContent>
+						<TabContent value="script" class="flex flex-col flex-1 h-full">
+							<slot name="script" />
+						</TabContent>
+					</div>
 				</svelte:fragment>
 			</Tabs>
 		</div>

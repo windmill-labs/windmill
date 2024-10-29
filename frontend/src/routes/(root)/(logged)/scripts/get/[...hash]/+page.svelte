@@ -742,7 +742,7 @@
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="script">
-				<div>
+				<div class="h-full">
 					<Skeleton {loading} layout={[[20]]} />
 
 					<Tabs selected="code">
@@ -751,7 +751,7 @@
 						<Tab value="schema" size="xs">Schema</Tab>
 						<svelte:fragment slot="content">
 							<TabContent value="code">
-								<div class="p-2 w-full overflow-auto">
+								<div class="p-2 w-full">
 									<HighlightCode
 										language={script.language}
 										code={script.content}
@@ -785,7 +785,7 @@
 								</div>
 							</TabContent>
 							<TabContent value="schema">
-								<div class="p-1 relative">
+								<div class="p-1 relative h-full">
 									<button
 										on:click={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
 										class="absolute top-2 right-2"

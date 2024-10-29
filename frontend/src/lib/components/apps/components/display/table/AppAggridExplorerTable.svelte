@@ -324,6 +324,7 @@
 						: false,
 					initialState: state,
 					suppressRowDeselection: true,
+					enableCellTextSelection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
 					onViewportChanged: (e) => {
 						firstRow = e.firstRow

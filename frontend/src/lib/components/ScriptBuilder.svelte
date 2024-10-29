@@ -252,20 +252,28 @@
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
 		// Fetch latest version and fetch entire script after if needed
-		let actual_parent_hash = (
-			await ScriptService.getScriptLatestVersion({
-				workspace: $workspaceStore!,
-				path: script.path
-			})
-		)?.script_hash
+		let actual_parent_hash: string | undefined = undefined
+
+		try {
+			if (initialPath && initialPath != '') {
+				actual_parent_hash = (
+					await ScriptService.getScriptLatestVersion({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+				)?.script_hash
+			}
+		} catch (error) {
+			//
+		}
 
 		// Usually when we create new script, we put current hash as a parent_hash
 		// But if we specify parent_hash that is already used, than we get error
 		// In order to fix it we make sure that client's understanding of parent_hash
 		// is aligns with understanding of backend.
-		if (script.parent_hash == actual_parent_hash) {
+		if (actual_parent_hash == undefined || script.parent_hash == actual_parent_hash) {
 			// Handle directly
-			await editScript(stay, actual_parent_hash, deployMsg)
+			await editScript(stay, script.parent_hash!, deployMsg)
 		} else {
 			// Fetch entire script, since we need it to show Diff
 			await syncWithDeployed()
@@ -283,7 +291,7 @@
 	async function syncWithDeployed() {
 		const latestScript = await ScriptService.getScriptByPath({
 			workspace: $workspaceStore!,
-			path: script.path,
+			path: initialPath,
 			withStarredInfo: true
 		})
 
@@ -305,11 +313,7 @@
 		deployedBy = latestScript.created_by
 	}
 
-	async function editScript(
-		stay: boolean,
-		parentHash: string,
 		deploymentMsg?: string
-	): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -357,7 +361,6 @@
 				}
 			})
 
-			console.log('initialPath', initialPath)
 			const scheduleExists =
 				initialPath != '' &&
 				(await ScheduleService.existsSchedule({

@@ -115,13 +115,13 @@
 		}
 		$flowStateStore[module.id] = state
 
-		if (kind == 'trigger') {
+		if (kind == 'approval') {
+			module.suspend = { required_events: 1, timeout: 1800 }
+		} else if (kind == 'trigger') {
 			module.stop_after_if = {
 				expr: '!result || (Array.isArray(result) && result.length == 0)',
 				skip_if_stopped: true
 			}
-		} else if (kind == 'approval') {
-			module.suspend = { required_events: 1 }
 		} else if (kind == 'end') {
 			module.summary = 'Terminate flow'
 			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }

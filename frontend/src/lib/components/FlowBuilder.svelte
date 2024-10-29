@@ -119,12 +119,21 @@
 		if (version === undefined) {
 			return
 		}
-		const flowVersion = await FlowService.getFlowLatestVersion({
-			workspace: $workspaceStore!,
-			path: $pathStore
-		})
+		try {
+			if (initialPath && initialPath != '') {
+				const flowVersion = await FlowService.getFlowLatestVersion({
+					workspace: $workspaceStore!,
+					path: initialPath
+				})
 
-		onLatest = version === flowVersion?.id
+				onLatest = version === flowVersion?.id
+			} else {
+				onLatest = true
+			}
+		} catch (err) {
+			console.error('Error comparing versions', err)
+			onLatest = true
+		}
 	}
 
 	const dispatch = createEventDispatcher()
@@ -277,7 +286,7 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest) {
+		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -295,7 +304,7 @@
 	async function syncWithDeployed() {
 		const flow = await FlowService.getFlowByPath({
 			workspace: $workspaceStore!,
-			path: $pathStore,
+			path: initialPath,
 			withStarredInfo: true
 		})
 		deployedValue = {
