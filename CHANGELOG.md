@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.414.0](https://github.com/windmill-labs/windmill/compare/v1.413.2...v1.414.0) (2024-10-29)
+
+* Issue with previous release, re-releasing
+
 ## [1.413.2](https://github.com/windmill-labs/windmill/compare/v1.413.1...v1.413.2) (2024-10-29)
 
 
