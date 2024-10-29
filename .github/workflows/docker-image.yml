@@ -461,6 +461,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
+            type=ref,event=branch
+            type=ref,event=pr
 
       - name: Login to registry
         uses: docker/login-action@v3
@@ -478,7 +480,6 @@ jobs:
           file: "./docker/DockerfileNsjail"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
-            ghcr.io/windmill-labs/windmill-ee-nsjail:main
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
