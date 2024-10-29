@@ -9,7 +9,8 @@
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { Button } from './common'
+	import { Button } from '$lib/components/common'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { fade } from 'svelte/transition'
@@ -187,6 +188,9 @@
 	let stepInputGen: StepInputGen | undefined = undefined
 
 	loadResourceTypes()
+
+	$: connecting =
+		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
 </script>
 
 {#if arg != undefined}
@@ -331,22 +335,23 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<Button
-						title="Connect to another node's output"
-						variant="border"
-						color="light"
-						size="xs2"
-						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-								return true
-							})
-						}}
-						id="flow-editor-plug"
-					>
-						<Plug size={16} /> &rightarrow;
-					</Button>
+					<AnimatedButton animate={connecting} baseRadius="6px" animationDuration="1s">
+						<Button
+							variant="border"
+							color="light"
+							size="xs2"
+							btnClasses={connecting ? 'text-blue-500' : 'text-primary'}
+							on:click={() => {
+								focusProp(argName, 'connect', (path) => {
+									connectProperty(path)
+									dispatch('change', { argName })
+									return true
+								})
+							}}
+						>
+							<Plug size={16} /> &rightarrow;
+						</Button>
+					</AnimatedButton>
 				</div>
 			{/if}
 		</div>
@@ -354,13 +359,13 @@
 		<div class="max-w-xs" />
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div class="relative" on:keyup={stepInputGen?.onKeyUp}>
-			{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
+			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
 				>
 					Connect input &rightarrow;
 				</span>
-			{/if}
+			{/if} -->
 			<!-- {inputCat}
 			{propertyType} -->
 			<div class="relative flex flex-row items-top gap-2 justify-between">
@@ -471,7 +476,7 @@
 					{/if}
 				</div>
 
-				{#if $propPickerConfig?.propName == argName}
+				{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'insert'}
 					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
