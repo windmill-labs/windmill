@@ -1,32 +1,13 @@
-<script context="module" lang="ts">
-	type InsertionMode = 'append' | 'connect' | 'insert'
-
-	type SelectCallback = (path: string) => boolean
-
-	type PropPickerConfig = {
-		insertionMode: InsertionMode
-		propName: string
-		onSelect: SelectCallback
-	}
-
-	export type PropPickerWrapperContext = {
-		propPickerConfig: Writable<PropPickerConfig | undefined>
-		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
-		clearFocus: () => void
-	}
-</script>
-
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
-
+	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
 	export let extraResults: any = undefined
@@ -36,22 +17,9 @@
 	export let notSelectable = false
 	export let noPadding: boolean = false
 
-	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 	const dispatch = createEventDispatcher()
 
-	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
-		propPickerConfig,
-		focusProp: (propName, insertionMode, onSelect) => {
-			propPickerConfig.set({
-				propName,
-				insertionMode,
-				onSelect
-			})
-		},
-		clearFocus: () => {
-			propPickerConfig.set(undefined)
-		}
-	})
+	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 <div

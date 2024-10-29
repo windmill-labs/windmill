@@ -3,7 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import { Badge, Button } from '../common'
-	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
+	import type { PropPickerWrapperContext } from '../prop_picker'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'

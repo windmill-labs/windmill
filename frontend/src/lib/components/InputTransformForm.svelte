@@ -6,7 +6,7 @@
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
-	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
+	import type { PropPickerWrapperContext } from './prop_picker'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button } from '$lib/components/common'

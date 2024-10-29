@@ -4,10 +4,12 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
+	import { writable } from 'svelte/store'
+	import type { PropPickerWrapperContext, PropPickerConfig } from '$lib/components/prop_picker'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -24,6 +26,21 @@
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
+
+	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
+	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
+		propPickerConfig,
+		focusProp: (propName, insertionMode, onSelect) => {
+			propPickerConfig.set({
+				propName,
+				insertionMode,
+				onSelect
+			})
+		},
+		clearFocus: () => {
+			propPickerConfig.set(undefined)
+		}
+	})
 </script>
 
 <div

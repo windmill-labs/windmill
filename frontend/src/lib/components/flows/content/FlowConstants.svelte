@@ -4,7 +4,7 @@
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
 	import { getContext, setContext } from 'svelte'
-	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
+	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
 	import { writable } from 'svelte/store'
 	import Toggle from '../../Toggle.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
