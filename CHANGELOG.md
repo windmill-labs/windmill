@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.414.1](https://github.com/windmill-labs/windmill/compare/v1.414.0...v1.414.1) (2024-10-29)
+
+
+### Bug Fixes
+
+* **apps:** enable text selection on aggrid tables by default ([b0b9180](https://github.com/windmill-labs/windmill/commit/b0b9180fb907c92b95a48ff286eb1dae59bb4981))
+* **apps:** public apps can take full height ([703db7d](https://github.com/windmill-labs/windmill/commit/703db7d4412795b4323a2eefcc39ae3cf43bc748))
+* **bun:** handle bun lockfile created with windows ([#4602](https://github.com/windmill-labs/windmill/issues/4602)) ([dcf5e2f](https://github.com/windmill-labs/windmill/commit/dcf5e2f03f977e241f6785530dad61a70c5bdd79))
+* **frontend:** make script and schema scrollable on script detail page ([6e222b3](https://github.com/windmill-labs/windmill/commit/6e222b3b1a419e5543fdf35420a7413699688b41))
+* **frontend:** new approval steps default to timeout 1800 ([b86de62](https://github.com/windmill-labs/windmill/commit/b86de6280e03e014e8ddf85b2b5f8fd030d0467a))
+
 ## [1.414.0](https://github.com/windmill-labs/windmill/compare/v1.413.2...v1.414.0) (2024-10-29)
 
 * Issue with previous release, re-releasing
