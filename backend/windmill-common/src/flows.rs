@@ -424,7 +424,7 @@ pub enum FlowModuleValue {
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<ScriptHash>,
-        #[serde(deserialize_with = "empty_string_as_none")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         tag_override: Option<String>,
     },
     Flow {
@@ -482,14 +482,6 @@ fn is_none_or_empty(expr: &Option<String>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()
 }
 
-fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    Ok(s.filter(|s| !s.is_empty()))
-}
-
 #[derive(Deserialize)]
 struct UntaggedFlowModuleValue {
     #[serde(rename = "type")]
@@ -498,7 +490,6 @@ struct UntaggedFlowModuleValue {
     input_transforms: Option<HashMap<String, InputTransform>>,
     path: Option<String>,
     hash: Option<ScriptHash>,
-    #[serde(deserialize_with = "empty_string_as_none")]
     tag_override: Option<String>,
     iterator: Option<InputTransform>,
     modules: Option<Vec<FlowModule>>,
