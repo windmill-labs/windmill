@@ -132,7 +132,7 @@
 			}
 		} catch (err) {
 			console.error('Error comparing versions', err)
-			onLatest = false
+			onLatest = true
 		}
 	}
 
@@ -286,7 +286,7 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '') {
+		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
