@@ -2403,15 +2403,15 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushing job {i} of {len}");
         let payload_tag = match &job_payloads {
-            ContinuePayload::SingleJob(payload) => payload.clone(),
-            ContinuePayload::BranchAllJobs(payloads) => payloads[i].clone(),
+            ContinuePayload::SingleJob(payload) => payload,
+            ContinuePayload::BranchAllJobs(payloads) => &payloads[i],
             ContinuePayload::ForloopJobs { flow_value, delete_after_use, .. } => {
                 let mut fv = flow_value.clone();
 
                 if let Some(failure_module) = fv.failure_module.as_mut() {
                     failure_module.id_append(&format!("{}-{i}", &status.step.to_string()));
                 }
-                JobPayloadWithTag {
+                &JobPayloadWithTag {
                     payload: JobPayload::RawFlow {
                         value: fv,
                         path: Some(format!("{}/forloop-{i}", flow_job.script_path())),
@@ -2590,13 +2590,17 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         };
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-
+        let tag = if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
+            payload_tag.tag.clone()
+        } else {
+            Some(flow_job.tag.clone())
+        };
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
             tx2,
             &flow_job.workspace_id,
-            payload_tag.payload,
+            payload_tag.payload.clone(),
             push_args,
             &flow_job.created_by,
             &flow_job.email,
@@ -2610,11 +2614,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
-                payload_tag.tag
-            } else {
-                Some(flow_job.tag.clone())
-            },
+            tag,
             payload_tag.timeout,
             Some(module.id.clone()),
             new_job_priority_override,
@@ -3761,6 +3761,7 @@ async fn script_to_payload(
     module: &FlowModule,
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
+    tracing::error!("{tag_override:?}");
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         let (jp, tag, delete_after_use, script_timeout) =
             script_path_to_payload(script_path, db, &flow_job.workspace_id, Some(true)).await?;
