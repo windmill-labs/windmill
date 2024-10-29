@@ -101,6 +101,7 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub failure_module: Option<Box<FlowModule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub preprocessor_module: Option<Box<FlowModule>>,
     #[serde(default)]
@@ -423,6 +424,7 @@ pub enum FlowModuleValue {
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<ScriptHash>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tag_override: Option<String>,
     },
     Flow {

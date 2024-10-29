@@ -33,7 +33,7 @@
 					{#if tag}
 						<option value="">reset to default</option>
 					{:else}
-						<option value="" disabled selected>Tag</option>
+						<option value={undefined} disabled selected>Tag</option>
 					{/if}
 					{#each $workerTags ?? [] as tag (tag)}
 						<option value={tag}>{tag}</option>
