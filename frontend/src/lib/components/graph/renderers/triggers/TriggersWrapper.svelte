@@ -42,7 +42,11 @@
 
 	let simplifiedTriggers = true
 	let triggerScriptModule: FlowModule | undefined = undefined
-	$: triggerScriptModule = data.modules.find((mod) => mod.isTrigger)
+	// $: triggerScriptModule = data.modules.find(
+	// 	(mod) =>
+	// 		(mod.value.type == 'rawscript' && mod.value.is_trigger) ||
+	// 		(mod.value.type == 'script' && mod.value.is_trigger)
+	// )
 
 	$: data.eventHandlers.simplifyFlow(simplifiedTriggers)
 
