@@ -206,6 +206,14 @@ pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> R
     Ok(uid)
 }
 
+pub fn map_string_to_number(s: &str, max_number: u64) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish() % (max_number + 1)
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
