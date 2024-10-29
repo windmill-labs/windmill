@@ -3761,7 +3761,6 @@ async fn script_to_payload(
     module: &FlowModule,
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
-    tracing::error!("{tag_override:?}");
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         let (jp, tag, delete_after_use, script_timeout) =
             script_path_to_payload(script_path, db, &flow_job.workspace_id, Some(true)).await?;
