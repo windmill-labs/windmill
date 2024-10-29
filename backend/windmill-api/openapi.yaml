@@ -1467,6 +1467,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: active_only
+          in: query
+          description: filter only active users
+          schema:
+            type: boolean
       responses:
         "200":
           description: user
@@ -11791,6 +11796,8 @@ components:
           type: string
         username:
           type: string
+        operator_only:
+          type: boolean
 
       required:
         - email
