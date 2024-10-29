@@ -119,13 +119,21 @@
 		if (version === undefined) {
 			return
 		}
-		const flowVersion = await FlowService.getFlowLatestVersion({
-			workspace: $workspaceStore!,
-			path: $pathStore
-		})
+		try {
+			if (initialPath && initialPath != '') {
+				const flowVersion = await FlowService.getFlowLatestVersion({
+					workspace: $workspaceStore!,
+					path: initialPath
+				})
 
-		onLatest = version === flowVersion?.id
-
+				onLatest = version === flowVersion?.id
+			} else {
+				onLatest = true
+			}
+		} catch (err) {
+			console.error('Error comparing versions', err)
+			onLatest = false
+		}
 	}
 
 	const dispatch = createEventDispatcher()
@@ -277,9 +285,8 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
-
-		await compareVersions();
-		if (onLatest) {
+		await compareVersions()
+		if (onLatest || initialPath == '') {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -294,27 +301,26 @@
 			open = true
 		}
 	}
-	async function syncWithDeployed(){
-			const flow = await FlowService.getFlowByPath({
-				workspace: $workspaceStore!,
-				path: $pathStore,
-				withStarredInfo: true
-			})
-			deployedValue = {
-				...flow,
-				starred: undefined,
-				id: undefined,
-				edited_at: undefined,
-				edited_by: undefined,
-				workspace_id: undefined,
-				archived: undefined,
-				same_worker: undefined,
-				visible_to_runner_only: undefined,
-				ws_error_handler_muted: undefined,
-			}
-			deployedBy = flow.edited_by
+	async function syncWithDeployed() {
+		const flow = await FlowService.getFlowByPath({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			withStarredInfo: true
+		})
+		deployedValue = {
+			...flow,
+			starred: undefined,
+			id: undefined,
+			edited_at: undefined,
+			edited_by: undefined,
+			workspace_id: undefined,
+			archived: undefined,
+			same_worker: undefined,
+			visible_to_runner_only: undefined,
+			ws_error_handler_muted: undefined
+		}
+		deployedBy = flow.edited_by
 	}
-
 
 	async function saveFlow(deploymentMsg?: string): Promise<void> {
 		loadingSave = true
