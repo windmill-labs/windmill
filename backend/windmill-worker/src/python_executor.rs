@@ -1151,7 +1151,7 @@ pub async fn handle_python_reqs(
 
     for (req, venv_p) in req_with_penv {
         let mut logs1 = String::new();
-        logs1.push_str("\n\n--- PIP INSTALL ---\n");
+        logs1.push_str("\n\n--- UV PIP INSTALL ---\n");
         logs1.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
         append_logs(&job_id, w_id, logs1, db).await;
 
@@ -1265,7 +1265,7 @@ pub async fn handle_python_reqs(
 
             envs.push(("HOME", HOME_ENV.as_str()));
 
-            tracing::debug!("pip install command: {:?}", command_args);
+            tracing::debug!("uv pip install command: {:?}", command_args);
 
             #[cfg(unix)]
             {
@@ -1275,7 +1275,12 @@ pub async fn handle_python_reqs(
                     .envs(envs)
                     .args([
                         "-x",
-                        &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
+                        &format!(
+                            "{}/{}-{}.lock",
+                            LOCK_CACHE_DIR,
+                            if no_uv_install { "pip" } else { "py311" },
+                            fssafe_req
+                        ),
                         "--command",
                         &command_args.join(" "),
                     ])
@@ -1286,7 +1291,8 @@ pub async fn handle_python_reqs(
 
             #[cfg(windows)]
             {
-                let mut pip_cmd = Command::new(PYTHON_PATH.as_str());
+                let python_path = &command_args[0];
+                let mut cmd = Command::new(&python_path);
                 pip_cmd
                     .env_clear()
                     .envs(envs)
@@ -1294,7 +1300,7 @@ pub async fn handle_python_reqs(
                     .args(&command_args[1..])
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
-                start_child_process(pip_cmd, PYTHON_PATH.as_str()).await?
+                start_child_process(cmd, python_path).await?
             }
         };
 
@@ -1307,7 +1313,7 @@ pub async fn handle_python_reqs(
             false,
             worker_name,
             &w_id,
-            &format!("pip install {req}"),
+            &format!("uv pip install {req}"),
             None,
             false,
             occupancy_metrics,
