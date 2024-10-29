@@ -63,12 +63,19 @@
 	}
 </script>
 
-<div class="flex flex-col h-full !bg-surface">
+<div class="flex flex-col h-full !bg-surface rounded overflow-hidden">
 	<div class="px-2">
 		{#if !notSelectable}
-			<div class="flex flex-row space-x-1">
+			{#if $propPickerConfig}
+				<!-- <Badge large color="blue">
+					{`Selected: ${$propPickerConfig?.propName}`}
+				</Badge> -->
+				<Badge large color="blue">
+					{`Mode: ${$propPickerConfig?.insertionMode}`}
+				</Badge>
+			{:else}
 				<Badge large color="blue">&leftarrow; Edit or connect an input</Badge>
-			</div>
+			{/if}
 		{/if}
 		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
 	</div>

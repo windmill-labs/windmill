@@ -25,6 +25,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
@@ -62,41 +63,44 @@
 		<Pane class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}>
 			<slot />
 		</Pane>
-		<Pane
-			minSize={20}
-			size={40}
-			class="pt-2 relative ml-[-1px] border-4 !transition-none z-1000 {$propPickerConfig
-				? 'rounded-l-md border-blue-500'
-				: 'border-transparent'}"
-		>
-			{#if result}
-				<PropPickerResult
-					{result}
-					{extraResults}
-					{flow_input}
-					allowCopy={!notSelectable && !$propPickerConfig}
-					on:select={({ detail }) => {
-						dispatch('select', detail)
-						if ($propPickerConfig?.onSelect(detail)) {
-							propPickerConfig.set(undefined)
-						}
-					}}
-				/>
-			{:else if pickableProperties}
-				<PropPicker
-					{displayContext}
-					{error}
-					{pickableProperties}
-					{notSelectable}
-					allowCopy={!notSelectable && !$propPickerConfig}
-					on:select={({ detail }) => {
-						dispatch('select', detail)
-						if ($propPickerConfig?.onSelect(detail)) {
-							propPickerConfig.set(undefined)
-						}
-					}}
-				/>
-			{/if}
+		<Pane minSize={20} size={40} class="!transition-none z-1000 ml-[-1px]">
+			<AnimatedButton
+				animate={$propPickerConfig?.insertionMode == 'connect'}
+				baseRadius="4px"
+				wrapperClasses="h-full w-full pt-2"
+				marginWidth="4px"
+				ringColor={$propPickerConfig?.insertionMode == 'insert' ? '#3b82f6' : 'transparent'}
+				animationDuration="1s"
+			>
+				{#if result}
+					<PropPickerResult
+						{result}
+						{extraResults}
+						{flow_input}
+						allowCopy={!notSelectable && !$propPickerConfig}
+						on:select={({ detail }) => {
+							dispatch('select', detail)
+							if ($propPickerConfig?.onSelect(detail)) {
+								propPickerConfig.set(undefined)
+							}
+						}}
+					/>
+				{:else if pickableProperties}
+					<PropPicker
+						{displayContext}
+						{error}
+						{pickableProperties}
+						{notSelectable}
+						allowCopy={!notSelectable && !$propPickerConfig}
+						on:select={({ detail }) => {
+							dispatch('select', detail)
+							if ($propPickerConfig?.onSelect(detail)) {
+								propPickerConfig.set(undefined)
+							}
+						}}
+					/>
+				{/if}
+			</AnimatedButton>
 		</Pane>
 	</Splitpanes>
 </div>
