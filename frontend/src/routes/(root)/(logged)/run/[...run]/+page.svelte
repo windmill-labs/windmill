@@ -9,7 +9,8 @@
 		type WorkflowStatus,
 		type NewScript,
 		ConcurrencyGroupsService,
-		MetricsService
+		MetricsService,
+		type ScriptArgs
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -91,6 +92,8 @@
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
+	import CustomPopover from '$lib/components/CustomPopover.svelte'
+	import { isWindmillTooBigObject } from '$lib/components/job_args'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -306,6 +309,46 @@
 	}
 
 	let scheduleEditor: ScheduleEditor
+
+	let runImmediatelyLoading = false
+	async function runImmediately() {
+		runImmediatelyLoading = true
+		try {
+			let args = job?.args as ScriptArgs
+			if (isWindmillTooBigObject(args)) {
+				args = (await JobService.getJobArgs({
+					workspace: $workspaceStore!,
+					id: job?.id!
+				})) as ScriptArgs
+			}
+
+			const commonArgs = {
+				workspace: $workspaceStore!,
+				requestBody: args
+			}
+			if (job?.job_kind == 'script' || job?.job_kind == 'flow') {
+				let id
+
+				if (job?.job_kind == 'script') {
+					id = await JobService.runScriptByHash({
+						...commonArgs,
+						hash: job.script_hash!
+					})
+				} else {
+					id = await JobService.runFlowByPath({
+						...commonArgs,
+						path: job.script_path!
+					})
+				}
+
+				await goto('/run/' + id + '?workspace=' + $workspaceStore)
+			} else {
+				sendUserToast('Cannot run this job immediately', true)
+			}
+		} finally {
+			runImmediatelyLoading = false
+		}
+	}
 </script>
 
 <HighlightTheme />
@@ -595,14 +638,23 @@
 				{/if}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-				<Button
-					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args)}`)
-					}}
-					color="blue"
-					size="sm"
-					startIcon={{ icon: RefreshCw }}>Run again</Button
-				>
+				<CustomPopover noPadding appearTimeout={0}>
+					<Button
+						on:click|once={() => {
+							goto(viewHref + `#${computeSharableHash(job?.args)}`)
+						}}
+						color="blue"
+						size="sm"
+						startIcon={{ icon: RefreshCw }}>Run again</Button
+					>
+					<svelte:fragment slot="overlay">
+						<div class="flex flex-row gap-2">
+							<Button size="xs" loading={runImmediatelyLoading} on:click={() => runImmediately()}>
+								Run immediately with same args
+							</Button>
+						</div>
+					</svelte:fragment>
+				</CustomPopover>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				{#if !$userStore?.operator}

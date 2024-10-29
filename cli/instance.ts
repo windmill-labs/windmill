@@ -650,7 +650,10 @@ const command = new Command()
   .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pulling instance groups")
   .option("--include-workspaces", "Also pull workspaces")
-
+  .option(
+    "--instance <instance:string>",
+    "Name of the instance to push to, override the active instance"
+  )
   .action(instancePull as any)
   .command("push")
   .description(
@@ -663,12 +666,8 @@ const command = new Command()
   .option("--skip-groups", "Skip pushing instance groups")
   .option("--include-workspaces", "Also push workspaces")
   .option(
-    "--instance",
+    "--instance <instance:string>",
     "Name of the instance to push to, override the active instance"
-  )
-  .option(
-    "--base-url",
-    "If used with --token, will be used as the base url for the instance"
   )
   .action(instancePush as any)
   .command("whoami")

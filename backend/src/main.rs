@@ -27,7 +27,7 @@ use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::schedule_key_renewal;
+use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
     global_settings::{
@@ -307,7 +307,8 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    let num_workers = if mode == Mode::Server || mode == Mode::Indexer {
+    #[allow(unused_mut)]
+    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -422,6 +423,50 @@ Windmill Community Edition {GIT_VERSION}
 
     display_config(&ENV_SETTINGS);
 
+    if let Err(e) = reload_base_url_setting(&db).await {
+        tracing::error!("Error loading base url: {:?}", e)
+    }
+
+    if let Err(e) = reload_critical_error_channels_setting(&db).await {
+        tracing::error!("Could loading critical error emails setting: {:?}", e);
+    }
+
+    #[cfg(feature = "enterprise")]
+    {
+        // load the license key and check if it's valid
+        // if not valid and not server mode just quit
+        // if not expired and server mode then force renewal
+        // if key still invalid and num_workers > 0, set to 0
+        if let Err(err) = reload_license_key(&db).await {
+            tracing::error!("Failed to reload license key: {err:#}");
+        }
+        let valid_key = *LICENSE_KEY_VALID.read().await;
+        if !valid_key && !server_mode {
+            panic!("Invalid license key, workers require a valid license key");
+        }
+        if server_mode {
+            // only force renewal if invalid but not empty (= expired)
+            let renewed_now = maybe_renew_license_key_on_start(
+                &HTTP_CLIENT,
+                &db,
+                !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
+            )
+            .await;
+            if renewed_now {
+                if let Err(err) = reload_license_key(&db).await {
+                    tracing::error!("Failed to reload license key: {err:#}");
+                }
+            }
+            if num_workers > 0 {
+                let valid_key = *LICENSE_KEY_VALID.read().await;
+                if !valid_key {
+                    tracing::warn!("License key invalid, setting num_workers to 0");
+                    num_workers = 0;
+                }
+            }
+        }
+    }
+
     let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
@@ -448,7 +493,16 @@ Windmill Community Edition {GIT_VERSION}
 
         initial_load(&db, killpill_tx.clone(), worker_mode, server_mode, is_agent).await;
 
-        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode, true).await;
+        monitor_db(
+            &db,
+            &base_internal_url,
+            rsmq.clone(),
+            server_mode,
+            worker_mode,
+            true,
+            killpill_tx.clone(),
+        )
+        .await;
 
         monitor_pool(&db).await;
 
@@ -548,8 +602,11 @@ Windmill Community Edition {GIT_VERSION}
                     rx.recv().await?;
                 }
             }
-            tracing::info!("Starting phase 2 of shutdown");
-            killpill_phase2_tx.send(())?;
+            if killpill_phase2_tx.receiver_count() > 0 {
+                tracing::info!("Starting phase 2 of shutdown");
+                killpill_phase2_tx.send(())?;
+                tracing::info!("Phase 2 of shutdown completed");
+            }
             Ok(()) as anyhow::Result<()>
         };
 
@@ -575,7 +632,9 @@ Windmill Community Edition {GIT_VERSION}
                                 &base_internal_url,
                                 rsmq.clone(),
                                 server_mode,
-                                false
+                                worker_mode,
+                                false,
+                                tx.clone(),
                             )
                             .await;
                         },
@@ -618,7 +677,15 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 LICENSE_KEY_SETTING => {
                                                     if let Err(e) = reload_license_key(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload license key setting");
+                                                        tracing::error!("Failed to reload license key: {e:#}");
+                                                    }
+                                                    #[cfg(feature = "enterprise")]
+                                                    if worker_mode {
+                                                        let valid_key = *LICENSE_KEY_VALID.read().await;
+                                                        if !valid_key {
+                                                            tracing::error!("Invalid license key, exiting...");
+                                                            tx.send(()).expect("send");
+                                                        }
                                                     }
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
@@ -764,13 +831,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        if mode == Mode::Server || mode == Mode::Standalone {
+        if server_mode {
             schedule_stats(&db, &HTTP_CLIENT).await;
-        }
-
-        #[cfg(feature = "enterprise")]
-        if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
         futures::try_join!(

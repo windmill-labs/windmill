@@ -291,7 +291,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             let hash = job.script_hash.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             sqlx::query!(
-                "UPDATE script SET lock = $1, created_at = now() WHERE hash = $2 AND workspace_id = $3",
+                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
                 &content,
                 &hash.0,
                 w_id
