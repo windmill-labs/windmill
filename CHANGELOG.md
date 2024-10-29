@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.414.2](https://github.com/windmill-labs/windmill/compare/v1.414.1...v1.414.2) (2024-10-29)
+
+
+### Bug Fixes
+
+* **cli:** improve instance sync for CI/CD + --folder-per-instance ([212579a](https://github.com/windmill-labs/windmill/commit/212579a514d070355fe0d9e0215593bacfa05e1f))
+
 ## [1.414.1](https://github.com/windmill-labs/windmill/compare/v1.414.0...v1.414.1) (2024-10-29)
 
 
