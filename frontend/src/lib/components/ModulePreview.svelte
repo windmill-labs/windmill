@@ -75,7 +75,7 @@
 				script.content,
 				script.language,
 				args,
-				$flowStore?.tag ?? val.tag_override ?? script.tag
+				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag)
 			)
 		} else if (val.type == 'flow') {
 			await testJobLoader?.abstractRun(() =>
