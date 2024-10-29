@@ -15,7 +15,8 @@
 		Square,
 		SkipForward,
 		Voicemail,
-		X
+		X,
+		Plug
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -28,6 +29,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -288,6 +290,25 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 			>
 				<Move class="mx-[3px]" size={12} strokeWidth={2} />
 			</button>
+		{/if}
+
+		{#if hover || selected}
+			<AnimatedButton
+				wrapperClasses="absolute -top-[10px] right-[85px] w-fit h-fit"
+				animate={!!id && false}
+				animationDuration="1s"
+				baseRadius="9999px"
+				marginWidth="3px"
+			>
+				<button
+					class="rounded-full h-[20px] w-[20px] trash center-center text-secondary-inverse
+bg-surface-inverse duration-150 hover:bg-blue-400 hover:text-white"
+					on:click|preventDefault|stopPropagation={(event) => dispatch('connect')}
+					title="Connect"
+				>
+					<Plug class="mx-[3px]" size={12} strokeWidth={2} />
+				</button>
+			</AnimatedButton>
 		{/if}
 
 		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}

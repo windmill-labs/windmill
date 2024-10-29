@@ -3,9 +3,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
-	import { getContext, setContext } from 'svelte'
-	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
-	import { writable } from 'svelte/store'
+	import { getContext } from 'svelte'
 	import Toggle from '../../Toggle.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -75,12 +73,6 @@
 				] as [Record<string, InputTransform>, string[], FlowModule]
 		)
 		.filter(([i, f, m]) => f.length > 0)
-
-	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
-		focusProp: () => {},
-		propPickerConfig: writable(undefined),
-		clearFocus: () => {}
-	})
 </script>
 
 <div class="min-h-full">
@@ -135,6 +127,7 @@
 							class="mt-2"
 							schema={$flowStateStore[m.id]?.schema ?? {}}
 							bind:args
+							id={m.id}
 						/>
 					</div>
 				{/if}
