@@ -5,7 +5,6 @@ use std::{
 };
 
 use itertools::Itertools;
-use nix::NixPath;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres};
@@ -86,11 +85,9 @@ use crate::{
     PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
-// TODO: Default should be removed
-#[derive(Default, Eq, PartialEq, Clone, Copy)]
+#[derive(Eq, PartialEq, Clone, Copy)]
 pub enum PyVersion {
     Py310,
-    #[default]
     Py311,
     Py312,
     Py313,
@@ -108,6 +105,7 @@ impl PyVersion {
     }
     /// e.g.: `(to_cache_dir(), to_cache_dir_top_level())`
     pub fn to_cache_dir_tuple(&self) -> (String, String) {
+        use windmill_common::worker::ROOT_CACHE_DIR;
         let top_level = self.to_cache_dir_top_level();
         (format!("{ROOT_CACHE_DIR}python_{}", &top_level), top_level)
     }
@@ -209,17 +207,7 @@ impl PyVersion {
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
         version: &str,
     ) -> error::Result<String> {
-        let py_path = Self::find_python(
-            job_dir,
-            job_id,
-            mem_peak,
-            db,
-            worker_name,
-            w_id,
-            occupancy_metrics,
-            version,
-        )
-        .await;
+        let py_path = Self::find_python(job_dir, version).await;
 
         // Python is not installed
         if py_path.is_err() {
@@ -237,26 +225,19 @@ impl PyVersion {
             .await
             {
                 tracing::error!("Cannot install python: {err}");
-            }
-            // Try to find one more time
-            let py_path = Self::find_python(
-                job_dir,
-                job_id,
-                mem_peak,
-                db,
-                worker_name,
-                w_id,
-                occupancy_metrics,
-                version,
-            )
-            .await;
+                return Err(err);
+            } else {
+                // Try to find one more time
+                let py_path = Self::find_python(job_dir, version).await;
 
-            if let Err(ref err) = py_path {
-                tracing::error!("Cannot find python version {err}");
-            }
+                if let Err(err) = py_path {
+                    tracing::error!("Cannot find python version {err}");
+                    return Err(err);
+                }
 
-            // TODO: Cache the result
-            py_path
+                // TODO: Cache the result
+                py_path
+            }
         } else {
             py_path
         }
@@ -288,18 +269,7 @@ impl PyVersion {
         )
         .await
     }
-    async fn find_python(
-        job_dir: &str,
-        job_id: &Uuid,
-        mem_peak: &mut i32,
-        // canceled_by: &mut Option<CanceledBy>,
-        db: &Pool<Postgres>,
-        worker_name: &str,
-        w_id: &str,
-        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-        version: &str,
-        // If not set, will default to INSTANCE_PYTHON_VERSION
-    ) -> error::Result<String> {
+    async fn find_python(job_dir: &str, version: &str) -> error::Result<String> {
         // let mut logs = String::new();
         // let v_with_dot = self.to_string_with_dots();
         let mut child_cmd = Command::new(UV_PATH.as_str());
@@ -320,17 +290,12 @@ impl PyVersion {
             // Convert the output to a String
             let stdout =
                 String::from_utf8(output.stdout).expect("Failed to convert output to String");
-            tracing::error!("{}", &stdout);
-            return Ok(stdout);
-            // println!("Output:\n{}", stdout);
+            return Ok(stdout.replace('\n', ""));
         } else {
             // If the command failed, print the error
             let stderr =
                 String::from_utf8(output.stderr).expect("Failed to convert error output to String");
-            eprintln!("Error:\n{}", stderr);
-            tracing::error!("{}", &stderr);
-            // panic!();
-            return Err(error::Error::ExitStatus(1999));
+            return Err(error::Error::FindPythonError(stderr));
         }
     }
 }
@@ -1564,7 +1529,7 @@ pub async fn handle_python_reqs(
             });
 
             let start = std::time::Instant::now();
-            let prefix = if no_uv {
+            let prefix = if no_uv_install {
                 "pip".to_owned()
             } else {
                 py_version.to_cache_dir_top_level()
@@ -1575,6 +1540,7 @@ pub async fn handle_python_reqs(
                 .into_iter()
                 .map(|(req, venv_p)| {
                     let os = os.clone();
+                    let prefix = prefix.clone();
                     async move {
                         if pull_from_tar(os, venv_p.clone(), prefix).await.is_ok() {
                             PullFromTar::Pulled(venv_p.to_string())
@@ -1635,7 +1601,7 @@ pub async fn handle_python_reqs(
             let req = req.to_string();
             vars.push(("REQ", &req));
             vars.push(("TARGET", &venv_p));
-            if !no_uv {
+            if !no_uv_install {
                 vars.push(("PY_PATH", &py_path));
             }
             let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1808,7 +1774,7 @@ pub async fn handle_python_reqs(
             } else {
                 let venv_p = venv_p.clone();
 
-                let (cache_dir, prefix) = if no_uv {
+                let (cache_dir, prefix) = if no_uv_install {
                     (PIP_CACHE_DIR.to_owned(), "pip".to_owned())
                 } else {
                     py_version.to_cache_dir_tuple()
