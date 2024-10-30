@@ -1286,10 +1286,10 @@ async fn python_dep(
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
-    // let mut annotated_py_version = PyVersion::from_py_annotations(annotations);
 
     let instance_version =
         (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
+
     let final_version = PyVersion::from_py_annotations(annotations).unwrap_or(
         PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
             tracing::error!(
@@ -1315,10 +1315,6 @@ async fn python_dep(
         annotations.no_cache,
     )
     .await;
-    // let final_version = annotated_py_version.unwrap_or_else(|| {
-    //     tracing::error!("Version is supposed to be Some");
-    //     PyVersion::Py311
-    // });
     // install the dependencies to pre-fill the cache
     if let Ok(req) = req.as_ref() {
         let r = handle_python_reqs(
@@ -1334,7 +1330,7 @@ async fn python_dep(
             occupancy_metrics,
             // In this case we calculate lockfile each time and it is guranteed
             // that version in lockfile will be equal to final_version
-            // So we can skip parsing of lockfile to get python version
+            // So we can skip parsing the lockfile returned from uv_pip_compile to get python version
             // and instead just use final_version
             final_version,
             annotations.no_uv || annotations.no_uv_install,
@@ -1371,7 +1367,6 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
-            // panic!("{}", job_raw_code);
             let reqs = if raw_deps {
                 job_raw_code.to_string()
             } else {

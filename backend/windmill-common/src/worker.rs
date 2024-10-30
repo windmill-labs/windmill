@@ -87,9 +87,6 @@ lazy_static::lazy_static! {
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
-
-    // pub static ref INSTANCE_PYTHON_VERSION: String =
-    // std::env::var("PYTHON_VERSION").unwrap_or_else(|_| "3.11".to_string());
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {

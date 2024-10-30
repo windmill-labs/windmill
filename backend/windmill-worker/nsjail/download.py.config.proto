@@ -88,12 +88,6 @@ mount {
     rw: true
 }
 mount {
-    src: "/tmp/windmill/cache/uv"
-    dst: "/tmp/windmill/cache/uv"
-    is_bind: true
-    rw: true
-}
-mount {
     src: "/tmp/windmill/cache/python"
     dst: "/tmp/windmill/cache/python"
     is_bind: true
