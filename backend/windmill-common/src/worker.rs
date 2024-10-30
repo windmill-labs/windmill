@@ -88,8 +88,8 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    pub static ref INSTANCE_PYTHON_VERSION: String =
-    std::env::var("PYTHON_VERSION").unwrap_or_else(|_| "3.11".to_string());
+    // pub static ref INSTANCE_PYTHON_VERSION: String =
+    // std::env::var("PYTHON_VERSION").unwrap_or_else(|_| "3.11".to_string());
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -319,28 +319,6 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
-}
-
-impl PythonAnnotations {
-    pub fn get_python_version(&self) -> String {
-        let mut v: &str = &*INSTANCE_PYTHON_VERSION;
-        let PythonAnnotations { py310, py311, py312, py313, .. } = *self;
-
-        if py310 {
-            v = "3.10";
-        }
-        if py311 {
-            v = "3.11";
-        }
-        if py312 {
-            v = "3.11";
-        }
-        if py313 {
-            v = "3.13";
-        }
-
-        v.into()
-    }
 }
 
 #[annotations("//")]

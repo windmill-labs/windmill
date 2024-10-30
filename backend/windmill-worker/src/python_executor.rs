@@ -5,6 +5,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use nix::NixPath;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres};
@@ -20,7 +21,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
-    worker::{write_file, PythonAnnotations, INSTANCE_PYTHON_VERSION, WORKER_CONFIG},
+    worker::{write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
 };
 
@@ -81,8 +82,8 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
-    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
+    INSTANCE_PYTHON_VERSION, LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
 #[derive(Default, Eq, PartialEq, Clone, Copy)]
@@ -421,7 +422,7 @@ pub async fn uv_pip_compile(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // If not set, will default to INSTANCE_PYTHON_VERSION
     // Will always be Some after execution
-    annotated_py_version: &mut Option<PyVersion>,
+    py_version: PyVersion,
     // Fallback to pip-compile. Will be removed in future
     mut no_uv: bool,
     // Debug-only flag
@@ -431,19 +432,7 @@ pub async fn uv_pip_compile(
     logs.push_str(&format!("\nresolving dependencies..."));
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
 
-    // Precendence:
-    // 1. Annotated version
-    // 2. Instance version
-    // 3. Hardcoded 3.11
-    let mut final_py_version = annotated_py_version.unwrap_or(
-        PyVersion::from_string_with_dots(&INSTANCE_PYTHON_VERSION).unwrap_or_else(|| {
-            tracing::error!(
-                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
-                *INSTANCE_PYTHON_VERSION
-            );
-            PyVersion::Py311
-        }),
-    );
+    // New version, the version what we wanna have
 
     let requirements = if let Some(pip_local_dependencies) =
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
@@ -516,34 +505,38 @@ pub async fn uv_pip_compile(
         {
             if let Some(line) = cached.lines().next() {
                 if let Some(cached_version) = PyVersion::parse_lockfile(line) {
-                    // If annotated version is given, it should overwrite cached version
-                    if let Some(ref annotated_version) = annotated_py_version {
-                        if *annotated_version == cached_version {
-                            // All good we found cache
-                            logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
-                            return Ok(cached);
-                        } else {
-                            // Annotated version should be used, thus lockfile regenerated
-                            final_py_version = *annotated_version;
-                        }
-                    } else {
+                    // We should overwrite any version in lockfile
+                    // And only return cache if cached_version == new_version
+                    // This will trigger recompilation for all deps,
+                    // but it is ok, since we do only on deploy and cached lockfiles for non-deployed scripts
+                    // are being cleaned up every 3 days anyway
+                    if py_version == cached_version {
+                        // All good we found cache
+                        logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
+                        return Ok(cached);
                     }
-                    // But if there is no annotated version provided, then we keep cached version takes
-                    // if cached_version == actual
+                    // Annotated version should be used, thus lockfile regenerated
                 } else {
                     tracing::info!(
                         "There is no assigned python version to script in job: {job_id:?}\n"
-                    )
+                    );
                     // We will assign a python version to this script
                 }
+                // TODO: Small optimisation
+                // We end up here only if we try to redeploy script without assigned version
+                // So we could check if final_version == 3.11 and if so, assign python version (write to lockfile)
+                // and return cache
+                // else if new_py_version == PyVersion::Py311 {
+                //     tracing::info!(
+                //         "There is no assigned python version to script in job: {job_id:?}\n"
+                //     );
+                //     logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
+                //     return Ok(cached);
+                //     // We will assign a python version to this script
+                // }
             } else {
                 tracing::error!("No requirement specified in uv_pip_compile");
             }
-
-            // logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
-            // // logs.push_str(&format!("\nAssigned python version: {cached_version}"));
-            // return Ok(cached);
-            // }
         }
     }
     let file = "requirements.in";
@@ -635,7 +628,7 @@ pub async fn uv_pip_compile(
             "--cache-dir",
             UV_CACHE_DIR,
             "-p",
-            final_py_version.to_string_with_dots(),
+            py_version.to_string_with_dots(),
         ];
         if no_cache {
             args.extend(["--no-cache"]);
@@ -703,7 +696,7 @@ pub async fn uv_pip_compile(
     file.read_to_string(&mut req_content).await?;
     let lockfile = format!(
         "# py-{}\n{}",
-        final_py_version.to_string_with_dots(),
+        py_version.to_string_with_dots(),
         req_content
             .lines()
             .filter(|x| !x.trim_start().starts_with('#'))
@@ -719,8 +712,6 @@ pub async fn uv_pip_compile(
         lockfile
     ).fetch_optional(db).await?;
 
-    // Give value back
-    *annotated_py_version = Some(final_py_version);
     Ok(lockfile)
 }
 
@@ -951,7 +942,8 @@ mount {{
             &job.workspace_id,
             &mut Some(occupancy_metrics),
         )
-        .await?;
+        .await?
+        .replace('\n', "");
 
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1303,7 +1295,27 @@ async fn handle_python_deps(
         .clone();
 
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
-    let mut version = PyVersion::from_py_annotations(annotations);
+    // let mut version = PyVersion::from_py_annotations(annotations)
+    //     .or(PyVersion::from_string_with_dots(&*INSTANCE_PYTHON_VERSION));
+    // let mut version = PyVersion::from_py_annotations(annotations)
+    //     .or(PyVersion::from_string_with_dots(&*INSTANCE_PYTHON_VERSION));
+    // Precendence:
+    // 1. Annotated version
+    // 2. Instance version
+    // 3. Hardcoded 3.11
+
+    let instance_version =
+        (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
+
+    let annotated_or_default_version = PyVersion::from_py_annotations(annotations).unwrap_or(
+        PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
+            tracing::error!(
+                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
+                *INSTANCE_PYTHON_VERSION
+            );
+            PyVersion::Py311
+        }),
+    );
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
@@ -1333,7 +1345,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    &mut version,
+                    annotated_or_default_version,
                     annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
@@ -1345,17 +1357,39 @@ async fn handle_python_deps(
         }
     };
 
-    let final_version = version.unwrap_or_else(|| {
-        tracing::error!("Version is supposed to be Some");
-        PyVersion::Py311
-    });
+    // let final_version = version.unwrap_or_else(|| {
+    //     tracing::error!("Version is supposed to be Some");
+    //     PyVersion::Py311
+    // });
+
+    // Read more in next comment section
+    let mut final_version = PyVersion::Py311;
 
     if requirements.len() > 0 {
+        let req: Vec<&str> = requirements
+            .split("\n")
+            .filter(|x| !x.starts_with("--"))
+            .collect();
+
+        // uv_pip_compile stage will be skipped for deployed scripts.
+        // Leaving us with 2 scenarious:
+        //   1. We have version in lockfile
+        //   2. We dont
+        //
+        // We want to use 3.11 version for scripts without assigned python version
+        // Because this means that this script was deployed before multiple python version support was introduced
+        // And the default version of python before this point was 3.11
+        //
+        // But for 1. we just parse line to get version
+
+        // Parse lockfile's line and if there is no version, fallback to annotation_default
+        if let Some(v) = PyVersion::parse_lockfile(&req[0]) {
+            final_version = v;
+        }
+        // final_version = PyVersion::parse_lockfile(&req[0]).unwrap_or(final_version);
+
         let mut venv_path = handle_python_reqs(
-            requirements
-                .split("\n")
-                .filter(|x| !x.starts_with("--"))
-                .collect(),
+            req,
             job_id,
             w_id,
             mem_peak,

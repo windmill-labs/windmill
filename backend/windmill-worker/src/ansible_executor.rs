@@ -33,7 +33,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
 };
@@ -90,7 +90,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
-                    &mut None,
+                    PyVersion::Py311,
                     false,
                     false,
                 )
