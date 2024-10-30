@@ -37,7 +37,11 @@
 	}}
 >
 	<Splitpanes class="splitpanes-remove-splitter">
-		<Pane class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}>
+		<Pane
+			minSize={20}
+			size={60}
+			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
+		>
 			<slot />
 		</Pane>
 		<Pane minSize={20} size={40} class="!transition-none z-1000 ml-[-1px]">
