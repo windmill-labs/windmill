@@ -86,10 +86,10 @@ use crate::{
     PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
+// TODO: Default should be removed
 #[derive(Default, Eq, PartialEq, Clone, Copy)]
 pub enum PyVersion {
     Py310,
-    // TODO: Default should be inferred from INSTANCE_PYTHON_VERSION
     #[default]
     Py311,
     Py312,
@@ -100,14 +100,21 @@ impl PyVersion {
     /// e.g.: `/tmp/windmill/cache/python_3xy`
     pub fn to_cache_dir(&self) -> String {
         use windmill_common::worker::ROOT_CACHE_DIR;
-        format!("{ROOT_CACHE_DIR}python_{}", self.to_string_no_dots())
+        format!("{ROOT_CACHE_DIR}python_{}", &self.to_cache_dir_top_level())
     }
-
+    /// e.g.: `python_3xy`
+    pub fn to_cache_dir_top_level(&self) -> String {
+        format!("python_{}", self.to_string_no_dots())
+    }
+    /// e.g.: `(to_cache_dir(), to_cache_dir_top_level())`
+    pub fn to_cache_dir_tuple(&self) -> (String, String) {
+        let top_level = self.to_cache_dir_top_level();
+        (format!("{ROOT_CACHE_DIR}python_{}", &top_level), top_level)
+    }
     /// e.g.: `3xy`
     pub fn to_string_no_dots(&self) -> String {
         self.to_string_with_dots().replace('.', "")
     }
-
     /// e.g.: `3.xy`
     pub fn to_string_with_dots(&self) -> &str {
         use PyVersion::*;
@@ -118,7 +125,6 @@ impl PyVersion {
             Py313 => "3.13",
         }
     }
-
     pub fn from_string_with_dots(value: &str) -> Option<Self> {
         use PyVersion::*;
         match value {
@@ -133,7 +139,6 @@ impl PyVersion {
     pub fn parse_lockfile(line: &str) -> Option<Self> {
         Self::from_string_with_dots(line.replace("# py-", "").as_str())
     }
-
     pub fn from_py_annotations(a: PythonAnnotations) -> Option<Self> {
         let PythonAnnotations { py310, py311, py312, py313, .. } = a;
         use PyVersion::*;
@@ -149,7 +154,6 @@ impl PyVersion {
             None
         }
     }
-
     pub async fn install_python(
         job_dir: &str,
         job_id: &Uuid,
@@ -189,7 +193,6 @@ impl PyVersion {
         )
         .await
     }
-
     async fn get_python_inner(
         job_dir: &str,
         job_id: &Uuid,
@@ -253,7 +256,6 @@ impl PyVersion {
             py_path
         }
     }
-
     pub async fn get_python(
         &self,
         job_dir: &str,
@@ -269,11 +271,6 @@ impl PyVersion {
             static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
         }
 
-        // TODO
-        // if let Some(path) = (*PYTHON_PATHS.read().unwrap()).get(self){
-        //     return Ok(path.as_str());
-        // }
-
         Self::get_python_inner(
             job_dir,
             job_id,
@@ -285,12 +282,7 @@ impl PyVersion {
             self.to_string_with_dots(),
         )
         .await
-        // {
-        //     return Ok(path);
-        //     // PYTHON_PATHS.borrow_mut().
-        // }
     }
-
     async fn find_python(
         job_dir: &str,
         job_id: &Uuid,
@@ -331,49 +323,6 @@ impl PyVersion {
             // panic!();
             return Err(error::Error::ExitStatus(1999));
         }
-
-        // let child_process = start_child_process(child_cmd, "uv python find").await?;
-
-        // // append_logs(&job_id, &w_id, logs, db).await;
-        // handle_child(
-        //     job_id,
-        //     db,
-        //     mem_peak,
-        //     &mut None,
-        //     child_process,
-        //     false,
-        //     worker_name,
-        //     &w_id,
-        //     "uv python find",
-        //     None,
-        //     false,
-        //     occupancy_metrics,
-        // )
-        // .await;
-
-        // Ok("".into())
-        //  .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
-        // let output = Command::new("uv")
-        //  .args([
-        //      "python",
-        //      "find",
-        //      v_with_dot
-
-        //  ]) // Add any arguments you want to pass to the command
-        //  .stdout(Stdio::piped()); // Capture the standard output;
-        // .output() // Execute the command
-        // .expect("Failed to execute command");
-
-        // Check if the command was successful
-        // if output.status.success() {
-        //     // Convert the output to a String and print it
-        //     let stdout = String::from_utf8_lossy(&output.stdout);
-        //     println!("Output:\n{}", stdout);
-        // } else {
-        //     // If the command failed, print the error
-        //     let stderr = String::from_utf8_lossy(&output.stderr);
-        //     eprintln!("Error:\n{}", stderr);
-        // }
     }
 }
 
@@ -1602,16 +1551,19 @@ pub async fn handle_python_reqs(
             });
 
             let start = std::time::Instant::now();
+            let prefix = if no_uv {
+                "pip".to_owned()
+            } else {
+                py_version.to_cache_dir_top_level()
+            };
+
             let futures = req_with_penv
                 .clone()
                 .into_iter()
                 .map(|(req, venv_p)| {
                     let os = os.clone();
                     async move {
-                        if pull_from_tar(os, venv_p.clone(), no_uv_install)
-                            .await
-                            .is_ok()
-                        {
+                        if pull_from_tar(os, venv_p.clone(), prefix).await.is_ok() {
                             PullFromTar::Pulled(venv_p.to_string())
                         } else {
                             PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
@@ -1839,7 +1791,14 @@ pub async fn handle_python_reqs(
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {
                 let venv_p = venv_p.clone();
-                tokio::spawn(build_tar_and_push(os, venv_p, no_uv_install));
+
+                let (cache_dir, prefix) = if no_uv {
+                    (PIP_CACHE_DIR.to_owned(), "pip".to_owned())
+                } else {
+                    py_version.to_cache_dir_tuple()
+                };
+
+                tokio::spawn(build_tar_and_push(os, venv_p, cache_dir, prefix));
             }
         }
         req_paths.push(venv_p);
