@@ -22,14 +22,16 @@
 	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(document.querySelectorAll('[data-prop-picker]')) as HTMLElement[]
+		return Array.from(
+			document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
+		) as HTMLElement[]
 	}
 </script>
 
 <div
 	class="h-full w-full"
 	data-prop-picker-root
-	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
+	use:clickOutside={{ capture: true, exclude: getPropPickerElements }}
 	on:click_outside={() => {
 		propPickerConfig.set(undefined)
 	}}

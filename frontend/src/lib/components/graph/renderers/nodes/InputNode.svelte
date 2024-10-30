@@ -25,8 +25,23 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { propPickerConfig, pickableIds } =
+	const { propPickerConfig, filteredPickableProperties } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	$: console.log('dbg propPickerConfig in InputNode', $filteredPickableProperties)
+
+	$: console.log('dbg propPickerConfig in InputNode', $propPickerConfig)
+
+	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
+		if (!inputJson || typeof inputJson !== 'object') return {}
+
+		const newJson = { ...inputJson }
+		delete newJson.iter
+
+		return newJson
+	}
+
+	$: filteredInput = filterIterFromInput($filteredPickableProperties?.flow_input)
 </script>
 
 <NodeWrapper let:darkMode>
@@ -69,6 +84,7 @@
 			data.eventHandlers?.select(e.detail)
 		}}
 		propPickerConfig={$propPickerConfig}
-		pickableIds={$pickableIds}
+		inputJson={filteredInput}
+		prefix="flow_input"
 	/>
 </NodeWrapper>

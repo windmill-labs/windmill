@@ -17,7 +17,8 @@
 	export let hideId: boolean = false
 	export let preLabel: string | undefined = undefined
 	export let propPickerConfig: PropPickerConfig | undefined = undefined
-	export let pickableIds: Record<string, any> | undefined = undefined
+	export let inputJson = {}
+	export let prefix = ''
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -37,7 +38,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full flex relative overflow-hidden rounded-sm',
+		'w-full flex relative rounded-sm',
 		selectable ? 'cursor-pointer' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
 		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : ''
@@ -80,9 +81,9 @@
 			{/if}
 		</div>
 	</div>
-	{#if propPickerConfig && pickableIds && id}
-		<div class="absolute -top-[12px] right-[90px]">
-			<FlowPropPicker {propPickerConfig} {pickableIds} {id} />
+	{#if propPickerConfig && Object.keys(inputJson).length > 0}
+		<div class="absolute -top-[14px] right-[200px]">
+			<FlowPropPicker json={inputJson} {prefix} />
 		</div>
 	{/if}
 </div>

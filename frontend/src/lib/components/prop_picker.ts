@@ -1,4 +1,5 @@
 import type { Writable } from 'svelte/store'
+import type { PickableProperties } from '$lib/components/flows/previousResults'
 
 type InsertionMode = 'append' | 'connect' | 'insert'
 
@@ -12,7 +13,7 @@ export type PropPickerConfig = {
 
 export type PropPickerWrapperContext = {
 	propPickerConfig: Writable<PropPickerConfig | undefined>
-	pickableIds: Writable<Record<string, any> | undefined>
+	filteredPickableProperties: Writable<PickableProperties | undefined>
 	focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
 	clearFocus: () => void
 }

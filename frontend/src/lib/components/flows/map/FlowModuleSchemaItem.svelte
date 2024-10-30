@@ -29,7 +29,7 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
 	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
-	import type { PropPickerConfig } from '$lib/components/prop_picker'
+	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -47,8 +47,7 @@
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
-	export let propPickerConfig: PropPickerConfig | undefined = undefined
-	export let pickableIds: Record<string, any> | undefined = undefined
+	let pickableIds: Record<string, any> | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
@@ -59,6 +58,11 @@
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	const { propPickerConfig, filteredPickableProperties } =
+		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	$: filteredPickableProperties && (pickableIds = $filteredPickableProperties?.priorIds)
 
 	let editId = false
 
@@ -269,16 +273,9 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 			{/if}
 		</div>
 	</div>
-	{#if propPickerConfig && pickableIds && id && Object.keys(pickableIds).includes(id)}
-		<div
-			class="absolute -top-[12px] right-[90px]"
-			on:click|preventDefault|stopPropagation={(e) => {
-				e.preventDefault()
-				e.stopPropagation()
-			}}
-			data-prop-picker
-		>
-			<FlowPropPicker {propPickerConfig} {pickableIds} {id} />
+	{#if $propPickerConfig && pickableIds && id && Object.keys(pickableIds).includes(id)}
+		<div class="absolute -top-[14px] right-[200px]">
+			<FlowPropPicker json={{ [id]: pickableIds?.[id] }} prefix={'results'} />
 		</div>
 	{/if}
 	{#if deletable}

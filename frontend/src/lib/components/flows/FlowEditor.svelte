@@ -10,7 +10,7 @@
 	import { classNames } from '$lib/utils'
 	import { writable } from 'svelte/store'
 	import type { PropPickerWrapperContext, PropPickerConfig } from '$lib/components/prop_picker'
-
+	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -40,7 +40,7 @@
 		clearFocus: () => {
 			propPickerConfig.set(undefined)
 		},
-		pickableIds: writable<Record<string, any> | undefined>(undefined)
+		filteredPickableProperties: writable<PickableProperties | undefined>(undefined)
 	})
 </script>
 

@@ -80,7 +80,7 @@
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearFocus: () => {},
-		pickableIds: writable<Record<string, any> | undefined>(undefined)
+		filteredPickableProperties: writable(undefined)
 	})
 </script>
 

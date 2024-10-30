@@ -26,8 +26,10 @@
 	const EMPTY_STRING = ''
 	let search = ''
 
-	const { propPickerConfig, pickableIds } =
+	const { propPickerConfig, filteredPickableProperties } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	$filteredPickableProperties = { ...pickableProperties }
 
 	$: flowInputsFiltered =
 		search === EMPTY_STRING
@@ -43,7 +45,8 @@
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
 		: undefined
 
-	$: $pickableIds = resultByIdFiltered
+	$: resultByIdFiltered && ($filteredPickableProperties.priorIds = resultByIdFiltered)
+	$: flowInputsFiltered && ($filteredPickableProperties.flow_input = flowInputsFiltered)
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
