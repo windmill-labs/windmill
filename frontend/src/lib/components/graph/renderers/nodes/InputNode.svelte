@@ -28,10 +28,6 @@
 	const { propPickerConfig, filteredPickableProperties } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$: console.log('dbg propPickerConfig in InputNode', $filteredPickableProperties)
-
-	$: console.log('dbg propPickerConfig in InputNode', $propPickerConfig)
-
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
 		if (!inputJson || typeof inputJson !== 'object') return {}
 

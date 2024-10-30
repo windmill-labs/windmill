@@ -14,7 +14,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { fade } from 'svelte/transition'
-
+	import { tick } from 'svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
@@ -133,6 +133,48 @@
 		}
 	}
 
+	let codeInjectionDetected = false
+
+	function checkCodeInjection(rawValue: string) {
+		if (!arg) {
+			return
+		}
+
+		const dynamicTemplateRegex = new RegExp(
+			/^(flow_input\.|results\.|flo$|flow$|flow_$|flow_i$|flow_in$|flow_inp$|flow_inpu$|flow_input$|res$|resu$|resul$|result$|results$).*/
+		)
+
+		codeInjectionDetected = dynamicTemplateRegex.test(rawValue)
+	}
+
+	async function setJavaScriptExpr(rawValue: string) {
+		arg = {
+			type: 'javascript',
+			expr: rawValue
+		}
+		propertyType = 'javascript'
+		monaco?.setCode('')
+		monaco?.insertAtCursor(rawValue)
+		await tick()
+		monaco?.focus()
+		await tick()
+		monaco?.setCursorToEnd()
+	}
+
+	function handleKeyUp(e: KeyboardEvent) {
+		if (
+			e.key === 'Tab' &&
+			isStaticTemplate(inputCat) &&
+			propertyType == 'static' &&
+			!noDynamicToggle &&
+			codeInjectionDetected
+		) {
+			setJavaScriptExpr(arg.value)
+		} else {
+			stepInputGen?.onKeyUp?.(e)
+		}
+	}
+
 	function isStaticTemplate(inputCat: InputCat) {
 		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
 	}
@@ -169,6 +211,8 @@
 	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
+
+	$: isStaticTemplate(inputCat) && propertyType == 'static' && checkCodeInjection(arg?.value)
 
 	function setDefaultCode() {
 		if (!arg?.value) {
@@ -358,7 +402,7 @@
 
 		<div class="max-w-xs" />
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="relative" on:keyup={stepInputGen?.onKeyUp}>
+		<div class="relative" on:keyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
@@ -393,6 +437,20 @@
 								/>
 							{/if}
 						</div>
+
+						{#if codeInjectionDetected}
+							<Button
+								size="xs"
+								color="light"
+								btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700"
+								on:click={() => setJavaScriptExpr(arg.value)}
+							>
+								<span class="font-normal"
+									>Javascript expression detected - press
+									<span class="font-bold">TAB</span> to switch
+								</span>
+							</Button>
+						{/if}
 					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}

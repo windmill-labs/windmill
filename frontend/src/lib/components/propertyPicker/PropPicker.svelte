@@ -45,8 +45,13 @@
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
 		: undefined
 
-	$: resultByIdFiltered && ($filteredPickableProperties.priorIds = resultByIdFiltered)
-	$: flowInputsFiltered && ($filteredPickableProperties.flow_input = flowInputsFiltered)
+	$: resultByIdFiltered &&
+		$filteredPickableProperties &&
+		($filteredPickableProperties.priorIds = resultByIdFiltered)
+
+	$: flowInputsFiltered &&
+		$filteredPickableProperties &&
+		($filteredPickableProperties.flow_input = flowInputsFiltered)
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
