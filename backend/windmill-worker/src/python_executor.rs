@@ -17,7 +17,10 @@ use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
-    error::{self, Error},
+    error::{
+        self,
+        Error::{self},
+    },
     jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
     worker::{write_file, PythonAnnotations, WORKER_CONFIG},
@@ -82,7 +85,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     INSTANCE_PYTHON_VERSION, LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, TZ_ENV, UV_CACHE_DIR,
 };
 
 #[derive(Eq, PartialEq, Clone, Copy)]
@@ -97,13 +100,14 @@ impl PyVersion {
     /// e.g.: `/tmp/windmill/cache/python_3xy`
     pub fn to_cache_dir(&self) -> String {
         use windmill_common::worker::ROOT_CACHE_DIR;
-        format!("{ROOT_CACHE_DIR}python_{}", &self.to_cache_dir_top_level())
+        format!("{ROOT_CACHE_DIR}{}", &self.to_cache_dir_top_level())
     }
     /// e.g.: `python_3xy`
     pub fn to_cache_dir_top_level(&self) -> String {
         format!("python_{}", self.to_string_no_dots())
     }
     /// e.g.: `(to_cache_dir(), to_cache_dir_top_level())`
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     pub fn to_cache_dir_tuple(&self) -> (String, String) {
         use windmill_common::worker::ROOT_CACHE_DIR;
         let top_level = self.to_cache_dir_top_level();
@@ -163,6 +167,21 @@ impl PyVersion {
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
         version: &str,
     ) -> error::Result<()> {
+        // Create dirs for newly installed python
+        // If we dont do this, NSJAIL will not be able to mount cache
+        // For the default version directory created during startup (main.rs)
+        DirBuilder::new()
+            .recursive(true)
+            .create(
+                PyVersion::from_string_with_dots(version)
+                    .ok_or(error::Error::BadRequest(
+                        "Invalid python version".to_owned(),
+                    ))?
+                    .to_cache_dir(),
+            )
+            .await
+            .expect("could not create initial worker dir");
+
         let logs = String::new();
         // let v_with_dot = self.to_string_with_dots();
         let mut child_cmd = Command::new(UV_PATH.as_str());
@@ -403,20 +422,6 @@ pub async fn uv_pip_compile(
         //     py-000..000-no_uv
     }
     if !no_cache {
-        /*
-            There are several scenarious of flow
-                1. Cache does not exist for script
-                2. Cache exists and in cached lockfile there is no python version
-                3. Cache exists and in cached lockfile there is python version
-            Flows:
-                1: We calculate lockfile and add python version to it
-                2: Only possible if script exists since versions of windmill that dont support multipython
-                    1. If INSTANCE_PYTHON_VERSION == 3.11 assign this version to lockfile and return
-                    3. If INSTANCE_PYTHON_VERSION != 3.11 recalculate lockfile
-                3:
-                    1. if cached_lockfile != annotated_version recalculate lockfile
-                    else: return cache
-        */
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
             // Python version is not included in hash,
@@ -429,7 +434,7 @@ pub async fn uv_pip_compile(
             if let Some(line) = cached.lines().next() {
                 if let Some(cached_version) = PyVersion::parse_lockfile(line) {
                     // We should overwrite any version in lockfile
-                    // And only return cache if cached_version == new_version
+                    // And only return cache if cached_version == py_version
                     // This will trigger recompilation for all deps,
                     // but it is ok, since we do only on deploy and cached lockfiles for non-deployed scripts
                     // are being cleaned up every 3 days anyway
@@ -445,23 +450,12 @@ pub async fn uv_pip_compile(
                     );
                     // We will assign a python version to this script
                 }
-                // TODO: Small optimisation
-                // We end up here only if we try to redeploy script without assigned version
-                // So we could check if final_version == 3.11 and if so, assign python version (write to lockfile)
-                // and return cache
-                // else if new_py_version == PyVersion::Py311 {
-                //     tracing::info!(
-                //         "There is no assigned python version to script in job: {job_id:?}\n"
-                //     );
-                //     logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
-                //     return Ok(cached);
-                //     // We will assign a python version to this script
-                // }
             } else {
                 tracing::error!("No requirement specified in uv_pip_compile");
             }
         }
     }
+
     let file = "requirements.in";
 
     write_file(job_dir, file, &requirements)?;
@@ -1454,6 +1448,7 @@ pub async fn handle_python_reqs(
             }
         }
 
+        let py_cache_dir = py_version.to_cache_dir();
         let _ = write_file(
             job_dir,
             "download.config.proto",
@@ -1468,7 +1463,7 @@ pub async fn handle_python_reqs(
                 if no_uv_install {
                     PIP_CACHE_DIR
                 } else {
-                    PY311_CACHE_DIR
+                    &py_cache_dir
                 },
             )
             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
@@ -1482,6 +1477,7 @@ pub async fn handle_python_reqs(
         if req.starts_with('#') {
             continue;
         }
+
         let py_prefix = if no_uv_install {
             PIP_CACHE_DIR
         } else {
@@ -1603,6 +1599,9 @@ pub async fn handle_python_reqs(
             vars.push(("TARGET", &venv_p));
             if !no_uv_install {
                 vars.push(("PY_PATH", &py_path));
+                vars.push(("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"));
+                vars.push(("UV_PYTHON_PREFERENCE", "only-managed"));
+                vars.push(("UV_CACHE_DIR", UV_CACHE_DIR));
             }
             let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
             nsjail_cmd

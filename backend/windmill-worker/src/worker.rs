@@ -244,12 +244,6 @@ pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
 pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
 
-// pub fn PYX_CACHE_DIR(x: &str) -> &str {
-// match x {
-
-// }
-// }
-
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");

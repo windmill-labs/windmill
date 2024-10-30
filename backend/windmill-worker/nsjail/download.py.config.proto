@@ -58,6 +58,14 @@ mount {
 	is_bind: true
 	rw: true
 }
+# We need it for uv
+# TODO: Dont expose /proc here, it is not safe
+mount {
+	src: "/proc"
+	dst: "/proc"
+	is_bind: true
+	rw: true
+}
 
 mount {
 	dst: "/tmp"
@@ -78,6 +86,17 @@ mount {
     dst: "{CACHE_DIR}"
     is_bind: true
     rw: true
+}
+mount {
+    src: "/tmp/windmill/cache/uv"
+    dst: "/tmp/windmill/cache/uv"
+    is_bind: true
+    rw: true
+}
+mount {
+    src: "/tmp/windmill/cache/python"
+    dst: "/tmp/windmill/cache/python"
+    is_bind: true
 }
 
 mount {
