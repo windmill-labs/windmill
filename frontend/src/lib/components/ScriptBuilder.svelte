@@ -313,7 +313,11 @@
 		deployedBy = latestScript.created_by
 	}
 
+	async function editScript(
+		stay: boolean,
+		parentHash: string,
 		deploymentMsg?: string
+	): Promise<void> {
 		loadingSave = true
 		try {
 			try {

@@ -19,7 +19,7 @@
 	export let selected: boolean
 	export let showOnlyWithCount: boolean
 	export let triggersToDisplay: ('webhooks' | 'schedules' | 'routes' | 'websockets' | 'emails')[] =
-		['emails']
+		['webhooks', 'schedules', 'routes', 'websockets', 'emails']
 	const dispatch = createEventDispatcher()
 
 	onMount(() => {
