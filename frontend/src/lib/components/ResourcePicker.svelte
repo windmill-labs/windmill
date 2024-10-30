@@ -40,7 +40,7 @@
 	let collection = valueSelect ? [valueSelect] : []
 
 	export async function askNewResource() {
-		appConnect?.open?.(resourceType, expressOAuthSetup)
+		appConnect?.open?.(resourceType)
 	}
 
 	let loading = true
@@ -101,6 +101,7 @@
 		}
 	}}
 	bind:this={appConnect}
+	{expressOAuthSetup}
 />
 
 <ResourceEditorDrawer
@@ -178,7 +179,7 @@
 					color="light"
 					variant="border"
 					size="sm"
-					on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
+					on:click={() => appConnect?.open?.(resourceType)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}
 					>{#if collection?.length == 0}
