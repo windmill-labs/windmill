@@ -32,7 +32,7 @@
 					class={twMerge(
 						'rounded-full trash center-center h-[20px] w-[20px]',
 						$propPickerConfig?.insertionMode !== 'connect'
-							? 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 hover:bg-blue-500/80 hover:text-white text-secondary-inverse'
+							? 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 hover:bg-blue-700 text-white'
 							: 'bg-surface text-blue-500'
 					)}
 				>
