@@ -20,12 +20,19 @@
 	const dispatch = createEventDispatcher()
 
 	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		return Array.from(document.querySelectorAll('[data-prop-picker]')) as HTMLElement[]
+	}
 </script>
 
 <div
 	class="h-full w-full"
-	use:clickOutside
-	on:click_outside={() => propPickerConfig.set(undefined)}
+	data-prop-picker-root
+	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
+	on:click_outside={() => {
+		propPickerConfig.set(undefined)
+	}}
 >
 	<Splitpanes class="splitpanes-remove-splitter">
 		<Pane class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}>

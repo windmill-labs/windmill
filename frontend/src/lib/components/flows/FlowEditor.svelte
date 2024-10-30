@@ -39,7 +39,8 @@
 		},
 		clearFocus: () => {
 			propPickerConfig.set(undefined)
-		}
+		},
+		pickableIds: writable<Record<string, any> | undefined>(undefined)
 	})
 </script>
 

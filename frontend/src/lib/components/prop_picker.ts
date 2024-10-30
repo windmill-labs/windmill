@@ -12,6 +12,7 @@ export type PropPickerConfig = {
 
 export type PropPickerWrapperContext = {
 	propPickerConfig: Writable<PropPickerConfig | undefined>
+	pickableIds: Writable<Record<string, any> | undefined>
 	focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
 	clearFocus: () => void
 }

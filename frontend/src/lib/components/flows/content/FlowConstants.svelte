@@ -79,7 +79,8 @@
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
-		clearFocus: () => {}
+		clearFocus: () => {},
+		pickableIds: writable<Record<string, any> | undefined>(undefined)
 	})
 </script>
 

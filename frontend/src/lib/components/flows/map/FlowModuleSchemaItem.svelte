@@ -15,7 +15,8 @@
 		Square,
 		SkipForward,
 		Voicemail,
-		X
+		X,
+		Plug
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -24,11 +25,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
-	import { Drawer } from '$lib/components/common'
+	import { Drawer, Popup } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
-
+	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -53,6 +55,9 @@
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
+
+	const { propPickerConfig, pickableIds } =
+		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -266,6 +271,36 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 			{/if}
 		</div>
 	</div>
+	{#if $propPickerConfig && $pickableIds && id && Object.keys($pickableIds).includes(id)}
+		<div
+			class="absolute -top-[10px] right-[85px]"
+			on:click|preventDefault|stopPropagation={(e) => {
+				e.preventDefault()
+				e.stopPropagation()
+			}}
+			data-prop-picker
+		>
+			<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
+				<svelte:fragment slot="button">
+					<button
+						class="rounded-full h-[20px] w-[20px] trash center-center outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 text-white hover:bg-blue-500/80 hover:text-white"
+					>
+						<Plug class="mx-[3px]" size={12} strokeWidth={2} />
+					</button>
+				</svelte:fragment>
+				<ObjectViewer
+					json={{ [id]: $pickableIds[id] }}
+					topBrackets={false}
+					pureViewer={false}
+					prefix="results"
+					on:select={(e) => {
+						$propPickerConfig?.onSelect(e.detail)
+						propPickerConfig.set(undefined)
+					}}
+				/>
+			</Popup>
+		</div>
+	{/if}
 	{#if deletable}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary

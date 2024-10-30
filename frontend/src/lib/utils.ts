@@ -171,13 +171,36 @@ export function validatePassword(password: string): boolean {
 
 const portalDivs = ['app-editor-select']
 
-export function clickOutside(node: Node, capture?: boolean): { destroy(): void } {
-	const handleClick = (event: MouseEvent) => {
+interface ClickOutsideOptions {
+	capture?: boolean
+	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
+}
+
+export function clickOutside(
+	node: Node,
+	options?: ClickOutsideOptions | boolean
+): { destroy(): void; update(newOptions: ClickOutsideOptions | boolean): void } {
+	const handleClick = async (event: MouseEvent) => {
 		const target = event.target as HTMLElement
+		const opts = typeof options === 'boolean' ? { capture: options } : options
 
-		if (node && !node.contains(target) && !event.defaultPrevented) {
+		let excludedElements: HTMLElement[] = []
+		if (opts?.exclude) {
+			if (Array.isArray(opts.exclude)) {
+				excludedElements = opts.exclude
+			} else {
+				excludedElements = await opts.exclude()
+			}
+		}
+
+		const isExcluded = excludedElements.some((excludedEl) => {
+			const contains = excludedEl?.contains?.(target)
+			const isTarget = target === excludedEl
+			return contains || isTarget
+		})
+
+		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
 			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
-
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
@@ -186,11 +209,15 @@ export function clickOutside(node: Node, capture?: boolean): { destroy(): void }
 		}
 	}
 
-	document.addEventListener('click', handleClick, capture ?? true)
+	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
+	document.addEventListener('click', handleClick, capture)
 
 	return {
+		update(newOptions: ClickOutsideOptions | boolean) {
+			options = newOptions
+		},
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? true)
+			document.removeEventListener('click', handleClick, capture)
 		}
 	}
 }
@@ -498,7 +525,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -508,7 +535,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -724,7 +751,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {
@@ -948,5 +975,4 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 export function validateFileExtension(ext: string) {
 	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
 	return validExtensionRegex.test(ext)
-
 }
