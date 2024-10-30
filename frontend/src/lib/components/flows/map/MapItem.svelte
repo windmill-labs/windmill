@@ -11,6 +11,7 @@
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
+	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
 
 	export let mod: FlowModule
 	export let insertable: boolean
@@ -57,6 +58,9 @@
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
 	}
+
+	const { propPickerConfig, pickableIds } =
+		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 {#if mod}
@@ -96,6 +100,8 @@
 		<div class={moving == mod.id ? 'opacity-50' : ''}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
+					propPickerConfig={$propPickerConfig}
+					pickableIds={$pickableIds}
 					deletable={insertable}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
@@ -163,6 +169,8 @@
 					{...itemProps}
 					modType={mod.value.type}
 					{bgColor}
+					propPickerConfig={$propPickerConfig}
+					pickableIds={$pickableIds}
 					label={mod.summary ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'

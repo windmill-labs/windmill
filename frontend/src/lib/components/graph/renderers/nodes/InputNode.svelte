@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
 
 	export let data: {
 		hasPreprocessor: boolean
@@ -23,6 +24,9 @@
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
+
+	const { propPickerConfig, pickableIds } =
+		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 <NodeWrapper let:darkMode>
@@ -64,5 +68,7 @@
 		on:select={(e) => {
 			data.eventHandlers?.select(e.detail)
 		}}
+		propPickerConfig={$propPickerConfig}
+		pickableIds={$pickableIds}
 	/>
 </NodeWrapper>

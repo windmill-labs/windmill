@@ -4,6 +4,8 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import type { PropPickerConfig } from '$lib/components/prop_picker'
+	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
@@ -14,6 +16,8 @@
 	export let borderColor: string | undefined = undefined
 	export let hideId: boolean = false
 	export let preLabel: string | undefined = undefined
+	export let propPickerConfig: PropPickerConfig | undefined = undefined
+	export let pickableIds: Record<string, any> | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -76,4 +80,9 @@
 			{/if}
 		</div>
 	</div>
+	{#if propPickerConfig && pickableIds && id}
+		<div class="absolute -top-[12px] right-[90px]">
+			<FlowPropPicker {propPickerConfig} {pickableIds} {id} />
+		</div>
+	{/if}
 </div>

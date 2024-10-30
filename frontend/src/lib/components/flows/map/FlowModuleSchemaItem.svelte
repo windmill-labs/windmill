@@ -15,8 +15,7 @@
 		Square,
 		SkipForward,
 		Voicemail,
-		X,
-		Plug
+		X
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -25,12 +24,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
-	import { Drawer, Popup } from '$lib/components/common'
+	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
-	import type { PropPickerWrapperContext } from '$lib/components/prop_picker'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
+	import type { PropPickerConfig } from '$lib/components/prop_picker'
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -48,6 +47,8 @@
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
+	export let propPickerConfig: PropPickerConfig | undefined = undefined
+	export let pickableIds: Record<string, any> | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
@@ -55,9 +56,6 @@
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
-
-	const { propPickerConfig, pickableIds } =
-		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -271,34 +269,16 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 			{/if}
 		</div>
 	</div>
-	{#if $propPickerConfig && $pickableIds && id && Object.keys($pickableIds).includes(id)}
+	{#if propPickerConfig && pickableIds && id && Object.keys(pickableIds).includes(id)}
 		<div
-			class="absolute -top-[10px] right-[85px]"
+			class="absolute -top-[12px] right-[90px]"
 			on:click|preventDefault|stopPropagation={(e) => {
 				e.preventDefault()
 				e.stopPropagation()
 			}}
 			data-prop-picker
 		>
-			<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
-				<svelte:fragment slot="button">
-					<button
-						class="rounded-full h-[20px] w-[20px] trash center-center outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 text-white hover:bg-blue-500/80 hover:text-white"
-					>
-						<Plug class="mx-[3px]" size={12} strokeWidth={2} />
-					</button>
-				</svelte:fragment>
-				<ObjectViewer
-					json={{ [id]: $pickableIds[id] }}
-					topBrackets={false}
-					pureViewer={false}
-					prefix="results"
-					on:select={(e) => {
-						$propPickerConfig?.onSelect(e.detail)
-						propPickerConfig.set(undefined)
-					}}
-				/>
-			</Popup>
+			<FlowPropPicker {propPickerConfig} {pickableIds} {id} />
 		</div>
 	{/if}
 	{#if deletable}
@@ -315,7 +295,7 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 
 		{#if id !== 'preprocessor'}
 			<button
-				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
  {hover ? '' : '!hidden'}"
 				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
