@@ -27,7 +27,7 @@ CMD="/usr/local/bin/uv pip install
 --no-color 
 --no-deps 
 --link-mode=copy
--p 3.11
+-p $PY_PATH
 $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG
 --index-strategy unsafe-best-match
 --system

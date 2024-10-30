@@ -171,6 +171,11 @@ impl PyVersion {
         child_cmd
             .current_dir(job_dir)
             .args(["python", "install", version])
+            // TODO: Do we need these?
+            .envs([
+                ("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"),
+                ("UV_PYTHON_PREFERENCE", "only-managed"),
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -301,6 +306,10 @@ impl PyVersion {
         let output = child_cmd
             .current_dir(job_dir)
             .args(["python", "find", version])
+            .envs([
+                ("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"),
+                ("UV_PYTHON_PREFERENCE", "only-managed"),
+            ])
             // .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -909,7 +918,11 @@ mount {{
                 "--config",
                 "run.config.proto",
                 "--",
-                PYTHON_PATH.as_str(),
+                if no_uv {
+                    PYTHON_PATH.as_str()
+                } else {
+                    &python_path
+                },
                 "-u",
                 "-m",
                 "wrapper",
@@ -1622,6 +1635,9 @@ pub async fn handle_python_reqs(
             let req = req.to_string();
             vars.push(("REQ", &req));
             vars.push(("TARGET", &venv_p));
+            if !no_uv {
+                vars.push(("PY_PATH", &py_path));
+            }
             let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
             nsjail_cmd
                 .current_dir(job_dir)
