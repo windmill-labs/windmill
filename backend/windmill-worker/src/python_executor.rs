@@ -1362,6 +1362,7 @@ pub async fn handle_python_reqs(
         tracing::warn!("Fallback to pip");
     }
 
+    // TODO: In what cases it may fail?
     let py_path = py_version
         .get_python(
             job_dir,
@@ -1372,16 +1373,9 @@ pub async fn handle_python_reqs(
             w_id,
             occupancy_metrics,
         )
-        .await;
-    if let Err(ref err) = py_path {
-        tracing::error!("{}", err);
-    }
-
-    // TODO: Refactor
-    let py_path = py_path?.replace('\n', "");
+        .await?;
 
     if !*DISABLE_NSJAIL {
-        append_logs(&job_id, w_id, "\nPrepare NSJAIL\n", db).await;
         pip_extra_index_url = PIP_EXTRA_INDEX_URL
             .read()
             .await
@@ -1702,25 +1696,21 @@ pub async fn handle_python_reqs(
 
             tracing::debug!("pip install command: {:?}", command_args);
 
-            // panic!(
-            //     "{:?}",
-            //     [
-            //         "-x",
-            //         &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
-            //         "--command",
-            //         &command_args.join(" "),
-            //     ]
-            //     .join(" ")
-            // );
             #[cfg(unix)]
             {
+                let pref = if no_uv_install {
+                    py_version.to_string_no_dots()
+                } else {
+                    "pip".to_owned()
+                };
+
                 let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
                 flock_cmd
                     .env_clear()
                     .envs(envs)
                     .args([
                         "-x",
-                        &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
+                        &format!("{}/py{}-{}.lock", LOCK_CACHE_DIR, &pref, fssafe_req),
                         "--command",
                         &command_args.join(" "),
                     ])

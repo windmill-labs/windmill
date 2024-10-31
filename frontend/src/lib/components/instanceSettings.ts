@@ -173,7 +173,7 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
 			fieldType: 'text',
-			placeholder: '3.11',
+			placeholder: '3.10, 3.11 (Default), 3.12 or 3.13',
 			storage: 'setting',
 		},
 		{
