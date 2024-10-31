@@ -1,4 +1,3 @@
-import { log } from "./deps.ts";
 import crypto from "node:crypto";
 
 // Helper function to convert strings to Uint8Array (binary)
