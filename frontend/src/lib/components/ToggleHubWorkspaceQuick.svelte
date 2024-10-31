@@ -7,7 +7,7 @@
 </script>
 
 <div class="max-w-min">
-	<ToggleButtonGroup bind:selected>
+	<ToggleButtonGroup id="flow-editor-flow-providers" bind:selected>
 		<ToggleButton value="all" label="All" light small />
 		<ToggleButton value="hub" icon={WindmillIcon2} label="Hub" light small />
 		<ToggleButton value="workspace" icon={Building} label="Workspace" light small />

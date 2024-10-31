@@ -1054,6 +1054,9 @@ pub async fn handle_python_reqs(
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
+        if req.starts_with('#') {
+            continue;
+        }
         let py_prefix = if no_uv_install {
             PIP_CACHE_DIR
         } else {
