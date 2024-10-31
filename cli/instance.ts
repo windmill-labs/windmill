@@ -448,8 +448,8 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     const rootDir = Deno.cwd();
 
     let localPrefix;
-    if (opts.baseUrl && opts.token) {
-      localPrefix = "custom";
+    if (opts.instance || (opts.baseUrl && opts.token)) {
+      localPrefix = instance.prefix;
     } else {
       localPrefix = (await Select.prompt({
         message: "What is the prefix of the local workspaces you want to sync?",
