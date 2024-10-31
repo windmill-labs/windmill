@@ -364,8 +364,6 @@ pub async fn uv_pip_compile(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    // If not set, will default to INSTANCE_PYTHON_VERSION
-    // Will always be Some after execution
     py_version: PyVersion,
     // Fallback to pip-compile. Will be removed in future
     mut no_uv: bool,

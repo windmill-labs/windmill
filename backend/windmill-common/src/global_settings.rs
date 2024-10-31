@@ -33,7 +33,7 @@ pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 
-pub const ENV_SETTINGS: [&str; 51] = [
+pub const ENV_SETTINGS: [&str; 52] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -56,6 +56,7 @@ pub const ENV_SETTINGS: [&str; 51] = [
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
+    "INSTANCE_PYTHON_VERSION",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
     "PIP_TRUSTED_HOST",
