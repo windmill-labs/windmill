@@ -110,7 +110,7 @@
 		}
 
 		if (kind == 'approval') {
-			module.suspend = { required_events: 1 }
+			module.suspend = { required_events: 1, timeout: 1800 }
 		} else if (kind == 'trigger') {
 			module.stop_after_if = {
 				expr: '!result || (Array.isArray(result) && result.length == 0)',

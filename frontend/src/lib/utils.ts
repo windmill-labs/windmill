@@ -472,7 +472,7 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 }
 
 export function pluralize(quantity: number, word: string, customPlural?: string) {
-	if (quantity <= 1) {
+	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
 		return `${quantity} ${customPlural}}`
@@ -498,7 +498,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -508,7 +508,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null

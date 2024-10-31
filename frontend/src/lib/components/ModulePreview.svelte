@@ -32,7 +32,7 @@
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
-	let scriptProgress = undefined;
+	let scriptProgress = undefined
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
@@ -54,7 +54,7 @@
 
 	export async function runTest(args: any) {
 		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset();
+		if (jobProgressReset) jobProgressReset()
 
 		const val = mod.value
 		// let jobId: string | undefined = undefined
@@ -75,7 +75,7 @@
 				script.content,
 				script.language,
 				args,
-				$flowStore?.tag ?? script.tag
+				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag)
 			)
 		} else if (val.type == 'flow') {
 			await testJobLoader?.abstractRun(() =>
@@ -102,8 +102,6 @@
 
 	let forceJson = false
 </script>
-
-
 
 <TestJobLoader
 	toastError={noEditor}
@@ -158,9 +156,14 @@
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
-			{#if scriptProgress}
-				<JobProgressBar job={testJob} bind:scriptProgress bind:reset={jobProgressReset} compact={true} />
-			{/if}
+				{#if scriptProgress}
+					<JobProgressBar
+						job={testJob}
+						bind:scriptProgress
+						bind:reset={jobProgressReset}
+						compact={true}
+					/>
+				{/if}
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
@@ -186,7 +189,7 @@
 					<div class="p-2">
 						{#if testIsLoading}
 							{#if !scriptProgress}
-							<Loader2 class="animate-spin" />
+								<Loader2 class="animate-spin" />
 							{/if}
 						{:else}
 							Test to see the result here

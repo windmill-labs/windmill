@@ -368,18 +368,17 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
-
 		// We have to make sure there is no updates when we clicked the button
-		await compareVersions();
+		await compareVersions()
 
 		if (onLatest) {
 			// Handle directly
 			await updateApp(npath)
 		} else {
-		  // There is onLatest, but we need more information while deploying 
-		  // We need it to show diff
+			// There is onLatest, but we need more information while deploying
+			// We need it to show diff
 			// Handle through confirmation modal
-			await syncWithDeployed();
+			await syncWithDeployed()
 
 			confirmCallback = async () => {
 				open = false
@@ -628,13 +627,18 @@
 		if (version === undefined) {
 			return
 		}
-		const appVersion = await AppService.getAppLatestVersion({
-			workspace: $workspaceStore!,
-			path: appPath
-		})
-		onLatest = version === appVersion?.version
-
+		try {
+			const appVersion = await AppService.getAppLatestVersion({
+				workspace: $workspaceStore!,
+				path: appPath
+			})
+			onLatest = version === appVersion?.version
+		} catch (e) {
+			console.error('Error comparing versions', e)
+			onLatest = true
+		}
 	}
+
 	$: saveDrawerOpen && compareVersions()
 
 	let selectedJobId: string | undefined = undefined
@@ -764,7 +768,7 @@
 				}
 
 				// deployedValue should be syncronized when we open Diff
-				await syncWithDeployed();
+				await syncWithDeployed()
 
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
@@ -955,7 +959,7 @@
 						return
 					}
 					// deployedValue should be syncronized when we open Diff
-					await syncWithDeployed();
+					await syncWithDeployed()
 
 					saveDrawerOpen = false
 					diffDrawer?.openDrawer()
