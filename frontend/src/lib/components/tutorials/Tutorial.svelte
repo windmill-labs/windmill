@@ -79,7 +79,19 @@
 		})
 
 		tutorialControls.$on('previous', () => {
-			tutorial?.movePrevious()
+			const step = tutorial?.getActiveStep()
+
+			if (step) {
+				if (tutorial?.getActiveStep()?.popover?.onPrevClick) {
+					const activeElement = tutorial?.getActiveElement()
+					tutorial?.getActiveStep()?.popover?.onPrevClick?.(activeElement, step, {
+						config,
+						state
+					})
+				} else {
+					tutorial?.movePrevious()
+				}
+			}
 		})
 
 		if (popoverDescription) {
