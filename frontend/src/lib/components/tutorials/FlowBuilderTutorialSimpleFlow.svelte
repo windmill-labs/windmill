@@ -5,9 +5,8 @@
 	import {
 		clickButtonBySelector,
 		isFlowTainted,
-		selectFlowStepKind,
 		setInputBySelector,
-		triggerAddFlowStep,
+		triggerPointerDown,
 		waitForElementLoading
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
@@ -82,7 +81,7 @@
 				title: 'Add a step',
 				description: 'Click here to add a step to your flow',
 				onNextClick: () => {
-					triggerAddFlowStep(0)
+					triggerPointerDown(`#flow-editor-add-step-0`)
 					setTimeout(() => {
 						driver.moveNext()
 					})
@@ -101,7 +100,7 @@
 				title: 'Pick an action',
 				description: 'Let’s pick an action to add to your flow',
 				onNextClick: () => {
-					selectFlowStepKind(1)
+					triggerPointerDown('#flow-editor-insert-module > div > div > button:nth-child(1)')
 
 					setTimeout(() => {
 						driver.moveNext()
@@ -143,7 +142,7 @@
 				title: 'Action editor',
 				description: 'Windmill provides a full code editor to write your actions',
 				onPrevClick: () => {
-					triggerAddFlowStep(0)
+					triggerPointerDown(`#flow-editor-add-step-0`)
 					setTimeout(() => {
 						driver.movePrevious()
 					})

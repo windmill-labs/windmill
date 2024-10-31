@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { triggerAddFlowStep, triggerPointerDown } from './utils'
+	import { triggerPointerDown } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 
@@ -37,7 +37,7 @@
 					title: 'Add a step',
 					description: 'Click here to add a step to your flow',
 					onNextClick: () => {
-						triggerAddFlowStep(index)
+						triggerPointerDown(`#flow-editor-add-step-${index}`)
 
 						setTimeout(() => {
 							driver.moveNext()

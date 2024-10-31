@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import {
-		clickButtonBySelector,
-		triggerAddFlowStep,
-		updateFlowModuleById,
-		triggerPointerDown
-	} from './utils'
+	import { clickButtonBySelector, updateFlowModuleById, triggerPointerDown } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { nextId } from '../flows/flowModuleNextId'
@@ -45,7 +40,7 @@
 					title: 'Branch one',
 					description: 'Windmill supports branches, let us add one',
 					onNextClick: () => {
-						triggerAddFlowStep(index)
+						triggerPointerDown(`#flow-editor-add-step-${index}`)
 
 						setTimeout(() => {
 							driver.moveNext()

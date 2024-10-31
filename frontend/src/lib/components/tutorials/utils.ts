@@ -29,29 +29,11 @@ export function clickFirstButtonBySelector(selector: string) {
 	}
 }
 
-export function triggerAddFlowStep(index: number) {
-	const button = document.querySelector(`#flow-editor-add-step-${index}`) as HTMLButtonElement
-
-	if (button) {
-		button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-	}
-}
-
 export function triggerPointerDown(selector: string) {
 	const elem = document.querySelector(selector) as HTMLElement
 
 	if (elem) {
 		elem.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-	}
-}
-
-export function selectFlowStepKind(index: number) {
-	const button = document.querySelector(
-		`#flow-editor-insert-module > div > div > button:nth-child(${index})`
-	) as HTMLButtonElement
-
-	if (button) {
-		button?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
 	}
 }
 
