@@ -75,16 +75,18 @@
 		}}>{value}</button
 	>
 {:else if typeof value !== 'object'}
-	{truncate(JSON.stringify(value), 100)}
-	{#if JSON.stringify(value).length > 100}
-		<button
-			class="text-xs text-blue-500"
-			on:click={() => {
-				jsonViewerContent = value
-				jsonViewer.toggleDrawer()
-			}}>See expanded</button
-		>
-	{/if}
+	<span>
+		{truncate(JSON.stringify(value), 80)}
+		{#if JSON.stringify(value).length > 80}
+			<button
+				class="text-xs text-blue-500"
+				on:click={() => {
+					jsonViewerContent = value
+					jsonViewer.toggleDrawer()
+				}}>See expanded</button
+			>
+		{/if}
+	</span>
 {:else}
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}

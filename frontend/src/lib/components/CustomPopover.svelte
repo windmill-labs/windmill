@@ -9,6 +9,7 @@
 	export let disappearTimeout = 100
 	export let appearTimeout = 300
 	export let style: string | undefined = undefined
+	export let noPadding = false
 
 	export let focusEl: HTMLElement | undefined = undefined
 
@@ -73,7 +74,7 @@
 			use:popperContent={popperOptions}
 			on:mouseenter={open}
 			on:mouseleave={close}
-			class="z-[5001] border rounded-lg shadow-lg p-4 bg-surface"
+			class="z-[5001] border rounded-lg shadow-lg {noPadding ? '' : 'p-4'} bg-surface"
 		>
 			<slot name="overlay" />
 		</div>

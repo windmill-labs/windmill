@@ -23,7 +23,7 @@ use windmill_common::{
     jobs::QueuedJob,
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
-use windmill_parser_yaml::AnsibleRequirements;
+use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -188,7 +188,7 @@ async fn install_galaxy_collections(
 #[cfg(not(feature = "enterprise"))]
 fn check_ansible_exists() -> Result<(), error::Error> {
     if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
         return Err(error::Error::NotFound(msg));
     }
     Ok(())
@@ -197,7 +197,7 @@ fn check_ansible_exists() -> Result<(), error::Error> {
 #[cfg(feature = "enterprise")]
 fn check_ansible_exists() -> Result<(), error::Error> {
     if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
         return Err(error::Error::NotFound(msg));
     }
     Ok(())
@@ -559,20 +559,17 @@ async fn create_file_resources(
     }
 
     for file_res in &r.file_resources {
-        let r = client
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &file_res.resource_path,
-                Some(job_id.to_string()),
-            )
-            .await?;
+        let r = get_resource_or_variable_content(
+            client,
+            &file_res.resource_path,
+            job_id.to_string(),
+        )
+        .await?;
         let path = file_res.target_path.clone();
         let validated_path = write_file_at_user_defined_location(
             job_dir,
             path.as_str(),
-            r.get("content").and_then(|v| v.as_str()).ok_or(anyhow!(
-                "Invalid text file resource {}, `content` field absent or invalid",
-                &file_res.resource_path
-            ))?,
+            &r,
         )
         .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
 
@@ -582,11 +579,33 @@ async fn create_file_resources(
         );
 
         logs.push_str(&format!(
-            "\nCreated {} from {}",
+            "\nCreated {} from {:?}",
             file_res.target_path, file_res.resource_path
         ));
     }
     append_logs(job_id, w_id, logs, db).await;
 
     Ok(nsjail_mounts)
+}
+
+async fn get_resource_or_variable_content(
+    client: &crate::AuthedClient,
+    path: &ResourceOrVariablePath,
+    job_id: String,
+) -> anyhow::Result<String> {
+    Ok(match path {
+        ResourceOrVariablePath::Resource(p) => {
+            let r = client
+                .get_resource_value_interpolated::<serde_json::Value>(&p, Some(job_id))
+                .await?;
+
+            r.get("content").and_then(|v| v.as_str()).ok_or(anyhow!(
+                "Invalid text file resource {}, `content` field absent or invalid",
+                p
+            ))?.to_string()
+        }
+        ResourceOrVariablePath::Variable(p) => {
+            client.get_variable_value(&p).await?
+        }
+    })
 }

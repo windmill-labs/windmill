@@ -50,6 +50,11 @@
 			nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
 		}
 		collection = nc
+
+		if (expressOAuthSetup && nc.length > 0) {
+			value = nc[0].value
+			valueSelect = nc[0]
+		}
 	}
 
 	$: $workspaceStore && loadResources(resourceType)
@@ -71,13 +76,15 @@
 {#if expressOAuthSetup}
 	{#if open}
 		{#key refreshCount}
-			{#await import('./AppConnectLightweightResourcePicker.svelte')}
-				<Loader2 class="animate-spin" />
-			{:then Module}
+			{#await import('./AppConnectLightweightResourcePicker.svelte') then Module}
 				<Module.default
 					workspace={appViewerContext?.workspace ?? $workspaceStore}
 					{resourceType}
 					express={true}
+					on:error={(e) => {
+						sendUserToast(e.detail, true)
+						open = false
+					}}
 				/>
 			{/await}
 		{/key}

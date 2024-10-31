@@ -173,17 +173,6 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
-        tracing::error!("Could not apply flow versioning fix migration: {err:#}");
-    }
-
-    let db2 = db.clone();
-    let _ = tokio::task::spawn(async move {
-        if let Err(err) = fix_job_completed_index(&db2).await {
-            tracing::error!("Could not apply job completed index fix migration: {err:#}");
-        }
-    });
-
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
@@ -198,6 +187,17 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         }
         Err(err) => Err(err),
     }?;
+
+    if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
+        tracing::error!("Could not apply flow versioning fix migration: {err:#}");
+    }
+
+    let db2 = db.clone();
+    let _ = tokio::task::spawn(async move {
+        if let Err(err) = fix_job_completed_index(&db2).await {
+            tracing::error!("Could not apply job completed index fix migration: {err:#}");
+        }
+    });
 
     Ok(())
 }
@@ -302,7 +302,7 @@ macro_rules! run_windmill_migration {
                     .await?;
                     tracing::info!("Finished applying {migration_job_name} migration");
                 } else {
-                    tracing::info!("migration {migration_job_name} already done");
+                    tracing::debug!("migration {migration_job_name} already done");
                 }
 
                 let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
@@ -311,7 +311,7 @@ macro_rules! run_windmill_migration {
                 tx.commit().await?;
                 tracing::info!("released lock for {migration_job_name}");
             } else {
-                tracing::info!("migration {migration_job_name} already done");
+                tracing::debug!("migration {migration_job_name} already done");
 
             }
         }

@@ -1,4 +1,4 @@
-# trigger CI | Dont forget to remove
+# trigger CI #2 | Dont forget to remove
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.80-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
@@ -169,7 +169,7 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 RUN uv python install $DEFAULT_PYTHON_V
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
-RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
+RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
