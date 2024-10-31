@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.415.1](https://github.com/windmill-labs/windmill/compare/v1.415.0...v1.415.1) (2024-10-31)
+
+
+### Bug Fixes
+
+* **cli:** improve --instance handling wmill instance push ([cb005a1](https://github.com/windmill-labs/windmill/commit/cb005a15baef4272bc58c7e80a43e44723556d31))
+
 ## [1.415.0](https://github.com/windmill-labs/windmill/compare/v1.414.2...v1.415.0) (2024-10-31)
 
 
