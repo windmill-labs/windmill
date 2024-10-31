@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     process::Stdio,
-    sync::{Arc, RwLock},
+    // sync::{Arc, RwLock},
 };
 
 use itertools::Itertools;
@@ -49,16 +49,8 @@ lazy_static::lazy_static! {
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
 
-    static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
+    static ref NOUV: bool = std::env::var("NOUV")
         .ok().map(|flag| flag == "true").unwrap_or(false);
-
-    /// Use pip install
-    static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
-        .ok().map(|flag| flag == "true").unwrap_or(false);
-
-    static ref NO_UV_RUN: bool = std::env::var("NO_UV_RUN")
-        .ok().map(|flag| flag == "true").unwrap_or(false);
-
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -187,7 +179,12 @@ impl PyVersion {
         let mut child_cmd = Command::new(UV_PATH.as_str());
         child_cmd
             .current_dir(job_dir)
-            .args(["python", "install", version])
+            .args([
+                "python",
+                "install",
+                version,
+                "--python-preference=only-managed",
+            ])
             // TODO: Do we need these?
             .envs([
                 ("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"),
@@ -272,9 +269,9 @@ impl PyVersion {
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<String> {
-        lazy_static::lazy_static! {
-            static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
-        }
+        // lazy_static::lazy_static! {
+        //     static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        // }
 
         Self::get_python_inner(
             job_dir,
@@ -294,7 +291,12 @@ impl PyVersion {
         let mut child_cmd = Command::new(UV_PATH.as_str());
         let output = child_cmd
             .current_dir(job_dir)
-            .args(["python", "find", version])
+            .args([
+                "python",
+                "find",
+                version,
+                "--python-preference=only-managed",
+            ])
             .envs([
                 ("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"),
                 ("UV_PYTHON_PREFERENCE", "only-managed"),
@@ -410,7 +412,7 @@ pub async fn uv_pip_compile(
 
     let mut req_hash = format!("py-{}", calculate_hash(&requirements));
 
-    if no_uv || *USE_PIP_COMPILE {
+    if no_uv || *NOUV {
         logs.push_str(&format!("\nFallback to pip-compile (Deprecated!)"));
         // Set no_uv if not setted
         no_uv = true;
@@ -668,7 +670,7 @@ pub async fn handle_python_job(
     .await?;
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
 
-    let no_uv = *NO_UV_RUN | annotations.no_uv | annotations.no_uv_run;
+    let no_uv = *NOUV | annotations.no_uv;
 
     append_logs(
         &job.id,
@@ -859,8 +861,7 @@ mount {{
             &job.workspace_id,
             &mut Some(occupancy_metrics),
         )
-        .await?
-        .replace('\n', "");
+        .await?;
 
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1267,7 +1268,7 @@ async fn handle_python_deps(
                     w_id,
                     occupancy_metrics,
                     annotated_or_default_version,
-                    annotations.no_uv || annotations.no_uv_compile,
+                    annotations.no_uv,
                     annotations.no_cache,
                 )
                 .await
@@ -1321,7 +1322,7 @@ async fn handle_python_deps(
             worker_dir,
             occupancy_metrics,
             final_version,
-            annotations.no_uv || annotations.no_uv_install,
+            annotations.no_uv,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -1355,7 +1356,7 @@ pub async fn handle_python_reqs(
     let pip_extra_index_url;
     let pip_index_url;
 
-    no_uv_install |= *USE_PIP_INSTALL;
+    no_uv_install |= *NOUV;
 
     if no_uv_install {
         append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;

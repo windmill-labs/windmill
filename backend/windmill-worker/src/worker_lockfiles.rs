@@ -1311,7 +1311,7 @@ async fn python_dep(
         w_id,
         occupancy_metrics,
         final_version,
-        annotations.no_uv || annotations.no_uv_compile,
+        annotations.no_uv,
         annotations.no_cache,
     )
     .await;
@@ -1333,7 +1333,7 @@ async fn python_dep(
             // So we can skip parsing the lockfile returned from uv_pip_compile to get python version
             // and instead just use final_version
             final_version,
-            annotations.no_uv || annotations.no_uv_install,
+            annotations.no_uv,
         )
         .await;
 

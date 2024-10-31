@@ -308,9 +308,6 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_uv: bool,
-    pub no_uv_install: bool,
-    pub no_uv_compile: bool,
-    pub no_uv_run: bool,
 
     pub py310: bool,
     pub py311: bool,
