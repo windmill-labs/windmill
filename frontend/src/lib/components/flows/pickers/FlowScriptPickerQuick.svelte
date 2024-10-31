@@ -33,6 +33,7 @@
 <svelte:window on:keydown={handleKeydown} />
 
 <button
+	id={`flow-editor-new-${lang}`}
 	class={twMerge(
 		'px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md',
 		selected ? 'bg-surface-hover' : ''
