@@ -190,6 +190,21 @@ export async function pickInstance(
   allowNew: boolean
 ) {
   const instances = await allInstances();
+  if (opts.baseUrl && opts.token && opts.instance) {
+    log.info("Using instance defined by --instance, --base-url and --token");
+
+    setClient(
+      opts.token,
+      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl
+    );
+
+    return {
+      name: opts.instance,
+      remote: opts.baseUrl,
+      token: opts.token,
+      prefix: opts.instance,
+    };
+  }
   if (opts.baseUrl && opts.token) {
     log.info("Using instance fully defined by --base-url and --token");
 
@@ -687,7 +702,7 @@ const command = new Command()
   .option("--folder-per-instance", "Create a folder per instance")
   .option(
     "--instance <instance:string>",
-    "Name of the instance to push to, override the active instance"
+    "Name of the instance to pull from, override the active instance"
   )
   .action(instancePull as any)
   .command("push")
