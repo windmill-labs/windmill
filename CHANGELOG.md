@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.415.0](https://github.com/windmill-labs/windmill/compare/v1.414.2...v1.415.0) (2024-10-31)
+
+
+### Features
+
+* **cli:** opts.instance as instace name and prefix ([#4609](https://github.com/windmill-labs/windmill/issues/4609)) ([a07f57e](https://github.com/windmill-labs/windmill/commit/a07f57e698107056d045d8d5c2458e04c809fcc8))
+
+
+### Bug Fixes
+
+* improve express oauth setup ([ba4aed5](https://github.com/windmill-labs/windmill/commit/ba4aed5bf51c65204332cfc158d0ffd9c7095ec7))
+* improve user resource input ([8c7f53b](https://github.com/windmill-labs/windmill/commit/8c7f53b2ebe0990cd93879258d004ac89dc8b24c))
+
 ## [1.414.2](https://github.com/windmill-labs/windmill/compare/v1.414.1...v1.414.2) (2024-10-29)
 
 
