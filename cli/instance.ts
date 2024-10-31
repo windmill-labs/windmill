@@ -267,19 +267,19 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   let uChanges = 0;
   if (!opts.skipUsers) {
-    uChanges = (await pullInstanceUsers(true)) as number;
+    uChanges = (await pullInstanceUsers(opts, true)) as number;
   }
   let sChanges = 0;
   if (!opts.skipSettings) {
-    sChanges = (await pullInstanceSettings(true)) as number;
+    sChanges = (await pullInstanceSettings(opts, true)) as number;
   }
   let cChanges = 0;
   if (!opts.skipConfigs) {
-    cChanges = (await pullInstanceConfigs(true)) as number;
+    cChanges = (await pullInstanceConfigs(opts, true)) as number;
   }
   let gChanges = 0;
   if (!opts.skipGroups) {
-    gChanges = (await pullInstanceGroups(true)) as number;
+    gChanges = (await pullInstanceGroups(opts, true)) as number;
   }
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
@@ -295,16 +295,16 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
-        await pullInstanceUsers();
+        await pullInstanceUsers(opts);
       }
       if (!opts.skipSettings && sChanges > 0) {
-        await pullInstanceSettings();
+        await pullInstanceSettings(opts);
       }
       if (!opts.skipConfigs && cChanges > 0) {
-        await pullInstanceConfigs();
+        await pullInstanceConfigs(opts);
       }
       if (!opts.skipGroups && gChanges > 0) {
-        await pullInstanceGroups();
+        await pullInstanceGroups(opts);
       }
     }
   } else {
@@ -400,19 +400,19 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
   let uChanges = 0;
   if (!opts.skipUsers) {
-    uChanges = (await pushInstanceUsers(true)) as number;
+    uChanges = (await pushInstanceUsers(opts, true)) as number;
   }
   let sChanges = 0;
   if (!opts.skipSettings) {
-    sChanges = (await pushInstanceSettings(true, opts.baseUrl)) as number;
+    sChanges = (await pushInstanceSettings(opts, true, opts.baseUrl)) as number;
   }
   let cChanges = 0;
   if (!opts.skipConfigs) {
-    cChanges = (await pushInstanceConfigs(true)) as number;
+    cChanges = (await pushInstanceConfigs(opts, true)) as number;
   }
   let gChanges = 0;
   if (!opts.skipGroups) {
-    gChanges = (await pushInstanceGroups(true)) as number;
+    gChanges = (await pushInstanceGroups(opts, true)) as number;
   }
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
@@ -428,16 +428,16 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
-        await pushInstanceUsers();
+        await pushInstanceUsers(opts);
       }
       if (!opts.skipSettings && sChanges > 0) {
-        await pushInstanceSettings(false, opts.baseUrl);
+        await pushInstanceSettings(opts, false, opts.baseUrl);
       }
       if (!opts.skipConfigs && cChanges > 0) {
-        await pushInstanceConfigs();
+        await pushInstanceConfigs(opts);
       }
       if (!opts.skipGroups && gChanges > 0) {
-        await pushInstanceGroups();
+        await pushInstanceGroups(opts);
       }
     }
   } else {
