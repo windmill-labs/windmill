@@ -37,6 +37,14 @@ export function triggerAddFlowStep(index: number) {
 	}
 }
 
+export function triggerPointerDown(selector: string) {
+	const elem = document.querySelector(selector) as HTMLElement
+
+	if (elem) {
+		elem.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+	}
+}
+
 export function selectFlowStepKind(index: number) {
 	const button = document.querySelector(
 		`#flow-editor-insert-module > div > div > button:nth-child(${index})`
