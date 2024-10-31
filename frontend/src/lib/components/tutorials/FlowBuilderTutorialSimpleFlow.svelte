@@ -118,7 +118,7 @@
 			}
 		},
 		{
-			element: '#flow-editor-flow-atom',
+			element: '#flow-editor-flow-atoms',
 			popover: {
 				title: 'Supported languages',
 				description: 'Windmill support the following languages/runtimes.'

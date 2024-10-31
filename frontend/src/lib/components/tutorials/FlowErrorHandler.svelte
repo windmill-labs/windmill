@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import Tutorial from './Tutorial.svelte'
-	import { clickButtonBySelector } from './utils'
+	import { clickButtonBySelector, triggerPointerDown } from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -51,14 +51,14 @@
 			}
 		},
 		{
-			element: '#error-handler-toggle',
+			element: '#flow-editor-error-handler',
 			popover: {
 				title: 'Error handler',
 				description:
 					'You can add an error handler to your flow. It will be executed if any of the steps in the flow fails.',
 
 				onNextClick: () => {
-					clickButtonBySelector('#error-handler-toggle')
+					triggerPointerDown('#flow-editor-error-handler button')
 					setTimeout(() => {
 						driver.moveNext()
 					})
@@ -73,26 +73,26 @@
 			element: '#flow-editor-insert-module'
 		},
 		{
-			element: '#flow-editor-flow-inputs',
+			element: '#flow-editor-flow-providers',
 			popover: {
 				title: 'Action configuration',
 				description: 'An action can be inlined, imported from your workspace or the Hub.'
 			}
 		},
 		{
-			element: '#flow-editor-action-script',
+			element: '#flow-editor-flow-atoms',
 			popover: {
 				title: 'Supported languages',
 				description: 'Windmill support the following languages/runtimes.'
 			}
 		},
 		{
-			element: '#flow-editor-action-script > button:nth-child(1)',
+			element: '#flow-editor-new-bun',
 			popover: {
 				title: 'Typescript',
-				description: "Let's pick an action to add to your flow",
+				description: "Let's create a Typescript error handler for your flow",
 				onNextClick: () => {
-					clickButtonBySelector('#flow-editor-action-script > button > div > button:nth-child(1)')
+					clickButtonBySelector('#flow-editor-new-bun')
 
 					setTimeout(() => {
 						driver.moveNext()

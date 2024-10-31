@@ -4,8 +4,8 @@
 	import {
 		clickButtonBySelector,
 		triggerAddFlowStep,
-		selectFlowStepKind,
-		updateFlowModuleById
+		updateFlowModuleById,
+		triggerPointerDown
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
@@ -30,7 +30,6 @@
 	getSteps={(driver, options) => {
 		const id = nextId($flowStateStore, $flowStore)
 		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
-		const isFirst = id === 'a'
 
 		const steps = [
 			{
@@ -66,16 +65,15 @@
 					title: 'Insert Branch one',
 					description: "Let's pick branch one",
 					onNextClick: () => {
-						selectFlowStepKind(isFirst ? 5 : 4)
+						triggerPointerDown('#flow-editor-flow-kind-branch-to-one')
 
 						setTimeout(() => {
 							driver.moveNext()
 						})
 					}
 				},
-				element: `#flow-editor-insert-module > div > button:nth-child(${isFirst ? 5 : 4})`
+				element: '#flow-editor-flow-kind-branch-to-one'
 			},
-
 			{
 				element: '#flow-editor-edit-predicate',
 				popover: {
@@ -96,7 +94,6 @@
 					}
 				}
 			},
-
 			{
 				element: '#flow-editor-branch-one-wrapper',
 				popover: {
@@ -111,16 +108,14 @@
 					}
 				}
 			},
-
 			{
 				popover: {
 					title: 'Add steps',
-					description: 'You can now add step to one of the branches',
+					description: 'You can now add a step to one of the branches',
 					onNextClick: () => {
 						setTimeout(() => {
-							driver.moveNext()
-
 							updateProgress(2)
+							driver.moveNext()
 						})
 					}
 				}
