@@ -150,7 +150,7 @@ jobs:
 
   build_ee_312:
     runs-on: ubicloud
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -246,7 +246,7 @@ jobs:
   attach_amd64_binary_to_release:
     needs: [build, build_ee]
     runs-on: ubicloud
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     env:
       ARCH: amd64
     steps:
@@ -339,10 +339,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Prepare test run
-        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
         run: cd integration_tests && ./build.sh
       - name: Test run
-        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
         timeout-minutes: 15
         env:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
@@ -358,7 +358,7 @@ jobs:
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test, build]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -377,7 +377,7 @@ jobs:
   tag_latest_ee:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -396,7 +396,7 @@ jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     needs: [tag_latest_ee]
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -573,7 +573,7 @@ jobs:
           bucket-region: us-east-1
 
   build_ee_cuda:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build_ee]
     runs-on: ubicloud
     steps:
@@ -617,7 +617,7 @@ jobs:
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   build_slim:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build]
     runs-on: ubicloud
     steps:
@@ -660,7 +660,7 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
 
   build_ee_slim:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build_ee]
     runs-on: ubicloud
     steps:
@@ -704,7 +704,7 @@ jobs:
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   build_full:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build]
     runs-on: ubicloud
     steps:
@@ -747,7 +747,7 @@ jobs:
             ${{ steps.meta-public.outputs.labels }}
 
   build_ee_full:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build_ee]
     runs-on: ubicloud
     steps:
