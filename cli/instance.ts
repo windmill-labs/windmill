@@ -183,6 +183,7 @@ export type InstanceSyncOptions = {
   token?: string;
   folderPerInstance?: boolean;
   yes?: boolean;
+  prefix?: string;
 };
 
 export async function pickInstance(
@@ -448,8 +449,8 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     const rootDir = Deno.cwd();
 
     let localPrefix;
-    if (opts.baseUrl && opts.token) {
-      localPrefix = "custom";
+    if (opts.prefix) {
+      localPrefix = opts.prefix;
     } else {
       localPrefix = (await Select.prompt({
         message: "What is the prefix of the local workspaces you want to sync?",
@@ -720,6 +721,7 @@ const command = new Command()
     "--instance <instance:string>",
     "Name of the instance to push to, override the active instance"
   )
+  .option("--prefix <prefix:string>", "Prefix of the local workspaces to push")
   .action(instancePush as any)
   .command("whoami")
   .description("Display information about the currently logged-in user")
