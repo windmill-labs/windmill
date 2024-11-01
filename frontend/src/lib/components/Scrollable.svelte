@@ -5,6 +5,7 @@
 	let isAtBottom: boolean = false
 	let isScrollable = false
 
+	export let id: string | null | undefined = undefined
 	export let scrollableClass: string = ''
 	export let shiftedShadow: boolean = false
 	let mutationObserver: MutationObserver
@@ -43,7 +44,7 @@
 	})
 </script>
 
-<div class={twMerge('relative pb-1', scrollableClass)}>
+<div {id} class={twMerge('relative pb-1', scrollableClass)}>
 	<div bind:this={el} on:scroll={handleScroll} class="w-full h-full overflow-y-auto">
 		<slot />
 	</div>

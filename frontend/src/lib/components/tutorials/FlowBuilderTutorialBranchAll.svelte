@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { triggerAddFlowStep, selectFlowStepKind } from './utils'
+	import { triggerPointerDown } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
-	import { nextId } from '../flows/flowModuleNextId'
 
-	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let tutorial: Tutorial | undefined = undefined
 
@@ -22,9 +21,7 @@
 	on:error
 	on:skipAll
 	getSteps={(driver, options) => {
-		const id = nextId($flowStateStore, $flowStore)
 		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
-		const isFirst = id === 'a'
 
 		const steps = [
 			{
@@ -40,7 +37,7 @@
 					title: 'Add a step',
 					description: 'Click here to add a step to your flow',
 					onNextClick: () => {
-						triggerAddFlowStep(index)
+						triggerPointerDown(`#flow-editor-add-step-${index}`)
 
 						setTimeout(() => {
 							driver.moveNext()
@@ -62,14 +59,14 @@
 					title: 'Insert Branch all',
 					description: "Let's pick branch all",
 					onNextClick: () => {
-						selectFlowStepKind(isFirst ? 6 : 5)
+						triggerPointerDown('#flow-editor-flow-kind-branch-to-all')
 
 						setTimeout(() => {
 							driver.moveNext()
 						})
 					}
 				},
-				element: `#flow-editor-insert-module > div > button:nth-child(${isFirst ? 6 : 5})`
+				element: '#flow-editor-flow-kind-branch-to-all'
 			},
 			{
 				element: '#flow-editor-branch-all-wrapper',
