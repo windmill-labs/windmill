@@ -71,18 +71,13 @@ shouldUsePortal={true} -->
 			}`}
 			id={`flow-editor-add-step-${index}`}
 			type="button"
-			class={buttonClasses !== ''
-				? buttonClasses
-				: twMerge(
-						'w-5 h-5 flex items-center justify-center',
-						'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
-						'text-secondary',
-						'bg-surface focus:outline-none hover:bg-surface-hover rounded '
-				  )}
-			on:pointerdown|preventDefault|stopPropagation={() => {
-				pointerdown()
-				dispatch('select')
-			}}
+			class={twMerge(
+				'w-5 h-5 flex items-center justify-center',
+				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
+				'text-secondary',
+				'bg-surface focus:outline-none hover:bg-surface-hover rounded'
+			)}
+			on:pointerdown|preventDefault|stopPropagation={pointerdown}
 			on:pointerup={pointerup}
 		>
 			{#if kind === 'trigger'}

@@ -1026,6 +1026,9 @@ pub async fn handle_python_reqs(
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
+        if req.starts_with('#') {
+            continue;
+        }
         let venv_p = format!(
             "{PIP_CACHE_DIR}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")

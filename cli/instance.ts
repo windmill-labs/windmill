@@ -183,6 +183,7 @@ export type InstanceSyncOptions = {
   token?: string;
   folderPerInstance?: boolean;
   yes?: boolean;
+  prefix?: string;
 };
 
 export async function pickInstance(
@@ -190,6 +191,21 @@ export async function pickInstance(
   allowNew: boolean
 ) {
   const instances = await allInstances();
+  if (opts.baseUrl && opts.token && opts.instance) {
+    log.info("Using instance defined by --instance, --base-url and --token");
+
+    setClient(
+      opts.token,
+      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl
+    );
+
+    return {
+      name: opts.instance,
+      remote: opts.baseUrl,
+      token: opts.token,
+      prefix: opts.prefix ?? opts.instance,
+    };
+  }
   if (opts.baseUrl && opts.token) {
     log.info("Using instance fully defined by --base-url and --token");
 
@@ -202,7 +218,7 @@ export async function pickInstance(
       name: "custom",
       remote: opts.baseUrl,
       token: opts.token,
-      prefix: "custom",
+      prefix: opts.prefix ?? "custom",
     };
   }
   if (!allowNew && instances.length < 1) {
@@ -433,8 +449,8 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     const rootDir = Deno.cwd();
 
     let localPrefix;
-    if (opts.baseUrl && opts.token) {
-      localPrefix = "custom";
+    if (opts.prefix) {
+      localPrefix = opts.prefix;
     } else {
       localPrefix = (await Select.prompt({
         message: "What is the prefix of the local workspaces you want to sync?",
@@ -687,8 +703,13 @@ const command = new Command()
   .option("--folder-per-instance", "Create a folder per instance")
   .option(
     "--instance <instance:string>",
-    "Name of the instance to push to, override the active instance"
+    "Name of the instance to pull from, override the active instance"
   )
+  .option(
+    "--prefix <prefix:string>",
+    "Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces"
+  )
+
   .action(instancePull as any)
   .command("push")
   .description(
@@ -704,6 +725,10 @@ const command = new Command()
   .option(
     "--instance <instance:string>",
     "Name of the instance to push to, override the active instance"
+  )
+  .option(
+    "--prefix <prefix:string>",
+    "Prefix of the local workspaces folders to push"
   )
   .action(instancePush as any)
   .command("whoami")

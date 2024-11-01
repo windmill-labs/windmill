@@ -281,7 +281,11 @@
 			// Handle through confirmation modal
 			confirmCallback = async () => {
 				open = false
-				await editScript(stay, actual_parent_hash, deployMsg)
+				if (actual_parent_hash) {
+					await editScript(stay, actual_parent_hash, deployMsg)
+				} else {
+					sendUserToast('Could not fetch latest version of the script', true)
+				}
 			}
 			// Open confirmation modal
 			open = true

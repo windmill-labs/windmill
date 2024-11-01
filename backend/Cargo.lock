@@ -262,7 +262,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "chrono",
- "chrono-tz 0.9.0",
+ "chrono-tz",
  "half",
  "hashbrown 0.14.5",
  "num",
@@ -1657,18 +1657,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
 dependencies = [
  "chrono",
- "chrono-tz-build 0.3.0",
- "phf",
-]
-
-[[package]]
-name = "chrono-tz"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd6dd8046d00723a59a2f8c5f295c515b9bb9a331ee4f8f3d4dd49e428acd3b6"
-dependencies = [
- "chrono",
- "chrono-tz-build 0.4.0",
+ "chrono-tz-build",
  "phf",
 ]
 
@@ -1680,16 +1669,6 @@ checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
- "phf_codegen",
-]
-
-[[package]]
-name = "chrono-tz-build"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
-dependencies = [
- "parse-zoneinfo",
  "phf_codegen",
 ]
 
@@ -9429,6 +9408,7 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -10395,7 +10375,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -10437,7 +10417,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10454,7 +10434,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz",
  "cookie 0.17.0",
  "cron",
  "datafusion",
@@ -10465,7 +10445,7 @@ dependencies = [
  "hmac",
  "http 1.1.0",
  "hyper 1.5.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
@@ -10501,7 +10481,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
- "tower 0.5.1",
+ "tower 0.4.13",
  "tower-cookies",
  "tower-http 0.5.2",
  "tracing",
@@ -10522,7 +10502,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -10540,7 +10520,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "chrono",
  "serde",
@@ -10553,7 +10533,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "rsmq_async",
@@ -10568,7 +10548,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -10587,7 +10567,7 @@ dependencies = [
  "hmac",
  "hyper 1.5.0",
  "indexmap 2.6.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -10614,7 +10594,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -10629,7 +10609,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -10651,9 +10631,9 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "proc-macro2",
  "quote",
@@ -10663,7 +10643,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -10672,7 +10652,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10684,11 +10664,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -10696,7 +10676,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10708,10 +10688,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "php-parser-rs",
  "serde_json",
  "windmill-parser",
@@ -10719,10 +10699,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -10730,11 +10710,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "phf",
  "regex",
@@ -10748,11 +10728,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "pulldown-cmark",
  "quote",
@@ -10765,7 +10745,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10777,7 +10757,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10795,7 +10775,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10816,7 +10796,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -10826,19 +10806,19 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "async-recursion",
  "axum",
  "bigdecimal",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "prometheus",
  "regex",
@@ -10859,7 +10839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -10869,7 +10849,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.414.2"
+version = "1.415.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10894,7 +10874,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "mappable-rc",
