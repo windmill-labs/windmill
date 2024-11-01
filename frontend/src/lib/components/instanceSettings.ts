@@ -21,6 +21,13 @@ export interface Setting {
 		| 'slack_connect'
 		| 'smtp_connect'
 	storage: SettingStorage
+	advancedToggle?: {
+		label: string
+		onChange: (values: Record<string, any>) => Record<string, any>
+		checked: (values: Record<string, any>) => boolean
+	}
+	hiddenIfNull?: boolean
+	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
 	error?: string
 	defaultValue?: () => any
@@ -151,22 +158,37 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Private Hub base url',
 			description:
-				'Base url of your private Hub instance, without trailing slash. Can be internal. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
-			placeholder: 'https://hub.internal.com',
+				'Base URL of your private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			advancedToggle: {
+				label: 'I have a different URL for Hub access from end-user browsers',
+				onChange(values) {
+					if (values['hub_accessible_url']) {
+						values['hub_accessible_url'] = null
+					} else {
+						values['hub_accessible_url'] = values['hub_base_url'] || 'https://hub.company.com'
+					}
+					return values
+				},
+				checked: (values) => values['hub_accessible_url'] != null
+			},
+			requiresReloadOnChange: true
 		},
 		{
 			label: 'Private Hub accessible url',
 			description:
-				'Base url to use in links which should be accessible to users, without trailing slash. Only necessary if above URL is not accessible. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
-			placeholder: 'https://hub.company.com',
+				'Base URL accessible from end-user browsers, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			key: 'hub_accessible_url',
 			fieldType: 'text',
+			hiddenIfNull: true,
+
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			requiresReloadOnChange: true
 		}
 	],
 	'SSO/OAuth': [],
