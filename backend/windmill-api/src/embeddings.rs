@@ -53,6 +53,7 @@ use crate::{resources::ResourceType, HTTP_CLIENT};
 lazy_static::lazy_static! {
     pub static ref EMBEDDINGS_DB: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
     pub static ref MODEL_INSTANCE: Arc<RwLock<Option<Arc<ModelInstance>>>> = Arc::new(RwLock::new(None));
+    pub static ref HUB_EMBEDDINGS_PULLING_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_PULLING_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(3600 * 24);
 }
 
 #[cfg(feature = "embedding")]
@@ -607,7 +608,14 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
                 drop(model_instance_lock);
                 loop {
                     update_embeddings_db(&db_clone).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(3600 * 24)).await;
+                    tracing::info!(
+                        "Pulling embeddings from hub next in {} secs...",
+                        *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS,
+                    ))
+                    .await;
                 }
             } else {
                 tracing::error!(
