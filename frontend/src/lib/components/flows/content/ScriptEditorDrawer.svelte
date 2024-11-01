@@ -15,6 +15,7 @@
 	} from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
 	let scriptEditorDrawer: Drawer
 
@@ -41,6 +42,7 @@
 				language: Preview['language']
 				content: string
 				schema?: any
+				tag?: string
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
@@ -60,6 +62,7 @@
 				language: Preview['language']
 				content: string
 				schema?: any
+				tag?: string
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
@@ -90,6 +93,7 @@
 						description: script.description ?? '',
 						parent_hash: script.hash != '' ? script.hash : undefined,
 						is_template: false,
+						tag: script.tag,
 						kind: script.kind as Script['kind'] | undefined,
 						lock: undefined
 					}
@@ -199,11 +203,15 @@
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
+					tag={script.tag}
 					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
-					tag={undefined}
-				/>
+				>
+					<div slot="editor-bar-right">
+						<WorkerTagSelect bind:tag={script.tag} />
+					</div>
+				</ScriptEditor>
 			{/key}
 		{:else}
 			<div
