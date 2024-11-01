@@ -193,11 +193,17 @@ fn do_snowflake_inner<'a>(
                         account_identifier.to_uppercase(),
                         response.statementHandle
                     );
-                    let response = HTTP_CLIENT
+                    let mut request = HTTP_CLIENT
                         .get(url)
                         .bearer_auth(token)
-                        .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-                        .query(&[("partition", idx.to_string())])
+                        .query(&[("partition", idx.to_string())]);
+
+                    if token_is_keypair {
+                        request =
+                            request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+                    }
+
+                    let response = request
                         .send()
                         .await
                         .parse_snowflake_response::<SnowflakeDataOnlyResponse>()
@@ -276,6 +282,7 @@ pub async fn do_snowflake(
         .as_ref()
         .and_then(|db| db.get("token"))
         .and_then(|t| t.as_str())
+        .filter(|t| !t.is_empty())
     {
         tracing::debug!("Using oauth token from db_arg");
         (token.to_string(), false)
