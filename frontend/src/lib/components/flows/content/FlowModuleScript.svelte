@@ -12,6 +12,7 @@
 	export let previousHash: string | undefined = undefined
 	export let showDate = false
 	export let showAllCode: boolean = true
+	export let tag: string | undefined = undefined
 
 	let code: string
 	let previousCode: string
@@ -31,6 +32,7 @@
 			language = script.language
 			lock = script.lock
 			date = script.created_at
+			tag = script.tag
 		} catch (e) {
 			notFound = true
 			console.error(e)
@@ -62,6 +64,9 @@
 <div class="flex flex-col flex-1 h-full overflow-auto p-2">
 	{#if showDate && date}
 		<span class="text-xs text-tertiary mb-4"><TimeAgo agoOnlyIfRecent {date} /></span>
+	{/if}
+	{#if tag}
+		<div class="text-xs text-tertiary mb-4">tag: {tag}</div>
 	{/if}
 	{#if notFound}
 		<div class="text-red-400">script not found at {path} in workspace {$workspaceStore}</div>
