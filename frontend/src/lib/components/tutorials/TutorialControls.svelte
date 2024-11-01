@@ -18,10 +18,11 @@
 		</Alert>
 	{/if}
 	<div class="flex flex-row gap-2 justify-between w-full items-center">
-		<div class="text-xs">
-			Step {activeIndex} of {totalSteps}
-		</div>
-
+		{#if activeIndex !== undefined && totalSteps !== undefined}
+			<div class="text-xs">
+				Step {activeIndex + 1} of {totalSteps}
+			</div>
+		{/if}
 		<div class="flex flex-row gap-2">
 			<Button
 				size="xs2"

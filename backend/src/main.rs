@@ -285,7 +285,8 @@ async fn windmill_main() -> anyhow::Result<()> {
                 tracing::info!("Binary is in 'indexer' mode");
                 #[cfg(not(feature = "tantivy"))]
                 {
-                    panic!("Indexer mode requires the tantivy feature flag");
+                    tracing::error!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
                 }
                 #[cfg(feature = "tantivy")]
                 Mode::Indexer

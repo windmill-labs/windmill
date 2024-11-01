@@ -2,12 +2,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import { emptyFlowModuleState } from '../flows/utils'
-	import {
-		clickButtonBySelector,
-		triggerAddFlowStep,
-		selectFlowStepKind,
-		updateFlowModuleById
-	} from './utils'
+	import { clickButtonBySelector, updateFlowModuleById, triggerPointerDown } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { nextId } from '../flows/flowModuleNextId'
@@ -33,7 +28,6 @@
 	getSteps={(driver, options) => {
 		const id = nextId($flowStateStore, $flowStore)
 		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
-		const isFirst = id === 'a'
 
 		let tempId = ''
 
@@ -52,7 +46,7 @@
 					title: 'Add a step',
 					description: 'Click here to add a step to your flow',
 					onNextClick: () => {
-						triggerAddFlowStep(index)
+						triggerPointerDown(`#flow-editor-add-step-${index}`)
 
 						setTimeout(() => {
 							driver.moveNext()
@@ -71,16 +65,16 @@
 
 			{
 				popover: {
-					title: 'Insert loop',
-					description: "Let's pick forloop",
+					title: 'Insert a loop',
+					description: "Let's pick a for loop",
 					onNextClick: () => {
-						selectFlowStepKind(isFirst ? 4 : 3)
+						triggerPointerDown('#flow-editor-flow-kind-for-loop')
 						setTimeout(() => {
 							driver.moveNext()
 						})
 					}
 				},
-				element: `#flow-editor-insert-module > div > button:nth-child(${isFirst ? 4 : 3})`
+				element: '#flow-editor-flow-kind-for-loop'
 			},
 
 			{

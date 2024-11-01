@@ -13,7 +13,7 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { capitalize, classNames } from '$lib/utils'
+	import { capitalize, classNames, sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
 	import {
@@ -111,6 +111,7 @@
 	}
 
 	export async function saveSettings() {
+		let shouldReloadPage = false
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			let licenseKeySet = false
@@ -128,6 +129,9 @@
 					.map(async ([_, x]) => {
 						if (x.key == 'license_key') {
 							licenseKeySet = true
+						}
+						if (x.requiresReloadOnChange) {
+							shouldReloadPage = true
 						}
 						return await SettingService.setGlobal({
 							key: x.key,
@@ -158,8 +162,14 @@
 		} else {
 			console.error('Values not loaded')
 		}
-		sendUserToast('Settings updated')
-		dispatch('saved')
+		if (shouldReloadPage) {
+			sendUserToast('Settings updated, reloading page...')
+			await sleep(1000)
+			window.location.reload()
+		} else {
+			sendUserToast('Settings updated')
+			dispatch('saved')
+		}
 	}
 
 	let oauths: Record<string, any> = {}
@@ -548,7 +558,7 @@
 					<div>
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
-								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values)}
+								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values) && !(setting.hiddenIfNull && values[setting.key] == null)}
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 											<AlertTriangle size={16} />
@@ -579,6 +589,20 @@
 														: ''}
 													bind:value={values[setting.key]}
 												/>
+												{#if setting.advancedToggle}
+													<div class="mt-1">
+														<Toggle
+															size="xs"
+															options={{ right: setting.advancedToggle.label }}
+															checked={setting.advancedToggle.checked(values)}
+															on:change={() => {
+																if (setting.advancedToggle) {
+																	values = setting.advancedToggle.onChange(values)
+																}
+															}}
+														/>
+													</div>
+												{/if}
 											{:else if setting.fieldType == 'textarea'}
 												<textarea
 													rows="2"
