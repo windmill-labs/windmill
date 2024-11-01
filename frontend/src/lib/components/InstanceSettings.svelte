@@ -108,6 +108,13 @@
 		loading = false
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
+
+		// pre-populate snowflake account identifier
+		const account_identifier =
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
+		if (account_identifier) {
+			snowflakeAccountIdentifier = account_identifier
+		}
 	}
 
 	export async function saveSettings() {
@@ -217,7 +224,8 @@
 		'linkedin',
 		'quickbooks',
 		'visma',
-		'spotify'
+		'spotify',
+		'snowflake_oauth'
 	]
 
 	let oauth_name = undefined
@@ -268,6 +276,25 @@
 			}
 		}
 		return true
+	}
+
+	let snowflakeAccountIdentifier = ''
+
+	$: snowflakeAccountIdentifier && setupSnowflakeUrls()
+
+	function setupSnowflakeUrls() {
+		// strip all whitespaces from account identifier
+		snowflakeAccountIdentifier = snowflakeAccountIdentifier.replace(/\s/g, '')
+
+		const connect_config = {
+			scopes: [],
+			auth_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/authorize`,
+			token_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/token-request`,
+			req_body_auth: false,
+			extra_params: { account_identifier: snowflakeAccountIdentifier },
+			extra_params_callback: {}
+		}
+		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 </script>
 
@@ -512,6 +539,18 @@
 													</label>
 													{#if !windmillBuiltins.includes(k) && k != 'slack'}
 														<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
+													{/if}
+													{#if k == 'snowflake_oauth'}
+														<label class="block pb-2">
+															<span class="text-primary font-semibold text-sm"
+																>Account Identifier</span
+															>
+															<input
+																type="text"
+																placeholder="<orgname>-<account_name>"
+																bind:value={snowflakeAccountIdentifier}
+															/>
+														</label>
 													{/if}
 												</div>
 											</div>

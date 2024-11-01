@@ -32,9 +32,9 @@ struct Claims {
 #[derive(Deserialize)]
 struct SnowflakeDatabase {
     account_identifier: String,
-    public_key: String,
-    private_key: String,
-    username: String,
+    public_key: Option<String>,
+    private_key: Option<String>,
+    username: Option<String>,
     database: Option<String>,
     schema: Option<String>,
     warehouse: Option<String>,
@@ -119,6 +119,7 @@ fn do_snowflake_inner<'a>(
     mut body: serde_json::Map<String, Value>,
     account_identifier: &'a str,
     token: &'a str,
+    token_is_keypair: bool,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
@@ -144,16 +145,19 @@ fn do_snowflake_inner<'a>(
     }
 
     let result_f = async move {
-        let result = HTTP_CLIENT
+        let mut request = HTTP_CLIENT
             .post(format!(
                 "https://{}.snowflakecomputing.com/api/v2/statements/",
                 account_identifier.to_uppercase()
             ))
             .bearer_auth(token)
-            .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-            .json(&body)
-            .send()
-            .await;
+            .json(&body);
+
+        if token_is_keypair {
+            request = request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+        }
+
+        let result = request.send().await;
 
         if skip_collect {
             handle_snowflake_result(result).await?;
@@ -258,7 +262,7 @@ pub async fn do_snowflake(
         snowflake_args.get("database").cloned()
     };
 
-    let database = if let Some(db) = db_arg {
+    let database = if let Some(ref db) = db_arg {
         serde_json::from_value::<SnowflakeDatabase>(db.clone())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
@@ -267,36 +271,57 @@ pub async fn do_snowflake(
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
-    let qualified_username = format!(
-        "{}.{}",
-        database.account_identifier.split('.').next().unwrap_or(""), // get first part of account identifier
-        database.username
-    )
-    .to_uppercase();
+    // Check if the token is present in db_arg and use it if available
+    let (token, token_is_keypair) = if let Some(token) = db_arg
+        .as_ref()
+        .and_then(|db| db.get("token"))
+        .and_then(|t| t.as_str())
+    {
+        tracing::debug!("Using oauth token from db_arg");
+        (token.to_string(), false)
+    } else {
+        tracing::debug!("Generating new oauth token");
 
-    let public_key = pem::parse(database.public_key.as_bytes()).map_err(|e| {
-        Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))
-    })?;
-    let mut public_key_hash = Sha256::new();
-    public_key_hash.update(public_key.contents());
+        let qualified_username = format!(
+            "{}.{:?}",
+            database.account_identifier.split('.').next().unwrap_or(""), // get first part of account identifier
+            database.username
+        )
+        .to_uppercase();
 
-    let public_key_fp = engine::general_purpose::STANDARD.encode(public_key_hash.finalize());
+        let public_key = match database.public_key.as_deref() {
+            Some(key) => pem::parse(key.as_bytes()).map_err(|e| {
+                Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))
+            })?,
+            None => return Err(Error::ExecutionErr("Public key is missing".to_string())),
+        };
+        let mut public_key_hash = Sha256::new();
+        public_key_hash.update(public_key.contents());
 
-    let iss = format!("{}.SHA256:{}", qualified_username, public_key_fp);
+        let public_key_fp = engine::general_purpose::STANDARD.encode(public_key_hash.finalize());
 
-    let claims = Claims {
-        iss: iss,
-        sub: qualified_username,
-        iat: chrono::Utc::now().timestamp(),
-        exp: (chrono::Utc::now() + chrono::Duration::try_hours(1).unwrap()).timestamp(),
+        let iss = format!("{}.SHA256:{}", qualified_username, public_key_fp);
+
+        let claims = Claims {
+            iss: iss,
+            sub: qualified_username,
+            iat: chrono::Utc::now().timestamp(),
+            exp: (chrono::Utc::now() + chrono::Duration::try_hours(1).unwrap()).timestamp(),
+        };
+
+        let private_key = match database.private_key.as_deref() {
+            Some(key) => EncodingKey::from_rsa_pem(key.as_bytes()).map_err(|e| {
+                Error::ExecutionErr(format!("Failed to parse private key: {}", e.to_string()))
+            })?,
+            None => return Err(Error::ExecutionErr("Private key is missing".to_string())),
+        };
+
+        (
+            encode(&Header::new(Algorithm::RS256), &claims, &private_key)
+                .map_err(|e| Error::ExecutionErr(e.to_string()))?,
+            true,
+        )
     };
-
-    let private_key = EncodingKey::from_rsa_pem(database.private_key.as_bytes()).map_err(|e| {
-        Error::ExecutionErr(format!("Failed to parse private key: {}", e.to_string()))
-    })?;
-
-    let token = encode(&Header::new(Algorithm::RS256), &claims, &private_key)
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
     tracing::debug!("Snowflake token: {}", token);
 
@@ -344,6 +369,7 @@ pub async fn do_snowflake(
                     body.clone(),
                     &database.account_identifier,
                     &token,
+                    token_is_keypair,
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
                 )
@@ -371,6 +397,7 @@ pub async fn do_snowflake(
             body.clone(),
             &database.account_identifier,
             &token,
+            token_is_keypair,
             Some(column_order),
             false,
         )?
