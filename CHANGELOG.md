@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.415.2](https://github.com/windmill-labs/windmill/compare/v1.415.1...v1.415.2) (2024-11-01)
+
+
+### Bug Fixes
+
+* **s3:** align s3 handler additional creds providers ([984c6dd](https://github.com/windmill-labs/windmill/commit/984c6dd10c63097eb195883c4d8a9681ab1b49e0))
+
 ## [1.415.1](https://github.com/windmill-labs/windmill/compare/v1.415.0...v1.415.1) (2024-10-31)
 
 
