@@ -26,13 +26,14 @@ export interface Setting {
 	defaultValue?: () => any
 }
 
-export type SettingStorage = 'setting' 
+export type SettingStorage = 'setting'
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
 		{
 			label: 'Base url',
-			description: 'Public base url of the instance. <a href="https://www.windmill.dev/docs/advanced/instance_settings#global-users">Learn more</a>',
+			description:
+				'Public base url of the instance. <a href="https://www.windmill.dev/docs/advanced/instance_settings#global-users">Learn more</a>',
 			key: 'base_url',
 			fieldType: 'text',
 			placeholder: 'https://windmill.com',
@@ -67,14 +68,16 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
-			description: 'Default timeout for individual jobs. <a href="https://www.windmill.dev/docs/core_concepts/jobs#retention-policy">Learn more</a>',
+			description:
+				'Default timeout for individual jobs. <a href="https://www.windmill.dev/docs/core_concepts/jobs#retention-policy">Learn more</a>',
 			fieldType: 'seconds',
 			storage: 'setting',
 			cloudonly: false
 		},
 		{
 			label: 'Max timeout for sync endpoints',
-			description: 'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
+			description:
+				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
 			cloudonly: true,
 			fieldType: 'seconds',
@@ -83,7 +86,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'License key',
-			description: 'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
+			description:
+				'License key required to use the EE (switch image for windmill-ee). <a href="https://www.windmill.dev/docs/advanced/instance_settings#license-key">Learn more</a>',
 			key: 'license_key',
 			fieldType: 'license_key',
 			placeholder: 'only needed to prepare upgrade to EE',
@@ -91,7 +95,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Non-prod instance',
-			description: 'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
+			description:
+				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
 			key: 'dev_instance',
 			fieldType: 'boolean',
 			storage: 'setting'
@@ -99,7 +104,8 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Retention period in secs',
 			key: 'retention_period_secs',
-			description: 'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
+			description:
+				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
 			fieldType: 'seconds',
 			placeholder: '30',
 			storage: 'setting',
@@ -108,7 +114,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Expose metrics',
-			description: 'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
+			description:
+				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
@@ -116,7 +123,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Instance object storage',
-			description: ' S3/Azure bucket to store large logs and global cache for Python and Go. <a href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage">Learn more</a>',
+			description:
+				' S3/Azure bucket to store large logs and global cache for Python and Go. <a href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage">Learn more</a>',
 			key: 'object_store_cache_config',
 			fieldType: 'object_store_config',
 			storage: 'setting',
@@ -124,7 +132,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Critical alert channels',
-			description: 'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alert_channels">Learn more</a>',
+			description:
+				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alert_channels">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
@@ -132,7 +141,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Azure OpenAI base path',
-			description: 'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+			description:
+				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -140,9 +150,20 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Private Hub base url',
-			description: 'Base url of your private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
-			placeholder: 'https://hub.company.com',
+			description:
+				'Base url of your private Hub instance, without trailing slash. Can be internal. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+			placeholder: 'https://hub.internal.com',
 			key: 'hub_base_url',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Private Hub accessible url',
+			description:
+				'Base url to use in links which should be accessible to users, without trailing slash. Only necessary if above URL is not accessible. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+			placeholder: 'https://hub.company.com',
+			key: 'hub_accessible_url',
 			fieldType: 'text',
 			storage: 'setting',
 			ee_only: ''
@@ -189,12 +210,12 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	SMTP: [
-			{
-				label: 'SMTP',
-				key: 'smtp_settings',
-				fieldType: 'smtp_connect',
-				storage: 'setting',
-				ee_only: '',
+		{
+			label: 'SMTP',
+			key: 'smtp_settings',
+			fieldType: 'smtp_connect',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	Slack: [
