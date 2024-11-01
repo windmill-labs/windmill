@@ -290,9 +290,9 @@ pub async fn do_snowflake(
         tracing::debug!("Generating new oauth token");
 
         let qualified_username = format!(
-            "{}.{:?}",
-            database.account_identifier.split('.').next().unwrap_or(""), // get first part of account identifier
-            database.username
+            "{}.{}",
+            database.account_identifier.split('.').next().unwrap_or(""),
+            database.username.as_deref().unwrap_or("")
         )
         .to_uppercase();
 
