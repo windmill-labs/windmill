@@ -11,6 +11,7 @@
 </script>
 
 <button
+	id={`flow-editor-flow-kind-${label.replaceAll(' ', '-').toLowerCase()}`}
 	class={twMerge(
 		'w-full text-left py-2 px-1.5 hover:bg-surface-hover text-xs font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 		selected ? 'bg-surface-hover' : '',
