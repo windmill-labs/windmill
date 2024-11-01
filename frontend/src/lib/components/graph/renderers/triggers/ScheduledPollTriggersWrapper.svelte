@@ -1,26 +1,25 @@
 <script lang="ts">
-	import { Maximize2, Minimize2, X } from 'lucide-svelte'
+	// import { Maximize2, Minimize2, X } from 'lucide-svelte'
 
 	import { NODE } from '../../util'
-	import Popover from '$lib/components/Popover.svelte'
+	// import Popover from '$lib/components/Popover.svelte'
 
-	import { createEventDispatcher, getContext } from 'svelte'
+	// import { createEventDispatcher, getContext } from 'svelte'
 
-	import TriggersBadge from './TriggersBadge.svelte'
-	import InsertModuleButton from '../../../flows/map/InsertModuleButton.svelte'
+	// import TriggersBadge from './TriggersBadge.svelte'
+	// import InsertModuleButton from '../../../flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
-	import { twMerge } from 'tailwind-merge'
-	import MapItem from '../../../flows/map/MapItem.svelte'
-	import { getStateColor } from '../../util'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
-	import type { TriggerContext } from '$lib/components/triggers'
+	// import { twMerge } from 'tailwind-merge'
+	// import MapItem from '../../../flows/map/MapItem.svelte'
+	// import { getStateColor } from '../../util'
+	// import type { FlowEditorContext } from '$lib/components/flows/types'
+	// import type { TriggerContext } from '$lib/components/triggers'
 
-	type TriggerType = 'webhooks' | 'emails' | 'schedules' | 'routes' | 'websockets'
+	// type TriggerType = 'webhooks' | 'emails' | 'schedules' | 'routes' | 'websockets'
 
 	export let path: string
 	export let newItem: boolean
-	export let isFlow: boolean
 	export let selected: boolean
 	export let darkMode: boolean
 	export let data: {
@@ -30,20 +29,19 @@
 		disableAi: boolean
 		flowIsSimplifiable: boolean
 	}
-	export let simplifiedTrigger: undefined | { module: FlowModule |}
+	export let simplifiedTrigger: { module?: FlowModule }
 
-	const dispatch = createEventDispatcher()
+	// const dispatch = createEventDispatcher()
 
-	const { viewSimplifiedTriggers, selectedTrigger, primarySchedule, triggersCount } =
-		getContext<TriggerContext>('TriggerContext')
+	// const { viewSimplifiedTriggers, selectedTrigger, primarySchedule, triggersCount } =
+	// getContext<TriggerContext>('TriggerContext')
 
-
-	let hover = false
+	// let hover = false
 
 	// type TriggerKind = 'webhook' | 'email' | 'schedule' | 'route' | 'websocket'
 
 	// const allTriggers: TriggerKind[] = ['webhook', 'email', 'schedule', 'route', 'websocket']
-	// const simplifiedTriggers: 
+	// const simplifiedTriggers:
 
 	// let simplifiedTriggers = true
 	// let triggerScriptModule: FlowModule | undefined = undefined

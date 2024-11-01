@@ -59,7 +59,9 @@
 			path={data.path}
 			newItem={data.newFlow}
 			selected={$selectedId == 'triggers'}
+			{darkMode}
 			{data}
+			simplifiedTrigger={data.simplified}
 		/>
 	{/if}
 </NodeWrapper>
