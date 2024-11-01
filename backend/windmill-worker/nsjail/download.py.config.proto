@@ -88,8 +88,8 @@ mount {
     rw: true
 }
 mount {
-    src: "/tmp/windmill/cache/python"
-    dst: "/tmp/windmill/cache/python"
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
     is_bind: true
 }
 

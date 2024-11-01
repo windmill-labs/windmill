@@ -77,7 +77,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     INSTANCE_PYTHON_VERSION, LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, TZ_ENV, UV_CACHE_DIR,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
 #[derive(Eq, PartialEq, Clone, Copy)]
@@ -187,7 +187,7 @@ impl PyVersion {
             ])
             // TODO: Do we need these?
             .envs([
-                ("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"),
+                ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
                 ("UV_PYTHON_PREFERENCE", "only-managed"),
             ])
             .stdout(Stdio::piped())
@@ -298,7 +298,7 @@ impl PyVersion {
                 "--python-preference=only-managed",
             ])
             .envs([
-                ("UV_PYTHON_INSTALL_DIR", "/tmp/windmill/cache/python"),
+                ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
                 ("UV_PYTHON_PREFERENCE", "only-managed"),
             ])
             // .stdout(Stdio::piped())
@@ -1444,6 +1444,7 @@ pub async fn handle_python_reqs(
                 NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
             })
             .replace("{WORKER_DIR}", &worker_dir)
+            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
             .replace(
                 "{CACHE_DIR}",
                 if no_uv_install {
