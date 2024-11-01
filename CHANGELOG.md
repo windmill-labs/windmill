@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.416.1](https://github.com/windmill-labs/windmill/compare/v1.416.0...v1.416.1) (2024-11-01)
+
+
+### Bug Fixes
+
+* **prometheus:** fix incorrect worker_busy set to 1 ([53f9136](https://github.com/windmill-labs/windmill/commit/53f9136658b9fc1795793d82408c1f1f04adcf06))
+
 ## [1.416.0](https://github.com/windmill-labs/windmill/compare/v1.415.2...v1.416.0) (2024-11-01)
 
 
