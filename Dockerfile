@@ -99,7 +99,7 @@ ARG WITH_GIT=true
 # NOTE: It differs from instance version.
 # `Instance` version is controllable by instance superadmins
 # Where `Default` is set by default for fresh instances 
-ARG DEFAULT_PYTHON_V=3.11
+ARG DEFAULT_PYTHON_V=3.11.10
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_install
 ENV UV_PYTHON_PREFERENCE=only-managed
 
