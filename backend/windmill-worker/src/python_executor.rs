@@ -353,6 +353,9 @@ pub fn handle_ephemeral_token(x: String) -> String {
     x
 }
 
+// This function only invoked during deployment of script or test run.
+// And never for already deployed scripts, these have their lockfiles in PostgreSQL
+// thus this function call is skipped.
 /// Returns lockfile and python version
 pub async fn uv_pip_compile(
     job_id: &Uuid,
@@ -405,6 +408,11 @@ pub async fn uv_pip_compile(
         requirements.to_string()
     };
 
+    // Include python version to requirements.in
+    // We need it because same hash based on requirements.in can get calculated even for different python versions
+    // To prevent from overwriting same requirements.in but with different python versions, we include version to hash
+    let requirements = format!("# py-{}\n{}", py_version.to_string_with_dot(), requirements);
+
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
 
@@ -431,28 +439,11 @@ pub async fn uv_pip_compile(
         .fetch_optional(db)
         .await?
         {
-            if let Some(line) = cached.lines().next() {
-                if let Some(cached_version) = PyVersion::parse_lockfile(line) {
-                    // We should overwrite any version in lockfile
-                    // And only return cache if cached_version == py_version
-                    // This will trigger recompilation for all deps,
-                    // but it is ok, since we do only on deploy and cached lockfiles for non-deployed scripts
-                    // are being cleaned up every 3 days anyway
-                    if py_version == cached_version {
-                        // All good we found cache
-                        logs.push_str(&format!("\nFound cached resolution: {req_hash}"));
-                        return Ok(cached);
-                    }
-                    // Annotated version should be used, thus lockfile regenerated
-                } else {
-                    tracing::info!(
-                        "There is no assigned python version to script in job: {job_id:?}\n"
-                    );
-                    // We will assign a python version to this script
-                }
-            } else {
-                tracing::error!("No requirement specified in uv_pip_compile");
-            }
+            logs.push_str(&format!(
+                "\nFound cached resolution: {req_hash}, py: {}",
+                py_version.to_string_with_dot()
+            ));
+            return Ok(cached);
         }
     }
 
@@ -670,17 +661,26 @@ pub async fn handle_python_job(
 
     let no_uv = *NOUV | annotations.no_uv;
 
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        format!(
-            "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
-            py_version.to_string_with_dots()
-        ),
-        db,
-    )
-    .await;
-
+    if no_uv {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n\n--- PYTHON 3.11 (Fallback) CODE EXECUTION ---\n",),
+            db,
+        )
+        .await;
+    } else {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+                py_version.to_string_with_dot()
+            ),
+            db,
+        )
+        .await;
+    }
     let (
         import_loader,
         import_base64,
@@ -1214,20 +1214,13 @@ async fn handle_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
-    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
-    // let mut version = PyVersion::from_py_annotations(annotations)
-    //     .or(PyVersion::from_string_with_dots(&*INSTANCE_PYTHON_VERSION));
-    // let mut version = PyVersion::from_py_annotations(annotations)
-    //     .or(PyVersion::from_string_with_dots(&*INSTANCE_PYTHON_VERSION));
-    // Precendence:
-    // 1. Annotated version
-    // 2. Instance version
-    // 3. Hardcoded 3.11
+    let is_deployed = requirements_o.is_some();
 
+    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let instance_version =
         (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
 
-    let annotated_or_default_version = PyVersion::from_py_annotations(annotations).unwrap_or(
+    let annotated_or_instance_version = PyVersion::from_py_annotations(annotations).unwrap_or(
         PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
             tracing::error!(
                 "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
@@ -1251,9 +1244,11 @@ async fn handle_python_deps(
             .await?
             .join("\n");
             if requirements.is_empty() {
-                // TODO: "# py-3.11".to_string()
-                // TODO: Still check lockfile
-                "".to_string()
+                // Skip compilation step and assign py version to this execution
+                format!(
+                    "# py-{}\n",
+                    annotated_or_instance_version.to_string_with_dot()
+                )
             } else {
                 uv_pip_compile(
                     job_id,
@@ -1265,7 +1260,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    annotated_or_default_version,
+                    annotated_or_instance_version,
                     annotations.no_uv,
                     annotations.no_cache,
                 )
@@ -1277,37 +1272,29 @@ async fn handle_python_deps(
         }
     };
 
-    // let final_version = version.unwrap_or_else(|| {
-    //     tracing::error!("Version is supposed to be Some");
-    //     PyVersion::Py311
-    // });
-
-    // Read more in next comment section
-    let mut final_version = PyVersion::Py311;
-
-    if requirements.len() > 0 {
+    // If len > 0 it means there is at least one dependency or assigned python version
+    let final_version = if requirements.len() > 0 {
         let req: Vec<&str> = requirements
             .split("\n")
             .filter(|x| !x.starts_with("--"))
             .collect();
 
-        // uv_pip_compile stage will be skipped for deployed scripts.
-        // Leaving us with 2 scenarious:
-        //   1. We have version in lockfile
-        //   2. We dont
-        //
-        // We want to use 3.11 version for scripts without assigned python version
-        // Because this means that this script was deployed before multiple python version support was introduced
-        // And the default version of python before this point was 3.11
-        //
-        // But for 1. we just parse line to get version
-
-        // Parse lockfile's line and if there is no version, fallback to annotation_default
-        if let Some(v) = PyVersion::parse_lockfile(&req[0]) {
-            final_version = v;
-        }
-        // final_version = PyVersion::parse_lockfile(&req[0]).unwrap_or(final_version);
-
+        let final_version = if is_deployed {
+            // If script is deployed we can try to parse first line to get assigned version
+            if let Some(v) = PyVersion::parse_lockfile(&req.get(0).unwrap_or(&"")) {
+                // TODO: Proper error handling                     ^^^^^^^^^^^^^
+                // Assigned
+                v
+            } else {
+                // If there is no assigned version in lockfile we automatically fallback to 3.11
+                // In this case we have dependencies, but no associated python version
+                PyVersion::Py311
+            }
+        } else {
+            // This is not deployed script, meaning we test run it (Preview)
+            // In this case we can say that desired version is `annotated_or_default`
+            annotated_or_instance_version
+        };
         let mut venv_path = handle_python_reqs(
             req,
             job_id,
@@ -1324,7 +1311,13 @@ async fn handle_python_deps(
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
-    }
+
+        final_version
+    } else {
+        // If there is no assigned version in lockfile we automatically fallback to 3.11
+        // In this case we no dependencies and no associated python version
+        PyVersion::Py311
+    };
     Ok((final_version, additional_python_paths))
 }
 

@@ -1290,6 +1290,10 @@ async fn python_dep(
     let instance_version =
         (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
 
+    // Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
+    // This one used specifically for deploying scripts
+    // So we can get final_version straight away and include in lockfile
+    // It will be written to db as a "lock" field for script
     let final_version = PyVersion::from_py_annotations(annotations).unwrap_or(
         PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
             tracing::error!(
