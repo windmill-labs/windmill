@@ -1273,16 +1273,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         };
 
-        #[cfg(feature = "prometheus")]
-        if let Some(wb) = worker_busy.as_ref() {
-            wb.set(1);
-            tracing::debug!("set worker busy to 1");
-        }
-
-        occupancy_metrics.running_job_started_at = Some(Instant::now());
-
         match next_job {
             Ok(Some(job)) => {
+                #[cfg(feature = "prometheus")]
+                if let Some(wb) = worker_busy.as_ref() {
+                    wb.set(1);
+                    tracing::debug!("set worker busy to 1");
+                }
+
+                occupancy_metrics.running_job_started_at = Some(Instant::now());
+
                 last_executed_job = None;
                 jobs_executed += 1;
 
