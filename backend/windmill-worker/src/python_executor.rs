@@ -96,7 +96,7 @@ impl PyVersion {
     }
     /// e.g.: `python_3xy`
     pub fn to_cache_dir_top_level(&self) -> String {
-        format!("python_{}", self.to_string_no_dots())
+        format!("python_{}", self.to_string_no_dot())
     }
     /// e.g.: `(to_cache_dir(), to_cache_dir_top_level())`
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -106,11 +106,11 @@ impl PyVersion {
         (format!("{ROOT_CACHE_DIR}python_{}", &top_level), top_level)
     }
     /// e.g.: `3xy`
-    pub fn to_string_no_dots(&self) -> String {
-        self.to_string_with_dots().replace('.', "")
+    pub fn to_string_no_dot(&self) -> String {
+        self.to_string_with_dot().replace('.', "")
     }
     /// e.g.: `3.xy`
-    pub fn to_string_with_dots(&self) -> &str {
+    pub fn to_string_with_dot(&self) -> &str {
         use PyVersion::*;
         match self {
             Py310 => "3.10",
@@ -175,7 +175,7 @@ impl PyVersion {
             .expect("could not create initial worker dir");
 
         let logs = String::new();
-        // let v_with_dot = self.to_string_with_dots();
+        // let v_with_dot = self.to_string_with_dot();
         let mut child_cmd = Command::new(UV_PATH.as_str());
         child_cmd
             .current_dir(job_dir)
@@ -281,13 +281,13 @@ impl PyVersion {
             worker_name,
             w_id,
             occupancy_metrics,
-            self.to_string_with_dots(),
+            self.to_string_with_dot(),
         )
         .await
     }
     async fn find_python(job_dir: &str, version: &str) -> error::Result<String> {
         // let mut logs = String::new();
-        // let v_with_dot = self.to_string_with_dots();
+        // let v_with_dot = self.to_string_with_dot();
         let mut child_cmd = Command::new(UV_PATH.as_str());
         let output = child_cmd
             .current_dir(job_dir)
@@ -545,7 +545,7 @@ pub async fn uv_pip_compile(
             "--cache-dir",
             UV_CACHE_DIR,
             "-p",
-            py_version.to_string_with_dots(),
+            py_version.to_string_with_dot(),
         ];
         if no_cache {
             args.extend(["--no-cache"]);
@@ -613,7 +613,7 @@ pub async fn uv_pip_compile(
     file.read_to_string(&mut req_content).await?;
     let lockfile = format!(
         "# py-{}\n{}",
-        py_version.to_string_with_dots(),
+        py_version.to_string_with_dot(),
         req_content
             .lines()
             .filter(|x| !x.trim_start().starts_with('#'))
@@ -1698,7 +1698,7 @@ pub async fn handle_python_reqs(
             #[cfg(unix)]
             {
                 let pref = if no_uv_install {
-                    py_version.to_string_no_dots()
+                    py_version.to_string_no_dot()
                 } else {
                     "pip".to_owned()
                 };
