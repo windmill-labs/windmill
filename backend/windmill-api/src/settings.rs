@@ -58,7 +58,8 @@ pub fn global_service() -> Router {
         )
         .route("/renew_license_key", post(renew_license_key))
         .route("/customer_portal", post(create_customer_portal_session))
-        .route("/test_critical_channels", post(test_critical_channels));
+        .route("/test_critical_channels", post(test_critical_channels))
+        .route("/critical_alerts", get(get_critical_alerts));
 
     #[cfg(feature = "parquet")]
     {
@@ -428,4 +429,32 @@ pub async fn test_critical_channels(
 #[cfg(not(feature = "enterprise"))]
 pub async fn test_critical_channels() -> Result<String> {
     Ok("Critical channels require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+use serde::Serialize;
+
+#[cfg(feature = "enterprise")]
+#[derive(Serialize)]
+pub struct CriticalAlert {
+    alert_type: String,
+    message: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Vec<CriticalAlert>> {
+    require_super_admin(&db, &authed.email).await?;
+    
+    let alerts = sqlx::query_as!(
+        CriticalAlert,
+        "SELECT alert_type, message, created_at FROM alerts WHERE alert_type = 'critical_error' ORDER BY created_at DESC"
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(alerts))
 }

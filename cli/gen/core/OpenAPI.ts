@@ -5,7 +5,7 @@ const getEnv = (key: string) => {
 const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://localhost:8000";
 const baseUrlApi = (baseUrl ?? '') + "/api";
 
-import type { ApiRequestOptions } from './ApiRequestOptions.ts';
+import type { ApiRequestOptions } from './ApiRequestOptions';
 
 type Headers = Record<string, string>;
 type Middleware<T> = (value: T) => T | Promise<T>;
@@ -47,15 +47,15 @@ export type OpenAPIConfig = {
 };
 
 export const OpenAPI: OpenAPIConfig = {
-	BASE: baseUrlApi,
+	BASE: '/api',
 	CREDENTIALS: 'include',
 	ENCODE_PATH: undefined,
 	HEADERS: undefined,
 	PASSWORD: undefined,
-	TOKEN: getEnv("WM_TOKEN"),
+	TOKEN: undefined,
 	USERNAME: undefined,
-	VERSION: '1.407.2',
-	WITH_CREDENTIALS: true,
+	VERSION: '1.415.1',
+	WITH_CREDENTIALS: false,
 	interceptors: {
 		request: new Interceptors(),
 		response: new Interceptors(),

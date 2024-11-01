@@ -2,6 +2,7 @@
 	import MenuLink from './MenuLink.svelte'
 	import { superadmin, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
+	import { SettingService } from '$lib/gen'
 	import {
 		BookOpen,
 		Bot,
@@ -24,6 +25,7 @@
 		Plus,
 		Unplug
 	} from 'lucide-svelte'
+	import Button from '../common/button/Button.svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
@@ -329,6 +331,22 @@
 					<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
 				{/if}
 			{/each}
+		</div>
+		<div class="space-y-0.5">
+			<Button
+				size="xs"
+				variant="contained"
+				on:click={async () => {
+					try {
+						const alerts = await SettingService.getCriticalAlerts()
+						sendUserToast(`alerts: ${JSON.stringify(alerts[0])}`, false)
+					} catch (error) {
+						sendUserToast('Failed to send test message: ' + error.message, true)
+					}
+				}}
+			>
+				Last Alert
+			</Button>
 		</div>
 		<div class="space-y-0.5">
 			{#each thirdMenuLinks as menuLink (menuLink)}

@@ -770,6 +770,21 @@ paths:
               schema:
                 type: string
 
+  /settings/critical_alerts:
+    get:
+      summary: Get all critical alerts
+      operationId: getCriticalAlerts
+      tags:
+        - setting
+      responses:
+        "200":
+          description: Successfully retrieved all critical alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CriticalAlert'
 
   /settings/test_license_key:
     post:
@@ -12517,3 +12532,17 @@ components:
         applied_at:
           type: string
           format: date-time
+
+    CriticalAlert:
+      type: object
+      properties:
+        alert_type:
+          type: string
+          description: Type of alert (e.g., critical_error)
+        message:
+          type: string
+          description: The message content of the alert
+        created_at:
+          type: string
+          format: date-time
+          description: Time when the alert was created
