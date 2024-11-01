@@ -608,10 +608,6 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
                 drop(model_instance_lock);
                 loop {
                     update_embeddings_db(&db_clone).await;
-                    tracing::info!(
-                        "Pulling embeddings from hub next in {} secs...",
-                        *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
-                    );
                     tokio::time::sleep(std::time::Duration::from_secs(
                         *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS,
                     ))
