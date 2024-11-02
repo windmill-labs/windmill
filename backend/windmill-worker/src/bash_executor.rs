@@ -29,7 +29,7 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -143,6 +143,7 @@ wait
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -435,6 +436,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(PROXY_ENVS.clone())
             .envs(reserved_variables)
             .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
