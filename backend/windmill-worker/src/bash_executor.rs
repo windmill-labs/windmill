@@ -29,7 +29,7 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -59,11 +59,42 @@ pub async fn handle_bash_job(
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
     write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
-    write_file(
-        job_dir,
-        "wrapper.sh",
-        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n {bash} ./main.sh \"$@\" 2>&1 | tee bp\nwait $!", bash = BIN_BASH.as_str()),
-    )?;
+    let script = format!(
+        r#"
+set -o pipefail
+set -e
+
+# Function to kill child processes
+cleanup() {{
+    echo "Terminating child processes..."
+
+    # Ignore SIGTERM and SIGINT
+    trap '' SIGTERM SIGINT
+
+    # Kill the process group of the script (negative PID value)
+    pkill -P $$
+    exit
+}}
+
+
+# Trap SIGTERM (or other signals) and call cleanup function
+trap cleanup SIGTERM SIGINT
+
+# Create a named pipe
+mkfifo bp
+
+# Start background processes
+cat bp | tail -1 >> ./result2.out &
+
+# Run main.sh in the same process group
+{bash} ./main.sh "$@" 2>&1 | tee bp &
+
+# Wait for all background processes to finish
+wait
+"#,
+        bash = BIN_BASH.as_str(),
+    );
+    write_file(job_dir, "wrapper.sh", &script)?;
 
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
@@ -112,6 +143,7 @@ pub async fn handle_bash_job(
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -404,6 +436,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(PROXY_ENVS.clone())
             .envs(reserved_variables)
             .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())

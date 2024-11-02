@@ -27,7 +27,7 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{worker_groups_alerts, jobs_waiting_alerts};
+use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts, LICENSE_KEY_VALID};
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -75,9 +75,6 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;
-
-#[cfg(feature = "enterprise")]
-use windmill_common::ee::LICENSE_KEY_VALID;
 
 use crate::ee::set_license_key;
 
@@ -152,16 +149,8 @@ pub async fn initial_load(
         tracing::error!("Error reloading custom tags: {:?}", e)
     }
 
-    if let Err(e) = reload_base_url_setting(db).await {
-        tracing::error!("Error reloading base url: {:?}", e)
-    }
-
     if let Err(e) = reload_hub_base_url_setting(db, server_mode).await {
         tracing::error!("Error reloading hub base url: {:?}", e)
-    }
-
-    if let Err(e) = reload_critical_error_channels_setting(&db).await {
-        tracing::error!("Could not reload critical error emails setting: {:?}", e);
     }
 
     if let Err(e) = reload_jwt_secret_setting(&db).await {
@@ -180,11 +169,6 @@ pub async fn initial_load(
         reload_request_size(&db).await;
         reload_saml_metadata_setting(&db).await;
         reload_scim_token_setting(&db).await;
-    }
-
-    #[cfg(feature = "enterprise")]
-    if let Err(e) = reload_license_key(&db).await {
-        tracing::error!("Error reloading license key: {:?}", e)
     }
 
     if worker_mode {
@@ -854,8 +838,10 @@ pub async fn reload_request_size(db: &DB) {
     }
 }
 
-pub async fn reload_license_key(db: &DB) -> error::Result<()> {
-    let q = load_value_from_global_settings(db, LICENSE_KEY_SETTING).await?;
+pub async fn reload_license_key(db: &DB) -> anyhow::Result<()> {
+    let q = load_value_from_global_settings(db, LICENSE_KEY_SETTING)
+        .await
+        .map_err(|err| anyhow::anyhow!("Error reloading license key: {}", err.to_string()))?;
 
     let mut value = std::env::var("LICENSE_KEY")
         .ok()
@@ -873,9 +859,7 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
         }
     };
-
-    set_license_key(value).await?;
-
+    set_license_key(value).await;
     Ok(())
 }
 
@@ -1014,7 +998,9 @@ pub async fn monitor_db(
     base_internal_url: &str,
     rsmq: Option<MultiplexedRsmq>,
     server_mode: bool,
+    _worker_mode: bool,
     initial_load: bool,
+    _killpill_tx: tokio::sync::broadcast::Sender<()>,
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
@@ -1035,15 +1021,14 @@ pub async fn monitor_db(
 
     let verify_license_key_f = async {
         #[cfg(feature = "enterprise")]
-        if let Err(e) = verify_license_key().await {
-            tracing::error!("Error verifying license key: {:?}", e);
-            let mut l = LICENSE_KEY_VALID.write().await;
-            *l = false;
-        } else {
-            let is_valid = LICENSE_KEY_VALID.read().await.clone();
-            if !is_valid {
-                let mut l = LICENSE_KEY_VALID.write().await;
-                *l = true;
+        if !initial_load {
+            verify_license_key().await;
+            if _worker_mode {
+                let valid_key = *LICENSE_KEY_VALID.read().await;
+                if !valid_key {
+                    tracing::error!("Invalid license key, exiting...");
+                    _killpill_tx.send(()).expect("send");
+                }
             }
         }
     };
@@ -1068,6 +1053,15 @@ pub async fn monitor_db(
         }
     };
 
+    let apply_autoscaling_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Err(e) = windmill_autoscaling::apply_all_autoscaling(db).await {
+                tracing::error!("Error applying autoscaling: {:?}", e);
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1075,6 +1069,7 @@ pub async fn monitor_db(
         verify_license_key_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        apply_autoscaling_f,
     );
 }
 
@@ -1092,19 +1087,11 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         .unwrap_or(true);
 
     if metrics_enabled || save_metrics {
-        let queue_counts = sqlx::query!(
-            "SELECT tag, count(*) as count FROM queue WHERE
-                scheduled_for <= now() - ('3 seconds')::interval AND running = false
-                GROUP BY tag"
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
+        let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
         for q in queue_counts {
-            let count = q.count.unwrap_or(0);
-            let tag = q.tag;
+            let count = q.1;
+            let tag = q.0;
             if metrics_enabled {
                 let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);

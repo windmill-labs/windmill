@@ -11,7 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
-RUN apt-get -y update && apt-get install -y curl nodejs awscli
+RUN apt-get -y update && apt-get install -y curl procps nodejs awscli
 
 ENV TZ=Etc/UTC
 

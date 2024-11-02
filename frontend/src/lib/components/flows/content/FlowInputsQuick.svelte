@@ -293,7 +293,7 @@
 			{/if}
 		</Scrollable>
 	{/if}
-	<Scrollable bind:this={scrollable} scrollableClass="grow min-w-0">
+	<Scrollable id="flow-editor-flow-atoms" bind:this={scrollable} scrollableClass="grow min-w-0">
 		{#if kind == 'script'}
 			{#each topLevelNodes as [label, kind], i (label)}
 				<FlowToplevelNode
