@@ -736,8 +736,8 @@ async fn arg_value_hash_additions(
                 .await;
         storage = s3_object.storage.clone();
 
-        if let Some(s3_resource) = s3_resource_opt.ok().flatten() {
-            let etag = get_etag_or_empty(&s3_resource, s3_object.clone()).await;
+        if let Some(mut s3_resource) = s3_resource_opt.ok().flatten() {
+            let etag = get_etag_or_empty(&mut s3_resource, s3_object.clone()).await;
             tracing::warn!("Enriching s3 arg value with etag: {:?}", etag);
             result.insert(s3_object.s3.clone(), etag.unwrap_or_default()); // TODO: maybe inject a random value to invalidate the cache?
         }
@@ -793,9 +793,9 @@ pub async fn get_cached_resource_value_if_valid(
                 return None;
             }
             for (s3_file_key, s3_file_etag) in s3_etags {
-                if let Some(object_store_resource) = object_store_resource_opt.clone() {
+                if let Some(mut object_store_resource) = object_store_resource_opt.clone() {
                     let etag = get_etag_or_empty(
-                        &object_store_resource,
+                        &mut object_store_resource,
                         S3Object {
                             s3: s3_file_key.clone(),
                             storage: cached_resource.storage.clone(),

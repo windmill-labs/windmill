@@ -695,7 +695,7 @@
 		{/if}
 	</div>
 </RunnableWrapper>
-<Portal>
+<Portal name="db-explorer">
 	<Drawer bind:this={insertDrawer} size="800px">
 		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
 			<svelte:fragment slot="actions">

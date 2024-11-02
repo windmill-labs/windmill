@@ -32,10 +32,12 @@
 	import { encodeState } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
+	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
+	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
-
+	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -46,6 +48,8 @@
 	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
+	export let path: string | undefined = undefined
+	export let newFlow: boolean = false
 
 	export let insertable = false
 	export let scroll = false
@@ -58,6 +62,7 @@
 	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
 		undefined
 	)
+	export let triggerNode = false
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -130,7 +135,9 @@
 			disableAi,
 			insertable,
 			flowModuleStates,
-			selectedId: $selectedId
+			selectedId: $selectedId,
+			path,
+			newFlow
 		},
 		failureModule,
 		preprocessorModule,
@@ -172,7 +179,12 @@
 		success,
 		$useDataflow,
 		$selectedId,
-		moving
+		moving,
+		triggerNode
+			? {
+					path
+			  }
+			: undefined
 	)
 
 	const nodes = writable<Node[]>([])
@@ -204,14 +216,16 @@
 		whileLoopStart: ForLoopStartNode,
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
-		branchOneEnd: BranchAllEndNode,
-		noBranch: NoBranchNode
+		branchOneEnd: BranchOneEndNode,
+		noBranch: NoBranchNode,
+		trigger: TriggersNode
 	} as any
 
 	const edgeTypes = {
 		edge: BaseEdge,
 		empty: EmptyEdge,
-		dataflowedge: DataflowEdge
+		dataflowedge: DataflowEdge,
+		hiddenedge: HiddenBaseEdge
 	} as any
 
 	const proOptions = { hideAttribution: true }
@@ -222,7 +236,8 @@
 		!$selectedId.startsWith('settings') &&
 		$selectedId !== 'failure' &&
 		$selectedId !== 'preprocessor' &&
-		$selectedId !== 'Result'
+		$selectedId !== 'Result' &&
+		$selectedId !== 'triggers'
 
 	const viewport = writable<Viewport>({
 		x: 0,
@@ -252,7 +267,7 @@
 
 <div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
 	{#if graph?.error}
-		<div class="center-center">
+		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
 				{graph.error}
 
@@ -267,7 +282,7 @@
 	{:else}
 		<SvelteFlow
 			on:paneclick={(e) => {
-				window.dispatchEvent(new Event('focus'))
+				document.dispatchEvent(new Event('focus'))
 			}}
 			{nodes}
 			{edges}

@@ -12,8 +12,8 @@ const lightTheme = {
 	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
-	border: '#ddd',
-	borderHover: '#ccc'
+	border: '#dddddd',
+	borderHover: '#cccccc'
 }
 
 const lightThemeRgb = makeRgb(lightTheme)
@@ -384,6 +384,20 @@ const config = {
 				400: '#394A6D',
 				500: '#323F5B'
 			},
+			nord: {
+				0: '#2E3440',
+				100: '#3B4252',
+				200: '#434C5E',
+				300: '#4C566A',
+				400: '#D8DEE9',
+				500: '#E5E9F0',
+				600: '#ECEFF4',
+				700: '#8FBCBB',
+				800: '#88C0D0',
+				900: '#81A1C1',
+				950: '#5E81AC'
+			},
+
 			surface: 'rgb(var(--color-surface) / <alpha-value>)',
 			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
 			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',

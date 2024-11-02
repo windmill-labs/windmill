@@ -31,6 +31,7 @@ function distance(a, b): number {
 
 export function findFreeSpaceForItem<T>(matrix: FilledItem<T>[][], item: ItemLayout) {
 	const cols = matrix[0].length
+
 	const w = Math.min(cols, item.w)
 	const h = item.h
 	let xNtime = cols - w + 1
@@ -135,8 +136,7 @@ export function moveItem(active, items, cols) {
 	// If found fixed, reset the active to its original position
 	if (fixed) {
 		return {
-			items: items,
-			overlap: closeBlocks.length > 0
+			items: items
 		}
 	}
 
@@ -178,7 +178,7 @@ export function moveItem(active, items, cols) {
 	// Return result
 	return {
 		items: tempItems,
-		overlap: false
+		overlap: undefined
 	}
 }
 

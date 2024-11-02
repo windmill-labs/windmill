@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.405.5"
+version = "1.416.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -13,7 +13,9 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-git-sync",
+    "./windmill-autoscaling",
     "./windmill-indexer",
+    "./windmill-macros",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -23,11 +25,11 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml",
+    "./parsers/windmill-parser-yaml", "windmill-macros",
 ]
 
 [workspace.package]
-version = "1.405.5"
+version = "1.416.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -39,9 +41,12 @@ path = "./src/main.rs"
 opt-level = 0
 incremental = true
 
+[profile.release]
+lto = "thin"
+
 [features]
 default = []
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
@@ -68,6 +73,7 @@ windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
+windmill-autoscaling = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
@@ -112,7 +118,9 @@ windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
+windmill-autoscaling = { path = "./windmill-autoscaling" }
 windmill-indexer = {path = "./windmill-indexer"}
+windmill-macros = {path = "./windmill-macros"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -152,7 +160,7 @@ hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
 quick_cache = "^0"
-rand = "0.8.5"
+rand = "^0"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
@@ -164,7 +172,7 @@ urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
 reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
-time = "0.3.16"
+time = "^0"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
 tempfile = "^3"
@@ -172,21 +180,25 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.187.0"
-deno_tls = "0.150.0"
-deno_console = "0.163.0"
-deno_url = "0.163.0"
-deno_webidl = "0.163.0"
-deno_web = "0.194.0"
-deno_net = "0.155.0"
-deno_core = "0.299.0"
-deno_ast = { version = "=0.40.0", features = ["transpiling"] }
+
+deno_fetch = "0.195.0"
+deno_tls = "0.158.0"
+deno_console = "0.171.0"
+deno_url = "0.171.0"
+deno_webidl = "0.171.0"
+deno_web = "0.202.0"
+deno_net = "0.163.0"
+deno_core = "0.311.0"
+deno_ast = { version = "=0.42.2", features = ["transpiling"] }
+
+swc_common = "=0.37.5"
+swc_ecma_parser = "=0.149.1"
+swc_ecma_ast = "=0.118.2"
+swc_ecma_visit = "=0.104.8"
+
 async-recursion = "^1"
-swc_common = "=0.33.26"
-swc_ecma_parser = "=0.144.3"
-swc_ecma_ast = "=0.113.7"
-swc_ecma_visit = "=0.99.1"
-base64 = "0.21.0"
+
+base64 = "^0"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
@@ -210,7 +222,7 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "0.7.2"
-async-stripe = { version = "0.34.1", features = [
+async-stripe = { version = "0.39.1", features = [
     "runtime-tokio-hyper",
     "checkout",
     "billing",
@@ -270,14 +282,16 @@ tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
 
-# 0.1.12 broken (nested dependency of swc_common) 
-triomphe = "<0.1.12"
+triomphe = "^0"
 
 tantivy = "0.22.0"
 
+# Macro-related
+proc-macro2 = "1.0"
 pulldown-cmark = "0.9"
 toml = "0.7"
 syn = { version = "2.0.74", features = ["full"] }
 quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
+tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }

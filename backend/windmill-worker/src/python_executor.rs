@@ -65,9 +65,9 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
-    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, TZ_ENV, UV_CACHE_DIR,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, LOCK_CACHE_DIR,
+    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, TZ_ENV,
+    UV_CACHE_DIR,
 };
 
 #[cfg(windows)]
@@ -498,7 +498,10 @@ except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
     with open(result_json, 'w') as f:
-        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+        extra = e.__dict__ 
+        if extra and len(extra) > 0:
+            err['extra'] = extra
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
@@ -562,6 +565,7 @@ mount {{
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -895,7 +899,7 @@ async fn handle_python_deps(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let annotation = windmill_common::worker::get_annotation_python(inner_content);
+            let annotation = windmill_common::worker::PythonAnnotations::parse(inner_content);
             let mut already_visited = vec![];
 
             let requirements = windmill_parser_py_imports::parse_python_imports(
@@ -1000,15 +1004,6 @@ pub async fn handle_python_reqs(
         if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
         }
-        if let Some(http_proxy) = HTTP_PROXY.as_ref() {
-            vars.push(("HTTP_PROXY", http_proxy));
-        }
-        if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
-            vars.push(("HTTPS_PROXY", https_proxy));
-        }
-        if let Some(no_proxy) = NO_PROXY.as_ref() {
-            vars.push(("NO_PROXY", no_proxy));
-        }
 
         let _ = write_file(
             job_dir,
@@ -1023,6 +1018,9 @@ pub async fn handle_python_reqs(
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
+        if req.starts_with('#') {
+            continue;
+        }
         let venv_p = format!(
             "{PIP_CACHE_DIR}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
@@ -1134,6 +1132,7 @@ pub async fn handle_python_reqs(
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(vars)
+                .envs(PROXY_ENVS.clone())
                 .args(vec!["--config", "download.config.proto"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -1187,15 +1186,6 @@ pub async fn handle_python_reqs(
             }
 
             let mut envs = vec![("PATH", PATH_ENV.as_str())];
-            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
-                envs.push(("HTTP_PROXY", http_proxy));
-            }
-            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
-                envs.push(("HTTPS_PROXY", https_proxy));
-            }
-            if let Some(no_proxy) = NO_PROXY.as_ref() {
-                envs.push(("NO_PROXY", no_proxy));
-            }
 
             envs.push(("HOME", HOME_ENV.as_str()));
 
@@ -1206,6 +1196,7 @@ pub async fn handle_python_reqs(
                 let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
                 flock_cmd
                     .env_clear()
+                    .envs(PROXY_ENVS.clone())
                     .envs(envs)
                     .args([
                         "-x",
@@ -1224,6 +1215,7 @@ pub async fn handle_python_reqs(
                 pip_cmd
                     .env_clear()
                     .envs(envs)
+                    .envs(PROXY_ENVS.clone())
                     .env("SystemRoot", SYSTEM_ROOT.as_str())
                     .args(&command_args[1..])
                     .stdout(Stdio::piped())

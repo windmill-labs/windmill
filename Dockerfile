@@ -162,7 +162,7 @@ ENV GO_PATH=/usr/local/go/bin/go
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
-RUN apt-get -y update && apt-get install -y curl nodejs awscli && apt-get clean \
+RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
@@ -175,9 +175,9 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:1.46.3 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.0.2 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.27 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.32 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer

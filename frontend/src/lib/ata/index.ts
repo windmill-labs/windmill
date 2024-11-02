@@ -120,11 +120,16 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 					? f.raw
 					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
-				// console.log('FOO', config.scriptPath, path, f.raw)
-				console.log('fetching local file', url, f.raw)
+				let localPath = f.raw
+				if (f.raw.startsWith('.') && !f.raw.endsWith('.ts')) {
+					url += '.ts'
+					localPath += '.ts'
+				}
+
+				console.log('fetching local file', url, f.raw, localPath)
 				const res = await fetch(url)
 				if (res.ok) {
-					config.delegate.localFile?.(await res.text(), f.raw)
+					config.delegate.localFile?.(await res.text(), localPath)
 				}
 			})
 		}

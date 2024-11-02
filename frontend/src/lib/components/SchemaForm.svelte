@@ -120,6 +120,7 @@
 				schema.properties = n
 			}
 			let nkeys = Object.keys(schema.properties ?? {})
+
 			if (!deepEqual(keys, nkeys)) {
 				keys = nkeys
 				dispatch('change')

@@ -2745,7 +2745,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return \"Hello\"\n}\n",
+                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return wmill\n}\n",
                         "language": "deno",
                         "input_transforms": {}
                     },

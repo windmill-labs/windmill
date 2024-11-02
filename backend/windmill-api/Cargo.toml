@@ -95,6 +95,7 @@ openidconnect = { workspace = true, optional = true}
 url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit.workspace = true
+tokio-tungstenite.workspace = true
 
 pin-project.workspace = true
 http.workspace = true

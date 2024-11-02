@@ -8,6 +8,7 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
+	import { isJobCancelable } from '$lib/utils'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
@@ -138,9 +139,6 @@
 		}
 	}
 	*/
-	function isJobCancelable(j: Job): boolean {
-		return j.type === 'QueuedJob' && !j.schedule_path
-	}
 
 	let allSelected: boolean = false
 
@@ -174,6 +172,19 @@
 		computeHeight()
 	})
 	const dispatch = createEventDispatcher()
+
+	let scrollToIndex = 0
+
+	export function scrollToRun(ids: string[]) {
+		if (flatJobs && ids.length > 0) {
+			const i = flatJobs.findIndex(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === ids[0]
+			)
+			if (i !== -1) {
+				scrollToIndex = i
+			}
+		}
+	}
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
@@ -248,6 +259,9 @@
 			itemSize={42}
 			overscanCount={20}
 			{stickyIndices}
+			{scrollToIndex}
+			scrollToAlignment="center"
+			scrollToBehaviour="smooth"
 		>
 			<div slot="item" let:index let:style {style} class="w-full">
 				{#if flatJobs}

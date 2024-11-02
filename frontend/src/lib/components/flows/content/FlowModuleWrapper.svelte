@@ -20,13 +20,16 @@
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
+	import type { TriggerContext } from '$lib/components/triggers'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
 	export let enableAi = false
 
-	const { selectedId, schedule, flowStateStore, flowInputsStore, flowStore } =
+	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
@@ -37,6 +40,26 @@
 	// Pointer to previous module, for easy access to testing results
 	export let previousModule: FlowModule | undefined = undefined
 
+	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
+		if (!$primarySchedule) {
+			$primarySchedule = {
+				summary: 'Scheduled poll of flow',
+				args: {},
+				cron: '0 */15 * * *',
+				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+				enabled: true
+			}
+		}
+		if (!$primarySchedule.cron) {
+			$primarySchedule.cron = '0 */15 * * *'
+		}
+		$primarySchedule.enabled = true
+
+		module.stop_after_if = {
+			expr: 'result == undefined || Array.isArray(result) && result.length == 0',
+			skip_if_stopped: true
+		}
+	}
 	async function createModuleFromScript(
 		path: string,
 		summary: string,
@@ -50,15 +73,7 @@
 		}
 
 		if (kind == 'trigger') {
-			if (!$schedule.cron) {
-				$schedule.cron = '0 */15 * * *'
-			}
-			$schedule.enabled = true
-
-			module.stop_after_if = {
-				expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-				skip_if_stopped: true
-			}
+			initializePrimaryScheduleForTriggerScript(module)
 		}
 
 		flowModule = module
@@ -140,15 +155,7 @@
 					scriptTemplate = subkind
 
 					if (kind == 'trigger') {
-						if (!$schedule.cron) {
-							$schedule.cron = '0 */15 * * *'
-						}
-						$schedule.enabled = true
-
-						module.stop_after_if = {
-							expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-							skip_if_stopped: true
-						}
+						initializePrimaryScheduleForTriggerScript(module)
 					}
 
 					if (kind == 'approval') {

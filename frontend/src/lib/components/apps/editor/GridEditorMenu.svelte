@@ -167,7 +167,7 @@
 	<slot />
 
 	{#if contextMenuVisible}
-		<Portal>
+		<Portal name="grid-editor">
 			<div style="position: fixed; top: {menuY}px; left: {menuX}px; z-index:6000;">
 				<div class="rounded-md bg-surface border shadow-md divide-y w-64">
 					<div class="p-1" use:clickOutside={false}>

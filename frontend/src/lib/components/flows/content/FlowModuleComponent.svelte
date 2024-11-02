@@ -70,6 +70,8 @@
 	export let noEditor: boolean
 	export let enableAi: boolean
 
+	let tag: string | undefined = undefined
+
 	let editor: Editor
 	let diffEditor: DiffEditor
 	let modulePreview: ModulePreview
@@ -229,6 +231,7 @@
 		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
+					{tag}
 					bind:module={flowModule}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
@@ -349,6 +352,7 @@
 								<div class="border-t">
 									{#key forceReload}
 										<FlowModuleScript
+											bind:tag
 											showAllCode={false}
 											path={flowModule.value.path}
 											hash={flowModule.value.hash}
@@ -374,7 +378,7 @@
 							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
-								<div class="h-full overflow-auto" id="flow-editor-step-input">
+								<div class="h-full overflow-auto px-2" id="flow-editor-step-input">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
