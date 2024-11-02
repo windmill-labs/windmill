@@ -1,3 +1,4 @@
+use crate::PROXY_ENVS;
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
@@ -189,6 +190,7 @@ func Run(req Req) (interface{{}}, error){{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str())
+            .envs(PROXY_ENVS.clone())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
