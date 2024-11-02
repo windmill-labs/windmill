@@ -181,7 +181,9 @@ export type InstanceSyncOptions = {
   instance?: string;
   baseUrl?: string;
   token?: string;
+  folderPerInstance?: boolean;
   yes?: boolean;
+  prefix?: string;
 };
 
 export async function pickInstance(
@@ -189,6 +191,21 @@ export async function pickInstance(
   allowNew: boolean
 ) {
   const instances = await allInstances();
+  if (opts.baseUrl && opts.token && opts.instance) {
+    log.info("Using instance defined by --instance, --base-url and --token");
+
+    setClient(
+      opts.token,
+      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl
+    );
+
+    return {
+      name: opts.instance,
+      remote: opts.baseUrl,
+      token: opts.token,
+      prefix: opts.prefix ?? opts.instance,
+    };
+  }
   if (opts.baseUrl && opts.token) {
     log.info("Using instance fully defined by --base-url and --token");
 
@@ -201,7 +218,7 @@ export async function pickInstance(
       name: "custom",
       remote: opts.baseUrl,
       token: opts.token,
-      prefix: "custom",
+      prefix: opts.prefix ?? "custom",
     };
   }
   if (!allowNew && instances.length < 1) {
@@ -297,7 +314,11 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
     const rootDir = Deno.cwd();
-    const localWorkspaces = await getLocalWorkspaces(rootDir, instance.prefix);
+    const localWorkspaces = await getLocalWorkspaces(
+      rootDir,
+      instance.prefix,
+      opts.folderPerInstance
+    );
 
     const previousActiveWorkspace = await getActiveWorkspace(undefined);
     const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
@@ -306,7 +327,9 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     });
     for (const remoteWorkspace of remoteWorkspaces) {
       log.info("\nPulling workspace " + remoteWorkspace.id);
-      const workspaceName = instance.prefix + "_" + remoteWorkspace.id;
+      const workspaceName = opts?.folderPerInstance
+        ? instance.prefix + "/" + remoteWorkspace.id
+        : instance.prefix + "_" + remoteWorkspace.id;
       await Deno.mkdir(path.join(rootDir, workspaceName), {
         recursive: true,
       });
@@ -425,16 +448,21 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
     instances = await allInstances();
     const rootDir = Deno.cwd();
 
-    const localPrefix = (await Select.prompt({
-      message: "What is the prefix of the local workspaces you want to sync?",
-      options: [
-        ...instances.map((i) => ({
-          name: `${i.prefix} (${i.name} - ${i.remote})`,
-          value: i.prefix,
-        })),
-      ],
-      default: instance.prefix as unknown,
-    })) as unknown as string;
+    let localPrefix;
+    if (opts.prefix) {
+      localPrefix = opts.prefix;
+    } else {
+      localPrefix = (await Select.prompt({
+        message: "What is the prefix of the local workspaces you want to sync?",
+        options: [
+          ...instances.map((i) => ({
+            name: `${i.prefix} (${i.name} - ${i.remote})`,
+            value: i.prefix,
+          })),
+        ],
+        default: instance.prefix as unknown,
+      })) as unknown as string;
+    }
 
     const remoteWorkspaces = await wmill.listWorkspacesAsSuperAdmin({
       page: 1,
@@ -443,7 +471,11 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
     const previousActiveWorkspace = await getActiveWorkspace(undefined);
 
-    const localWorkspaces = await getLocalWorkspaces(rootDir, localPrefix);
+    const localWorkspaces = await getLocalWorkspaces(
+      rootDir,
+      localPrefix,
+      opts.folderPerInstance
+    );
 
     log.info(
       `\nPushing all workspaces: ${localWorkspaces.map((x) => x.id).join(", ")}`
@@ -521,16 +553,34 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
   }
 }
 
-async function getLocalWorkspaces(rootDir: string, localPrefix: string) {
+async function getLocalWorkspaces(
+  rootDir: string,
+  localPrefix: string,
+  folderPerInstance?: boolean
+) {
   const localWorkspaces: { dir: string; id: string }[] = [];
 
-  for await (const dir of Deno.readDir(rootDir)) {
-    const dirName = dir.name;
-    if (dirName.startsWith(localPrefix + "_")) {
+  if (!(await Deno.stat(localPrefix).catch(() => null))) {
+    await Deno.mkdir(localPrefix);
+  }
+  if (folderPerInstance) {
+    for await (const dir of Deno.readDir(rootDir + "/" + localPrefix)) {
+      const dirName = dir.name;
       localWorkspaces.push({
-        dir: dirName,
-        id: dirName.substring(localPrefix.length + 1),
+        dir: localPrefix + "/" + dirName,
+        id: dirName,
       });
+    }
+    log.info(localWorkspaces);
+  } else {
+    for await (const dir of Deno.readDir(rootDir)) {
+      const dirName = dir.name;
+      if (dirName.startsWith(localPrefix + "_")) {
+        localWorkspaces.push({
+          dir: dirName,
+          id: dirName.substring(localPrefix.length + 1),
+        });
+      }
     }
   }
   return localWorkspaces;
@@ -650,10 +700,16 @@ const command = new Command()
   .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pulling instance groups")
   .option("--include-workspaces", "Also pull workspaces")
+  .option("--folder-per-instance", "Create a folder per instance")
   .option(
     "--instance <instance:string>",
-    "Name of the instance to push to, override the active instance"
+    "Name of the instance to pull from, override the active instance"
   )
+  .option(
+    "--prefix <prefix:string>",
+    "Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces"
+  )
+
   .action(instancePull as any)
   .command("push")
   .description(
@@ -665,9 +721,14 @@ const command = new Command()
   .option("--skip-configs", "Skip pushing configs (worker groups and SMTP)")
   .option("--skip-groups", "Skip pushing instance groups")
   .option("--include-workspaces", "Also push workspaces")
+  .option("--folder-per-instance", "Create a folder per instance")
   .option(
     "--instance <instance:string>",
     "Name of the instance to push to, override the active instance"
+  )
+  .option(
+    "--prefix <prefix:string>",
+    "Prefix of the local workspaces folders to push"
   )
   .action(instancePush as any)
   .command("whoami")
