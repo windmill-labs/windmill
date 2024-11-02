@@ -21,7 +21,29 @@ export { copy } from "jsr:@std/io/copy";
 export { readAll } from "jsr:@std/io/read-all";
 
 export * as log from "jsr:@std/log";
-export { stringify as yamlStringify, parse as yamlParse } from "jsr:@std/yaml";
+export { stringify as yamlStringify } from "jsr:@std/yaml";
+
+import { parse as yamlParse, ParseOptions } from "jsr:@std/yaml";
+
+export async function yamlParseFile(path: string, options: ParseOptions = {}) {
+  try {
+    return yamlParse(await Deno.readTextFile(path), options);
+  } catch (e) {
+    throw new Error(`Error parsing yaml ${path}`, { cause: e });
+  }
+}
+
+export function yamlParseContent(
+  path: string,
+  content: string,
+  options: ParseOptions = {}
+) {
+  try {
+    return yamlParse(content, options);
+  } catch (e) {
+    throw new Error(`Error parsing yaml ${path}`, { cause: e });
+  }
+}
 
 // other
 

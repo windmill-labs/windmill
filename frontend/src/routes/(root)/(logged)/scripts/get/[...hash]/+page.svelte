@@ -6,6 +6,7 @@
 		ScriptService,
 		WorkspaceService,
 		type Script,
+		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -20,7 +21,6 @@
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
-	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
@@ -42,7 +42,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
@@ -50,7 +50,6 @@
 		Activity,
 		Archive,
 		ArchiveRestore,
-		Calendar,
 		Eye,
 		FolderOpen,
 		GitFork,
@@ -75,12 +74,16 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
-	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import json from 'svelte-highlight/languages/json'
+	import { writable } from 'svelte/store'
+	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -105,6 +108,8 @@
 			loadScript($page.params.hash)
 		}
 	}
+
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
 	async function deleteScript(hash: string): Promise<void> {
 		try {
@@ -150,8 +155,14 @@
 			}
 		}
 	}
-	let schedule: ScriptSchedule | undefined = undefined
 	let starred: boolean | undefined = undefined
+
+	async function loadTriggersCount(path: string) {
+		$triggersCount = await ScriptService.getTriggersCountOfScript({
+			workspace: $workspaceStore!,
+			path: path
+		})
+	}
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
@@ -173,7 +184,7 @@
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
-		schedule = await loadScriptSchedule(script.path, $workspaceStore!)
+		loadTriggersCount(script.path)
 
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
@@ -477,8 +488,7 @@
 	}
 
 	let token = 'TOKEN_TO_CREATE'
-	let detailSelected = 'saved_inputs'
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	let rightPaneSelected = 'saved_inputs'
 </script>
 
 <MoveDrawer
@@ -512,8 +522,8 @@
 	</Drawer>
 	{#key script.hash}
 		<DetailPageLayout
-			bind:triggerSelected
-			bind:selected={detailSelected}
+			{triggersCount}
+			bind:selected={rightPaneSelected}
 			isOperator={$userStore?.operator}
 		>
 			<svelte:fragment slot="header">
@@ -526,6 +536,18 @@
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
 				>
+					<svelte:fragment slot="trigger-badges">
+						<TriggersBadge
+							showOnlyWithCount={true}
+							path={script.path}
+							newItem={false}
+							isFlow={false}
+							selected={rightPaneSelected == 'triggers'}
+							on:select={() => {
+								rightPaneSelected = 'triggers'
+							}}
+						/>
+					</svelte:fragment>
 					{#if $workspaceStore}
 						<Star
 							kind="script"
@@ -564,21 +586,6 @@
 								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
 							</Badge>
 						</div>
-					{/if}
-					{#if schedule?.enabled}
-						<Button
-							btnClasses="inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								detailSelected = 'details'
-								triggerSelected = 'schedule'
-							}}
-						>
-							{schedule.cron ?? ''}
-						</Button>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>
@@ -660,8 +667,7 @@
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
 						<span class="text-sm text-tertiary">
-							Edited <TimeAgo withDate date={script.created_at || ''} /> by {script.created_by ||
-								'unknown'}
+							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="gray">
 							{truncateHash(script?.hash ?? '')}
@@ -695,51 +701,57 @@
 				{/if}
 			</svelte:fragment>
 			<svelte:fragment slot="webhooks">
-				<WebhooksPanel
-					bind:token
-					scopes={[`run:script/${script?.path}`]}
-					hash={script.hash}
-					path={script.path}
-					{args}
-				/>
+				<div class="p-2">
+					<WebhooksPanel
+						bind:token
+						scopes={[`run:script/${script?.path}`]}
+						hash={script.hash}
+						path={script.path}
+						{args}
+					/>
+				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="routes">
-				<RoutesPanel path={script.path ?? ''} isFlow={false} />
+				<div class="p-2">
+					<RoutesPanel path={script.path ?? ''} isFlow={false} />
+				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="email">
-				<EmailTriggerPanel
-					bind:token
-					scopes={[`run:script/${script?.path}`]}
-					hash={script.hash}
-					path={script.path}
-				/>
+			<svelte:fragment slot="websockets">
+				<div class="p-2">
+					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="schedule">
-				<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />
+			<svelte:fragment slot="emails">
+				<div class="p-2">
+					<EmailTriggerPanel
+						bind:token
+						scopes={[`run:script/${script?.path}`]}
+						hash={script.hash}
+						path={script.path}
+					/>
+				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="details">
-				<div>
+			<svelte:fragment slot="schedules">
+				<div class="p-2 mt-2">
+					<RunPageSchedules
+						schema={script.schema}
+						isFlow={false}
+						path={script.path ?? ''}
+						{can_write}
+					/>
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="script">
+				<div class="h-full">
 					<Skeleton {loading} layout={[[20]]} />
 
 					<Tabs selected="code">
 						<Tab value="code" size="xs">Code</Tab>
 						<Tab value="dependencies" size="xs">Lockfile</Tab>
-						<Tab value="arguments" size="xs">
-							<span class="inline-flex items-center gap-1">
-								Inputs
-								<Tooltip>
-									The jsonschema defines the constraints that the payload must respect to be
-									compatible with the input parameters of this script. The UI form is generated
-									automatically from the script jsonschema. See
-									<a href="https://json-schema.org/" class="text-blue-500">
-										jsonschema documentation
-									</a>
-								</Tooltip>
-							</span>
-						</Tab>
+						<Tab value="schema" size="xs">Schema</Tab>
 						<svelte:fragment slot="content">
 							<TabContent value="code">
-								<div class="p-2 w-full overflow-auto">
+								<div class="p-2 w-full">
 									<HighlightCode
 										language={script.language}
 										code={script.content}
@@ -772,9 +784,15 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="arguments">
-								<div class="p-2">
-									<SchemaViewer schema={script.schema} />
+							<TabContent value="schema">
+								<div class="p-1 relative h-full">
+									<button
+										on:click={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
+										class="absolute top-2 right-2"
+									>
+										<ClipboardCopy size={14} />
+									</button>
+									<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
 								</div>
 							</TabContent>
 						</svelte:fragment>

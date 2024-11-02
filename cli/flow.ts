@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
 import { Confirm, SEP, log, yamlStringify } from "./deps.ts";
-import { colors, Command, Table, yamlParse } from "./deps.ts";
+import { colors, Command, Table, yamlParseFile } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
 
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
@@ -29,21 +29,23 @@ export function replaceInlineScripts(
 ) {
   modules.forEach((m) => {
     if (m.value.type == "rawscript") {
-      const path = m.value.content.split(" ")[1];
-      m.value.content = Deno.readTextFileSync(localPath + path);
-      const lock = m.value.lock;
-      if (removeLocks && removeLocks.includes(path)) {
-        m.value.lock = undefined;
-      } else if (
-        lock &&
-        typeof lock == "string" &&
-        lock.trimStart().startsWith("!inline ")
-      ) {
-        const path = lock.split(" ")[1];
-        try {
-          m.value.lock = readInlinePathSync(localPath + path);
-        } catch {
-          log.error(`Lock file ${path} not found`);
+      if (m.value.content.startsWith("!inline")) {
+        const path = m.value.content.split(" ")[1];
+        m.value.content = Deno.readTextFileSync(localPath + path);
+        const lock = m.value.lock;
+        if (removeLocks && removeLocks.includes(path)) {
+          m.value.lock = undefined;
+        } else if (
+          lock &&
+          typeof lock == "string" &&
+          lock.trimStart().startsWith("!inline ")
+        ) {
+          const path = lock.split(" ")[1];
+          try {
+            m.value.lock = readInlinePathSync(localPath + path);
+          } catch {
+            log.error(`Lock file ${path} not found`);
+          }
         }
       }
     } else if (m.value.type == "forloopflow") {
@@ -87,8 +89,7 @@ export async function pushFlow(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const localFlowRaw = await Deno.readTextFile(localPath + "flow.yaml");
-  const localFlow = yamlParse(localFlowRaw) as FlowFile;
+  const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
   replaceInlineScripts(localFlow.value.modules, localPath, undefined);
 
@@ -120,6 +121,7 @@ export async function pushFlow(
       });
     } catch (e) {
       throw new Error(
+        //@ts-ignore
         `Failed to create flow ${remotePath}: ${e.body ?? e.message}`
       );
     }

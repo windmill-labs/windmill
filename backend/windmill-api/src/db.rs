@@ -173,17 +173,6 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
-        tracing::error!("Could not apply flow versioning fix migration: {err:#}");
-    }
-
-    let db2 = db.clone();
-    let _ = tokio::task::spawn(async move {
-        if let Err(err) = fix_job_completed_index(&db2).await {
-            tracing::error!("Could not apply job completed index fix migration: {err:#}");
-        }
-    });
-
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
@@ -199,10 +188,16 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         Err(err) => Err(err),
     }?;
 
-    #[cfg(feature = "enterprise")]
-    if let Err(e) = windmill_migrations(&mut custom_migrator, db).await {
-        tracing::error!("Could not apply windmill custom migrations: {e:#}")
+    if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
+        tracing::error!("Could not apply flow versioning fix migration: {err:#}");
     }
+
+    let db2 = db.clone();
+    let _ = tokio::task::spawn(async move {
+        if let Err(err) = fix_job_completed_index(&db2).await {
+            tracing::error!("Could not apply job completed index fix migration: {err:#}");
+        }
+    });
 
     Ok(())
 }
@@ -307,7 +302,7 @@ macro_rules! run_windmill_migration {
                     .await?;
                     tracing::info!("Finished applying {migration_job_name} migration");
                 } else {
-                    tracing::info!("migration {migration_job_name} already done");
+                    tracing::debug!("migration {migration_job_name} already done");
                 }
 
                 let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
@@ -316,7 +311,7 @@ macro_rules! run_windmill_migration {
                 tx.commit().await?;
                 tracing::info!("released lock for {migration_job_name}");
             } else {
-                tracing::info!("migration {migration_job_name} already done");
+                tracing::debug!("migration {migration_job_name} already done");
 
             }
         }
@@ -494,33 +489,6 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         ).execute(db).await?;
     });
 
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(), Error> {
-    if std::env::var("MIGRATION_NO_BYPASSRLS").is_ok() {
-        migrator.lock().await?;
-        let has_done_migration = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'bypassrls_1-2')",
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
-        if !has_done_migration {
-            let query = include_str!("../../custom_migrations/bypassrls_1.sql");
-            tracing::info!("Applying bypassrls_1.sql");
-            let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-            tx.execute(query).await?;
-            tracing::info!("Applied bypassrls_1.sql");
-            sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1-2')")
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-        }
-        migrator.unlock().await?;
-    }
     Ok(())
 }
 

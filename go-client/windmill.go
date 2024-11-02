@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-
 	"github.com/google/uuid"
 	api "github.com/windmill-labs/windmill-go-client/api"
 )

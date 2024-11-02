@@ -109,7 +109,8 @@
 				color={resolvedConfig.color}
 				download={resolvedConfig.filename}
 				href={transformBareBase64IfNecessary(resolvedConfig.source)}
-				target="_self"
+				target="_blank"
+				ref="external"
 				nonCaptureEvent
 			>
 				<span class="truncate inline-flex gap-2 items-center">

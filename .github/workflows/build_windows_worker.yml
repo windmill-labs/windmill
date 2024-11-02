@@ -38,12 +38,16 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Cargo build windows
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: |
-          $env:OPENSSL_DIR = "${Env:ProgramFiles}\OpenSSL"
+          vcpkg.exe install openssl-windows:x64-windows
+          vcpkg.exe install openssl:x64-windows-static
+          vcpkg.exe integrate install
+          $env:VCPKGRS_DYNAMIC=1
+          $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
-          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
+          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core
 
       - name: Rename binary with corresponding architecture
         run: |

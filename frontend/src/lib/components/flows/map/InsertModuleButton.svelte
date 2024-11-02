@@ -73,7 +73,7 @@ shouldUsePortal={true} -->
 				'w-5 h-5 flex items-center justify-center',
 				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
 				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
+				'bg-surface focus:outline-none hover:bg-surface-hover rounded'
 			)}
 			on:pointerdown|preventDefault|stopPropagation={pointerdown}
 			on:pointerup={pointerup}
@@ -95,7 +95,14 @@ shouldUsePortal={true} -->
 		role="none"
 	>
 		<div class="flex flex-row items-center gap-2">
-			<StepGenQuick {disableAi} on:insert bind:funcDesc {preFilter} {loading} />
+			<StepGenQuick
+				on:escape={() => close(null)}
+				{disableAi}
+				on:insert
+				bind:funcDesc
+				{preFilter}
+				{loading}
+			/>
 			{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 				<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 			{/if}

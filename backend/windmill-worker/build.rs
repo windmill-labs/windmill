@@ -5,15 +5,17 @@ use deno_net::NetPermissions;
 #[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
 #[cfg(feature = "deno_core")]
+use std::borrow::Cow;
+#[cfg(feature = "deno_core")]
 use std::env;
 #[cfg(feature = "deno_core")]
 use std::io::Write;
 #[cfg(feature = "deno_core")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "deno_core")]
 use std::sync::Arc;
 
-#[cfg(feature = "deno_core")]
+// #[cfg(feature = "deno_core")]
 pub struct PermissionsContainer;
 
 #[cfg(feature = "deno_core")]
@@ -24,16 +26,16 @@ impl FetchPermissions for PermissionsContainer {
         _url: &deno_core::url::Url,
         _api_name: &str,
     ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+        unreachable!("snapshotting")
     }
 
     #[inline(always)]
-    fn check_read(
+    fn check_read<'a>(
         &mut self,
-        _p: &std::path::Path,
+        _p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<Cow<'a, Path>, deno_core::error::AnyError> {
+        unreachable!("snapshotting")
     }
 }
 
@@ -47,20 +49,20 @@ impl TimersPermission for PermissionsContainer {
 
 #[cfg(feature = "deno_core")]
 impl NetPermissions for PermissionsContainer {
-    fn check_read(
+    fn check_read<'a>(
         &mut self,
-        _p: &std::path::Path,
+        _p: &'a str,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<PathBuf, deno_core::error::AnyError> {
+        unreachable!("snapshotting")
     }
 
-    fn check_write(
+    fn check_write<'a>(
         &mut self,
-        _p: &std::path::Path,
+        _p: &'a str,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<PathBuf, deno_core::error::AnyError> {
+        unreachable!("snapshotting")
     }
 
     fn check_net<T: AsRef<str>>(
@@ -68,7 +70,15 @@ impl NetPermissions for PermissionsContainer {
         _host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+        unreachable!("snapshotting")
+    }
+
+    fn check_write_path<'a>(
+        &mut self,
+        _: &'a Path,
+        _: &str,
+    ) -> Result<Cow<'a, Path>, deno_core::anyhow::Error> {
+        todo!()
     }
 }
 

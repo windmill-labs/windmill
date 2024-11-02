@@ -3,16 +3,31 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
+	import type { ScheduleTrigger, TriggerContext } from '../triggers'
+	import { setContext } from 'svelte'
+	import { writable, type Writable } from 'svelte/store'
+	import type { TriggersCount } from '$lib/gen'
+	import DetailPageTriggerPanel from './DetailPageTriggerPanel.svelte'
 
 	export let isOperator: boolean = false
 	export let flow_json: any | undefined = undefined
-	export let hasStepDetails: boolean = false
 	export let selected: string
-	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	export let triggersCount: Writable<TriggersCount | undefined>
 
 	let mobileTab: 'form' | 'detail' = 'form'
 
 	let clientWidth = window.innerWidth
+
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
+
+	setContext<TriggerContext>('TriggerContext', {
+		selectedTrigger: selectedTriggerStore,
+		primarySchedule: primaryScheduleStore,
+		triggersCount
+	})
 </script>
 
 <main class="h-screen w-full" bind:clientWidth>
@@ -26,18 +41,18 @@
 					</Pane>
 					<Pane size={35} minSize={15}>
 						<DetailPageDetailPanel
-							bind:triggerSelected
+							bind:triggerSelected={$selectedTriggerStore}
 							bind:selected
 							{isOperator}
 							{flow_json}
-							{hasStepDetails}
 						>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
-							<slot slot="email" name="email" />
-							<slot slot="schedule" name="schedule" />
+							<slot slot="websockets" name="websockets" />
+							<slot slot="emails" name="emails" />
+							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
-							<slot slot="details" name="details" />
+							<slot slot="script" name="script" />
 							<slot slot="save_inputs" name="save_inputs" />
 							<slot slot="flow_step" name="flow_step" />
 						</DetailPageDetailPanel>
@@ -46,28 +61,42 @@
 			</SplitPanesWrapper>
 		</div>
 	{:else}
-		<div class="h-full">
+		<div class="h-full w-full">
 			<slot name="header" />
 			<Tabs bind:selected={mobileTab}>
 				<Tab value="form">Run form</Tab>
-				<Tab value="detail">Details</Tab>
-				<svelte:fragment slot="content">
-					<TabContent value="form" class="flex flex-col flex-1 h-full">
-						<slot name="form" />
-					</TabContent>
+				<Tab value="saved_inputs">Saved Inputs</Tab>
+				{#if !isOperator}
+					<Tab value="triggers">Triggers</Tab>
+				{/if}
+				{#if !flow_json}
+					<Tab value="script">Script</Tab>
+				{/if}
 
-					<TabContent value="detail" class="flex flex-col flex-1 h-full">
-						<DetailPageDetailPanel bind:triggerSelected bind:selected {isOperator} {hasStepDetails}>
-							<slot slot="webhooks" name="webhooks" />
-							<slot slot="routes" name="routes" />
-							<slot slot="email" name="email" />
-							<slot slot="schedule" name="schedule" />
-							<slot slot="cli" name="cli" />
-							<slot slot="details" name="details" />
-							<slot slot="save_inputs" name="save_inputs" />
-							<slot slot="flow_step" name="flow_step" />
-						</DetailPageDetailPanel>
-					</TabContent>
+				<svelte:fragment slot="content">
+					<div class="h-full">
+						<TabContent value="form" class="flex flex-col flex-1 h-full">
+							<slot name="form" />
+						</TabContent>
+
+						<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
+							<slot name="save_inputs" />
+						</TabContent>
+						<TabContent value="triggers" class="flex flex-col flex-1 h-full">
+							<DetailPageTriggerPanel bind:triggerSelected={$selectedTriggerStore}>
+								<slot slot="webhooks" name="webhooks" />
+								<slot slot="routes" name="routes" />
+								<slot slot="script" name="script" />
+								<slot slot="websockets" name="websockets" />
+								<slot slot="emails" name="emails" />
+								<slot slot="schedules" name="schedules" />
+								<slot slot="cli" name="cli" />
+							</DetailPageTriggerPanel>
+						</TabContent>
+						<TabContent value="script" class="flex flex-col flex-1 h-full">
+							<slot name="script" />
+						</TabContent>
+					</div>
 				</svelte:fragment>
 			</Tabs>
 		</div>

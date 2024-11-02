@@ -89,6 +89,7 @@
 	export let editor: SimpleEditor | undefined = undefined
 	export let orderEditable = false
 	export let shouldDispatchChanges: boolean = false
+	export let noDefaultOnSelectFirst: boolean = false
 	export let helperScript:
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
@@ -140,6 +141,9 @@
 		defaultValue?: any,
 		nnullable?: boolean
 	) {
+		if (label == 'toString' && typeof value == 'function') {
+			value = undefined
+		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
@@ -537,11 +541,14 @@
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
 				<ObjectResourceInput
 					{defaultValue}
-					selectFirst
+					selectFirst={!noDefaultOnSelectFirst}
 					{disablePortal}
 					{format}
 					bind:value
 					bind:editor
+					on:clear={() => {
+						defaultValue = null
+					}}
 					{showSchemaExplorer}
 				/>
 			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
@@ -807,7 +814,7 @@
 				</div>
 			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
-					selectFirst
+					selectFirst={noDefaultOnSelectFirst}
 					{disablePortal}
 					bind:value
 					initialValue={defaultValue}

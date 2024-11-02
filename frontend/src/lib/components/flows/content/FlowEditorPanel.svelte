@@ -7,6 +7,7 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
+	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
@@ -14,8 +15,10 @@
 
 	export let noEditor = false
 	export let enableAi = false
+	export let newFlow = false
+	export let disabledFlowInputs = false
 
-	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
+	const { selectedId, flowStore, flowStateStore, flowInputsStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function checkDup(modules: FlowModule[]): string | undefined {
@@ -57,7 +60,7 @@
 {#if $selectedId?.startsWith('settings')}
 	<FlowSettings {noEditor} />
 {:else if $selectedId === 'Input'}
-	<FlowInput {noEditor} />
+	<FlowInput {noEditor} disabled={disabledFlowInputs} />
 {:else if $selectedId === 'Result'}
 	<p class="p-4 text-secondary">Nothing to show about the result node. Happy flow building!</p>
 {:else if $selectedId === 'constants'}
@@ -66,6 +69,15 @@
 	<FlowFailureModule {noEditor} />
 {:else if $selectedId === 'preprocessor'}
 	<FlowPreprocessorModule {noEditor} />
+{:else if $selectedId === 'triggers'}
+	<TriggersEditor
+		currentPath={$pathStore}
+		{initialPath}
+		schema={$flowStore.schema}
+		{noEditor}
+		newItem={newFlow}
+		isFlow={true}
+	/>
 {:else}
 	{@const dup = checkDup($flowStore.value.modules)}
 	{#if dup}

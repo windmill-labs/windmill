@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { emptySchema } from '$lib/utils'
+	import { copyToClipboard, emptySchema } from '$lib/utils'
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
@@ -10,6 +10,8 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { Badge } from './common'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import Button from './common/button/Button.svelte'
+	import { ClipboardCopy } from 'lucide-svelte'
 
 	export let schema: Schema | undefined | any = emptySchema()
 
@@ -79,7 +81,19 @@
 					{/if}
 				</TabContent>
 				<TabContent value="advanced">
-					<Highlight language={json} code={JSON.stringify(schema, null, 4)} />
+					<div class="h-full relative">
+						<Button
+							wrapperClasses="absolute top-2 right-2 z-20"
+							on:click={() => copyToClipboard(JSON.stringify(schema, null, 4))}
+							color="light"
+							size="xs2"
+							startIcon={{
+								icon: ClipboardCopy
+							}}
+							iconOnly
+						/>
+						<Highlight language={json} code={JSON.stringify(schema, null, 4)} />
+					</div>
 				</TabContent>
 			</div>
 		</svelte:fragment>

@@ -29,21 +29,11 @@ export function clickFirstButtonBySelector(selector: string) {
 	}
 }
 
-export function triggerAddFlowStep(index: number) {
-	const button = document.querySelector(`#flow-editor-add-step-${index}`) as HTMLButtonElement
+export function triggerPointerDown(selector: string) {
+	const elem = document.querySelector(selector) as HTMLElement
 
-	if (button) {
-		button.parentElement?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-	}
-}
-
-export function selectFlowStepKind(index: number) {
-	const button = document.querySelector(
-		`#flow-editor-insert-module > div > button:nth-child(${index})`
-	) as HTMLButtonElement
-
-	if (button) {
-		button?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+	if (elem) {
+		elem.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
 	}
 }
 
@@ -333,4 +323,28 @@ export function connectInlineRunnableInputToComponentOutput(
 			}
 		}
 	}
+}
+
+function elementExists(selector: string): boolean {
+	return !!document.querySelector(selector)
+}
+
+export function waitForElementLoading(
+	selector: string,
+	callback: () => void,
+	interval: number = 50,
+	maxAttempts: number = 30
+): void {
+	let attempts = 0
+
+	const checkExistence = setInterval(() => {
+		if (elementExists(selector)) {
+			clearInterval(checkExistence)
+			callback()
+		} else if (attempts >= maxAttempts) {
+			clearInterval(checkExistence)
+			console.error('Element not found after multiple attempts.')
+		}
+		attempts++
+	}, interval)
 }

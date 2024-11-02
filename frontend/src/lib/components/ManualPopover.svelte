@@ -27,7 +27,7 @@
 	<slot />
 </fragment>
 {#if showTooltip}
-	<Portal>
+	<Portal name="manual-popover">
 		<div
 			use:popperContent
 			class={twMerge('z-[901] rounded-lg shadow-md border p-4 bg-surface', $$props.class)}
