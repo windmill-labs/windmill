@@ -355,18 +355,17 @@ export async function pullInstanceSettings(
 export async function pushInstanceSettings(
   opts: GlobalOptions & InstanceSyncOptions,
   preview: boolean = false,
-  baseUrl?: string,
 ) {
   const remoteSettings = await wmill.listGlobalSettings();
   let localSettings: GlobalSetting[] = await readInstanceSettings(opts);
   localSettings = await processInstanceSettings(localSettings, "decode");
 
-  if (baseUrl) {
+  if (opts.baseUrl) {
     localSettings = localSettings.filter((s) => s.name !== "base_url");
     localSettings.push({
       name: "base_url",
       //@ts-ignore
-      value: baseUrl,
+      value: opts.baseUrl,
     });
   }
 

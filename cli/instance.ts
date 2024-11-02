@@ -405,7 +405,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
   }
   let sChanges = 0;
   if (!opts.skipSettings) {
-    sChanges = (await pushInstanceSettings(opts, true, opts.baseUrl)) as number;
+    sChanges = (await pushInstanceSettings(opts, true)) as number;
   }
   let cChanges = 0;
   if (!opts.skipConfigs) {
@@ -432,7 +432,7 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
         await pushInstanceUsers(opts);
       }
       if (!opts.skipSettings && sChanges > 0) {
-        await pushInstanceSettings(opts, false, opts.baseUrl);
+        await pushInstanceSettings(opts);
       }
       if (!opts.skipConfigs && cChanges > 0) {
         await pushInstanceConfigs(opts);
