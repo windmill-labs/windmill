@@ -413,7 +413,7 @@ export async function pullInstanceUsers(
 export async function readInstanceUsers(opts: GlobalOptions & InstanceSyncOptions) {
   let localUsers: ExportedUser[] = [];
 
-  if(opts.prefix && opts.folderPerInstance){
+  if(opts.prefix && opts.folderPerInstance && opts.prefixSettings){
     INSTANCE_USERS_PATH = `${opts.prefix}/${INSTANCE_USERS_PATH}`;
   }
 
@@ -430,7 +430,7 @@ let INSTANCE_GROUPS_PATH = "instance_groups.yaml";
 export async function readInstanceGroups(opts: GlobalOptions & InstanceSyncOptions) {
   let localGroups: InstanceGroup[] = [];
 
-  if(opts.prefix && opts.folderPerInstance){
+  if(opts.prefix && opts.folderPerInstance && opts.prefixSettings){
     INSTANCE_GROUPS_PATH = `${opts.prefix}/${INSTANCE_GROUPS_PATH}`;
   }
 

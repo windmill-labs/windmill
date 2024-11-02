@@ -184,6 +184,7 @@ export type InstanceSyncOptions = {
   folderPerInstance?: boolean;
   yes?: boolean;
   prefix?: string;
+  prefixSettings?: boolean;
 };
 
 export async function pickInstance(
@@ -709,7 +710,10 @@ const command = new Command()
     "--prefix <prefix:string>",
     "Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces"
   )
-
+  .option(
+    "--prefix-settings",
+    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance"
+  )
   .action(instancePull as any)
   .command("push")
   .description(
@@ -729,6 +733,10 @@ const command = new Command()
   .option(
     "--prefix <prefix:string>",
     "Prefix of the local workspaces folders to push"
+  )
+  .option(
+    "--prefix-settings",
+    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance"
   )
   .action(instancePush as any)
   .command("whoami")
