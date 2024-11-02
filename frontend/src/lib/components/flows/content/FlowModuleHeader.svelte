@@ -22,6 +22,7 @@
 	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
 
 	export let module: FlowModule
+	export let tag: string | undefined
 	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -125,7 +126,7 @@
 				Edit {#if module.value.hash != undefined} (locked hash){/if}
 			</Button>
 		{/if}
-		<FlowModuleWorkerTagSelect bind:tag={module.value.tag_override} />
+		<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
 		{#if customUi?.scriptFork != false}
 			<Button
 				size="xs"
