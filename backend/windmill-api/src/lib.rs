@@ -84,12 +84,14 @@ mod stripe_ee;
 mod tracing_init;
 mod triggers;
 mod users;
+mod users_ee;
 mod utils;
 mod variables;
 mod webhook_util;
 mod websocket_triggers;
 mod workers;
 mod workspaces;
+mod workspaces_ee;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -461,9 +463,13 @@ async fn ee_license() -> &'static str {
 
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
-    use windmill_common::ee::LICENSE_KEY_ID;
+    use windmill_common::ee::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    LICENSE_KEY_ID.read().await.clone()
+    if *LICENSE_KEY_VALID.read().await {
+        LICENSE_KEY_ID.read().await.clone()
+    } else {
+        "".to_string()
+    }
 }
 
 async fn openapi() -> &'static str {

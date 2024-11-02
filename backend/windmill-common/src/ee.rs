@@ -48,8 +48,13 @@ pub async fn send_critical_alert(
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
+pub async fn maybe_renew_license_key_on_start(
+    _http_client: &reqwest::Client,
+    _db: &crate::db::DB,
+    force_renew_now: bool,
+) -> bool {
     // Implementation is not open source
+    force_renew_now
 }
 
 #[cfg(feature = "enterprise")]

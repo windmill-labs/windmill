@@ -139,7 +139,8 @@
 
 	async function loadHubBaseUrl() {
 		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ??
+			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			'https://hub.windmill.dev'
 	}
 

@@ -13,7 +13,7 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { capitalize, classNames } from '$lib/utils'
+	import { capitalize, classNames, sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
 	import {
@@ -111,6 +111,7 @@
 	}
 
 	export async function saveSettings() {
+		let shouldReloadPage = false
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			let licenseKeySet = false
@@ -128,6 +129,9 @@
 					.map(async ([_, x]) => {
 						if (x.key == 'license_key') {
 							licenseKeySet = true
+						}
+						if (x.requiresReloadOnChange) {
+							shouldReloadPage = true
 						}
 						return await SettingService.setGlobal({
 							key: x.key,
@@ -158,8 +162,14 @@
 		} else {
 			console.error('Values not loaded')
 		}
-		sendUserToast('Settings updated')
-		dispatch('saved')
+		if (shouldReloadPage) {
+			sendUserToast('Settings updated, reloading page...')
+			await sleep(1000)
+			window.location.reload()
+		} else {
+			sendUserToast('Settings updated')
+			dispatch('saved')
+		}
 	}
 
 	let oauths: Record<string, any> = {}
@@ -206,7 +216,8 @@
 		'basecamp',
 		'linkedin',
 		'quickbooks',
-		'visma'
+		'visma',
+		'spotify'
 	]
 
 	let oauth_name = undefined
@@ -547,7 +558,7 @@
 					<div>
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
-								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values)}
+								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values) && !(setting.hiddenIfNull && values[setting.key] == null)}
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 											<AlertTriangle size={16} />
@@ -578,6 +589,20 @@
 														: ''}
 													bind:value={values[setting.key]}
 												/>
+												{#if setting.advancedToggle}
+													<div class="mt-1">
+														<Toggle
+															size="xs"
+															options={{ right: setting.advancedToggle.label }}
+															checked={setting.advancedToggle.checked(values)}
+															on:change={() => {
+																if (setting.advancedToggle) {
+																	values = setting.advancedToggle.onChange(values)
+																}
+															}}
+														/>
+													</div>
+												{/if}
 											{:else if setting.fieldType == 'textarea'}
 												<textarea
 													rows="2"
@@ -650,24 +675,33 @@
 														{@const attemptedAt = new Date(
 															latestKeyRenewalAttempt.attempted_at
 														).toLocaleString()}
+														{@const isTrial =
+															latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 														<div class="relative">
 															<Popover notClickable>
 																<div class="flex flex-row items-center gap-1">
 																	{#if latestKeyRenewalAttempt.result === 'success'}
 																		<BadgeCheck class="text-green-600" size={12} />
 																	{:else}
-																		<BadgeX class="text-red-600" size={12} />
+																		<BadgeX
+																			class={isTrial ? 'text-yellow-600' : 'text-red-600'}
+																			size={12}
+																		/>
 																	{/if}
 																	<span
 																		class={classNames(
 																			'text-xs',
 																			latestKeyRenewalAttempt.result === 'success'
 																				? 'text-green-600'
+																				: isTrial
+																				? 'text-yellow-600'
 																				: 'text-red-600'
 																		)}
 																	>
 																		{latestKeyRenewalAttempt.result === 'success'
 																			? 'Latest key renewal succeeded'
+																			: isTrial
+																			? 'Latest key renewal ignored because in trial'
 																			: 'Latest key renewal failed'}
 																		on {attemptedAt}
 																	</span>
@@ -676,6 +710,10 @@
 																	{#if latestKeyRenewalAttempt.result === 'success'}
 																		<span class="text-green-300">
 																			Latest key renewal succeeded on {attemptedAt}
+																		</span>
+																	{:else if isTrial}
+																		<span class="text-yellow-300">
+																			License key cannot be renewed during trial ({attemptedAt})
 																		</span>
 																	{:else}
 																		<span class="text-red-300">

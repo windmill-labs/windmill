@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.411.1
+  version: 1.416.2
   title: Windmill API
 
   contact:
@@ -1467,6 +1467,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: active_only
+          in: query
+          description: filter only active users
+          schema:
+            type: boolean
       responses:
         "200":
           description: user
@@ -8198,6 +8203,29 @@ paths:
                 items:
                   $ref: "#/components/schemas/Config"
 
+  /configs/list_autoscaling_events/{worker_group}:
+    get:
+      summary: List autoscaling events
+      operationId: listAutoscalingEvents
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of autoscaling events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutoscalingEvent"
+
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -11871,6 +11899,8 @@ components:
           type: string
         username:
           type: string
+        operator_only:
+          type: boolean
 
       required:
         - email
@@ -12578,3 +12608,22 @@ components:
       properties:
         dancer:
           type: string
+
+    AutoscalingEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        worker_group:
+          type: string
+        event_type:
+          type: string
+        desired_workers:
+          type: integer
+        reason:
+          type: string
+        applied_at:
+          type: string
+          format: date-time
+

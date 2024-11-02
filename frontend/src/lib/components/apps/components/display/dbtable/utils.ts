@@ -27,28 +27,29 @@ export type ColumnMetadata = {
 export type TableMetadata = ColumnMetadata[]
 
 export type ColumnDef = {
-	minWidth: number
-	hide: boolean
-	flex: number
-	sort: 'asc' | 'desc'
-	sortIndex: number
-	aggFunc: string
-	pivot: boolean
-	pivotIndex: number
-	pinned: 'left' | 'right' | boolean
-	rowGroup: boolean
-	rowGroupIndex: number
-	valueFormatter: string
-	valueParser: string
-	field: string
-	headerName: string
+	minWidth?: number
+	hide?: boolean
+	flex?: number
+	sort?: 'asc' | 'desc'
+	sortIndex?: number
+	aggFunc?: string
+	pivot?: boolean
+	pivotIndex?: number
+	pinned?: 'left' | 'right' | boolean
+	rowGroup?: boolean
+	rowGroupIndex?: number
+	valueFormatter?: string
+	valueParser?: string
+	field?: string
+	headerName?: string
+	children?: ColumnDef[]
 	// DBExplorer
-	ignored: boolean
-	hideInsert: boolean
-	editable: boolean
-	overrideDefaultValue: boolean
-	defaultUserValue: any
-	defaultValueNull: boolean
+	ignored?: boolean
+	hideInsert?: boolean
+	editable?: boolean
+	overrideDefaultValue?: boolean
+	defaultUserValue?: any
+	defaultValueNull?: boolean
 } & ColumnMetadata
 
 export async function loadTableMetaData(
