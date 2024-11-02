@@ -77,7 +77,7 @@ pub async fn handle_dedicated_process(
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
 
-    use crate::handle_child::process_status;
+    use crate::{handle_child::process_status, PROXY_ENVS};
 
     let mut child = {
         let mut cmd = Command::new(command_path);
@@ -85,6 +85,7 @@ pub async fn handle_dedicated_process(
             .env_clear()
             .envs(context_envs)
             .envs(envs)
+            .envs(PROXY_ENVS.clone())
             .envs(
                 reserved_variables
                     .iter()
