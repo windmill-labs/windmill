@@ -22,6 +22,7 @@ pub mod auth;
 pub mod bench;
 pub mod db;
 pub mod ee;
+pub mod email_ee;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
