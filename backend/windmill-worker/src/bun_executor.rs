@@ -26,7 +26,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
-    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -63,7 +63,25 @@ const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
+pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
+
 pub const EMPTY_FILE: &str = "<empty>";
+
+fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool) {
+    if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT) {
+        // Split using "\n//bun.lockb\n"
+        let (before, after_with_sep) = lockfile.split_at(index);
+        let after = &after_with_sep[BUN_LOCKB_SPLIT.len()..];
+        (before, Some(after), after == EMPTY_FILE)
+    } else if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT_WINDOWS) {
+        // Split using "\r\n//bun.lockb\r\n"
+        let (before, after_with_sep) = lockfile.split_at(index);
+        let after = &after_with_sep[BUN_LOCKB_SPLIT_WINDOWS.len()..];
+        (before, Some(after), after == EMPTY_FILE)
+    } else {
+        (lockfile, None, false)
+    }
+}
 
 pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
@@ -180,7 +198,12 @@ pub async fn gen_bun_lockfile(
             file.read_to_string(&mut content).await?;
         }
         if !npm_mode {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             content.push_str(BUN_LOCKB_SPLIT);
+
+            #[cfg(target_os = "windows")]
+            content.push_str(BUN_LOCKB_SPLIT_WINDOWS);
+
             {
                 let file = format!("{job_dir}/bun.lockb");
                 if !empty_deps && tokio::fs::metadata(&file).await.is_ok() {
@@ -252,6 +275,7 @@ pub async fn install_bun_lockfile(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .envs(PROXY_ENVS.clone())
         .envs(common_bun_proc_envs)
         .args(vec!["install"])
         .stdout(Stdio::piped())
@@ -762,12 +786,15 @@ async fn compute_bundle_local_and_remote_path(
 }
 
 pub async fn prepare_job_dir(reqs: &str, job_dir: &str) -> Result<()> {
-    let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-    let _ = write_file(job_dir, "package.json", &splitted[0])?;
+    let (pkg, lock, empty) = split_lockfile(reqs);
+    let _ = write_file(job_dir, "package.json", pkg)?;
 
-    if splitted[1] != EMPTY_FILE {
-        let _ = write_lockb(splitted[1], job_dir).await?;
+    if !empty {
+        if let Some(lock) = lock {
+            let _ = write_lockb(lock, job_dir).await?;
+        }
     }
+
     Ok(())
 }
 async fn write_lockb(splitted_lockb_2: &str, job_dir: &str) -> Result<()> {
@@ -874,22 +901,23 @@ pub async fn handle_bun_job(
     } else if let Some(codebase) = codebase.as_ref() {
         pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o.as_ref() {
-        let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-        if splitted.len() != 2 && !annotation.npm {
+        let (pkg, lock, empty) = split_lockfile(reqs);
+
+        if lock.is_none() && !annotation.npm {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
 
-        let _ = write_file(job_dir, "package.json", &splitted[0])?;
-        let lockb = if annotation.npm { "" } else { splitted[1] };
-        if lockb != EMPTY_FILE {
+        let _ = write_file(job_dir, "package.json", pkg)?;
+        let lockb = if annotation.npm { "" } else { lock.unwrap() };
+        if !empty {
             let mut skip_install = false;
             let mut create_buntar = false;
             let mut buntar_path = "".to_string();
 
             if !annotation.npm {
-                let _ = write_lockb(&splitted[1], job_dir).await?;
+                let _ = write_lockb(lockb, job_dir).await?;
 
                 let mut sha_path = sha2::Sha256::new();
                 sha_path.update(lockb.as_bytes());
@@ -1561,20 +1589,20 @@ pub async fn start_worker(
     if let Some(codebase) = codebase.as_ref() {
         pull_codebase(w_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o {
-        let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-        if splitted.len() != 2 {
+        let (pkg, lock, empty) = split_lockfile(&reqs);
+        if lock.is_none() {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
-        let _ = write_file(job_dir, "package.json", &splitted[0])?;
-        let lockb = splitted[1];
-        if lockb != EMPTY_FILE {
+        let _ = write_file(job_dir, "package.json", pkg)?;
+        let lockb = lock.unwrap();
+        if !empty {
             let _ = write_file_binary(
                 job_dir,
                 "bun.lockb",
                 &base64::engine::general_purpose::STANDARD
-                    .decode(&splitted[1])
+                    .decode(lockb)
                     .map_err(|_| {
                         error::Error::InternalErr("Could not decode bun.lockb".to_string())
                     })?,

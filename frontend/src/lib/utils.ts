@@ -499,7 +499,7 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 }
 
 export function pluralize(quantity: number, word: string, customPlural?: string) {
-	if (quantity <= 1) {
+	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
 		return `${quantity} ${customPlural}}`

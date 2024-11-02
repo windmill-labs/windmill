@@ -18,9 +18,7 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
-
 		type Value
-
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -91,7 +89,6 @@
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
-
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -251,62 +248,78 @@
 		}
 	}
 
-	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void>{
-			// Fetch latest version and fetch entire script after if needed
-			let actual_parent_hash = (await ScriptService.getScriptLatestVersion({
-				workspace: $workspaceStore!,
-				path: script.path,
-			}))?.script_hash;
+	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		// Fetch latest version and fetch entire script after if needed
+		let actual_parent_hash: string | undefined = undefined
 
-
-			// Usually when we create new script, we put current hash as a parent_hash
-			// But if we specify parent_hash that is already used, than we get error
-			// In order to fix it we make sure that client's understanding of parent_hash 
-			// is aligns with understanding of backend.
-			if (script.parent_hash == actual_parent_hash) {
-				// Handle directly
-				await editScript(stay, actual_parent_hash, deployMsg);
-			} else {
-
-				// Fetch entire script, since we need it to show Diff
-				await syncWithDeployed()
-				
-				// Handle through confirmation modal
-				confirmCallback = async () => {
-					open = false
-					await editScript(stay, actual_parent_hash, deployMsg);
-				}
-				// Open confirmation modal
-				open = true
+		try {
+			if (initialPath && initialPath != '') {
+				actual_parent_hash = (
+					await ScriptService.getScriptLatestVersion({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+				)?.script_hash
 			}
+		} catch (error) {
+			//
+		}
+
+		// Usually when we create new script, we put current hash as a parent_hash
+		// But if we specify parent_hash that is already used, than we get error
+		// In order to fix it we make sure that client's understanding of parent_hash
+		// is aligns with understanding of backend.
+		if (actual_parent_hash == undefined || script.parent_hash == actual_parent_hash) {
+			// Handle directly
+			await editScript(stay, script.parent_hash!, deployMsg)
+		} else {
+			// Fetch entire script, since we need it to show Diff
+			await syncWithDeployed()
+
+			// Handle through confirmation modal
+			confirmCallback = async () => {
+				open = false
+				if (actual_parent_hash) {
+					await editScript(stay, actual_parent_hash, deployMsg)
+				} else {
+					sendUserToast('Could not fetch latest version of the script', true)
+				}
+			}
+			// Open confirmation modal
+			open = true
+		}
 	}
 
-	async function syncWithDeployed(){
-			const latestScript = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: script.path,
-				withStarredInfo: true
-			});
+	async function syncWithDeployed() {
+		const latestScript = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			withStarredInfo: true
+		})
 
-			deployedValue = {
-				...latestScript,
-				starred: undefined,
-				workspace_id: undefined,
-				archived: undefined,
-				created_at: undefined,
-				created_by: undefined,
-				deleted: undefined,
-				extra_perms: undefined,
-				is_template: undefined,
-				lock: undefined,
-				lock_error_logs: undefined,
-				parent_hashes: undefined,
-			};
+		deployedValue = {
+			...latestScript,
+			starred: undefined,
+			workspace_id: undefined,
+			archived: undefined,
+			created_at: undefined,
+			created_by: undefined,
+			deleted: undefined,
+			extra_perms: undefined,
+			is_template: undefined,
+			lock: undefined,
+			lock_error_logs: undefined,
+			parent_hashes: undefined
+		}
 
-			deployedBy = latestScript.created_by;
+		deployedBy = latestScript.created_by
 	}
 
-	async function editScript(stay: boolean, parentHash: string, deploymentMsg?: string, ): Promise<void> {
+	async function editScript(
+		stay: boolean,
+		parentHash: string,
+		deploymentMsg?: string
+	): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -354,7 +367,6 @@
 				}
 			})
 
-			console.log('initialPath', initialPath)
 			const scheduleExists =
 				initialPath != '' &&
 				(await ScheduleService.existsSchedule({

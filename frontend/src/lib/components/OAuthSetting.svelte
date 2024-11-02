@@ -3,6 +3,7 @@
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
+	import { onMount } from 'svelte'
 
 	export let name: string
 	export let value: any
@@ -12,6 +13,21 @@
 
 	let tenant: string = ''
 	$: name == 'microsoft' && changeTenantId(tenant)
+
+	onMount(() => {
+		try {
+			if (
+				name == 'microsoft' &&
+				value &&
+				value['login_config'] &&
+				typeof value['login_config']['auth_url'] == 'string'
+			) {
+				tenant = value['login_config']['auth_url'].split('/')[3]
+			}
+		} catch (e) {
+			console.error('Could not set tenantId', e)
+		}
+	})
 
 	function changeTenantId(tenant: string) {
 		if (value && tenant) {
@@ -50,10 +66,12 @@
 	>
 	{#if enabled}
 		<div class="p-2 rounded border">
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Custom Name</span>
-				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
-			</label>
+			{#if name != 'slack'}
+				<label class="block pb-2">
+					<span class="text-primary font-semibold text-sm">Custom Name</span>
+					<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+				</label>
+			{/if}
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">Client Id</span>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />

@@ -11,6 +11,7 @@
 	import { TabGroup, TabList } from '@rgossiaux/svelte-headlessui'
 	import { twMerge } from 'tailwind-merge'
 
+	export let id: string | null | undefined = undefined
 	export let selected: any
 	export let noWFull: boolean = false
 	export let disabled: boolean = false
@@ -38,6 +39,7 @@
 </script>
 
 <TabGroup
+	{id}
 	class={twMerge(
 		`h-8 flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
 		$$props.class

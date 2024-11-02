@@ -334,6 +334,7 @@
 						initialState: state,
 						suppressRowDeselection: true,
 						suppressDragLeaveHidesColumns: true,
+						enableCellTextSelection: true,
 						...(resolvedConfig?.extraConfig ?? {}),
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()

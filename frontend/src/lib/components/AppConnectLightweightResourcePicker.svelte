@@ -23,7 +23,7 @@
 
 	onMount(async () => {
 		if (resourceType) {
-			appConnect?.open(resourceType, express)
+			appConnect?.open(resourceType)
 		}
 	})
 </script>
@@ -31,24 +31,27 @@
 <DarkModeObserver bind:darkMode />
 
 <div>
-	<div class="flex flex-row-reverse w-full">
-		<div class="flex gap-2">
-			{#if step > 2}
-				<Button variant="border" on:click={appConnect?.back}>Back</Button>
-			{/if}
-
-			<Button {disabled} on:click={appConnect?.next}>
-				{#if step == 2 && !manual}
-					Connect
-				{:else if step == 1}
-					Next
-				{:else}
-					Save
+	{#if !express}
+		<div class="flex flex-row-reverse w-full pb-2">
+			<div class="flex gap-2">
+				{#if step > 2}
+					<Button variant="border" on:click={appConnect?.back}>Back</Button>
 				{/if}
-			</Button>
+
+				<Button {disabled} on:click={appConnect?.next}>
+					{#if step == 2 && !manual}
+						Connect
+					{:else if step == 1}
+						Next
+					{:else}
+						Save
+					{/if}
+				</Button>
+			</div>
 		</div>
-	</div>
+	{/if}
 	<AppConnectInner
+		{express}
 		bind:this={appConnect}
 		bind:step
 		bind:resourceType

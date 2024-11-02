@@ -293,7 +293,9 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
-		/>
+		>
+			<slot name="editor-bar-right" slot="right" />
+		</EditorBar>
 		{#if !noSyncFromGithub && customUi?.editorBar?.useVsCode != false}
 			<div class="py-1">
 				<Button

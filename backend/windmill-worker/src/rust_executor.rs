@@ -20,7 +20,7 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    RUST_CACHE_DIR, TZ_ENV,
+    PROXY_ENVS, RUST_CACHE_DIR, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -192,6 +192,7 @@ pub async fn build_rust_crate(
     build_rust_cmd
         .current_dir(job_dir)
         .env_clear()
+        .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
@@ -281,7 +282,7 @@ fn check_cargo_exists() -> Result<(), Error> {
 #[cfg(feature = "enterprise")]
 fn check_cargo_exists() -> Result<(), Error> {
     if !Path::new(CARGO_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
+        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
         return Err(Error::NotFound(msg));
     }
     Ok(())
