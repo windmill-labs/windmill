@@ -271,7 +271,7 @@ let INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
 export async function readInstanceSettings(opts: GlobalOptions & InstanceSyncOptions) {
   let localSettings: GlobalSetting[] = [];
 
-  if(opts.prefix && opts.folderPerInstance){
+  if(opts.prefix && opts.folderPerInstance && opts.prefixSettings){
     INSTANCE_SETTINGS_PATH = `${opts.prefix}/${INSTANCE_SETTINGS_PATH}`;
   }
 
@@ -422,7 +422,7 @@ let INSTANCE_CONFIGS_PATH = "instance_configs.yaml";
 export async function readLocalConfigs(opts: GlobalOptions & InstanceSyncOptions) {
   let localConfigs: Config[] = [];
 
-  if(opts.prefix && opts.folderPerInstance){
+  if(opts.prefix && opts.folderPerInstance && opts.prefixSettings){
     INSTANCE_CONFIGS_PATH = `${opts.prefix}/${INSTANCE_CONFIGS_PATH}`;
   }
 
