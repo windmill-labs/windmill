@@ -1,24 +1,26 @@
 <script lang="ts">
-	import { FlowGraph } from './graph'
-
 	import type { FlowModule, FlowValue } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
+	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
+	import { dfs } from './flows/dfs'
 
 	export let flow: {
 		summary: string
 		description?: string
 		value: FlowValue
 		schema?: any
+		path?: string
 	}
+
 	export let overflowAuto = false
 	export let noSide = false
 	export let download = false
 	export let noGraph = false
-
+	export let triggerNode = false
 	export let stepDetail: FlowModule | string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
@@ -30,16 +32,29 @@
 			class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
 			class:overflow-auto={overflowAuto}
 		>
-			<FlowGraph
+			<FlowGraphV2
+				{triggerNode}
+				path={flow?.path}
 				{download}
 				minHeight={400}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
+				preprocessorModule={flow?.value?.preprocessor_module}
 				on:select={(e) => {
-					stepDetail = e.detail
+					let nodeId = e?.detail
+					if (nodeId === 'triggers') {
+						dispatch('triggerDetail')
+						return
+					} else if (nodeId === 'failure') {
+						stepDetail = flow?.value?.failure_module
+					} else if (nodeId === 'preprocessor') {
+						stepDetail = flow?.value?.preprocessor_module
+					} else {
+						stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === e?.detail)
+					}
+					stepDetail = stepDetail ?? nodeId
 					dispatch('select', stepDetail)
 				}}
-				rebuildOnChange={flow}
 			/>
 		</div>
 	{/if}
@@ -50,7 +65,7 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep {flow} {stepDetail} />
+			<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
 		</div>
 	{/if}
 </div>

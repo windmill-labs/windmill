@@ -7,24 +7,13 @@ import {
   minimatch,
   JSZip,
   path,
-  ScriptService,
-  FolderService,
-  ResourceService,
-  VariableService,
-  AppService,
-  FlowService,
-  OpenFlow,
-  FlowModule,
-  RawScript,
   log,
   yamlStringify,
-  yamlParse,
-  ScheduleService,
+  yamlParseContent,
   SEP,
-  gitignore_parser,
-  UserService,
-  GroupService,
 } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import {
   getTypeStrFromPath,
   GlobalOptions,
@@ -36,16 +25,25 @@ import {
 import { downloadZip } from "./pull.ts";
 
 import {
+  exts,
+  findContentFile,
   findGlobalDeps,
+  findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
 } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { deepEqual } from "./utils.ts";
+import { deepEqual, isFileResource } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
+import {
+  generateFlowLockInternal,
+  generateScriptMetadataInternal,
+} from "./metadata.ts";
+import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
+import { pushResource } from "./resource.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -59,6 +57,9 @@ export function findCodebase(
   path: string,
   codebases: SyncCodebase[]
 ): SyncCodebase | undefined {
+  if (!path.endsWith(".ts")) {
+    return;
+  }
   for (const c of codebases) {
     let included = false;
     let excluded = false;
@@ -89,6 +90,7 @@ export function findCodebase(
     }
   }
 }
+
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
@@ -107,13 +109,13 @@ async function addCodebaseDigestIfRelevant(
   if (!isTs) {
     return content;
   }
-  log.info(`isScript: ${isScript}, isTs: ${isTs}; ${path}`);
   if (isTs) {
     const c = findCodebase(path, codebases);
     if (c) {
-      const parsed: any = yamlParse(content);
+      const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
         parsed["codebase"] = c.digest;
+        parsed["lock"] = undefined;
         return yamlStringify(parsed, yamlOptions);
       } else {
         throw Error(
@@ -148,7 +150,7 @@ export async function FSFSElement(
             );
           }
         } catch (e) {
-          log.warning(`Error reading dir: ${localP}, ${e}`);
+          log.warn(`Error reading dir: ${localP}, ${e}`);
         }
       },
       // async getContentBytes(): Promise<Uint8Array> {
@@ -157,7 +159,9 @@ export async function FSFSElement(
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
 
-        return await addCodebaseDigestIfRelevant(localP, content, codebases);
+        const r = await addCodebaseDigestIfRelevant(localP, content, codebases);
+        // console.log(r);
+        return r;
       },
     };
   }
@@ -190,144 +194,170 @@ export const yamlOptions = {
   skipInvalid: true,
 };
 
-function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
+export interface InlineScript {
+  path: string;
+  content: string;
+}
+
+export function extractInlineScriptsForFlows(
+  modules: FlowModule[],
+  pathAssigner: PathAssigner
+): InlineScript[] {
+  return modules.flatMap((m) => {
+    if (m.value.type == "rawscript") {
+      const [basePath, ext] = pathAssigner.assignPath(
+        m.summary,
+        m.value.language
+      );
+      const path = basePath + ext;
+      const content = m.value.content;
+      const r = [{ path: path, content: content }];
+      m.value.content = "!inline " + path.replaceAll(SEP, "/");
+      const lock = m.value.lock;
+      if (lock && lock != "") {
+        const lockPath = basePath + "lock";
+        m.value.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+        r.push({ path: lockPath, content: lock });
+      }
+      return r;
+    } else if (m.value.type == "forloopflow") {
+      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
+    } else if (m.value.type == "branchall") {
+      return m.value.branches.flatMap((b) =>
+        extractInlineScriptsForFlows(b.modules, pathAssigner)
+      );
+    } else if (m.value.type == "whileloopflow") {
+      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
+    } else if (m.value.type == "branchone") {
+      return [
+        ...m.value.branches.flatMap((b) =>
+          extractInlineScriptsForFlows(b.modules, pathAssigner)
+        ),
+        ...extractInlineScriptsForFlows(m.value.default, pathAssigner),
+      ];
+    } else {
+      return [];
+    }
+  });
+}
+
+interface PathAssigner {
+  assignPath(summary: string | undefined, language: string): [string, string];
+}
+const INLINE_SCRIPT = "inline_script";
+
+export function extractInlineScriptsForApps(
+  rec: any,
+  pathAssigner: PathAssigner
+): InlineScript[] {
+  if (!rec) {
+    return [];
+  }
+  if (typeof rec == "object") {
+    return Object.entries(rec).flatMap(([k, v]) => {
+      if (k == "inlineScript" && typeof v == "object") {
+        const o: Record<string, any> = v as any;
+        const name = rec["name"];
+        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const r = [];
+        if (o["content"]) {
+          const content = o["content"];
+          o["content"] = "!inline " + basePath.replaceAll(SEP, "/") + ext;
+          r.push({
+            path: basePath + ext,
+            content: content,
+          });
+        }
+        if (o["lock"] && o["lock"] != "") {
+          const lock = o["lock"];
+          o["lock"] = "!inline " + basePath.replaceAll(SEP, "/") + "lock";
+          r.push({
+            path: basePath + "lock",
+            content: lock,
+          });
+        }
+        return r;
+      } else {
+        return extractInlineScriptsForApps(v, pathAssigner);
+      }
+    });
+  }
+  return [];
+}
+
+export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
+  let counter = 0;
+  const seen_names = new Set<string>();
+  function assignPath(
+    summary: string | undefined,
+    language: RawScript["language"] | "frontend" | "bunnative"
+  ): [string, string] {
+    let name;
+
+    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+
+    let original_name = name;
+
+    if (name == "") {
+      original_name = INLINE_SCRIPT;
+      name = `${INLINE_SCRIPT}_0`;
+    }
+
+    while (seen_names.has(name)) {
+      counter++;
+      name = `${original_name}_${counter}`;
+    }
+    seen_names.add(name);
+
+    let ext;
+    if (language == "python3") ext = "py";
+    else if (language == defaultTs || language == "bunnative") ext = "ts";
+    else if (language == "bun") ext = "bun.ts";
+    else if (language == "deno") ext = "deno.ts";
+    else if (language == "go") ext = "go";
+    else if (language == "bash") ext = "sh";
+    else if (language == "powershell") ext = "ps1";
+    else if (language == "postgresql") ext = "pg.sql";
+    else if (language == "mysql") ext = "my.sql";
+    else if (language == "bigquery") ext = "bq.sql";
+    else if (language == "snowflake") ext = "sf.sql";
+    else if (language == "mssql") ext = "ms.sql";
+    else if (language == "graphql") ext = "gql";
+    else if (language == "nativets") ext = "native.ts";
+    else if (language == "frontend") ext = "frontend.js";
+    else if (language == "php") ext = "php";
+    else if (language == "rust") ext = "rs";
+    else if (language == "ansible") ext = "playbook.yml";
+    else ext = "no_ext";
+
+    return [`${name}.inline_script.`, ext];
+  }
+
+  return { assignPath };
+}
+function ZipFSElement(
+  zip: JSZip,
+  useYaml: boolean,
+  defaultTs: "bun" | "deno",
+  resourceTypeToFormatExtension: Record<string, string>
+): DynFSElement {
   async function _internal_file(
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "other" = p.endsWith("flow.json")
+    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith(
+      "flow.json"
+    )
       ? "flow"
       : p.endsWith("app.json")
       ? "app"
       : p.endsWith("script.json")
       ? "script"
+      : p.endsWith("resource.json")
+      ? "resource"
       : "other";
 
     const isJson = p.endsWith(".json");
-
-    interface InlineScript {
-      path: string;
-      content: string;
-    }
-
-    let counter = 0;
-    const seen_names = new Set<string>();
-    function assignPath(
-      summary: string | undefined,
-      language: RawScript["language"]
-    ): [string, string] {
-      let name;
-
-      const INLINE_SCRIPT = "inline_script";
-      name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
-
-      let original_name = name;
-
-      if (name == "") {
-        original_name = INLINE_SCRIPT;
-        name = `${INLINE_SCRIPT}_0`;
-      }
-
-      while (seen_names.has(name)) {
-        counter++;
-        name = `${original_name}_${counter}`;
-      }
-      seen_names.add(name);
-
-      let ext;
-      if (language == "python3") ext = "py";
-      else if (language == "deno") ext = "ts";
-      else if (language == "go") ext = "go";
-      else if (language == "bash") ext = "sh";
-      else if (language == "powershell") ext = "ps1";
-      else if (language == "postgresql") ext = "pg.sql";
-      else if (language == "mysql") ext = "my.sql";
-      else if (language == "bigquery") ext = "bq.sql";
-      else if (language == "snowflake") ext = "sf.sql";
-      else if (language == "mssql") ext = "ms.sql";
-      else if (language == "graphql") ext = "gql";
-      else if (language == "bun") ext = "bun.ts";
-      else if (language == "nativets") ext = "native.ts";
-      else if (language == "frontend") ext = "frontend.js";
-      else if (language == "php") ext = "php";
-      else ext = "no_ext";
-
-      return [`${name}.inline_script.`, ext];
-    }
-
-    function extractInlineScriptsForFlows(
-      modules: FlowModule[]
-    ): InlineScript[] {
-      return modules.flatMap((m) => {
-        if (m.value.type == "rawscript") {
-          const [basePath, ext] = assignPath(m.summary, m.value.language);
-          const path = basePath + ext;
-          const content = m.value.content;
-          const r = [{ path: path, content: content }];
-          m.value.content = "!inline " + path;
-          const lock = m.value.lock;
-          if (lock) {
-            const lockPath = basePath + "lock";
-            m.value.lock = "!inline " + lockPath;
-            r.push({ path: lockPath, content: lock });
-          }
-          return r;
-        } else if (m.value.type == "forloopflow") {
-          return extractInlineScriptsForFlows(m.value.modules);
-        } else if (m.value.type == "branchall") {
-          return m.value.branches.flatMap((b) =>
-            extractInlineScriptsForFlows(b.modules)
-          );
-        } else if (m.value.type == "whileloopflow") {
-          return extractInlineScriptsForFlows(m.value.modules);
-        } else if (m.value.type == "branchone") {
-          return [
-            ...m.value.branches.flatMap((b) =>
-              extractInlineScriptsForFlows(b.modules)
-            ),
-            ...extractInlineScriptsForFlows(m.value.default),
-          ];
-        } else {
-          return [];
-        }
-      });
-    }
-
-    function extractInlineScriptsForApps(rec: any): InlineScript[] {
-      if (!rec) {
-        return [];
-      }
-      if (typeof rec == "object") {
-        return Object.entries(rec).flatMap(([k, v]) => {
-          if (k == "inlineScript" && typeof v == "object") {
-            const o: Record<string, any> = v as any;
-            const name = rec["name"];
-            const [basePath, ext] = assignPath(name, o["language"]);
-            const r = [];
-            if (o["content"]) {
-              const content = o["content"];
-              o["content"] = "!inline " + basePath + ext;
-              r.push({
-                path: basePath + ext,
-                content: content,
-              });
-            }
-            if (o["lock"]) {
-              const lock = o["lock"];
-              o["lock"] = "!inline " + basePath + "lock";
-              r.push({
-                path: basePath + "lock",
-                content: lock,
-              });
-            }
-            return r;
-          } else {
-            return extractInlineScriptsForApps(v);
-          }
-        });
-      }
-      return [];
-    }
 
     function transformPath() {
       if (kind == "flow") {
@@ -348,7 +378,8 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
             const inlineScripts = extractInlineScriptsForFlows(
-              flow.value.modules
+              flow.value.modules,
+              newPathAssigner(defaultTs)
             );
             for (const s of inlineScripts) {
               yield {
@@ -373,7 +404,10 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
             };
           } else if (kind == "app") {
             const app = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForApps(app?.["value"]);
+            const inlineScripts = extractInlineScriptsForApps(
+              app?.["value"],
+              newPathAssigner(defaultTs)
+            );
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -403,8 +437,37 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
 
           if (kind == "script") {
             const parsed = JSON.parse(content);
-            if (parsed["lock"]) {
-              parsed["lock"] = "!inline " + removeSuffix(p, ".json") + ".lock";
+            if (
+              parsed["lock"] &&
+              parsed["lock"] != "" &&
+              parsed["codebase"] == undefined
+            ) {
+              parsed["lock"] =
+                "!inline " +
+                removeSuffix(p.replaceAll(SEP, "/"), ".json") +
+                ".lock";
+            } else if (parsed["lock"] == "") {
+              parsed["lock"] = "";
+            } else {
+              parsed["lock"] = undefined;
+            }
+            return useYaml
+              ? yamlStringify(parsed, yamlOptions)
+              : JSON.stringify(parsed, null, 2);
+          }
+
+          if (kind == "resource") {
+            const content = await f.async("text");
+            const parsed = JSON.parse(content);
+            const formatExtension =
+              resourceTypeToFormatExtension[parsed["resource_type"]];
+
+            if (formatExtension) {
+              parsed["value"]["content"] =
+                "!inline " +
+                removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
+                ".resource.file." +
+                formatExtension;
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -421,7 +484,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       const content = await f.async("text");
       const parsed = JSON.parse(content);
       const lock = parsed["lock"];
-      if (lock) {
+      if (lock && lock != "") {
         r.push({
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
@@ -431,6 +494,30 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
             return lock;
           },
         });
+      }
+    }
+    if (kind == "resource") {
+      const content = await f.async("text");
+      const parsed = JSON.parse(content);
+      const formatExtension =
+        resourceTypeToFormatExtension[parsed["resource_type"]];
+
+      if (formatExtension) {
+        const fileContent: string = parsed["value"]["content"];
+        if (typeof fileContent === "string") {
+          r.push({
+            isDirectory: false,
+            path:
+              removeSuffix(finalPath, ".resource.json") +
+              ".resource.file." +
+              formatExtension,
+            async *getChildren() {},
+            // deno-lint-ignore require-await
+            async getContentText() {
+              return fileContent;
+            },
+          });
+        }
       }
     }
     return r;
@@ -531,17 +618,19 @@ export async function elementsToMap(
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
     const path = entry.path;
-    if (json && path.endsWith(".yaml")) continue;
-    if (!json && path.endsWith(".json")) continue;
+    if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
+    if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
+    if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+    if (skips.skipResources && isFileResource(path)) continue;
 
     if (
       ![
@@ -557,7 +646,10 @@ export async function elementsToMap(
         "php",
         "js",
         "lock",
-      ].includes(path.split(".").pop() ?? "")
+        "rs",
+        "yml",
+      ].includes(path.split(".").pop() ?? "") &&
+      !isFileResource(path)
     )
       continue;
     const content = await entry.getContentText();
@@ -568,13 +660,13 @@ export async function elementsToMap(
         if (json) {
           o = JSON.parse(content);
         } else {
-          o = yamlParse(content);
+          o = yamlParseContent(path, content);
         }
         if (o["is_secret"]) {
           continue;
         }
       } catch (e) {
-        log.warning(`Error reading variable ${path} to check for secrets`);
+        log.warn(`Error reading variable ${path} to check for secrets`);
       }
     }
     map[entry.path] = content;
@@ -590,6 +682,7 @@ interface Skips {
   includeUsers?: boolean | undefined;
   includeGroups?: boolean | undefined;
   includeSettings?: boolean | undefined;
+  includeKey?: boolean | undefined;
 }
 
 async function compareDynFSElement(
@@ -611,7 +704,7 @@ async function compareDynFSElement(
 
   function parseYaml(k: string, v: string) {
     if (k.endsWith(".script.yaml")) {
-      const o: any = yamlParse(v);
+      const o: any = yamlParseContent(k, v);
       if (typeof o == "object") {
         if (Array.isArray(o?.["lock"])) {
           o["lock"] = o["lock"].join("\n");
@@ -622,7 +715,7 @@ async function compareDynFSElement(
       }
       return o;
     } else if (k.endsWith(".app.yaml")) {
-      const o: any = yamlParse(v);
+      const o: any = yamlParseContent(k, v);
       const o2 = o["policy"];
 
       if (typeof o2 == "object") {
@@ -635,7 +728,7 @@ async function compareDynFSElement(
       }
       return o;
     } else {
-      return yamlParse(v);
+      return yamlParseContent(k, v);
     }
   }
   for (const [k, v] of Object.entries(m1)) {
@@ -671,30 +764,32 @@ async function compareDynFSElement(
 
 function getOrderFromPath(p: string) {
   const typ = getTypeStrFromPath(p);
-  if (typ == "folder") {
+  if (typ == "settings") {
     return 0;
-  } else if (typ == "resource-type") {
+  } else if (typ == "folder") {
     return 1;
-  } else if (typ == "resource") {
+  } else if (typ == "resource-type") {
     return 2;
-  } else if (typ == "script") {
+  } else if (typ == "resource") {
     return 3;
-  } else if (typ == "flow") {
+  } else if (typ == "script") {
     return 4;
-  } else if (typ == "app") {
+  } else if (typ == "flow") {
     return 5;
-  } else if (typ == "schedule") {
+  } else if (typ == "app") {
     return 6;
-  } else if (typ == "variable") {
+  } else if (typ == "schedule") {
     return 7;
-  } else if (typ == "user") {
+  } else if (typ == "variable") {
     return 8;
-  } else if (typ == "group") {
+  } else if (typ == "user") {
     return 9;
-  } else if (typ == "settings") {
+  } else if (typ == "group") {
     return 10;
-  } else {
+  } else if (typ == "encryption_key") {
     return 11;
+  } else {
+    return 12;
   }
 }
 
@@ -714,7 +809,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
-    if (typ == "resource-type" || typ == "settings") {
+    if (
+      typ == "resource-type" ||
+      typ == "settings" ||
+      typ == "encryption_key"
+    ) {
       return p.includes(SEP);
     } else {
       return (
@@ -745,6 +844,7 @@ export const isWhitelisted = (p: string) => {
 export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
+  extraIncludes?: string[];
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -758,51 +858,33 @@ export async function ignoreF(wmillconf: {
           (!wmillconf.includes ||
             wmillconf.includes?.some((i) => minimatch(file, i))) &&
           (!wmillconf?.excludes ||
-            wmillconf.excludes!.every((i) => !minimatch(file, i)))
+            wmillconf.excludes!.every((i) => !minimatch(file, i))) &&
+          (!wmillconf.extraIncludes ||
+            wmillconf.extraIncludes.some((i) => minimatch(file, i)))
         );
       },
     };
   }
-  let ign:
-    | {
-        denies(file: string): boolean;
-      }
-    | undefined = undefined;
 
   try {
-    const ignoreContent = await Deno.readTextFile(".wmillignore");
-    const condensed = ignoreContent
-      .split("\n")
-      .filter((l) => l != "" && !l.startsWith("#"))
-      .join(", ");
-    log.info(
-      colors.gray(
-        `(Deprecated, use wmill.yaml/includes instead) Using .wmillignore file (${condensed})`
-      )
-    );
-    ign = gitignore_parser.compile(ignoreContent);
-  } catch {}
-
-  if (ign && whitelist) {
-    log.error(
-      "Cannot have both .wmillignore and wmill.yaml/includes or excludes, ignoring .wmillignore"
-    );
-    ign = undefined;
+    await Deno.stat(".wmillignore");
+    throw Error(".wmillignore is not supported anymore, switch to wmill.yaml");
+  } catch {
+    //expected
   }
 
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
+
   return (p: string, isDirectory: boolean) => {
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
-        (!isDirectory &&
-          ((whitelist != undefined && !whitelist.approve(p)) ||
-            (ign != undefined && ign.denies(p)))))
+        (!isDirectory && whitelist != undefined && !whitelist.approve(p)))
     );
   };
 }
 
-async function pull(opts: GlobalOptions & SyncOptions) {
+export async function pull(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
 
   if (opts.stateful) {
@@ -819,6 +901,15 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       "Computing the files to update locally to match remote (taking wmill.yaml into account)"
     )
   );
+
+  let resourceTypeToFormatExtension: Record<string, string> = {};
+  try {
+    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+      workspace: workspace.workspaceId,
+    })) as Record<string, string>;
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -830,9 +921,12 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
+      opts.includeKey,
       opts.defaultTs
     ))!,
-    !opts.json
+    !opts.json,
+    opts.defaultTs ?? "bun",
+    resourceTypeToFormatExtension
   );
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases)
@@ -854,7 +948,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes?`,
+        message: `Do you want to apply these ${changes.length} changes to your local files?`,
         default: true,
       }))
     ) {
@@ -862,49 +956,93 @@ async function pull(opts: GlobalOptions & SyncOptions) {
     }
 
     const conflicts = [];
+    const changedScripts: string[] = [];
+    const changedFlows: string[] = [];
+    const changedApps: string[] = [];
+
+    // deno-lint-ignore no-inner-declarations
+    async function addToChangedIfNotExists(p: string) {
+      const isScript = exts.some((e) => p.endsWith(e));
+      if (isScript) {
+        if (p.includes(".flow" + SEP)) {
+          const folder =
+            p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+          if (!changedFlows.includes(folder)) {
+            changedFlows.push(folder);
+          }
+        } else if (p.includes(".app" + SEP)) {
+          const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+          if (!changedApps.includes(folder)) {
+            changedApps.push(folder);
+          }
+        } else {
+          if (!changedScripts.includes(p)) {
+            changedScripts.push(p);
+          }
+        }
+      } else if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
+        try {
+          const contentPath = await findContentFile(p);
+          if (!contentPath) return;
+          if (changedScripts.includes(contentPath)) return;
+          changedScripts.push(contentPath);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
       const target = path.join(Deno.cwd(), change.path);
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
       if (change.name === "edited") {
-        try {
-          const currentLocal = await Deno.readTextFile(target);
-          if (currentLocal !== change.before && currentLocal !== change.after) {
-            log.info(
-              colors.red(
-                `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
-              )
-            );
-            if (opts.failConflicts) {
-              conflicts.push({
-                local: currentLocal,
-                change,
-                path: change.path,
-              });
-              continue;
-            } else if (opts.yes) {
+        if (opts.stateful) {
+          try {
+            const currentLocal = await Deno.readTextFile(target);
+            if (
+              currentLocal !== change.before &&
+              currentLocal !== change.after
+            ) {
               log.info(
                 colors.red(
-                  `Override local version with remote since --yes was passed and no --fail-conflicts.`
+                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
                 )
               );
-            } else {
-              showConflict(change.path, currentLocal, change.after);
-              if (
-                await Confirm.prompt(
-                  "Preserve local (push to change remote and avoid seeing this again)?"
-                )
-              ) {
+              if (opts.failConflicts) {
+                conflicts.push({
+                  local: currentLocal,
+                  change,
+                  path: change.path,
+                });
                 continue;
+              } else if (opts.yes) {
+                log.info(
+                  colors.red(
+                    `Override local version with remote since --yes was passed and no --fail-conflicts.`
+                  )
+                );
+              } else {
+                showConflict(change.path, currentLocal, change.after);
+                if (
+                  await Confirm.prompt(
+                    "Preserve local (push to change remote and avoid seeing this again)?"
+                  )
+                ) {
+                  continue;
+                }
               }
             }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
-        if (!change.path.endsWith(".json") && !change.path.endsWith(".yaml")) {
+        if (exts.some((e) => change.path.endsWith(e))) {
           log.info(`Editing script content of ${change.path}`);
-        } else {
+        } else if (
+          change.path.endsWith(".yaml") ||
+          change.path.endsWith(".json")
+        ) {
           log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.after);
@@ -913,6 +1051,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
           await ensureDir(path.dirname(stateTarget));
           await Deno.copyFile(target, stateTarget);
         }
+        await addToChangedIfNotExists(change.path);
       } else if (change.name === "added") {
         await ensureDir(path.dirname(target));
         if (opts.stateful) {
@@ -924,6 +1063,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
         if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
         }
+        await addToChangedIfNotExists(change.path);
       } else if (change.name === "deleted") {
         try {
           log.info(
@@ -956,9 +1096,36 @@ async function pull(opts: GlobalOptions & SyncOptions) {
         Deno.exit(1);
       }
     }
+    log.info("All local changes pulled, now updating wmill-lock.yaml");
+
+    const globalDeps = await findGlobalDeps();
+
+    for (const change of changedScripts) {
+      await generateScriptMetadataInternal(
+        change,
+        workspace,
+        opts,
+        false,
+        true,
+        globalDeps,
+        codebases,
+        true
+      );
+    }
+    for (const change of changedFlows) {
+      log.info(`Updating lock for flow ${change}`);
+      await generateFlowLockInternal(change, false, workspace, true);
+    }
+    if (changedApps.length > 0) {
+      log.info(
+        `Apps ${changedApps.join(
+          ", "
+        )} scripts were changed but ignoring for now`
+      );
+    }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes applied locally.`
+        `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
       )
     );
   }
@@ -1009,7 +1176,7 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & SyncOptions) {
+export async function push(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
@@ -1031,9 +1198,17 @@ async function push(opts: GlobalOptions & SyncOptions) {
 
   log.info(
     colors.gray(
-      "Computing the files to update on the remote to match local (taking .wmillignore into account)"
+      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
     )
   );
+  let resourceTypeToFormatExtension: Record<string, string> = {};
+  try {
+    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+      workspace: workspace.workspaceId,
+    })) as Record<string, string>;
+  } catch {
+    // ignore
+  }
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -1045,9 +1220,12 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
+      opts.includeKey,
       opts.defaultTs
     ))!,
-    !opts.json
+    !opts.json,
+    opts.defaultTs ?? "bun",
+    resourceTypeToFormatExtension
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
@@ -1073,7 +1251,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
     if (
       !opts.yes &&
       !(await Confirm.prompt({
-        message: `Do you want to apply these ${changes.length} changes?`,
+        message: `Do you want to apply these ${changes.length} changes to the remote?`,
         default: true,
       }))
     ) {
@@ -1083,7 +1261,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
     log.info(colors.gray(`Applying changes to files ...`));
 
     const alreadySynced: string[] = [];
-    const globalDeps = await findGlobalDeps(codebases);
+    const globalDeps = await findGlobalDeps();
 
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -1130,6 +1308,29 @@ async function push(opts: GlobalOptions & SyncOptions) {
           await ensureDir(path.dirname(stateTarget));
           log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
+
+        if (isFileResource(change.path)) {
+          const resourceFilePath = await findResourceFile(change.path);
+          if (!alreadySynced.includes(resourceFilePath)) {
+            alreadySynced.push(resourceFilePath);
+
+            const newObj = parseFromPath(
+              resourceFilePath,
+              await Deno.readTextFile(resourceFilePath)
+            );
+
+            await pushResource(
+              workspace.workspaceId,
+              resourceFilePath,
+              undefined,
+              newObj
+            );
+            if (opts.stateful && stateExists) {
+              await Deno.writeTextFile(stateTarget, change.after);
+            }
+            continue;
+          }
+        }
         const oldObj = parseFromPath(change.path, change.before);
         const newObj = parseFromPath(change.path, change.after);
 
@@ -1139,6 +1340,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
           oldObj,
           newObj,
           opts.plainSecrets ?? false,
+          alreadySynced,
           opts.message
         );
 
@@ -1149,7 +1351,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
         if (
           change.path.endsWith(".script.json") ||
           change.path.endsWith(".script.yaml") ||
-          change.path.endsWith(".lock")
+          change.path.endsWith(".lock") ||
+          isFileResource(change.path)
         ) {
           continue;
         } else if (
@@ -1176,6 +1379,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
           undefined,
           obj,
           opts.plainSecrets ?? false,
+          [],
           opts.message
         );
 
@@ -1196,60 +1400,60 @@ async function push(opts: GlobalOptions & SyncOptions) {
         const workspaceId = workspace.workspaceId;
         switch (typ) {
           case "script": {
-            const script = await ScriptService.getScriptByPath({
+            const script = await wmill.getScriptByPath({
               workspace: workspaceId,
               path: removeExtensionToPath(change.path),
             });
-            await ScriptService.archiveScriptByHash({
+            await wmill.archiveScriptByHash({
               workspace: workspaceId,
               hash: script.hash,
             });
             break;
           }
           case "folder":
-            await FolderService.deleteFolder({
+            await wmill.deleteFolder({
               workspace: workspaceId,
-              name: change.path.split(path.sep)[1],
+              name: change.path.split(SEP)[1],
             });
             break;
           case "resource":
-            await ResourceService.deleteResource({
+            await wmill.deleteResource({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".resource.json"),
             });
             break;
           case "resource-type":
-            await ResourceService.deleteResourceType({
+            await wmill.deleteResourceType({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".resource-type.json"),
             });
             break;
           case "flow":
-            await FlowService.deleteFlowByPath({
+            await wmill.deleteFlowByPath({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".flow/flow.json"),
             });
             break;
           case "app":
-            await AppService.deleteApp({
+            await wmill.deleteApp({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".app/app.json"),
             });
             break;
           case "schedule":
-            await ScheduleService.deleteSchedule({
+            await wmill.deleteSchedule({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".schedule.json"),
             });
             break;
           case "variable":
-            await VariableService.deleteVariable({
+            await wmill.deleteVariable({
               workspace: workspaceId,
               path: removeSuffix(change.path, ".variable.json"),
             });
             break;
           case "user": {
-            const users = await UserService.listUsers({
+            const users = await wmill.listUsers({
               workspace: workspaceId,
             });
 
@@ -1261,14 +1465,14 @@ async function push(opts: GlobalOptions & SyncOptions) {
             if (!user) {
               throw new Error(`User ${email} not found`);
             }
-            await UserService.deleteUser({
+            await wmill.deleteUser({
               workspace: workspaceId,
               username: user.username,
             });
             break;
           }
           case "group":
-            await GroupService.deleteGroup({
+            await wmill.deleteGroup({
               workspace: workspaceId,
               name: removeSuffix(
                 removePathPrefix(change.path, "groups"),
@@ -1303,9 +1507,7 @@ const command = new Command()
     log.info("2 actions available, pull and push. Use -h to display help.")
   )
   .command("pull")
-  .description(
-    "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking."
-  )
+  .description("Pull any remote changes and apply them locally.")
   .option(
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
@@ -1328,20 +1530,23 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account."
+    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes"
+  )
+  .option(
+    "--extra-includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
-  .description(
-    "Push any local changes and apply them remotely. Use --raw for usage without local state tracking."
-  )
+  .description("Push any local changes and apply them remotely.")
   .option(
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
@@ -1365,6 +1570,7 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1372,6 +1578,10 @@ const command = new Command()
   .option(
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
+  )
+  .option(
+    "--extra-includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
   )
   .option(
     "--message <message:string>",

@@ -27,6 +27,7 @@ use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use hf_hub::{api::sync::Api, Cache, Repo};
 #[cfg(feature = "embedding")]
 use serde::Deserialize;
+#[cfg(feature = "embedding")]
 use serde::Serialize;
 #[cfg(feature = "embedding")]
 use sqlx::{Pool, Postgres};
@@ -52,6 +53,7 @@ use crate::{resources::ResourceType, HTTP_CLIENT};
 lazy_static::lazy_static! {
     pub static ref EMBEDDINGS_DB: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
     pub static ref MODEL_INSTANCE: Arc<RwLock<Option<Arc<ModelInstance>>>> = Arc::new(RwLock::new(None));
+    pub static ref HUB_EMBEDDINGS_PULLING_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_PULLING_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(3600 * 24);
 }
 
 #[cfg(feature = "embedding")]
@@ -63,6 +65,7 @@ struct HubScriptsQuery {
     app: Option<String>,
 }
 
+#[cfg(feature = "embedding")]
 #[derive(Serialize)]
 pub struct HubScriptResult {
     ask_id: i64,
@@ -100,6 +103,7 @@ struct ResourceTypesQuery {
     limit: Option<i64>,
 }
 
+#[cfg(feature = "embedding")]
 #[derive(Serialize)]
 pub struct ResourceTypeResult {
     name: String,
@@ -310,7 +314,7 @@ impl EmbeddingsDb {
                         &format!("{}/scripts/embeddings", hub_base_url),
                         false,
                         None,
-                        pg_db,
+                        Some(pg_db),
                     )
                     .await?
                 } else {
@@ -323,7 +327,7 @@ impl EmbeddingsDb {
                     &format!("{}/scripts/embeddings", hub_base_url),
                     false,
                     None,
-                    pg_db,
+                    Some(pg_db),
                 )
                 .await?
             }
@@ -372,7 +376,7 @@ impl EmbeddingsDb {
                         &format!("{}/resource_types/embeddings", hub_base_url),
                         false,
                         None,
-                        pg_db,
+                        Some(pg_db),
                     )
                     .await?
                 } else {
@@ -385,7 +389,7 @@ impl EmbeddingsDb {
                     &format!("{}/resource_types/embeddings", hub_base_url),
                     false,
                     None,
-                    pg_db,
+                    Some(pg_db),
                 )
                 .await?
             }
@@ -604,7 +608,10 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
                 drop(model_instance_lock);
                 loop {
                     update_embeddings_db(&db_clone).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(3600 * 24)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS,
+                    ))
+                    .await;
                 }
             } else {
                 tracing::error!(

@@ -8,7 +8,6 @@
 		: undefined
 </script>
 
-<div class="mt-2" />
 <ResourceTypePicker
 	on:click={(e) => {
 		resource = e.detail

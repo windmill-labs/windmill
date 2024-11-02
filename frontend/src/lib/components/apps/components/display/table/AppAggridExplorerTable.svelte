@@ -2,7 +2,7 @@
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
+	import type { AppViewerContext, ComponentCustomCSS, ContextPanelContext } from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
 	import { deepEqual } from 'fast-equals'
@@ -39,7 +39,8 @@
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
-	const { app, selectedComponent, componentControl, darkMode } = context
+	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
+	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
 
@@ -120,20 +121,26 @@
 		const rowIndex = p.node.rowIndex ?? 0
 		const row = p.data
 
-		new AppAggridTableActions({
+		const componentContext = new Map<string, any>([
+			['AppViewerContext', context],
+			['ContextPanel', contextPanel]
+		])
+
+		const ta = new AppAggridTableActions({
 			target: c.eGui,
 			props: {
+				p,
 				id: id,
 				actions,
 				rowIndex,
 				row,
 				render: true,
 				wrapActions: resolvedConfig.wrapActions,
-				selectRow: () => {
+				selectRow: (p) => {
 					toggleRow(p)
 					p.node.setSelected(true)
 				},
-				onSet: (id, value) => {
+				onSet: (id, value, rowIndex) => {
 					if (!inputs[id]) {
 						inputs[id] = { [rowIndex]: value }
 					} else {
@@ -142,7 +149,7 @@
 
 					outputs?.inputs.set(inputs, true)
 				},
-				onRemove: (id) => {
+				onRemove: (id, rowIndex) => {
 					if (inputs?.[id] == undefined) {
 						return
 					}
@@ -155,8 +162,16 @@
 					outputs?.inputs.set(inputs, true)
 				}
 			},
-			context: new Map([['AppViewerContext', context]])
+			context: componentContext
 		})
+		return {
+			destroy: () => {
+				ta.$destroy()
+			},
+			refresh(params) {
+				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
+			}
+		}
 	})
 
 	function transformColumnDefs(columnDefs: any[] | undefined) {
@@ -178,7 +193,7 @@
 				field: 'delete',
 				headerName: 'Delete',
 				cellRenderer: cellRendererFactory((c, p) => {
-					new Button({
+					let ta = new Button({
 						target: c.eGui,
 						props: {
 							btnClasses: 'w-12',
@@ -191,6 +206,14 @@
 							nonCaptureEvent: true
 						}
 					})
+					return {
+						destroy: () => {
+							ta.$destroy()
+						},
+						refresh(params) {
+							//
+						}
+					}
 				}),
 				cellRendererParams: {
 					onClick: (e) => {
@@ -206,7 +229,9 @@
 
 		if (actions && actions.length > 0) {
 			r.push({
-				headerName: 'Actions',
+				headerName: resolvedConfig?.customActionsHeader
+					? resolvedConfig?.customActionsHeader
+					: 'Actions',
 				cellRenderer: tableActionsFactory,
 				autoHeight: true,
 				cellStyle: { textAlign: 'center' },
@@ -242,10 +267,24 @@
 
 		// Validate each column definition
 		columnDefs.forEach((colDef, index) => {
+			let noField = !colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === ''
+
 			// Check if 'field' property exists and is a non-empty string
-			if (!colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === '') {
+			if (noField && !(colDef.children && Array.isArray(colDef.children))) {
 				isValid = false
-				errors.push(`Column at index ${index} is missing a valid 'field' property.`)
+				errors.push(
+					`Column at index ${index} is missing a valid 'field' property nor having any children.`
+				)
+			}
+
+			if (colDef.children && Array.isArray(colDef.children)) {
+				const { isValid: isChildrenValid, errors: childrenErrors } = validateColumnDefs(
+					colDef.children
+				)
+				if (!isChildrenValid) {
+					isValid = false
+					errors.push(...childrenErrors.map((err) => `Error in children at index ${index}: ${err}`))
+				}
 			}
 		})
 
@@ -285,6 +324,7 @@
 						: false,
 					initialState: state,
 					suppressRowDeselection: true,
+					enableCellTextSelection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
 					onViewportChanged: (e) => {
 						firstRow = e.firstRow
@@ -301,6 +341,9 @@
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {
 								e.api.getRowNode(index.toString())?.setSelected(true)
+							},
+							recompute: () => {
+								dispatch('recompute')
 							}
 						}
 						api = e.api
@@ -319,7 +362,7 @@
 		}
 	}
 
-	$: resolvedConfig && updateOptions()
+	$: api && resolvedConfig && updateOptions()
 
 	let oldDatasource = datasource
 	$: if (datasource && datasource != oldDatasource) {
@@ -359,6 +402,7 @@
 	}
 
 	function updateOptions() {
+		// console.debug('updateOptions', resolvedConfig, api)
 		api?.updateGridOptions({
 			columnDefs: transformColumnDefs(resolvedConfig?.columnDefs),
 			defaultColDef: {
@@ -413,7 +457,24 @@
 			class="ag-theme-alpine"
 			class:ag-theme-alpine-dark={$darkMode}
 		>
-			<div bind:this={eGui} style:height="100%" />
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div
+				bind:this={eGui}
+				style:height="100%"
+				on:keydown={(e) => {
+					if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
+						const selectedCell = api?.getFocusedCell()
+						if (selectedCell) {
+							const rowIndex = selectedCell.rowIndex
+							const colId = selectedCell.column?.getId()
+							const rowNode = api?.getDisplayedRowAtIndex(rowIndex)
+							const selectedValue = rowNode?.data?.[colId]
+							navigator.clipboard.writeText(selectedValue)
+							sendUserToast('Copied cell value to clipboard', false)
+						}
+					}
+				}}
+			/>
 		</div>
 		{#if resolvedConfig && 'footer' in resolvedConfig && resolvedConfig.footer}
 			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
@@ -440,18 +501,3 @@
 		{/if}
 	</div>
 </SyncColumnDefs>
-
-<style>
-	.ag-theme-alpine {
-		--ag-row-border-style: solid;
-		--ag-border-color: rgb(209 213 219);
-		--ag-header-border-style: solid;
-		--ag-border-radius: 0;
-		--ag-alpine-active-color: #d1d5db;
-	}
-
-	.ag-theme-alpine-dark {
-		--ag-border-color: #4b5563;
-		--ag-alpine-active-color: #64748b;
-	}
-</style>

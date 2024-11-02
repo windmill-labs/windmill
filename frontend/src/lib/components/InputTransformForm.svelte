@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -24,7 +24,7 @@
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
@@ -42,12 +42,14 @@
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
+	const dispatch = createEventDispatcher()
+
 	$: inputCat = computeInputCat(
-		schema.properties[argName].type,
-		schema.properties[argName].format,
-		schema.properties[argName].items?.type,
-		schema.properties[argName].enum,
-		schema.properties[argName].contentEncoding
+		schema?.properties?.[argName].type,
+		schema?.properties?.[argName].format,
+		schema?.properties?.[argName].items?.type,
+		schema?.properties?.[argName].enum,
+		schema?.properties?.[argName].contentEncoding
 	)
 
 	let propertyType = getPropertyType(arg)
@@ -168,11 +170,11 @@
 
 	function setDefaultCode() {
 		if (!arg?.value) {
-			monacoTemplate?.setCode(schema.properties[argName].default)
+			monacoTemplate?.setCode(schema.properties?.[argName].default)
 		}
 	}
 
-	$: schema.properties[argName].default && setDefaultCode()
+	$: schema?.properties?.[argName].default && setDefaultCode()
 
 	let resourceTypes: string[] | undefined = undefined
 
@@ -192,10 +194,10 @@
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
-					format={schema.properties[argName].format}
-					contentEncoding={schema.properties[argName].contentEncoding}
-					required={schema.required.includes(argName)}
-					type={schema.properties[argName].type}
+					format={schema?.properties?.[argName].format}
+					contentEncoding={schema?.properties?.[argName].contentEncoding}
+					required={schema.required?.includes(argName)}
+					type={schema.properties?.[argName].type}
 				/>
 
 				{#if isStaticTemplate(inputCat)}
@@ -218,7 +220,7 @@
 							bind:this={stepInputGen}
 							{focused}
 							{arg}
-							schemaProperty={schema.properties[argName]}
+							schemaProperty={schema?.properties?.[argName]}
 							showPopup={(isStaticTemplate(inputCat) && propertyType == 'static') ||
 								propertyType === undefined ||
 								propertyType === 'static' ||
@@ -285,6 +287,7 @@
 												arg.value = undefined
 											}
 											arg.expr = undefined
+											arg.type = 'static'
 										}
 									} else {
 										if (arg) {
@@ -312,7 +315,7 @@
 							<ToggleButton
 								small
 								light
-								tooltip="Javascript expression ('flow_input' or 'results')."
+								tooltip="JavaScript expression ('flow_input' or 'results')."
 								value="javascript"
 								icon={FunctionSquare}
 							/>
@@ -327,6 +330,7 @@
 						on:click={() => {
 							focusProp(argName, 'connect', (path) => {
 								connectProperty(path)
+								dispatch('change', { argName })
 								return true
 							})
 						}}
@@ -372,10 +376,13 @@
 							}}
 							bind:code={arg.value}
 							fontSize={14}
+							on:change={() => {
+								dispatch('change', { argName })
+							}}
 						/>
 					{/if}
 				</div>
-			{:else if propertyType === undefined || propertyType == 'static'}
+			{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
 				<ArgInput
 					{resourceTypes}
 					noMargin
@@ -385,12 +392,17 @@
 					on:blur={() => {
 						focused = false
 					}}
+					shouldDispatchChanges
+					on:change={() => {
+						dispatch('change', { argName })
+					}}
 					label={argName}
 					bind:editor={monaco}
 					bind:description={schema.properties[argName].description}
 					bind:value={arg.value}
 					type={schema.properties[argName].type}
-					required={schema.required.includes(argName)}
+					oneOf={schema.properties[argName].oneOf}
+					required={schema.required?.includes(argName)}
 					bind:pattern={schema.properties[argName].pattern}
 					bind:valid={inputCheck}
 					defaultValue={schema.properties[argName].default}
@@ -406,12 +418,18 @@
 					{itemPicker}
 					bind:pickForField
 					showSchemaExplorer
+					nullable={schema.properties[argName].nullable}
+					bind:title={schema.properties[argName].title}
+					bind:placeholder={schema.properties[argName].placeholder}
 				/>
 			{:else if arg.expr != undefined}
 				<div class="border mt-2">
 					<SimpleEditor
 						bind:this={monaco}
 						bind:code={arg.expr}
+						on:change={() => {
+							dispatch('change', { argName })
+						}}
 						{extraLib}
 						lang="javascript"
 						shouldBindKey={false}
@@ -421,6 +439,9 @@
 								monaco?.insertAtCursor(path)
 								return false
 							})
+						}}
+						on:change={() => {
+							dispatch('change', { argName })
 						}}
 						on:blur={() => {
 							focused = false

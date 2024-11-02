@@ -1,14 +1,20 @@
-use futures::TryFutureExt;
+use std::collections::HashMap;
+
+use futures::future::BoxFuture;
+use futures::{FutureExt, TryFutureExt};
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{parse_bigquery_sig, parse_db_resource};
+use windmill_parser_sql::{
+    parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
+};
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
 
-use crate::common::run_future_with_polling_update_job_poller;
+use crate::common::OccupancyMetrics;
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{build_args_values, resolve_job_timeout},
     AuthedClientBackgroundTask,
@@ -57,6 +63,144 @@ struct BigqueryError {
     message: String,
 }
 
+fn do_bigquery_inner<'a>(
+    query: &'a str,
+    all_statement_values: &'a HashMap<String, Value>,
+    project_id: &'a str,
+    token: &'a str,
+    timeout_ms: i32,
+    column_order: Option<&'a mut Option<Vec<String>>>,
+    skip_collect: bool,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+    let param_names = parse_sql_statement_named_params(query, '@');
+
+    let statement_values = all_statement_values
+        .iter()
+        .filter_map(|(name, val)| {
+            if param_names.contains(name) {
+                Some(val)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<&Value>>();
+
+    let result_f = async move {
+        let response = HTTP_CLIENT
+            .post(
+                "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
+                    + project_id
+                    + "/queries",
+            )
+            .bearer_auth(token)
+            .json(&json!({
+                "query": query,
+                "useLegacySql": false,
+                "maxResults": 10000,
+                "timeoutMs": timeout_ms,
+                "queryParameters": statement_values,
+            }))
+            .send()
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!("Could not send query to BigQuery API: {}", e))
+            })?;
+
+        match response.error_for_status_ref() {
+            Ok(_) => {
+                if skip_collect {
+                    return Ok(to_raw_value(&Value::Array(vec![])));
+                } else {
+                    let result = response.json::<BigqueryResponse>().await.map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "BigQuery API response could not be parsed: {}",
+                            e.to_string()
+                        ))
+                    })?;
+
+                    if !result.jobComplete {
+                        return Err(Error::ExecutionErr(
+                            "BigQuery API did not answer query in time".to_string(),
+                        ));
+                    }
+
+                    if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
+                        return Ok(serde_json::from_str("[]").unwrap());
+                    }
+
+                    if result.schema.is_none() {
+                        return Err(Error::ExecutionErr(
+                            "Incomplete response from BigQuery API".to_string(),
+                        ));
+                    }
+
+                    if result
+                        .totalRows
+                        .unwrap_or(json!(""))
+                        .as_str()
+                        .unwrap_or("")
+                        .parse::<i64>()
+                        .unwrap_or(0)
+                        > 10000
+                    {
+                        return Err(Error::ExecutionErr(
+                        "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
+                    ));
+                    }
+
+                    if let Some(column_order) = column_order {
+                        *column_order = Some(
+                            result
+                                .schema
+                                .as_ref()
+                                .unwrap()
+                                .fields
+                                .iter()
+                                .map(|x| x.name.clone())
+                                .collect::<Vec<String>>(),
+                        );
+                    }
+
+                    let rows = result
+                        .rows
+                        .unwrap()
+                        .iter()
+                        .map(|row| {
+                            let mut row_map = serde_json::Map::new();
+                            row.f
+                                .iter()
+                                .zip(result.schema.as_ref().unwrap().fields.iter())
+                                .for_each(|(field, schema)| {
+                                    row_map.insert(
+                                        schema.name.clone(),
+                                        parse_val(&field.v, &schema.r#type, &schema),
+                                    );
+                                });
+                            Value::from(row_map)
+                        })
+                        .collect::<Vec<_>>();
+
+                    Ok(to_raw_value(&rows))
+                }
+            }
+            Err(e) => match response.json::<BigqueryErrorResponse>().await {
+                Ok(bq_err) => Err(Error::ExecutionErr(format!(
+                    "Error from BigQuery API: {}",
+                    bq_err.error.message
+                )))
+                .map_err(to_anyhow)?,
+                Err(_) => Err(Error::ExecutionErr(format!(
+                    "Error from BigQuery API could not be parsed: {}",
+                    e.to_string()
+                )))
+                .map_err(to_anyhow)?,
+            },
+        }
+    };
+
+    Ok(result_f.boxed())
+}
+
 pub async fn do_bigquery(
     job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
@@ -66,6 +210,7 @@ pub async fn do_bigquery(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, db).await?;
 
@@ -92,6 +237,8 @@ pub async fn do_bigquery(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+
     let service_account = CustomServiceAccount::from_json(&database)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
@@ -102,7 +249,22 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let mut statement_values: Vec<Value> = vec![];
+    let timeout_ms = i32::try_from(
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+
+    let project_id = authentication_manager
+        .project_id()
+        .await
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    let queries = parse_sql_blocks(query);
+
+    let mut statement_values: HashMap<String, Value> = HashMap::new();
 
     let sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -147,127 +309,53 @@ pub async fn do_bigquery(
             })
         };
 
-        statement_values.push(bigquery_v);
+        statement_values.insert(arg_n, bigquery_v);
     }
 
-    let timeout_ms = i32::try_from(
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
-            .await
-            .0
-            .as_millis(),
-    )
-    .unwrap_or(200000);
+    let result_f = if queries.len() > 1 {
+        let futures = queries
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                do_bigquery_inner(
+                    x,
+                    &statement_values,
+                    &project_id,
+                    token.as_str(),
+                    timeout_ms,
+                    None,
+                    annotations.return_last_result && i < queries.len() - 1,
+                )
+            })
+            .collect::<windmill_common::error::Result<Vec<_>>>()?;
 
-    let result_f = async {
-        let response = HTTP_CLIENT
-            .post(
-                "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
-                    + authentication_manager
-                        .project_id()
-                        .await
-                        .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                        .as_str()
-                    + "/queries",
-            )
-            .bearer_auth(token.as_str())
-            .json(&json!({
-                "query": query,
-                "useLegacySql": false,
-                "maxResults": 10000,
-                "timeoutMs": timeout_ms,
-                "queryParameters": statement_values,
-            }))
-            .send()
-            .await
-            .map_err(|e| {
-                Error::ExecutionErr(format!("Could not send query to BigQuery API: {}", e))
-            })?;
+        let f = async {
+            let mut res: Vec<Box<RawValue>> = vec![];
 
-        match response.error_for_status_ref() {
-            Ok(_) => {
-                let result = response.json::<BigqueryResponse>().await.map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "BigQuery API response could not be parsed: {}",
-                        e.to_string()
-                    ))
-                })?;
-
-                if !result.jobComplete {
-                    return Err(Error::ExecutionErr(
-                        "BigQuery API did not answer query in time".to_string(),
-                    ));
-                }
-
-                if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
-                    return Ok(serde_json::from_str("[]").unwrap());
-                }
-
-                if result.schema.is_none() {
-                    return Err(Error::ExecutionErr(
-                        "Incomplete response from BigQuery API".to_string(),
-                    ));
-                }
-
-                if result
-                    .totalRows
-                    .unwrap_or(json!(""))
-                    .as_str()
-                    .unwrap_or("")
-                    .parse::<i64>()
-                    .unwrap_or(0)
-                    > 10000
-                {
-                    return Err(Error::ExecutionErr(
-                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
-                ));
-                }
-
-                *column_order = Some(
-                    result
-                        .schema
-                        .as_ref()
-                        .unwrap()
-                        .fields
-                        .iter()
-                        .map(|x| x.name.clone())
-                        .collect::<Vec<String>>(),
-                );
-
-                let rows = result
-                    .rows
-                    .unwrap()
-                    .iter()
-                    .map(|row| {
-                        let mut row_map = serde_json::Map::new();
-                        row.f
-                            .iter()
-                            .zip(result.schema.as_ref().unwrap().fields.iter())
-                            .for_each(|(field, schema)| {
-                                row_map.insert(
-                                    schema.name.clone(),
-                                    parse_val(&field.v, &schema.r#type, &schema),
-                                );
-                            });
-                        Value::from(row_map)
-                    })
-                    .collect::<Vec<_>>();
-
-                return Ok(to_raw_value(&rows));
+            for fut in futures {
+                let r = fut.await?;
+                res.push(r);
             }
-            Err(e) => match response.json::<BigqueryErrorResponse>().await {
-                Ok(bq_err) => Err(Error::ExecutionErr(format!(
-                    "Error from BigQuery API: {}",
-                    bq_err.error.message
-                )))
-                .map_err(to_anyhow)?,
-                Err(_) => Err(Error::ExecutionErr(format!(
-                    "Error from BigQuery API could not be parsed: {}",
-                    e.to_string()
-                )))
-                .map_err(to_anyhow)?,
-            },
-        }
+            if annotations.return_last_result && res.len() > 0 {
+                Ok(res.pop().unwrap())
+            } else {
+                Ok(to_raw_value(&res))
+            }
+        };
+
+        f.boxed()
+    } else {
+        do_bigquery_inner(
+            query,
+            &statement_values,
+            &project_id,
+            token.as_str(),
+            timeout_ms,
+            Some(column_order),
+            false,
+        )?
     };
+
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
@@ -277,6 +365,7 @@ pub async fn do_bigquery(
         result_f.map_err(to_anyhow),
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 

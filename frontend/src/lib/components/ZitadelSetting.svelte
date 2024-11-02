@@ -31,6 +31,7 @@
 </script>
 
 <div class="flex flex-col gap-1">
+	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="text-sm font-medium text-primary flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'zitadel'} after={true} /></div><Toggle
 			checked={enabled}
@@ -50,6 +51,10 @@
 					>Zitadel Url ({'ZITADEL_URL/oauth/v2/authorize'})</span
 				>
 				<input type="text" placeholder="yourorg" bind:value={org} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Custom Name</span>
+				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">Client Id</span>

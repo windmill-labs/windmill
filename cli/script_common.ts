@@ -12,7 +12,9 @@ export type ScriptLanguage =
   | "snowflake"
   | "mssql"
   | "graphql"
-  | "php";
+  | "php"
+  | "rust"
+  | "ansible";
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -27,7 +29,7 @@ export function inferContentTypeFromFilePath(
   } else if (contentPath.endsWith("deno.ts")) {
     return "deno";
   } else if (contentPath.endsWith(".ts")) {
-    return defaultTs ?? "deno";
+    return defaultTs ?? "bun";
   } else if (contentPath.endsWith(".go")) {
     return "go";
   } else if (contentPath.endsWith(".my.sql")) {
@@ -46,8 +48,12 @@ export function inferContentTypeFromFilePath(
     return "bash";
   } else if (contentPath.endsWith(".ps1")) {
     return "powershell";
-  } else if (contentPath.endsWith("php")) {
+  } else if (contentPath.endsWith(".php")) {
     return "php";
+  } else if (contentPath.endsWith(".rs")) {
+    return "rust";
+  } else if (contentPath.endsWith(".playbook.yml")) {
+    return "ansible";
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))

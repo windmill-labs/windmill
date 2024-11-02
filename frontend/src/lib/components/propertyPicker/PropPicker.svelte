@@ -113,12 +113,43 @@
 						error: {
 							message: 'The error message',
 							name: 'The error name',
-							stack: 'The error stack'
+							stack: 'The error stack',
+							step_id: 'The step id'
 						}
 					}}
 					on:select
 				/>
 			</div>
+			{#if Object.keys(pickableProperties.priorIds).length > 0}
+				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
+					<span class="font-bold text-sm">Suggested Results</span>
+					<div class="overflow-y-auto mb-2">
+						<ObjectViewer
+							allowCopy={false}
+							topLevelNode
+							pureViewer={!$propPickerConfig}
+							collapsed={false}
+							json={suggestedPropsFiltered}
+							on:select={(e) => {
+								dispatch('select', `results.${e.detail}`)
+							}}
+						/>
+					</div>
+				{/if}
+				<span class="font-bold text-sm">All Results</span>
+				<div class="overflow-y-auto mb-2">
+					<ObjectViewer
+						allowCopy={false}
+						topLevelNode
+						pureViewer={!$propPickerConfig}
+						collapsed={true}
+						json={resultByIdFiltered}
+						on:select={(e) => {
+							dispatch('select', `results.${e.detail}`)
+						}}
+					/>
+				</div>
+			{/if}
 		{:else}
 			{#if previousId}
 				<span class="font-bold text-sm">Previous Result</span>

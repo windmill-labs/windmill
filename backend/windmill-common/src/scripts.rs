@@ -14,11 +14,13 @@ use std::{
 use crate::{
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
+
+use crate::worker::HUB_CACHE_DIR;
+use anyhow::Context;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
-use serde_json::to_string_pretty;
 
 use crate::utils::StripPath;
 
@@ -34,18 +36,22 @@ pub enum ScriptLang {
     Powershell,
     Postgresql,
     Bun,
+    Bunnative,
     Mysql,
     Bigquery,
     Snowflake,
     Graphql,
     Mssql,
     Php,
+    Rust,
+    Ansible,
 }
 
 impl ScriptLang {
     pub fn as_str(&self) -> &'static str {
         match self {
             ScriptLang::Bun => "bun",
+            ScriptLang::Bunnative => "bunnative",
             ScriptLang::Nativets => "nativets",
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
@@ -59,6 +65,8 @@ impl ScriptLang {
             ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
             ScriptLang::Php => "php",
+            ScriptLang::Rust => "rust",
+            ScriptLang::Ansible => "ansible",
         }
     }
 }
@@ -131,6 +139,7 @@ impl Display for ScriptKind {
 }
 
 pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
+pub const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
@@ -148,6 +157,7 @@ pub struct Script {
     pub deleted: bool,
     pub is_template: bool,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
@@ -183,6 +193,17 @@ pub struct Script {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_preprocessor: Option<bool>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ScriptWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub script: Script,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -206,6 +227,9 @@ pub struct ListableScript {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "is_false")]
     pub use_codebase: bool,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -227,13 +251,11 @@ pub struct ScriptHistoryUpdate {
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
 #[sqlx(transparent)]
 #[serde(transparent)]
-pub struct Schema(pub serde_json::Value);
+pub struct Schema(pub sqlx::types::Json<Box<serde_json::value::RawValue>>);
 
 impl Hash for Schema {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Ok(s) = to_string_pretty(&self.0) {
-            s.hash(state);
-        }
+        self.0.get().hash(state);
     }
 }
 
@@ -269,6 +291,7 @@ pub struct NewScript {
     pub visible_to_runner_only: Option<bool>,
     pub no_main_func: Option<bool>,
     pub codebase: Option<String>,
+    pub has_preprocessor: Option<bool>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -338,7 +361,9 @@ pub struct ListScriptQuery {
     pub is_template: Option<bool>,
     pub kinds: Option<String>,
     pub starred_only: Option<bool>,
-    pub hide_without_main: Option<bool>,
+    pub include_without_main: Option<bool>,
+    pub include_draft_only: Option<bool>,
+    pub with_deployment_msg: Option<bool>,
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
@@ -370,33 +395,95 @@ pub async fn get_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let content = http_get_from_hub(
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw/{}.ts", *HUB_BASE_URL.read().await, path),
+        &format!("{}/raw/{}.ts", hub_base_url, path),
         true,
         None,
-        db,
+        Some(db),
     )
     .await?
     .text()
     .await
-    .map_err(to_anyhow)?;
-    Ok(content)
+    .map_err(to_anyhow);
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            if hub_base_url != DEFAULT_HUB_BASE_URL
+                && path
+                    .split("/")
+                    .next()
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+            {
+                tracing::info!(
+                    "Not found on private hub, fallback to default hub for {}",
+                    path
+                );
+                let content = http_get_from_hub(
+                    http_client,
+                    &format!("{}/raw/{}.ts", DEFAULT_HUB_BASE_URL, path),
+                    true,
+                    None,
+                    Some(db),
+                )
+                .await?
+                .text()
+                .await
+                .map_err(to_anyhow)?;
+
+                Ok(content)
+            } else {
+                Err(e)?
+            }
+        }
+    }
 }
 
 pub async fn get_full_hub_script_by_path(
     path: StripPath,
     http_client: &reqwest::Client,
-    db: &DB,
+    db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
     let path = path
         .to_path()
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let value = http_get_from_hub(
+    let mut path_iterator = path.split("/");
+    let version = path_iterator
+        .next()
+        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
+    let cache_path = format!("{HUB_CACHE_DIR}/{version}");
+    let script;
+    if tokio::fs::metadata(&cache_path).await.is_err() {
+        script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
+        crate::worker::write_file(
+            HUB_CACHE_DIR,
+            &version,
+            &serde_json::to_string(&script).map_err(to_anyhow)?,
+        )?;
+        tracing::info!("wrote hub script {path} to cache");
+    } else {
+        let cache_content = tokio::fs::read_to_string(cache_path).await?;
+        script = serde_json::from_str(&cache_content).unwrap();
+        tracing::info!("read hub script {path} from cache");
+    }
+    Ok(script)
+}
+
+async fn get_full_hub_script_by_path_inner(
+    path: &str,
+    http_client: &reqwest::Client,
+    db: Option<&DB>,
+) -> crate::error::Result<HubScript> {
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw2/{}", *HUB_BASE_URL.read().await, path),
+        &format!("{}/raw2/{}", hub_base_url, path),
         true,
         None,
         db,
@@ -404,8 +491,39 @@ pub async fn get_full_hub_script_by_path(
     .await?
     .json::<HubScript>()
     .await
-    .map_err(to_anyhow)?;
-    Ok(value)
+    .context("Decoding hub response to script");
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            if hub_base_url != DEFAULT_HUB_BASE_URL
+                && path
+                    .split("/")
+                    .next()
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+            {
+                tracing::info!(
+                    "Not found on private hub, fallback to default hub for {}",
+                    path
+                );
+                let value = http_get_from_hub(
+                    http_client,
+                    &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                    true,
+                    None,
+                    db,
+                )
+                .await?
+                .json::<HubScript>()
+                .await
+                .context("Decoding hub response to script")?;
+
+                Ok(value)
+            } else {
+                Err(e)?
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -413,6 +531,6 @@ pub struct HubScript {
     pub content: String,
     pub lockfile: Option<String>,
     pub language: ScriptLang,
-    pub schema: serde_json::Value,
+    pub schema: Box<serde_json::value::RawValue>,
     pub summary: Option<String>,
 }

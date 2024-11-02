@@ -17,6 +17,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -25,7 +26,7 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
-	const { worldStore, connectingInput, app, selectedComponent, componentControl, mode } =
+	const { worldStore, connectingInput, app, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -88,6 +89,17 @@
 	)
 
 	let valid = true
+
+	let previousDefault = resolvedConfig.defaultValues
+
+	$: resolvedConfig.defaultValues &&
+		!deepEqual(previousDefault, resolvedConfig.defaultValues) &&
+		onDefaultChange()
+
+	function onDefaultChange() {
+		previousDefault = structuredClone(resolvedConfig.defaultValues)
+		args = previousDefault ?? {}
+	}
 </script>
 
 {#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}
@@ -114,22 +126,23 @@
 		<div
 			class={twMerge('p-2 overflow-auto h-full', css?.container?.class, 'wm-schema-form')}
 			style={css?.container?.style}
-			on:pointerdown|stopPropagation={(e) =>
-				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 		>
-			<LightweightSchemaForm
-				defaultValues={resolvedConfig.defaultValues}
-				dynamicEnums={resolvedConfig.dynamicEnums}
-				schema={result}
-				bind:isValid={valid}
-				bind:args
-				bind:this={schemaForm}
-				displayType={Boolean(resolvedConfig.displayType)}
-				largeGap={Boolean(resolvedConfig.largeGap)}
-				{css}
-				hideResourceInput={$mode === 'preview'}
-				resourceInputUnsupported={$mode === 'dnd'}
-			/>
+			<div
+				on:pointerdown|stopPropagation={(e) =>
+					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+			>
+				<LightweightSchemaForm
+					defaultValues={resolvedConfig.defaultValues}
+					dynamicEnums={resolvedConfig.dynamicEnums}
+					schema={result}
+					bind:isValid={valid}
+					bind:args
+					bind:this={schemaForm}
+					displayType={Boolean(resolvedConfig.displayType)}
+					largeGap={Boolean(resolvedConfig.largeGap)}
+					{css}
+				/>
+			</div>
 		</div>
 	{:else}
 		<p class="m-2 italic">Empty form (no property)</p>

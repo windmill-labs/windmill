@@ -4,3 +4,5 @@ oauth.json
 oauth2.json
 windmill-api/openapi-deref.yaml
 tracing.folded
+heaptrack*
+index/

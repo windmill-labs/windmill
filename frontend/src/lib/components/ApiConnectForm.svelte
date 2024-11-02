@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -32,14 +33,16 @@
 		viewJsonSchema = false
 		try {
 			schema = resourceTypeInfo.schema as any
+
+			schema.order = schema.order ?? Object.keys(schema.properties).sort()
+
 			notFound = false
 		} catch (e) {
 			notFound = true
 		}
 	}
-	$: {
-		$workspaceStore && loadSchema()
-	}
+	$: $workspaceStore && loadSchema()
+
 	$: notFound && rawCode && parseJson()
 
 	function parseJson() {
@@ -58,12 +61,17 @@
 
 	$: rawCode && parseJson()
 
+	$: textFileContent && parseTextFileContent()
+
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
 		if (asJson) {
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
+			if (resourceTypeInfo?.format_extension) {
+				textFileContent = args.content
+			}
 		}
 	}
 
@@ -99,6 +107,13 @@
 	}
 
 	let rawCodeEditor: SimpleEditor | undefined = undefined
+	let textFileContent: string
+
+	function parseTextFileContent() {
+		args = {
+			content: textFileContent
+		}
+	}
 </script>
 
 {#if !notFound}
@@ -159,7 +174,7 @@
 		{#if resourceType == 'postgresql' && supabaseWizard}
 			<a
 				target="_blank"
-				href="/api/oauth/connect/supabase_wizard"
+				href="{base}/api/oauth/connect/supabase_wizard"
 				class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
 			>
 				<SupabaseIcon height="16px" width="16px" />
@@ -177,13 +192,29 @@
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2" />{/if}
-	<SimpleEditor
-		bind:this={rawCodeEditor}
-		autoHeight
-		lang="json"
-		bind:code={rawCode}
-		fixedOverflowWidgets={false}
-	/>
+	<div class="h-full w-full border p-1 rounded">
+		<SimpleEditor
+			bind:this={rawCodeEditor}
+			autoHeight
+			lang="json"
+			bind:code={rawCode}
+			fixedOverflowWidgets={false}
+		/>
+	</div>
+{:else if resourceTypeInfo?.format_extension}
+	<h5 class="mt-4 inline-flex items-center gap-4">
+		File content ({resourceTypeInfo.format_extension})
+	</h5>
+	<div class="py-2" />
+	<div class="h-full w-full border p-1 rounded">
+		<SimpleEditor
+			bind:this={rawCodeEditor}
+			autoHeight
+			lang={resourceTypeInfo.format_extension}
+			bind:code={textFileContent}
+			fixedOverflowWidgets={false}
+		/>
+	</div>
 {:else}
 	<SchemaForm
 		onlyMaskPassword

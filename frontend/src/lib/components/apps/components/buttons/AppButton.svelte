@@ -20,7 +20,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { initCss } from '../../utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -37,6 +37,7 @@
 	export let extraKey: string | undefined = undefined
 	export let isMenuItem: boolean = false
 	export let noInitialize = false
+	export let replaceCallback: boolean = false
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -194,6 +195,7 @@
 		}
 	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
+	{replaceCallback}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
 		{#if errorsMessage}
@@ -242,7 +244,7 @@
 </RunnableWrapper>
 
 {#if resolvedConfig?.confirmationModal?.selected === 'confirmationModal'}
-	<Portal target="#app-editor-top-level-drawer">
+	<Portal name="app-button" target="#app-editor-top-level-drawer">
 		<ConfirmationModal
 			open={Boolean(confirmedCallback)}
 			title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}

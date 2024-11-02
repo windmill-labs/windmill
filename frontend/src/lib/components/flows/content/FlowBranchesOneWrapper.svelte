@@ -14,10 +14,12 @@
 	import SplitPanesWrapper from '../../splitPanes/SplitPanesWrapper.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
 
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let parentModule: FlowModule | undefined
 	export let noEditor: boolean
 	export let enableAi = false
 
@@ -47,7 +49,6 @@
 						<h3 class="my-4">
 							{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
 						</h3>
-						<p>Add branches and steps directly on the graph.</p>
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>
@@ -83,12 +84,14 @@
 								</div>
 							{/each}
 						</div>
+						<p class="text-sm">Add branches and steps directly on the graph.</p>
 					</div>
 				</Pane>
 				{#if flowModule}
 					<Pane size={40}>
 						<Tabs bind:selected>
 							<Tab value="early-stop">Early Stop/Break</Tab>
+							<Tab value="skip">Skip</Tab>
 							<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
@@ -98,6 +101,11 @@
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleEarlyStop bind:flowModule />
+										</div>
+									</TabContent>
+									<TabContent value="skip" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
 										</div>
 									</TabContent>
 									<TabContent value="suspend" class="flex flex-col flex-1 h-full">

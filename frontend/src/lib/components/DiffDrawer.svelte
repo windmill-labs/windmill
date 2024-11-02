@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import { Loader2 } from 'lucide-svelte'
-	import DiffEditor from './DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
-	import { cloneDeep } from 'lodash'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -57,7 +55,7 @@
 	}
 
 	function prepareDiff(data: Value) {
-		const metadata = cloneDeep(cleanValueProperties(data))
+		const metadata = structuredClone(cleanValueProperties(data))
 		const content = metadata['content']
 		if (metadata['content'] !== undefined) {
 			metadata['content'] = 'check content diff'
@@ -209,24 +207,34 @@
 						<div class="flex-1">
 							{#key diffType}
 								{#if contentType === 'content'}
-									<DiffEditor
-										automaticLayout
-										class="h-full"
-										defaultLang={lang}
-										defaultModifiedLang={data.current.lang}
-										defaultOriginal={content}
-										defaultModified={data.current.content}
-										readOnly
-									/>
+									{#await import('$lib/components/DiffEditor.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											open={true}
+											automaticLayout
+											class="h-full"
+											defaultLang={lang}
+											defaultModifiedLang={data.current.lang}
+											defaultOriginal={content}
+											defaultModified={data.current.content}
+											readOnly
+										/>
+									{/await}
 								{:else if contentType === 'metadata'}
-									<DiffEditor
-										automaticLayout
-										class="h-full"
-										defaultLang="yaml"
-										defaultOriginal={metadata}
-										defaultModified={data.current.metadata}
-										readOnly
-									/>
+									{#await import('$lib/components/DiffEditor.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											open={true}
+											automaticLayout
+											class="h-full"
+											defaultLang="yaml"
+											defaultOriginal={metadata}
+											defaultModified={data.current.metadata}
+											readOnly
+										/>
+									{/await}
 								{/if}
 							{/key}
 						</div>

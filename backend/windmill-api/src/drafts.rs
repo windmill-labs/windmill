@@ -38,7 +38,7 @@ pub enum DraftType {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Draft {
     pub path: String,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<serde_json::value::Value>>,
     pub typ: DraftType,
 }
 

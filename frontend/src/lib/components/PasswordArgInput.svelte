@@ -8,7 +8,7 @@
 	export let disabled: boolean
 
 	let path = ''
-	let password = ''
+	let password = value && !value.startsWith('$var:') ? value : ''
 
 	async function generateValue() {
 		let npath =
@@ -23,7 +23,8 @@
 				value: password,
 				is_secret: true,
 				path: npath,
-				description: ''
+				description: '',
+				expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString()
 			}
 		})
 		path = npath

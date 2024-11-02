@@ -2,16 +2,17 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { initCss } from '../../utils'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -20,6 +21,8 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let render: boolean
+	export let onOpenRecomputeIds: string[] | undefined = undefined
+	export let onCloseRecomputeIds: string[] | undefined = undefined
 
 	const {
 		app,
@@ -28,14 +31,17 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['drawercomponent'].initialData.configuration,
 		configuration
 	)
-	initOutput($worldStore, id, {})
+	const outputs = initOutput($worldStore, id, {
+		open: false
+	})
 
 	let appDrawer: Drawer
 
@@ -107,7 +113,7 @@
 	</AlignWrapper>
 </div>
 
-<Portal target="#app-editor-top-level-drawer">
+<Portal target="#app-editor-top-level-drawer" name="app-drawer">
 	<Drawer
 		let:open
 		bind:this={appDrawer}
@@ -115,6 +121,14 @@
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
 		shouldUsePortal={false}
+		on:open={() => {
+			outputs?.open.set(true)
+			onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+		}}
+		on:close={() => {
+			outputs?.open.set(false)
+			onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+		}}
 	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}

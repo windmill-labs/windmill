@@ -2,6 +2,8 @@ import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import circleDependency from 'vite-plugin-circular-dependency'
+// import mkcert from 'vite-plugin-mkcert'
+import importMetaUrlPlugin from '@windmill-labs/esbuild-import-meta-url-plugin'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
@@ -10,6 +12,7 @@ const version = JSON.parse(json)
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
+		https: false,
 		port: 3000,
 		proxy: {
 			'^/api/.*': {
@@ -37,13 +40,23 @@ const config = {
 		__pkg__: version
 	},
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core']
+		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
+		exclude: [
+			'@codingame/monaco-vscode-standalone-typescript-language-features',
+			'@codingame/monaco-vscode-standalone-languages',
+			'monaco-graphql'
+		],
+		esbuildOptions: {
+			plugins: [importMetaUrlPlugin]
+		}
 	},
 	resolve: {
 		alias: {
-			path: 'path-browserify'
+			path: 'path-browserify',
+			'vscode/vscode/vs/editor/contrib/hover/browser/hover':
+				'vscode/vscode/vs/editor/contrib/hover/browser/hoverController'
 		},
-		dedupe: ['monaco-editor', 'vscode']
+		dedupe: ['vscode', 'monaco-editor']
 	},
 	assetsInclude: ['**/*.wasm']
 }

@@ -150,7 +150,7 @@
 						</tr>
 					{/if}
 
-					{#each folders as { name, extra_perms, owners, canWrite } (name)}
+					{#each folders as { name, extra_perms, owners, canWrite, summary } (name)}
 						<Row
 							hoverable
 							on:click={() => {
@@ -160,6 +160,10 @@
 						>
 							<Cell first>
 								<span class="text-blue-500">{name}</span>
+								{#if summary}
+									<br />
+									<span class="text-gray-500">{summary}</span>
+								{/if}
 							</Cell>
 							<FolderUsageInfo {name} tabular />
 

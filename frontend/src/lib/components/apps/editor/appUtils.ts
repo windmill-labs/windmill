@@ -1,6 +1,7 @@
 import type {
 	App,
 	BaseAppComponent,
+	ComponentCustomCSS,
 	ConnectingInput,
 	EditorBreakpoint,
 	FocusedGrid,
@@ -19,8 +20,7 @@ import {
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
-import gridHelp from '../svelte-grid/utils/helper'
-import type { FilledItem } from '../svelte-grid/types'
+import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
 	StaticAppInput,
 	EvalAppInput,
@@ -34,6 +34,7 @@ import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 import { enterpriseLicense } from '$lib/stores'
+import gridHelp from '../svelte-grid/utils/helper'
 
 export function findComponentSettings(app: App, id: string | undefined) {
 	if (!id) return undefined
@@ -241,12 +242,16 @@ export function createNewGridItem(
 	grid: GridItem[],
 	id: string,
 	data: AppComponent,
-	columns?: Record<number, any>
+	columns?: Record<number, any>,
+	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
+	recOverride?: Record<number, Size>,
+	fixed?: boolean,
+	shouldNotFindSpace?: boolean
 ): GridItem {
 	const newComponent = {
-		fixed: false,
-		x: 0,
-		y: 0,
+		fixed: fixed ?? false,
+		x: initialPosition.x,
+		y: initialPosition.y,
 		fullHeight: false
 	}
 
@@ -260,7 +265,7 @@ export function createNewGridItem(
 
 	gridColumns.forEach((column) => {
 		if (!columns) {
-			const rec = getRecommendedDimensionsByComponent(newData.type, column)
+			const rec = recOverride?.[column] ?? getRecommendedDimensionsByComponent(newData.type, column)
 
 			newItem[column] = {
 				...newComponent,
@@ -268,10 +273,28 @@ export function createNewGridItem(
 				h: rec.h
 			}
 		} else {
-			newItem[column] = columns[column]
+			newItem[column] = {
+				...columns[column],
+				x: initialPosition.x,
+				y: initialPosition.y
+			}
 		}
-		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
-		newItem[column] = { ...newItem[column], ...position }
+
+		let shouldComputePosition: boolean = false
+
+		// Fallback to avoid component disapearing
+		if (initialPosition.x === undefined || initialPosition.y === undefined) {
+			newItem[column].x = 0
+			newItem[column].y = 0
+			shouldComputePosition = true
+		}
+
+		// Either the final position is controlled using initialPosition or the position is computed because the component positions are wrong
+		if (!shouldNotFindSpace || shouldComputePosition) {
+			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+
+			newItem[column] = { ...newItem[column], ...position }
+		}
 	})
 
 	return newItem
@@ -325,7 +348,13 @@ export function cleanseOneOfConfiguration(
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T,
 	overrideConfiguration?: Partial<InitialAppComponent['configuration']>,
-	extra?: any
+	extra?: any,
+	override?: {
+		customCss?: ComponentCustomCSS<T>
+		verticalAlignment?: 'top' | 'center' | 'bottom'
+		horizontalAlignment?: 'left' | 'center' | 'right'
+		componnetInput?: Partial<InitialAppComponent['componentInput']>
+	}
 ): (id: string) => BaseAppComponent & BaseComponent<T> {
 	return (id: string) => {
 		const init = JSON.parse(JSON.stringify(ccomponents[type].initialData)) as InitialAppComponent
@@ -351,19 +380,22 @@ export function appComponentFromType<T extends keyof typeof components>(
 			type,
 			//TODO remove tooltip from there
 			configuration: deepMergeWithPriority(configuration, overrideConfiguration ?? {}),
-			componentInput: init.componentInput,
+			componentInput: override?.componnetInput ?? init.componentInput,
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
 			nodes: init.nodes,
-			customCss: ccomponents[type].customCss as any,
+			customCss: deepMergeWithPriority(
+				ccomponents[type].customCss as any,
+				override?.customCss ?? {}
+			),
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
 			actions: [],
 			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
-			horizontalAlignment: init.horizontalAlignment,
-			verticalAlignment: init.verticalAlignment,
+			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,
+			verticalAlignment: override?.verticalAlignment ?? init.verticalAlignment,
 			id,
 			...(extra ?? {})
 		}
@@ -374,7 +406,12 @@ export function insertNewGridItem(
 	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
 	columns?: Record<string, any>,
-	keepId?: string
+	keepId?: string,
+	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
+	recOverride?: Record<number, Size>,
+	keepSubgrids?: boolean,
+	fixed?: boolean,
+	shouldNotFindSpace?: boolean
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
 
@@ -389,7 +426,7 @@ export function insertNewGridItem(
 	}
 
 	// We only want to set subgrids when we are not moving
-	if (!keepId) {
+	if (!keepId || keepSubgrids) {
 		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
 			app.subgrids[`${id}-${i}`] = []
 		}
@@ -421,7 +458,16 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data, columns)
+	const newItem = createNewGridItem(
+		grid,
+		id,
+		data,
+		columns,
+		initialPosition,
+		recOverride,
+		fixed,
+		shouldNotFindSpace
+	)
 	grid.push(newItem)
 	return id
 }
@@ -918,7 +964,7 @@ export function recursivelyFilterKeyInJSON(
 	return filteredJSON
 }
 
-export function collectOneOfFields(fields: AppInputs, app: App) {
+export function collectOneOfFields(fields: AppInputs, app: App): Record<string, any[]> {
 	return Object.fromEntries(
 		Object.entries(fields ?? {})
 			.filter(([k, v]) => v.type == 'evalv2')
@@ -941,10 +987,13 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 						if (
 							c.type === 'resourceselectcomponent' ||
 							c.type === 'selectcomponent' ||
-							c.type === 'multiselectcomponent'
+							c.type === 'multiselectcomponent' ||
+							c.type === 'multiselectcomponentv2'
 						) {
 							if (
-								(c.type === 'selectcomponent' || c.type === 'multiselectcomponent') &&
+								(c.type === 'selectcomponent' ||
+									c.type === 'multiselectcomponent' ||
+									c.type === 'multiselectcomponentv2') &&
 								c.configuration?.create?.type === 'static' &&
 								c.configuration?.create?.value === true
 							) {
@@ -953,7 +1002,7 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 							if (c.configuration?.items?.type === 'static') {
 								const items = c.configuration.items.value
 								if (items && Array.isArray(items)) {
-									if (c.type === 'multiselectcomponent') {
+									if (c.type === 'multiselectcomponent' || c.type === 'multiselectcomponentv2') {
 										return [k, items]
 									} else {
 										const options = items
@@ -972,6 +1021,7 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 
 				return [k, undefined]
 			})
+			.filter(([k, v]) => v !== undefined)
 	)
 }
 
@@ -999,4 +1049,234 @@ export function maxHeight(
 	}, 0)
 
 	return Math.max(maxRowPerGrid, maxRows)
+}
+
+export function isTableAction(id: string, app: App): boolean {
+	const [tableId, actionId] = id.split('_')
+
+	if (!tableId || !actionId) {
+		return false
+	}
+
+	const table = findGridItem(app, tableId)
+	if (
+		!table ||
+		(table.data.type !== 'tablecomponent' &&
+			table.data.type !== 'aggridcomponent' &&
+			table.data.type !== 'aggridcomponentee' &&
+			table.data.type !== 'dbexplorercomponent' &&
+			table.data.type !== 'aggridinfinitecomponent' &&
+			table.data.type !== 'aggridinfinitecomponentee')
+	) {
+		return false
+	}
+	return true
+}
+
+export function setUpTopBarComponentContent(id: string, app: App) {
+	insertNewGridItem(
+		app,
+		appComponentFromType(
+			'textcomponent',
+
+			{
+				disableNoText: {
+					value: true,
+					type: 'static',
+					fieldType: 'boolean'
+				},
+				tooltip: {
+					type: 'evalv2',
+
+					fieldType: 'text',
+					expr: '`Author: ${ctx.author}`',
+					connections: [
+						{
+							componentId: 'ctx',
+							id: 'author'
+						}
+					]
+				}
+			},
+			undefined,
+			{
+				customCss: {
+					text: {
+						class: 'text-xl font-semibold whitespace-nowrap truncate' as any,
+						style: ''
+					}
+				},
+				verticalAlignment: 'center',
+				componnetInput: {
+					type: 'templatev2',
+					fieldType: 'template',
+					eval: '${ctx.summary}',
+					connections: [
+						{
+							id: 'summary',
+							componentId: 'ctx'
+						}
+					] as InputConnectionEval[]
+				}
+			}
+		) as (id: string) => AppComponent,
+		{
+			parentComponentId: id,
+			subGridIndex: 0
+		},
+		undefined,
+		'title',
+		undefined,
+		{
+			3: {
+				w: 6,
+				h: 1
+			},
+			12: {
+				w: 6,
+				h: 1
+			}
+		}
+	)
+
+	insertNewGridItem(
+		app,
+		appComponentFromType('recomputeallcomponent', undefined, undefined, {
+			horizontalAlignment: 'right'
+		}) as (id: string) => AppComponent,
+		{
+			parentComponentId: id,
+			subGridIndex: 0
+		},
+		undefined,
+		'recomputeall',
+		undefined,
+		{
+			3: {
+				w: 3,
+				h: 1
+			},
+			12: {
+				w: 6,
+				h: 1
+			}
+		}
+	)
+}
+
+export function isContainer(type: string): boolean {
+	return (
+		type === 'containercomponent' ||
+		type === 'tabscomponent' ||
+		type === 'verticalsplitpanescomponent' ||
+		type === 'horizontalsplitpanescomponent' ||
+		type === 'steppercomponent' ||
+		type === 'listcomponent' ||
+		type === 'decisiontreecomponent'
+	)
+}
+
+export function subGridIndexKey(type: string | undefined, id: string, world: World): number {
+	switch (type) {
+		case 'containercomponent':
+		case 'verticalsplitpanescomponent':
+		case 'horizontalsplitpanescomponent':
+		case 'listcomponent':
+			return 0
+		case 'tabscomponent': {
+			return (world?.outputsById?.[id]?.selectedTabIndex?.peak() as number) ?? 0
+		}
+		case 'steppercomponent': {
+			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'decisiontreecomponent': {
+			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0
+		}
+	}
+
+	return 0
+}
+
+export function computePosition(
+	clientX: number,
+	clientY: number,
+	xPerPx: number,
+	yPerPx: number,
+	overlapped?: string,
+	element?: HTMLElement
+) {
+	const overlappedElement = overlapped
+		? document.getElementById(`component-${overlapped}`)
+		: document.getElementById('root-grid')
+
+	const xRelativeToElement = element ? clientX - element.getBoundingClientRect().left : 0
+	const yRelativeToElement = element ? clientY - element.getBoundingClientRect().top : 0
+
+	const xRelativeToOverlappedElement = overlappedElement
+		? clientX - overlappedElement.getBoundingClientRect().left - xRelativeToElement
+		: 0
+	const yRelativeToOverlappedElement = overlappedElement
+		? clientY - overlappedElement.getBoundingClientRect().top - yRelativeToElement
+		: 0
+
+	const gridX = Math.max(Math.round(xRelativeToOverlappedElement / xPerPx) ?? 0, 0)
+	const gridY = Math.max(Math.round(yRelativeToOverlappedElement / yPerPx) ?? 0, 0)
+
+	return {
+		x: gridX,
+		y: gridY
+	}
+}
+
+export function getDeltaYByComponent(type: string) {
+	switch (type) {
+		case 'steppercomponent': {
+			return '36px + 0.5rem'
+		}
+		case 'tabscomponent': {
+			return '32px'
+		}
+		default:
+			return '0px'
+	}
+}
+
+export function getDeltaXByComponent(type: string) {
+	switch (type) {
+		case 'steppercomponent': {
+			return '0.5rem'
+		}
+		case 'tabscomponent': {
+			return '0px'
+		}
+		default:
+			return '0px'
+	}
+}
+
+export type GridShadow = {
+	x: number
+	y: number
+	xPerPx: number
+	yPerPx: number
+	w: number
+	h: number
+}
+
+export function areShadowsTheSame(
+	shadow1: GridShadow | undefined,
+	shadow2: GridShadow | undefined
+) {
+	if (!shadow1 || !shadow2) {
+		return false
+	}
+
+	return (
+		shadow1.x === shadow2.x &&
+		shadow1.y === shadow2.y &&
+		shadow1.xPerPx === shadow2.xPerPx &&
+		shadow1.yPerPx === shadow2.yPerPx &&
+		shadow1.w === shadow2.w &&
+		shadow1.h === shadow2.h
+	)
 }

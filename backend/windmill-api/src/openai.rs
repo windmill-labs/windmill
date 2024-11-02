@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    db::{ApiAuthed, DB},
-    HTTP_CLIENT,
-};
+use crate::db::{ApiAuthed, DB};
 
 use axum::{
     body::Bytes,
@@ -13,6 +10,7 @@ use axum::{
     Router,
 };
 use quick_cache::sync::Cache;
+use reqwest::Client;
 use serde_json::value::RawValue;
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
@@ -23,6 +21,13 @@ use windmill_common::{
 
 use crate::variables::decrypt;
 use serde::Deserialize;
+
+lazy_static::lazy_static! {
+    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .timeout(std::time::Duration::from_secs(60 * 5))
+        .user_agent("windmill/beta")
+        .build().unwrap();
+}
 
 pub fn workspaced_service() -> Router {
     let router = Router::new().route("/proxy/*openai_path", post(proxy));
@@ -60,7 +65,6 @@ async fn get_variable_or_self(path: String, db: &DB, w_id: &String) -> Result<St
         return Ok(path);
     }
     let path = path.strip_prefix("$var:").unwrap().to_string();
-    let mut tx = db.begin().await?;
     let mut variable = sqlx::query_as!(
         Variable,
         "SELECT value, is_secret
@@ -69,13 +73,12 @@ async fn get_variable_or_self(path: String, db: &DB, w_id: &String) -> Result<St
         &path,
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(db)
     .await?;
     if variable.is_secret {
-        let mc = build_crypt(&mut tx, &w_id).await?;
+        let mc = build_crypt(&db, &w_id).await?;
         variable.value = decrypt(&mc, variable.value)?;
     }
-    tx.commit().await?;
     Ok(variable.value)
 }
 
@@ -198,7 +201,7 @@ async fn proxy(
         }
 
         let config: OpenaiConfig = serde_json::from_value(resource.unwrap())
-            .map_err(|e| Error::InternalErr(format!("validating openai resource {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("validating openai resource {e:#}")))?;
 
         let mut user = None::<String>;
         let mut resource = match config {
@@ -238,7 +241,7 @@ async fn proxy(
         let azure_base_path = if let Some(azure_base_path) = azure_base_path {
             Some(
                 serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                    Error::InternalErr(format!("validating openai azure base path {e}"))
+                    Error::InternalErr(format!("validating openai azure base path {e:#}"))
                 })?,
             )
         } else {
@@ -317,7 +320,7 @@ async fn proxy(
     let mut tx = db.begin().await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "openai.request",
         ActionKind::Execute,
         &w_id,

@@ -12,12 +12,12 @@
 	import { initCss } from '../../utils'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { AlignWrapper } from '../helpers'
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { AppButton } from '../buttons'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -103,12 +103,12 @@
 					btnClasses={twMerge(
 						css?.button?.class,
 						'wm-button',
-						'wm-download-button',
+						'wm-menu-button',
 						resolvedConfig.fillContainer ? 'w-full h-full' : ''
 					)}
 					wrapperClasses={twMerge(
 						'wm-button-container',
-						'wm-download-button-container',
+						'wm-menu-button-container',
 						resolvedConfig.fillContainer ? 'w-full h-full' : ''
 					)}
 					style={css?.button?.style}

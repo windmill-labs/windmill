@@ -1,5 +1,5 @@
-use windmill_api_client::types::{NewScript, NewScriptLanguage};
 use std::str::FromStr;
+use windmill_api_client::types::{NewScript, NewScriptLanguage};
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -8,32 +8,28 @@ use futures::StreamExt;
 use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::types::Json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
 
 #[cfg(feature = "enterprise")]
 use tokio::time::{timeout, Duration};
 
-use windmill_api_client::types::{
-    CreateFlowBody, RawScript
-};
+use windmill_api_client::types::{CreateFlowBody, RawScript};
 
 use sqlx::query;
 
 #[cfg(feature = "enterprise")]
 use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
-
-use windmill_common::worker::{WORKER_CONFIG, PriorityTags};
+use serde::Serialize;
+use windmill_common::auth::JWT_SECRET;
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
-    jobs::{JobPayload, RawCode, JobKind},
-    scripts::{ScriptLang, ScriptHash}
+    jobs::{JobKind, JobPayload, RawCode},
+    scripts::{ScriptHash, ScriptLang},
 };
 use windmill_queue::PushIsolationLevel;
-use serde::Serialize;
-
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
 pub struct CompletedJob {
@@ -67,7 +63,6 @@ pub struct CompletedJob {
     pub script_hash: Option<ScriptHash>,
     pub language: Option<ScriptLang>,
     pub job_kind: JobKind,
-
 }
 
 impl CompletedJob {
@@ -80,7 +75,9 @@ async fn initialize_tracing() {
     use std::sync::Once;
 
     static ONCE: Once = Once::new();
-    ONCE.call_once(windmill_common::tracing_init::initialize_tracing);
+    ONCE.call_once(|| {
+        let _ = windmill_common::tracing_init::initialize_tracing("test");
+    });
 }
 
 /// it's important this is unique between tests as there is one prometheus registry and
@@ -127,10 +124,13 @@ impl ApiServer {
         let task = tokio::task::spawn(windmill_api::run_server(
             db.clone(),
             None,
+            None,
+            None,
             addr,
             rx,
             port_tx,
             false,
+            format!("http://localhost:{}", addr.port()),
         ));
 
         _port_rx.await.unwrap();
@@ -167,6 +167,12 @@ fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
 
 fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
     modules.into_iter().find(|s| s.id() == id)
+}
+
+async fn set_jwt_secret() -> () {
+    let secret = "mytestsecret".to_string();
+    let mut l = JWT_SECRET.write().await;
+    *l = secret;
 }
 
 mod suspend_resume {
@@ -273,11 +279,12 @@ mod suspend_resume {
         let server = ApiServer::start(db.clone()).await;
         let port = server.addr.port();
 
-        let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None, restarted_from: None })
-            .arg("n", json!(1))
-            .arg("port", json!(port))
-            .push(&db)
-            .await;
+        let flow =
+            RunJob::from(JobPayload::RawFlow { value: flow(), path: None, restarted_from: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
+                .await;
 
         let mut completed = listen_for_completed_jobs(&db).await;
         let queue = listen_for_queue(&db).await;
@@ -354,19 +361,20 @@ mod suspend_resume {
         let server = ApiServer::start(db.clone()).await;
         let port = server.addr.port();
 
-        let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None, restarted_from: None })
-            .arg("n", json!(1))
-            .arg("op", json!("cancel"))
-            .arg("port", json!(port))
-            .run_until_complete(&db, port)
-            .await
-            .json_result()
-            .unwrap();
+        let result =
+            RunJob::from(JobPayload::RawFlow { value: flow(), path: None, restarted_from: None })
+                .arg("n", json!(1))
+                .arg("op", json!("cancel"))
+                .arg("port", json!(port))
+                .run_until_complete(&db, port)
+                .await
+                .json_result()
+                .unwrap();
 
         server.close().await.unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by Some(\"ruben\")"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ruben"}}),
             result
         );
     }
@@ -378,11 +386,12 @@ mod suspend_resume {
         let server = ApiServer::start(db.clone()).await;
         let port = server.addr.port();
 
-        let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None, restarted_from: None })
-            .arg("n", json!(1))
-            .arg("port", json!(port))
-            .push(&db)
-            .await;
+        let flow =
+            RunJob::from(JobPayload::RawFlow { value: flow(), path: None, restarted_from: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
+                .await;
 
         let mut completed = listen_for_completed_jobs(&db).await;
         let queue = listen_for_queue(&db).await;
@@ -426,7 +435,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.json_result().unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by None"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by unknown"}}),
             result
         );
     }
@@ -572,13 +581,17 @@ def main(last, port):
         .into_iter()
         .unzip::<_, _, Vec<_>, Vec<_>>();
         let server = Server::start(responses).await;
-        let result = RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None, restarted_from: None })
-            .arg("items", json!(["unused", "unused", "unused"]))
-            .arg("port", json!(server.addr.port()))
-            .run_until_complete(&db, server.addr.port())
-            .await
-            .json_result()
-            .unwrap();
+        let result = RunJob::from(JobPayload::RawFlow {
+            value: flow_forloop_retry(),
+            path: None,
+            restarted_from: None,
+        })
+        .arg("items", json!(["unused", "unused", "unused"]))
+        .arg("port", json!(server.addr.port()))
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
 
         assert_eq!(server.close().await, attempts);
         assert_eq!(json!([3, 5, 7, 9]), result);
@@ -601,13 +614,17 @@ def main(last, port):
         .into_iter()
         .unzip::<_, _, Vec<_>, Vec<_>>();
         let server = Server::start(responses).await;
-        let result = RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None, restarted_from: None })
-            .arg("items", json!(["unused", "unused", "unused"]))
-            .arg("port", json!(server.addr.port()))
-            .run_until_complete(&db, server.addr.port())
-            .await
-            .json_result()
-            .unwrap();
+        let result = RunJob::from(JobPayload::RawFlow {
+            value: flow_forloop_retry(),
+            path: None,
+            restarted_from: None,
+        })
+        .arg("items", json!(["unused", "unused", "unused"]))
+        .arg("port", json!(server.addr.port()))
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
 
         assert_eq!(server.close().await, attempts);
 
@@ -642,11 +659,15 @@ def main(last, port):
         .into_iter()
         .unzip::<_, _, Vec<_>, Vec<_>>();
         let server = Server::start(responses).await;
-        let job = RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None, restarted_from: None })
-            .arg("items", json!(["unused", "unused", "unused"]))
-            .arg("port", json!(server.addr.port()))
-            .run_until_complete(&db, server.addr.port())
-            .await;
+        let job = RunJob::from(JobPayload::RawFlow {
+            value: flow_forloop_retry(),
+            path: None,
+            restarted_from: None,
+        })
+        .arg("items", json!(["unused", "unused", "unused"]))
+        .arg("port", json!(server.addr.port()))
+        .run_until_complete(&db, server.addr.port())
+        .await;
 
         let result = job.json_result().unwrap();
         assert_eq!(server.close().await, attempts);
@@ -766,21 +787,23 @@ async fn test_iteration(db: Pool<Postgres>) {
     }))
     .unwrap();
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("items", json!([]))
-        .run_until_complete(&db, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("items", json!([]))
+            .run_until_complete(&db, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
     assert_eq!(result, serde_json::json!([]));
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("items", json!((0..257).collect::<Vec<_>>()))
-        .run_until_complete(&db, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("items", json!((0..257).collect::<Vec<_>>()))
+            .run_until_complete(&db, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
     assert!(matches!(result, serde_json::Value::Array(_)));
     assert!(result[2]["error"]
         .as_object()
@@ -823,19 +846,21 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
     }))
     .unwrap();
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("items", json!([]))
-        .run_until_complete(&db, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("items", json!([]))
+            .run_until_complete(&db, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
     assert_eq!(result, serde_json::json!([]));
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
-    let job = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("items", json!((0..50).collect::<Vec<_>>()))
-        .run_until_complete(&db, server.addr.port())
-        .await;
+    let job =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("items", json!((0..50).collect::<Vec<_>>()))
+            .run_until_complete(&db, server.addr.port())
+            .await;
     // println!("{:#?}", job);
     let result = job.json_result().unwrap();
     assert!(matches!(result, serde_json::Value::Array(_)));
@@ -868,13 +893,18 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
+        let mut hm_args = std::collections::HashMap::new();
+        for (k, v) in args {
+            hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
+        }
+
         let tx = PushIsolationLevel::IsolatedRoot(db.clone(), None);
-        let (uuid, tx) = windmill_queue::push::<_, rsmq_async::MultiplexedRsmq>(
+        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
             &db,
             tx,
             "test-workspace",
             payload,
-            Json(args),
+            windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
@@ -887,6 +917,7 @@ impl RunJob {
             /* running */ false,
             None,
             true,
+            None,
             None,
             None,
             None,
@@ -925,6 +956,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     inner: Fut,
     port: u16,
 ) -> <Fut as std::future::Future>::Output {
+    set_jwt_secret().await;
     let (quit, worker) = spawn_test_worker(db, port);
     let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
     tokio::pin!(worker);
@@ -956,7 +988,10 @@ fn spawn_test_worker(
     tokio::sync::broadcast::Sender<()>,
     tokio::task::JoinHandle<()>,
 ) {
-    for x in [windmill_worker::LOCK_CACHE_DIR, windmill_worker::GO_BIN_CACHE_DIR] {
+    for x in [
+        windmill_worker::LOCK_CACHE_DIR,
+        windmill_worker::GO_BIN_CACHE_DIR,
+    ] {
         std::fs::DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -973,9 +1008,14 @@ fn spawn_test_worker(
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
         {
-        let mut wc = WORKER_CONFIG.write().await;
-        (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-        (*wc).priority_tags_sorted = vec![PriorityTags { priority: 0, tags: (*wc).worker_tags.clone()} ]
+            let mut wc = WORKER_CONFIG.write().await;
+            (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
+                priority: 0,
+                tags: (*wc).worker_tags.clone(),
+            }];
+            windmill_common::worker::make_suspended_pull_query(&wc).await;
+            windmill_common::worker::make_pull_query(&wc).await;
         }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
@@ -1025,11 +1065,13 @@ async fn listen_for_uuid_on(
 }
 
 async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
-
-    sqlx::query_as::<_, CompletedJob>("SELECT *, result->'wm_labels' as labels FROM completed_job  WHERE id = $1").bind(uuid)
-        .fetch_one(db)
-        .await
-        .unwrap()
+    sqlx::query_as::<_, CompletedJob>(
+        "SELECT *, result->'wm_labels' as labels FROM completed_job  WHERE id = $1",
+    )
+    .bind(uuid)
+    .fetch_one(db)
+    .await
+    .unwrap()
 }
 
 #[axum::async_trait(?Send)]
@@ -1067,10 +1109,13 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                         tag: None,
+                        custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
-                    },
+                    }
+                    .into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1081,6 +1126,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1104,10 +1150,13 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 path: None,
                                 lock: None,
                                 tag: None,
+                                custom_concurrency_key: None,
                                 concurrent_limit: None,
                                 concurrency_time_window_s: None,
-                            },
+                            }
+                            .into(),
                             stop_after_if: Default::default(),
+                            stop_after_all_iters_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
                             retry: None,
@@ -1118,9 +1167,12 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             priority: None,
                             delete_after_use: None,
                             continue_on_error: None,
+                            skip_if: None,
                         }],
-                    },
+                    }
+                    .into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1131,6 +1183,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
             ],
             same_worker: false,
@@ -1178,11 +1231,12 @@ async fn test_identity(db: Pool<Postgres>) {
     }))
     .unwrap();
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .run_until_complete(&db, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .run_until_complete(&db, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
     assert_eq!(result, serde_json::json!(42));
 }
 
@@ -1205,12 +1259,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         input_transforms: [
                             (
                                 "loop".to_string(),
-                                InputTransform::Static { value: json!(false) },
+                                InputTransform::Static { value: windmill_common::worker::to_raw_value(&false) },
                             ),
-                            ("i".to_string(), InputTransform::Static { value: json!(1) }),
+                            ("i".to_string(), InputTransform::Static { value: windmill_common::worker::to_raw_value(&1) }),
                             (
                                 "path".to_string(),
-                                InputTransform::Static { value: json!("outer.txt") },
+                                InputTransform::Static { value: windmill_common::worker::to_raw_value(&"outer.txt") },
                             ),
                         ]
                         .into(),
@@ -1219,10 +1273,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                         tag: None,
+                        custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
-                    },
+                    }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1233,11 +1289,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
                     value: FlowModuleValue::ForloopFlow {
-                        iterator: InputTransform::Static { value: json!([1, 2, 3]) },
+                        iterator: InputTransform::Static { value: windmill_common::worker::to_raw_value(&[1, 2, 3]) },
                         skip_failures: false,
                         parallel: false,
                         parallelism: None,
@@ -1254,11 +1311,11 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                         ),
                                         (
                                             "loop".to_string(),
-                                            InputTransform::Static { value: json!(true) },
+                                            InputTransform::Static { value: windmill_common::worker::to_raw_value(&true) },
                                         ),
                                         (
                                             "path".to_string(),
-                                            InputTransform::Static { value: json!("inner.txt") },
+                                            InputTransform::Static { value: windmill_common::worker::to_raw_value(&"inner.txt") },
                                         ),
                                     ]
                                     .into(),
@@ -1267,10 +1324,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     path: None,
                                     lock: None,
                                     tag: None,
+                                    custom_concurrency_key: None,
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
-                                },
+                                }.into(),
                                 stop_after_if: Default::default(),
+                                stop_after_all_iters_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
@@ -1281,16 +1340,17 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 priority: None,
                                 delete_after_use: None,
                                 continue_on_error: None,
+                                skip_if: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
                                 value: FlowModuleValue::RawScript {
                                     input_transforms: [(
                                         "path".to_string(),
-                                        InputTransform::Static { value: json!("inner.txt") },
+                                        InputTransform::Static { value: windmill_common::worker::to_raw_value(&"inner.txt") },
                                     ), (
                                         "path2".to_string(),
-                                        InputTransform::Static { value: json!("outer.txt") },
+                                        InputTransform::Static { value: windmill_common::worker::to_raw_value(&"outer.txt") },
                                     )]
                                     .into(),
                                     language: ScriptLang::Deno,
@@ -1301,10 +1361,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     path: None,
                                     lock: None,
                                     tag: None,
+                                    custom_concurrency_key: None,
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
-                                },
+                                }.into(),
                                 stop_after_if: Default::default(),
+                                stop_after_all_iters_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
@@ -1315,11 +1377,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 priority: None,
                                 delete_after_use: None,
                                 continue_on_error: None,
-
+                                skip_if: None,
                             },
                         ],
-                    },
+                    }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1330,6 +1393,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1341,11 +1405,11 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                             ),
                             (
                                 "path".to_string(),
-                                InputTransform::Static { value: json!("outer.txt") },
+                                InputTransform::Static { value: windmill_common::worker::to_raw_value(&"outer.txt") },
                             ),
                             (
                                 "path2".to_string(),
-                                InputTransform::Static { value: json!("inner.txt") },
+                                InputTransform::Static { value: windmill_common::worker::to_raw_value(&"inner.txt") },
                             ),
                         ]
                         .into(),
@@ -1357,10 +1421,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                         tag: None,
+                        custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
-                    },
+                    }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1371,6 +1437,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
             ],
             same_worker: true,
@@ -1668,10 +1735,11 @@ func main(derp string) (string, error) {
         path: None,
         lock: None,
         language: ScriptLang::Go,
+        custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
         cache_ttl: None,
-        dedicated_worker: None
+        dedicated_worker: None,
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, port)
@@ -1680,6 +1748,41 @@ func main(derp string) (string, error) {
     .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_rust_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+fn main(world: String) -> Result<String, String> {
+    println!("Which world to greet today?");
+    Ok(format!("Hello {}!", world))
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rust,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("world", json!("Hyrule"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("Hello Hyrule!"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1700,10 +1803,11 @@ echo "hello $msg"
         path: None,
         lock: None,
         language: ScriptLang::Bash,
+        custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
         cache_ttl: None,
-        dedicated_worker: None
+        dedicated_worker: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
@@ -1729,10 +1833,11 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
         cache_ttl: None,
-        dedicated_worker: None
+        dedicated_worker: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1764,10 +1869,11 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
         cache_ttl: None,
-        dedicated_worker: None
+        dedicated_worker: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1798,10 +1904,11 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
         cache_ttl: None,
-        dedicated_worker: None
+        dedicated_worker: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1810,6 +1917,109 @@ def main():
         .unwrap();
 
     assert_eq!(result, serde_json::json!("test-workspace"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_datetime(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(a: Date) {
+    return typeof a;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bun,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("object"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_deno_job_datetime(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+export async function main(a: Date) {
+    return typeof a;
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Deno,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("object"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_python_job_datetime_and_bytes(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+from datetime import datetime
+def main(a: datetime, b: bytes):
+    return (isinstance(a, datetime), isinstance(b, bytes))
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Python3,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("2024-09-24T10:00:00.000Z"))
+    .arg("b", json!("dGVzdA=="))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!([true, true]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1901,9 +2111,8 @@ async fn test_invalid_first_step(db: Pool<Postgres>) {
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
     let job = run_job_in_new_worker_until_complete(&db, flow, port).await;
 
-    assert_eq!(
-        job.json_result().unwrap(),
-        serde_json::json!( {"error":  {"name": "InternalErr", "message": "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}})
+    assert!(
+        serde_json::to_string(&job.json_result().unwrap()).unwrap().contains("Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0")
     );
 }
 
@@ -2443,12 +2652,13 @@ async fn test_failure_module(db: Pool<Postgres>) {
         }))
         .unwrap();
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("n", json!(0))
-        .run_until_complete(&db, port)
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("n", json!(0))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
 
     assert!(result["from failure module"]["error"]
         .as_object()
@@ -2459,12 +2669,13 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .unwrap()
         .contains("[]"));
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("n", json!(1))
-        .run_until_complete(&db, port)
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("n", json!(1))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
 
     assert!(result["from failure module"]["error"]
         .as_object()
@@ -2475,12 +2686,13 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .unwrap()
         .contains("[0]"));
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("n", json!(2))
-        .run_until_complete(&db, port)
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("n", json!(2))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
 
     assert!(result["from failure module"]["error"]
         .as_object()
@@ -2491,12 +2703,13 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .unwrap()
         .contains("[0,1]"));
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-        .arg("n", json!(3))
-        .run_until_complete(&db, port)
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .arg("n", json!(3))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
 }
 
@@ -2532,7 +2745,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return \"Hello\"\n}\n",
+                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return wmill\n}\n",
                         "language": "deno",
                         "input_transforms": {}
                     },
@@ -2609,7 +2822,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     in_test_worker(&db, listen_first_job, port).await;
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all")
+        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
         .await
         .unwrap()
         .into_inner()
@@ -2631,7 +2844,8 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
-                }) if lock.len() > 0)
+                }) if lock.len() > 0),
+            "{:?}", m.value
             );
         });
 }
@@ -2805,11 +3019,10 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) {
     }))
     .unwrap();
 
-    let first_run_result = RunJob::from(JobPayload::RawFlow { 
-        value: flow.clone(), 
-        path: None, 
-        restarted_from: None 
-    }).run_until_complete(&db, port).await;
+    let first_run_result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .run_until_complete(&db, port)
+            .await;
 
     let restarted_flow_result = RunJob::from(JobPayload::RawFlow {
         value: flow.clone(),
@@ -2819,10 +3032,16 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) {
             step_id: "h".to_owned(),
             branch_or_iteration_n: None,
         }),
-    }).run_until_complete(&db, port).await;
+    })
+    .run_until_complete(&db, port)
+    .await;
 
-    let first_run_result_int = serde_json::from_value::<i32>(first_run_result.json_result().unwrap()).expect("first_run_result was not an int");
-    let restarted_flow_result_int = serde_json::from_value::<i32>(restarted_flow_result.json_result().unwrap()).expect("restarted_flow_result was not an int");
+    let first_run_result_int =
+        serde_json::from_value::<i32>(first_run_result.json_result().unwrap())
+            .expect("first_run_result was not an int");
+    let restarted_flow_result_int =
+        serde_json::from_value::<i32>(restarted_flow_result.json_result().unwrap())
+            .expect("restarted_flow_result was not an int");
     assert_eq!(first_run_result_int, restarted_flow_result_int);
 }
 
@@ -2840,7 +3059,6 @@ async fn test_rust_client(db: Pool<Postgres>) {
     .await
     .unwrap();
 }
-
 
 #[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base", "schedule"))]
@@ -2874,6 +3092,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
         on_recovery_times: None,
         on_recovery_extra_args: None,
+        on_success: None,
+        on_success_extra_args: None,
         path: "f/system/failing_script_schedule".to_string(),
         script_path: "f/system/failing_script".to_string(),
         timezone: "UTC".to_string(),
@@ -2883,6 +3103,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         no_flow_overlap: None,
         summary: None,
         tag: None,
+        paused_until: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -2940,6 +3161,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
                 on_recovery_times: None,
                 on_recovery_extra_args: None,
+                on_success: None,
+                on_success_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
                 ws_error_handler_muted: None,
@@ -2947,6 +3170,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
+                paused_until: None,
             },
         )
         .await
@@ -2966,7 +3190,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
             }
 
             let uuid = uuid.unwrap().unwrap();
-            
+
             let completed_job =
                 query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
                     .fetch_one(&db2)
@@ -2984,7 +3208,6 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     )
     .await;
 }
-
 
 #[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base", "schedule"))]
@@ -3018,6 +3241,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
         on_recovery_times: None,
         on_recovery_extra_args: None,
+        on_success: None,
+        on_success_extra_args: None,
         path: "f/system/failing_flow_schedule".to_string(),
         script_path: "f/system/failing_flow".to_string(),
         timezone: "UTC".to_string(),
@@ -3027,6 +3252,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         no_flow_overlap: None,
         summary: None,
         tag: None,
+        paused_until: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3085,6 +3311,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery: Some("script/f/system/schedule_recovery_handler".to_string()),
                 on_recovery_times: None,
                 on_recovery_extra_args: None,
+                on_success: None,
+                on_success_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
                 ws_error_handler_muted: None,
@@ -3092,6 +3320,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
+                paused_until: None,
             },
         )
         .await
@@ -3112,7 +3341,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
             }
 
             let uuid = uuid.unwrap().unwrap();
-            
+
             let completed_job =
                 query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
                     .fetch_one(&db2)
@@ -3131,8 +3360,11 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     .await;
 }
 
-
-async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: String, language: ScriptLang) {
+async fn run_deployed_relative_imports(
+    db: &Pool<Postgres>,
+    script_content: String,
+    language: ScriptLang,
+) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
@@ -3141,106 +3373,139 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
         "SECRET_TOKEN".to_string(),
     );
 
-    client.create_script(
-        "test-workspace",
-        &NewScript {
-            language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
-            content: script_content,
-            path: "f/system/test_import".to_string(),
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            cache_ttl: None,
-            dedicated_worker: None,
-            description: "".to_string(),
-            draft_only: None,
-            envs: vec![],
-            is_template: None,
-            kind: None,
-            parent_hash: None,
-            lock: None,
-            summary: "".to_string(),
-            tag: None,
-            schema: std::collections::HashMap::new(),
-            ws_error_handler_muted: Some(false),
-            priority: None,
-            delete_after_use: None,
-            timeout: None,
-            restart_unless_cancelled: None,
-            deployment_message: None,
-            concurrency_key: None,
-            visible_to_runner_only: None,
-            no_main_func: None,
-            codebase: None
-        },
-    ).await.unwrap();
+    client
+        .create_script(
+            "test-workspace",
+            &NewScript {
+                language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
+                content: script_content,
+                path: "f/system/test_import".to_string(),
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                description: "".to_string(),
+                draft_only: None,
+                envs: vec![],
+                is_template: None,
+                kind: None,
+                parent_hash: None,
+                lock: None,
+                summary: "".to_string(),
+                tag: None,
+                schema: std::collections::HashMap::new(),
+                ws_error_handler_muted: Some(false),
+                priority: None,
+                delete_after_use: None,
+                timeout: None,
+                restart_unless_cancelled: None,
+                deployment_message: None,
+                concurrency_key: None,
+                visible_to_runner_only: None,
+                no_main_func: None,
+                codebase: None,
+                has_preprocessor: None,
+            },
+        )
+        .await
+        .unwrap();
 
     let mut completed = listen_for_completed_jobs(&db).await;
     let db2 = db.clone();
-    in_test_worker(&db, async move {
-        completed.next().await; // deployed script
+    in_test_worker(
+        &db,
+        async move {
+            completed.next().await; // deployed script
 
-        let script =
-            query!("SELECT hash FROM script WHERE path = $1", "f/system/test_import".to_string())
-                .fetch_one(&db2)
-                .await
-                .unwrap();
+            let script = query!(
+                "SELECT hash FROM script WHERE path = $1",
+                "f/system/test_import".to_string()
+            )
+            .fetch_one(&db2)
+            .await
+            .unwrap();
 
-        let job = RunJob::from(JobPayload::ScriptHash {
-            path: "f/system/test_import".to_string(),
-            hash: ScriptHash(script.hash),
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            cache_ttl: None,
-            dedicated_worker: None,
-            language,
-            priority: None,
-        }).push(&db2).await;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                path: "f/system/test_import".to_string(),
+                hash: ScriptHash(script.hash),
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                language,
+                priority: None,
+                apply_preprocessor: false,
+            })
+            .push(&db2)
+            .await;
 
+            completed.next().await; // completed job
 
-        completed.next().await; // completed job
+            let result = completed_job(job, &db2).await.json_result().unwrap();
 
-
-        let result = completed_job(job, &db2).await.json_result().unwrap();
-
-
-        assert_eq!(result, serde_json::json!(["f/system/same_folder_script", "f/system/same_folder_script", "f/system_relative/different_folder_script", "f/system_relative/different_folder_script"]));
-
-    }, port).await;
+            assert_eq!(
+                result,
+                serde_json::json!([
+                    "f/system/same_folder_script",
+                    "f/system/same_folder_script",
+                    "f/system_relative/different_folder_script",
+                    "f/system_relative/different_folder_script"
+                ])
+            );
+        },
+        port,
+    )
+    .await;
 }
 
-
-async fn run_preview_relative_imports(db: &Pool<Postgres>, script_content: String, language: ScriptLang) {
+async fn run_preview_relative_imports(
+    db: &Pool<Postgres>,
+    script_content: String,
+    language: ScriptLang,
+) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
     let mut completed = listen_for_completed_jobs(&db).await;
     let db2 = db.clone();
-    in_test_worker(&db, async move {
-        let job = RunJob::from(JobPayload::Code(RawCode {
-            hash: None,
-            content: script_content,
-            path: Some("f/system/test_import".to_string()),
-            language,
-            lock: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            cache_ttl: None,
-            dedicated_worker: None
-        })).push(&db2).await;
+    in_test_worker(
+        &db,
+        async move {
+            let job = RunJob::from(JobPayload::Code(RawCode {
+                hash: None,
+                content: script_content,
+                path: Some("f/system/test_import".to_string()),
+                language,
+                lock: None,
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+            }))
+            .push(&db2)
+            .await;
 
+            completed.next().await; // completed job
 
-        completed.next().await; // completed job
+            let result = completed_job(job, &db2).await.json_result().unwrap();
 
-
-        let result = completed_job(job, &db2).await.json_result().unwrap();
-
-
-        assert_eq!(result, serde_json::json!(["f/system/same_folder_script", "f/system/same_folder_script", "f/system_relative/different_folder_script", "f/system_relative/different_folder_script"]));
-
-    }, port).await;
+            assert_eq!(
+                result,
+                serde_json::json!([
+                    "f/system/same_folder_script",
+                    "f/system/same_folder_script",
+                    "f/system_relative/different_folder_script",
+                    "f/system_relative/different_folder_script"
+                ])
+            );
+        },
+        port,
+    )
+    .await;
 }
-
 
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_relative_imports_bun(db: Pool<Postgres>) {
@@ -3253,28 +3518,27 @@ import { main as test4 } from "../system_relative/different_folder_script.ts";
 export async function main() {
   return [test1(), test2(), test3(), test4()];
 }
-"#.to_string();
+"#
+    .to_string();
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await;
     run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
 }
 
-
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_nested_imports_bun(db: Pool<Postgres>) {
-
     let content = r#"
 import { main as test } from "/f/system_relative/nested_script.ts";
 
 export async function main() {
   return test();
 }
-"#.to_string();
+"#
+    .to_string();
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await;
     run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
 }
-
 
 #[sqlx::test(fixtures("base", "relative_deno"))]
 async fn test_relative_imports_deno(db: Pool<Postgres>) {
@@ -3287,29 +3551,27 @@ import { main as test4 } from "../system_relative/different_folder_script.ts";
 export async function main() {
   return [test1(), test2(), test3(), test4()];
 }
-"#.to_string();
+"#
+    .to_string();
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await;
     run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
-
 }
-
 
 #[sqlx::test(fixtures("base", "relative_deno"))]
 async fn test_nested_imports_deno(db: Pool<Postgres>) {
-
     let content = r#"
 import { main as test } from "/f/system_relative/nested_script.ts";
 
 export async function main() {
   return test();
 }
-"#.to_string();
+"#
+    .to_string();
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await;
     run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
 }
-
 
 #[sqlx::test(fixtures("base", "relative_python"))]
 async fn test_relative_imports_python(db: Pool<Postgres>) {
@@ -3321,24 +3583,23 @@ from ..system_relative.different_folder_script import main as test4
     
 def main():
     return [test1(), test2(), test3(), test4()]
-"#.to_string();
+"#
+    .to_string();
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
-
 }
-
 
 #[sqlx::test(fixtures("base", "relative_python"))]
 async fn test_nested_imports_python(db: Pool<Postgres>) {
-
     let content = r#"
 
 from f.system_relative.nested_script import main as test
 
 def main():
     return test()
-"#.to_string();
+"#
+    .to_string();
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;

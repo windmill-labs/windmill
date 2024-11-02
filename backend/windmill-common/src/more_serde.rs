@@ -10,6 +10,7 @@
 
 use crate::utils::rd_string;
 use serde::{Deserialize, Deserializer};
+use serde_json::value::RawValue;
 use std::{fmt::Display, str::FromStr};
 
 pub fn default_true() -> bool {
@@ -20,8 +21,8 @@ pub fn default_false() -> bool {
     false
 }
 
-pub fn default_null() -> serde_json::Value {
-    serde_json::Value::Null
+pub fn default_null() -> Box<RawValue> {
+    RawValue::from_string("null".to_string()).unwrap()
 }
 
 pub fn default_empty_string() -> String {

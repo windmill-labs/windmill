@@ -30,7 +30,7 @@
 
 <button
 	class={twMerge(
-		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-primary',
+		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-tertiary',
 		isSelected
 			? 'wm-tab-active font-main'
 			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',

@@ -1,9 +1,9 @@
 - answer: |-
     ```python
-    from typing import TypedDict, List
+    from typing import List, Dict
     import psycopg2
 
-    # Define the TypedDict for the PostgreSQL resource
+    # Define the resource type for PostgreSQL
     class postgresql(TypedDict):
         host: str
         port: int
@@ -12,49 +12,44 @@
         sslmode: str
         password: str
 
-    def main(postgres: postgresql) -> List[dict]:
+    def main(db_config: postgresql) -> List[Dict]:
         # Connect to the PostgreSQL database
-        connection = psycopg2.connect(
-            host=postgres['host'],
-            port=postgres['port'],
-            user=postgres['user'],
-            dbname=postgres['dbname'],
-            password=postgres['password'],
-            sslmode=postgres['sslmode']
+        conn = psycopg2.connect(
+            host=db_config['host'],
+            port=db_config['port'],
+            user=db_config['user'],
+            password=db_config['password'],
+            dbname=db_config['dbname'],
+            sslmode=db_config['sslmode']
         )
 
         # Create a cursor object
-        cursor = connection.cursor()
+        cursor = conn.cursor()
 
         # Execute the query to fetch all rows from the orders table
         cursor.execute("SELECT * FROM orders")
 
-        # Fetch all rows from the cursor
+        # Fetch all rows from the executed query
         rows = cursor.fetchall()
 
-        # Define the list to hold the rows as dictionaries
-        orders_list = []
+        # Get column names from the cursor description
+        colnames = [desc[0] for desc in cursor.description]
 
-        # Get the column names
-        column_names = [desc[0] for desc in cursor.description]
+        # Convert rows to a list of dictionaries
+        result = [dict(zip(colnames, row)) for row in rows]
 
-        # Convert each row to a dictionary with column names as keys
-        for row in rows:
-            order = dict(zip(column_names, row))
-            orders_list.append(order)
-
-        # Close the cursor and the connection
+        # Close the cursor and connection
         cursor.close()
-        connection.close()
+        conn.close()
 
-        # Return the list of orders
-        return orders_list
+        return result
     ```
   description: connect to postgres and list the rows in the orders table
   lang: python3
   template_prompt: |-
     <contextual_information>
-    You have to write a function in Python called "main". Specify the parameter types. Do not call the main function.
+    You have to write a function in Python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.
+    The "main" function cannot be async. If you need to use async code, you can use the asyncio library.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
     {resourceTypes}
@@ -77,12 +72,12 @@
 - answer: |-
     ```python
     def main(num: int) -> float:
-        if num == 0:  # Check if num is zero to avoid division by zero error
-            raise ValueError("Cannot divide by zero")
+        if num == 0:
+            raise ValueError("Division by zero is not allowed")
         return 3 / num
     ```
     <explanation>
-    The error "division by zero" occurs when you attempt to divide a number by zero, which is mathematically undefined and not allowed in programming. To fix this error, I added a check at the beginning of the `main` function to ensure that the `num` parameter is not zero. If `num` is zero, the function raises a `ValueError` with an appropriate message. This prevents the division by zero from occurring and allows the user of the function to handle the exception appropriately.
+    The error occurs because dividing by zero is not allowed in mathematics and will raise a `ZeroDivisionError` in Python. To fix this, we need to check if `num` is zero before performing the division. If `num` is zero, we raise a `ValueError` with an appropriate message.
     </explanation>
   code: |-
     def main(num: int) -> float:
@@ -95,7 +90,8 @@
     {code}
     ```
     <contextual_information>
-    You have to write a function in python called "main". Specify the parameter types. Do not call the main function.
+    You have to write a function in python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.
+    The "main" function cannot be async. If you need to use async code, you can use the asyncio library.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
     {resourceTypes}
@@ -110,6 +106,7 @@
     Only output code. Wrap the code in a code block.
     Explain the error and the fix after generating the code inside an <explanation> tag.
     Also put explanations directly in the code as comments.
+    Return the complete fixed code.
 
     Here's how interactions have to look like:
     user: {sample_question}
@@ -120,10 +117,9 @@
   type: fix
 - answer: |-
     ```python
-    # Define the function 'main' which takes an integer 'num' and returns a float
     def main(num: int) -> float:
-      # Divide the input number by 16 and return the result
-      return num / 16
+        # This function takes an integer 'num' as input and returns the result of dividing 'num' by 16.
+        return num / 16
     ```
   code: |-
     def main(num: int) -> float:
@@ -136,7 +132,8 @@
     {code}
     ```
     <contextual_information>
-    You have to write a function in python called "main". Specify the parameter types. Do not call the main function.
+    You have to write a function in python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.
+    The "main" function cannot be async. If you need to use async code, you can use the asyncio library.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
     {resourceTypes}
@@ -146,9 +143,10 @@
     <contextual_information>
     My instructions: {description}
   template_system: |-
-    You are a helpful coding assistant for Windmill, a developer platform for running scripts. You fix the code shared by the user. Each user message includes some contextual information which should guide your answer.
+    You are a helpful coding assistant for Windmill, a developer platform for running scripts. You modify code as instructed by the user. Each user message includes some contextual information which should guide your answer.
     Only output code. Wrap the code in a code block.
     Put explanations directly in the code as comments.
+    Return the complete modified code.
 
     Here's how interactions have to look like:
     user: {sample_question}
@@ -164,10 +162,10 @@
         "errors"
     )
 
-    // main divides a given number by 16 and returns the result along with any error that might occur.
+    // main function divides a number by 16 and returns the result and an error if any
     func main(number float64) (float64, error) {
         if number == 0 {
-            return 0, errors.New("cannot divide by zero")
+            return 0, errors.New("division by zero is not allowed")
         }
         result := number / 16
         return result, nil
@@ -197,20 +195,20 @@
   type: gen
 - answer: |-
     ```typescript
+    // Importing the 'number-to-words' npm package to convert numbers to words
     import { toWords } from "npm:number-to-words";
 
-    // Define the main function that converts a number to its word representation
-    export async function main(numberToConvert: number): Promise<string> {
-      // Convert the number to words using the number-to-words package
-      const words = toWords(numberToConvert);
-      return words;
+    // Define the main function with the appropriate parameter types
+    export async function main(number: number): Promise<string> {
+      // Convert the number to words and return the result
+      return toWords(number);
     }
     ```
   description: convert a number to a word
   lang: deno
   template_prompt: |-
     <contextual_information>
-    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
     You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". The fetch standard method is available globally.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
@@ -235,7 +233,6 @@
     ```typescript
     import { Client } from "npm:pg";
 
-    // Define the Postgresql resource type as specified
     type Postgresql = {
       host: string,
       port: number,
@@ -245,35 +242,22 @@
       password: string
     };
 
-    export async function main(postgres: Postgresql) {
-      // Create a new client instance with the provided Postgresql resource
+    export async function main(postgresql: Postgresql) {
       const client = new Client({
-        user: postgres.user,
-        host: postgres.host,
-        database: postgres.dbname,
-        password: postgres.password,
-        port: postgres.port,
-        ssl: postgres.sslmode === 'require' ? { rejectUnauthorized: false } : false,
+        host: postgresql.host,
+        port: postgresql.port,
+        user: postgresql.user,
+        database: postgresql.dbname,
+        password: postgresql.password,
+        ssl: { rejectUnauthorized: postgresql.sslmode === "require" }
       });
 
+      await client.connect();
+
       try {
-        // Connect to the PostgreSQL server
-        await client.connect();
-
-        // Query the orders table and fetch all rows
         const res = await client.query('SELECT * FROM orders');
-
-        // Log the rows to the console
-        console.log(res.rows);
-
-        // Return the rows
         return res.rows;
-      } catch (error) {
-        // If there's an error, log it to the console
-        console.error('Error querying the PostgreSQL database:', error);
-        throw error;
       } finally {
-        // Close the client connection
         await client.end();
       }
     }
@@ -282,7 +266,7 @@
   lang: deno
   template_prompt: |-
     <contextual_information>
-    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
     You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". The fetch standard method is available globally.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
@@ -305,24 +289,53 @@
   type: gen
 - answer: |-
     ```typescript
-    // Import the necessary module for number to words conversion.
-    // If there's a naming conflict with the "convert" function, it can be renamed during import.
-    import { toWords } from 'number-to-words';
+    // No resources are needed for this function
 
-    // Define the main function that converts a number to its word representation.
-    export async function main(numberToConvert: number): Promise<string> {
-      // Convert the number to words using the imported function.
-      const words = toWords(numberToConvert);
+    export async function main(number: number): Promise<string> {
+        const units = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
+        const teens = ["Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+        const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+        const thousands = ["", "Thousand", "Million", "Billion"];
 
-      // Return the word representation of the number.
-      return words;
+        if (number === 0) return "Zero";
+
+        let word = "";
+        let thousandCounter = 0;
+
+        while (number > 0) {
+            if (number % 1000 !== 0) {
+                word = convertHundreds(number % 1000) + thousands[thousandCounter] + " " + word;
+            }
+            number = Math.floor(number / 1000);
+            thousandCounter++;
+        }
+
+        return word.trim();
+
+        function convertHundreds(num: number): string {
+            let result = "";
+            if (num > 99) {
+                result += units[Math.floor(num / 100)] + " Hundred ";
+                num %= 100;
+            }
+            if (num > 19) {
+                result += tens[Math.floor(num / 10)] + " ";
+                num %= 10;
+            }
+            if (num > 9) {
+                result += teens[num - 10] + " ";
+            } else if (num > 0) {
+                result += units[num] + " ";
+            }
+            return result;
+        }
     }
     ```
   description: convert a number to a word
   lang: bun
   template_prompt: |-
     <contextual_information>
-    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
     The fetch standard method is available globally.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
@@ -345,16 +358,16 @@
   type: gen
 - answer: |-
     ```sql
-    -- $1 email
-    -- $2 username
-    -- $3 workspace_id
-    -- $4 role (optional)
-    -- $5 is_admin (optional, default = false)
-    -- $6 operator (optional, default = false)
-    -- $7 disabled (optional, default = false)
+    -- $1 role
+    -- $2 email
+    -- $3 disabled = false
+    -- $4 is_admin = false
+    -- $5 operator = false
+    -- $6 username
+    -- $7 workspace_id
 
-    INSERT INTO usr (email, username, workspace_id, role, is_admin, operator, disabled)
-    VALUES ($1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::bool, $6::bool, $7::bool);
+    INSERT INTO usr (role, email, disabled, is_admin, operator, username, created_at, workspace_id)
+    VALUES ($1::varchar, $2::varchar, $3::bool, $4::bool, $5::bool, $6::varchar, now(), $7::varchar);
     ```
   description: insert an a new user
   lang: postgresql
@@ -426,9 +439,8 @@
   type: gen
 - answer: |-
     ```sql
-    -- ? email (VARCHAR)
-    -- ? name (VARCHAR)
-
+    -- ? email (STRING)
+    -- ? name (STRING)
     INSERT INTO users (email, name) VALUES (?, ?);
     ```
   description: insert an email and a name in the users table
@@ -479,9 +491,14 @@
   type: gen
 - answer: |-
     ```bash
+    # Get the first argument
     var1="$1"
+
+    # Divide the number by 16
     result=$((var1 / 16))
-    echo $result
+
+    # Print the result
+    echo "$result"
     ```
   description: divide a number by 16
   lang: bash
@@ -503,8 +520,11 @@
   type: gen
 - answer: |-
     ```powershell
-    param($Number)
-    # Divide the input number by 16
+    param(
+        [int]$Number  # Define the parameter to accept an integer input
+    )
+
+    # Divide the number by 16 and store the result
     $Result = $Number / 16
 
     # Output the result
@@ -529,9 +549,15 @@
     ```
   type: gen
 - answer: |-
-    ```dockerfile
-    # Use an official Python runtime as a parent image
-    FROM python:3.8-slim
+    ```bash
+    # Get the arguments
+    app_name="$1"
+    python_version="$2"
+
+    # Create a Dockerfile
+    cat <<EOF > Dockerfile
+    # Use the specified Python version as the base image
+    FROM python:$python_version
 
     # Set the working directory in the container
     WORKDIR /usr/src/app
@@ -546,10 +572,11 @@
     EXPOSE 80
 
     # Define environment variable
-    ENV NAME World
+    ENV NAME $app_name
 
     # Run app.py when the container launches
-    CMD ["python", "./app.py"]
+    CMD ["python", "app.py"]
+    EOF
     ```
   description: write a docker image for a python app
   lang: bash
@@ -571,40 +598,35 @@
   type: gen
 - answer: |-
     ```typescript
+    // Define the type for the Github resource
     type Github = {
       token: string
     };
 
+    // Define the main function
     export async function main(github: Github, owner: string, repo: string): Promise<number> {
-      // Define the GitHub API URL for fetching repository details
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
+      const url = `https://api.github.com/repos/${owner}/${repo}`;
 
-      // Make a GET request to the GitHub API to retrieve repository details
-      const response = await fetch(apiUrl, {
+      const response = await fetch(url, {
         headers: {
-          // Include the token in the Authorization header for authentication
-          Authorization: `token ${github.token}`
+          'Authorization': `token ${github.token}`,
+          'Accept': 'application/vnd.github.v3+json'
         }
       });
 
-      // Parse the JSON response
-      const repository = await response.json();
-
-      // Check if the response has a 'stargazers_count' property
-      if (response.ok && 'stargazers_count' in repository) {
-        // Return the number of stars
-        return repository.stargazers_count;
-      } else {
-        // If the property is not found or the response is not OK, throw an error
-        throw new Error('Failed to retrieve the number of stars for the repository.');
+      if (!response.ok) {
+        throw new Error(`Error fetching repository data: ${response.statusText}`);
       }
+
+      const data = await response.json();
+      return data.stargazers_count;
     }
     ```
   description: query the github api and return the number of stars of a repo
   lang: nativets
   template_prompt: |-
     <contextual_information>
-    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+    You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
     You should use fetch and are not allowed to import any libraries.
     You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
     <resourceTypes>
@@ -627,24 +649,29 @@
   type: gen
 - answer: |-
     ```javascript
-    // Access the email from the context object
-    const email = ctx.email;
-
-    // Set the value of the input with id 'my_field' to the email from the context
-    setValue('my_field', email);
+    // Set the value of the input with id 'my_field' to the context variable email
+    document.getElementById('my_field').value = ctx.email;
     ```
   description: set the value of the input with id 'my_field' to the context variable
     email
   lang: frontend
   template_prompt: |-
-    Write client-side javascript code that should {description}. You have access to a few helpers:
+    Write client-side javascript code that should {description}.
+
+    <contextual_information>
     You can access the context object with the ctx global variable.
     The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
     You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
-    Use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
-    Use the recompute function to recompute a component: recompute(id: string)
-    Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
-    The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
+    You can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)
+    You can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
+    You can use the recompute function to recompute a component: recompute(id: string)
+    You can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
+    You can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)
+    The setValue function is meant to set or force the value of a component: setValue(id: string, value: any)
+    You can validate a specific field of a form: validate(id: string, key: string)
+    You can validate all fields of a form: validateAll(id: string, key: string)
+    You can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)
+    </contextual_information>
   template_system: |-
     You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.
     Only output code. Wrap the code in a code block.
@@ -659,21 +686,13 @@
 - answer: |-
     ```sql
     -- $1 username
-
-    SELECT
-      EXTRACT(YEAR FROM completed_at) AS year,
-      EXTRACT(MONTH FROM completed_at) AS month,
-      COUNT(*) / COUNT(DISTINCT DATE_TRUNC('month', completed_at)) AS avg_completed_jobs_per_month
-    FROM
-      completed_job
-    WHERE
-      created_by = $1::varchar
-    GROUP BY
-      year,
-      month
-    ORDER BY
-      year,
-      month;
+    SELECT AVG(job_count) AS average_jobs_per_month
+    FROM (
+        SELECT DATE_TRUNC('month', created_at) AS month, COUNT(*) AS job_count
+        FROM completed_job
+        WHERE created_by = $1::varchar
+        GROUP BY month
+    ) AS monthly_jobs;
     ```
   description: compute the average number of completed jobs per month for the given
     username
@@ -696,13 +715,11 @@
   type: gen
 - answer: |-
     ```sql
-    -- $1 is_public
-    SELECT is_public FROM variable
+    -- $1 owner
+    SELECT is_secret FROM variable WHERE owner = $1::varchar
     ```
     <explanation>
-    The error "ExecutionError: db error: ERROR: column "is_secret" does not exist" indicates that there is no column named "is_secret" in the table being queried. According to the provided database schema, the "is_secret" column does not exist in the "account" table or any other table except for the "variable" table.
-
-    The corrected code selects the "is_public" column from the "variable" table, which is the closest match to the original intent of querying a boolean column related to secret/public status. If the intention was indeed to select "is_secret", the correct table to select from would be "variable", not "account".
+    The error occurred because the column "is_secret" does not exist in the "account" table. According to the provided database schema, the "is_secret" column is in the "variable" table. The fixed code selects "is_secret" from the correct table and includes a parameter for filtering by the "owner" column.
     </explanation>
   code: |-
     SELECT is_secret FROM account
@@ -723,6 +740,7 @@
     Only output code. Wrap the code in a code block.
     Explain the error and the fix after generating the code inside an <explanation> tag.
     Also put explanations directly in the code as comments.
+    Return the complete fixed code.
 
     Here's how interactions have to look like:
     user: {sample_question}
@@ -731,3 +749,56 @@
     ```
     <explanation>{explanation}</explanation>
   type: fix
+- answer: |-
+    ```php
+    <?php
+
+    // require:
+    // stripe/stripe-php
+
+    if (!class_exists('Stripe')) {
+        class Stripe {
+            public string $token;
+        }
+    }
+
+    function main(Stripe $stripe): array {
+        \Stripe\Stripe::setApiKey($stripe->token);
+
+        $customers = \Stripe\Customer::all();
+
+        return $customers->data;
+    }
+    ```
+  description: list all customers from stripe
+  lang: php
+  template_prompt: |-
+    <contextual_information>
+    You have to write a function in php called "main". Specify the parameter types. Do not call the main function. You should generally return the result. The script must start with `<?php`.
+    You can take as parameters resources which are classes containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
+    <resourceTypes>
+    {resourceTypes}
+    </resourceTypes>
+    You need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
+    Before defining each type, check if the class already exists using class_exists.
+    The resource type name has to be exactly as specified.
+    If you need to import libraries, you need to specify them as comments in the following manner before the main function:
+    ```
+    // require:
+    // mylibrary/mylibrary
+    // myotherlibrary/myotherlibrary@optionalversion
+    ```
+    No need to require autoload, it is already done.
+    <contextual_information>
+    My instructions: {description}
+  template_system: |-
+    You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.
+    Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
+    {code}
+    ```
+  type: gen

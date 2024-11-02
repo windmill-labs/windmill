@@ -13,7 +13,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$app/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
 	import Version from './Version.svelte'
@@ -25,6 +25,7 @@
 
 	export let scopes: string[] | undefined = undefined
 	export let newTokenLabel: string | undefined = undefined
+	export let newTokenWorkspace: string | undefined = undefined
 	export let newToken: string | undefined = undefined
 
 	let newPassword: string | undefined
@@ -52,7 +53,7 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		goto(hashRemoved)
+		gotoUrl(hashRemoved)
 	}
 	async function setPassword(): Promise<void> {
 		if (newPassword) {
@@ -79,15 +80,21 @@
 			date.setDate(date.getDate() + newTokenExpiration)
 		}
 		newToken = await UserService.createToken({
-			requestBody: { label: newTokenLabel, expiration: date?.toISOString(), scopes } as NewToken
+			requestBody: {
+				label: newTokenLabel,
+				expiration: date?.toISOString(),
+				scopes,
+				workspace_id: newTokenWorkspace
+			} as NewToken
 		})
 		dispatch('tokenCreated', newToken)
 		listTokens()
 		displayCreateToken = false
 	}
 
+	let tokenPage = 1
 	async function listTokens(): Promise<void> {
-		tokens = await UserService.listTokens({ excludeEphemeral: true })
+		tokens = await UserService.listTokens({ excludeEphemeral: true, page: tokenPage, perPage: 100 })
 	}
 
 	async function deleteToken(tokenPrefix: string) {
@@ -343,6 +350,28 @@
 							{/if}
 						</tbody>
 					</TableCustom>
+					<div class="flex flex-row-reverse gap-2 w-full">
+						{#if tokens?.length == 100}
+							<button
+								class=" p-1 underline text-sm whitespace-nowrap text-center"
+								on:click={() => {
+									tokenPage += 1
+									listTokens()
+								}}
+								>Next
+							</button>
+						{/if}
+						{#if tokenPage > 1}
+							<button
+								class="p-1 underline text-sm whitespace-nowrap text-center"
+								on:click={() => {
+									tokenPage -= 1
+									listTokens()
+								}}
+								>Previous
+							</button>
+						{/if}
+					</div>
 				</div>
 			</div>
 		</div>

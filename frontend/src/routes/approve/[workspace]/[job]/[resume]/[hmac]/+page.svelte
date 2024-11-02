@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
 	import { page } from '$app/stores'
+	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -8,7 +9,6 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { LogIn, AlertTriangle } from 'lucide-svelte'
@@ -19,6 +19,7 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
@@ -33,8 +34,10 @@
 		.map((x) => x.resume_id)
 		.includes(new Number($page.params.resume).valueOf())
 
+	let dynamicSchema: any = {}
+
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
-	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema
+	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let error: string | undefined = undefined
 	let default_payload: any = {}
@@ -81,11 +84,18 @@
 		}
 		let job_result = (await JobService.getCompletedJobResult({
 			workspace: job?.workspace_id ?? '',
-			id: jobId
+			id: jobId,
+			secret: $page.params.hmac,
+			suspendedJob: $page.params.job,
+			resumeId: new Number($page.params.resume).valueOf(),
+			approver
 		})) as any
 		description = job_result?.description
 		default_payload = job_result?.default_args ?? {}
 		enum_payload = job_result?.enums ?? {}
+		if (job_result?.schema) {
+			dynamicSchema = job_result?.schema ?? {}
+		}
 	}
 
 	async function getJob() {
@@ -198,7 +208,11 @@
 		{#if !completed}
 			<h2 class="mt-4 mb-2">Flow arguments</h2>
 
-			<JobArgs args={job?.args} />
+			<JobArgs
+				id={job?.id}
+				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+				args={job?.args}
+			/>
 		{/if}
 
 		<div class="mt-8">
@@ -265,16 +279,18 @@
 		{/if}
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between">
-			<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
+			<a target="_blank" rel="noreferrer" href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
 				>Flow run details (require auth)</a
 			>
 		</div>
 		{#if job && job.raw_flow && !completed}
 			<h2 class="mt-10">Flow details</h2>
 			<div class="border border-gray-700">
-				<FlowGraph
+				<FlowGraphV2
+					triggerNode={false}
 					modules={job.raw_flow?.modules}
 					failureModule={job.raw_flow?.failure_module}
+					preprocessorModule={job.raw_flow?.preprocessor_module}
 					notSelectable
 				/>
 			</div>

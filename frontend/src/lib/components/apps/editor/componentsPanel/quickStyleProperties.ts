@@ -733,6 +733,9 @@ export const quickStyleProperties: Record<
 	multiselectcomponent: {
 		input: inputDefaultProps
 	},
+	multiselectcomponentv2: {
+		input: inputDefaultProps
+	},
 	numberinputcomponent: {
 		input: inputDefaultProps
 	},
@@ -743,6 +746,9 @@ export const quickStyleProperties: Record<
 		input: inputDefaultProps
 	},
 	resourceselectcomponent: {
+		input: inputDefaultProps
+	},
+	userresourcecomponent: {
 		input: inputDefaultProps
 	},
 	verticaldividercomponent: {
@@ -783,5 +789,18 @@ export const quickStyleProperties: Record<
 		icon: containerDefaultProps,
 		title: containerDefaultProps,
 		description: containerDefaultProps
+	},
+	navbarcomponent: {
+		container: containerDefaultProps
+	},
+	dateselectcomponent: {
+		input: inputDefaultProps
+	},
+	jobiddisplaycomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
+	recomputeallcomponent: {
+		container: containerDefaultProps
 	}
 }

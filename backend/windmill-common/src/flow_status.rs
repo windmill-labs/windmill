@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::flows::FlowValue;
-use crate::more_serde::default_false;
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -30,6 +29,7 @@ pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: Box<FlowStatusModuleWParent>,
+    pub preprocessor_module: Option<FlowStatusModule>,
 
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
@@ -71,7 +71,7 @@ pub struct RestartedFrom {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Iterator {
     pub index: usize,
-    pub itered: Vec<serde_json::Value>,
+    pub itered: Vec<Box<serde_json::value::RawValue>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -111,7 +111,27 @@ pub struct FlowCleanupModule {
     pub flow_jobs_to_clean: Vec<Uuid>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize)]
+struct UntaggedFlowStatusModule {
+    #[serde(rename = "type")]
+    type_: String,
+    id: Option<String>,
+    count: Option<u16>,
+    progress: Option<u8>,
+    job: Option<Uuid>,
+    iterator: Option<Iterator>,
+    flow_jobs: Option<Vec<Uuid>>,
+    flow_jobs_success: Option<Vec<Option<bool>>>,
+    branch_chosen: Option<BranchChosen>,
+    branchall: Option<BranchAllStatus>,
+    parallel: Option<bool>,
+    while_loop: Option<bool>,
+    approvers: Option<Vec<Approval>>,
+    failed_retries: Option<Vec<Uuid>>,
+    skipped: Option<bool>,
+}
+
+#[derive(Serialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps {
@@ -130,18 +150,20 @@ pub enum FlowStatusModule {
         id: String,
         job: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         iterator: Option<Iterator>,
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
-        #[serde(default = "default_false")]
         parallel: bool,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
-        #[serde(default = "default_false")]
         while_loop: bool,
     },
     Success {
@@ -150,10 +172,15 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         approvers: Vec<Approval>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        failed_retries: Vec<Uuid>,
+        skipped: bool,
     },
     Failure {
         id: String,
@@ -161,8 +188,102 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        failed_retries: Vec<Uuid>,
     },
+}
+
+impl<'de> Deserialize<'de> for FlowStatusModule {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let untagged: UntaggedFlowStatusModule =
+            UntaggedFlowStatusModule::deserialize(deserializer)?;
+
+        match untagged.type_.as_str() {
+            "WaitingForPriorSteps" => Ok(FlowStatusModule::WaitingForPriorSteps {
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
+            }),
+            "WaitingForEvents" => Ok(FlowStatusModule::WaitingForEvents {
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
+                count: untagged
+                    .count
+                    .ok_or_else(|| serde::de::Error::missing_field("count"))?,
+                job: untagged
+                    .job
+                    .ok_or_else(|| serde::de::Error::missing_field("job"))?,
+            }),
+            "WaitingForExecutor" => Ok(FlowStatusModule::WaitingForExecutor {
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
+                job: untagged
+                    .job
+                    .ok_or_else(|| serde::de::Error::missing_field("job"))?,
+            }),
+            "InProgress" => Ok(FlowStatusModule::InProgress {
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
+                job: untagged
+                    .job
+                    .ok_or_else(|| serde::de::Error::missing_field("job"))?,
+                iterator: untagged.iterator,
+                flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
+                branch_chosen: untagged.branch_chosen,
+                branchall: untagged.branchall,
+                parallel: untagged.parallel.unwrap_or(false),
+                while_loop: untagged.while_loop.unwrap_or(false),
+                progress: untagged.progress,
+            }),
+            "Success" => Ok(FlowStatusModule::Success {
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
+                job: untagged
+                    .job
+                    .ok_or_else(|| serde::de::Error::missing_field("job"))?,
+                flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
+                branch_chosen: untagged.branch_chosen,
+                approvers: untagged.approvers.unwrap_or_default(),
+                failed_retries: untagged.failed_retries.unwrap_or_default(),
+                skipped: untagged.skipped.unwrap_or(false),
+            }),
+            "Failure" => Ok(FlowStatusModule::Failure {
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
+                job: untagged
+                    .job
+                    .ok_or_else(|| serde::de::Error::missing_field("job"))?,
+                flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
+                branch_chosen: untagged.branch_chosen,
+                failed_retries: untagged.failed_retries.unwrap_or_default(),
+            }),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &[
+                    "WaitingForPriorSteps",
+                    "WaitingForEvents",
+                    "WaitingForExecutor",
+                    "InProgress",
+                    "Success",
+                    "Failure",
+                ],
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +309,24 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { flow_jobs, .. } => flow_jobs.clone(),
             FlowStatusModule::Success { flow_jobs, .. } => flow_jobs.clone(),
             FlowStatusModule::Failure { flow_jobs, .. } => flow_jobs.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn branch_chosen(&self) -> Option<BranchChosen> {
+        match self {
+            FlowStatusModule::InProgress { branch_chosen, .. } => branch_chosen.clone(),
+            FlowStatusModule::Success { branch_chosen, .. } => branch_chosen.clone(),
+            FlowStatusModule::Failure { branch_chosen, .. } => branch_chosen.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn flow_jobs_success(&self) -> Option<Vec<Option<bool>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            FlowStatusModule::Success { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            FlowStatusModule::Failure { flow_jobs_success, .. } => flow_jobs_success.clone(),
             _ => None,
         }
     }
@@ -220,7 +359,11 @@ impl FlowStatusModule {
 impl FlowStatus {
     pub fn new(f: &FlowValue) -> Self {
         Self {
-            step: 0,
+            step: if f.preprocessor_module.is_some() {
+                -1
+            } else {
+                0
+            },
             approval_conditions: None,
             modules: f
                 .modules
@@ -237,6 +380,13 @@ impl FlowStatus {
                         .unwrap_or_else(|| "failure".to_string()),
                 },
             }),
+            preprocessor_module: if f.preprocessor_module.is_some() {
+                Some(FlowStatusModule::WaitingForPriorSteps {
+                    id: f.preprocessor_module.as_ref().unwrap().id.clone(),
+                })
+            } else {
+                None
+            },
             cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,

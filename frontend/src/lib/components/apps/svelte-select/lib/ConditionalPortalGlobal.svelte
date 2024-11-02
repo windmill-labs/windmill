@@ -1,11 +1,11 @@
 <script lang="ts">
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 
 	export let condition = false
 </script>
 
 {#if condition}
-	<Portal><slot /></Portal>
+	<Portal name="conditional-portal-global"><slot /></Portal>
 {:else}
 	<slot />
 {/if}

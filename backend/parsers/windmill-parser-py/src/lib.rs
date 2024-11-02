@@ -63,9 +63,17 @@ pub fn parse_python_signature(
 ) -> anyhow::Result<MainArgSignature> {
     let main_name = override_main.unwrap_or("main".to_string());
 
+    let has_preprocessor = !filter_non_main(code, "preprocessor").is_empty();
+
     let filtered_code = filter_non_main(code, &main_name);
     if filtered_code.is_empty() {
-        return Err(anyhow::anyhow!("No main function found".to_string(),));
+        return Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+            has_preprocessor: Some(has_preprocessor),
+        });
     }
     let ast = Suite::parse(&filtered_code, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
@@ -114,14 +122,21 @@ pub fn parse_python_signature(
                         typ,
                         has_default: default.is_some(),
                         default,
+                        oidx: None,
                     }
                 })
                 .collect(),
+            no_main_func: Some(false),
+            has_preprocessor: Some(has_preprocessor),
         })
     } else {
-        Err(anyhow::anyhow!(
-            "main function was not findable".to_string(),
-        ))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+            has_preprocessor: Some(has_preprocessor),
+        })
     }
 }
 
@@ -183,6 +198,9 @@ fn parse_typ(id: &str) -> Typ {
         "datetime" => Typ::Datetime,
         "datetime.datetime" => Typ::Datetime,
         "Sql" | "sql" => Typ::Sql,
+        x @ _ if x.starts_with("DynSelect_") => {
+            Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
+        }
         _ => Typ::Resource(id.to_string()),
     }
 }
@@ -264,51 +282,60 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "f".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("wewe")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "g".to_string(),
                         typ: Typ::Int,
                         default: Some(json!(21)),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "h".to_string(),
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2])),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "i".to_string(),
                         typ: Typ::Bool,
                         default: Some(json!(true)),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
-                ]
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -344,30 +371,36 @@ def main(test1: str,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "resource".to_string(),
                         typ: Typ::Resource("postgresql".to_string()),
                         default: Some(json!("$res:g/all/resource")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     }
-                ]
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -398,30 +431,36 @@ def main(test1: str,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "s3o".to_string(),
                         typ: Typ::Resource("S3Object".to_string()),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("test")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     }
-                ]
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 
@@ -449,7 +488,8 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         name: "test1".to_string(),
                         typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
@@ -459,9 +499,95 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                             "bar".to_string()
                         ])))),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     }
-                ]
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_5() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def main(test1: DynSelect_foo): return
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    otyp: None,
+                    name: "test1".to_string(),
+                    typ: Typ::DynSelect("foo".to_string()),
+                    default: None,
+                    has_default: false,
+                    oidx: None
+                }],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_6() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def hello(): return
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![],
+                no_main_func: Some(true),
+                has_preprocessor: Some(false)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_7() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def preprocessor(): return
+
+def main(): return
+
+
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![],
+                no_main_func: Some(false),
+                has_preprocessor: Some(true)
             }
         );
 

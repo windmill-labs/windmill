@@ -19,8 +19,11 @@ const layout: ComponentSet = {
 		'modalcomponent',
 		'steppercomponent',
 		'carousellistcomponent',
-		'decisiontreecomponent'
-	]
+		'decisiontreecomponent',
+		'navbarcomponent',
+		'recomputeallcomponent'
+	],
+	presets: ['topbarcomponent']
 } as const
 
 const buttons: ComponentSet = {
@@ -45,12 +48,14 @@ const inputs: ComponentSet = {
 		'dateinputcomponent',
 		'timeinputcomponent',
 		'datetimeinputcomponent',
+		'dateselectcomponent',
 		'fileinputcomponent',
 		's3fileinputcomponent',
 		'checkboxcomponent',
 		'selectcomponent',
 		'resourceselectcomponent',
-		'multiselectcomponent',
+		'userresourcecomponent',
+		'multiselectcomponentv2',
 		'selecttabcomponent',
 		'selectstepcomponent'
 	]
@@ -69,6 +74,7 @@ const display: ComponentSet = {
 		'displaycomponent',
 		'jobidlogcomponent',
 		'jobidflowstatuscomponent',
+		'jobiddisplaycomponent',
 		'statcomponent',
 		'menucomponent',
 		'alertcomponent'

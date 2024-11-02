@@ -7,10 +7,16 @@
 		COMPONENT_SETS,
 		type AppComponent,
 		type TypedComponent,
-		DEPRECATED_COMPONENTS
+		DEPRECATED_COMPONENTS,
+		processDimension
 	} from '../component'
 	import ListItem from './ListItem.svelte'
-	import { appComponentFromType, copyComponent, insertNewGridItem } from '../appUtils'
+	import {
+		appComponentFromType,
+		copyComponent,
+		insertNewGridItem,
+		setUpTopBarComponentContent
+	} from '../appUtils'
 	import { push } from '$lib/history'
 	import { ClearableInput, Drawer, DrawerContent } from '../../../common'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -136,13 +142,30 @@
 
 		const id = insertNewGridItem(
 			$app,
-			appComponentFromType(preset.targetComponent, preset.configuration) as (
-				id: string
-			) => AppComponent,
-			$focusedGrid
+			appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
+				customCss: {
+					container: {
+						class: '!p-0' as any,
+						style: ''
+					}
+				}
+			}) as (id: string) => AppComponent,
+			$focusedGrid,
+			undefined,
+			undefined,
+			{ x: 0, y: 0 },
+			{
+				3: processDimension(preset.dims, 3),
+				12: processDimension(preset.dims, 12)
+			}
 		)
 
 		$selectedComponent = [id]
+
+		if (appComponentType === 'topbarcomponent') {
+			setUpTopBarComponentContent(id, $app)
+		}
+
 		$app = $app
 	}
 
@@ -150,7 +173,7 @@
 
 	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
 		...set,
-		components: set.components.filter((component) => {
+		components: set.components?.filter((component) => {
 			const name = componentsRecord[component].name.toLowerCase()
 			return name.includes(search.toLowerCase().trim())
 		}),
@@ -199,7 +222,7 @@
 						<ListItem title={`${title}`} subtitle={`(${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
-									<div class="w-20 relative">
+									<div class="w-[64px] relative">
 										{#if DEPRECATED_COMPONENTS[item]}
 											<div
 												class="absolute -top-2 -right-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 rounded-md py-0.5 px-1 flex flex-row gap-1 items-center"
@@ -227,7 +250,7 @@
 												})
 											}}
 											title={componentsRecord[item].name}
-											class="cursor-move transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+											class="cursor-move transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 											justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 										>
 											<svelte:component this={componentsRecord[item].icon} class="text-primary" />
@@ -239,11 +262,11 @@
 								{/each}
 								{#if presets}
 									{#each presets as presetItem (presetItem)}
-										<div class="w-20">
+										<div class="w-[64px]">
 											<button
 												on:click={() => addPresetComponent(presetItem)}
 												title={presetsRecord[presetItem].name}
-												class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+												class="transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 										justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 											>
 												<svelte:component
@@ -266,13 +289,13 @@
 				<div class="flex flex-wrap gap-3 py-2">
 					{#if groups}
 						{#each groups as group (group.path)}
-							<div class="w-20">
+							<div class="w-[64px]">
 								<button
 									on:click={() => {
 										addGroup(group)
 									}}
 									title={group.name}
-									class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+									class="transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 										justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 								>
 									<LayoutDashboard class="text-secondary" />
@@ -283,13 +306,13 @@
 							</div>
 						{/each}
 					{/if}
-					<div class="w-20">
+					<div class="w-[64px]">
 						<button
 							on:click={() => {
 								addNewGroup()
 							}}
 							title=""
-							class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+							class="transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 								justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 						>
 							<Plus class="text-secondary" />
@@ -302,13 +325,13 @@
 				<div class="flex flex-wrap gap-3 py-2">
 					{#if customComponents}
 						{#each customComponents as cc (cc.path)}
-							<div class="w-20">
+							<div class="w-[64px]">
 								<button
 									on:click={() => {
 										addCustomComponent(cc)
 									}}
 									title={cc.name}
-									class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+									class="transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 										justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 								>
 									<LayoutDashboard class="text-secondary" />
@@ -319,7 +342,7 @@
 							</div>
 						{/each}
 					{/if}
-					<div class="w-20">
+					<div class="w-[64px]">
 						<button
 							on:click={() => {
 								if (!$enterpriseLicense) {
@@ -329,7 +352,7 @@
 								}
 							}}
 							title=""
-							class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+							class="transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 								justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 						>
 							<Plus class="text-secondary" />

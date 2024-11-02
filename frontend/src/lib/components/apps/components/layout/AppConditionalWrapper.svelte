@@ -5,18 +5,26 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration } from '../../types'
 	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'conditionalwrapper'> | undefined = undefined
 	export let render: boolean
 	export let conditions: RichConfiguration[]
+	export let onTabChange: string[] | undefined = undefined
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		focusedGrid,
+		selectedComponent,
+		worldStore,
+		connectingInput,
+		componentControl,
+		runnableComponents
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		conditions: [] as boolean[],
@@ -52,6 +60,7 @@
 
 		selectedConditionIndex = index
 		outputs.selectedTabIndex.set(index)
+		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
 	$: resolvedConditions && handleResolvedConditions()

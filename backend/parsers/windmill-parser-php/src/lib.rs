@@ -1,7 +1,5 @@
-use convert_case::{Case, Casing};
-use regex::Regex;
 use serde_json::Value;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
 
 use php_parser_rs::parser::{
     self,
@@ -13,17 +11,6 @@ use php_parser_rs::parser::{
     },
 };
 
-lazy_static::lazy_static! {
-    static ref RE_SNK_CASE: Regex = Regex::new(r"_(\d)").unwrap();
-}
-
-fn to_snake_case(s: String) -> String {
-    let r = s.to_case(Case::Snake);
-
-    // s_3 => s3
-    RE_SNK_CASE.replace_all(&r, "$1").to_string()
-}
-
 fn parse_php_type(e: Type) -> Typ {
     match e {
         Type::Float(_) => Typ::Float,
@@ -32,7 +19,7 @@ fn parse_php_type(e: Type) -> Typ {
         Type::String(_) => Typ::Str(None),
         Type::Array(_) => Typ::List(Box::new(Typ::Str(None))),
         Type::Object(_) => Typ::Object(vec![]),
-        Type::Named(_, name) => Typ::Resource(to_snake_case(name.to_string())),
+        Type::Named(_, name) => Typ::Resource(to_snake_case(name.to_string().as_ref())),
         _ => Typ::Unknown,
     }
 }
@@ -85,15 +72,26 @@ pub fn parse_php_signature(
                     typ,
                     has_default: default.is_some(),
                     default,
+                    oidx: None,
                 }
             })
             .collect();
 
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: Some(false),
+            has_preprocessor: None,
+        })
     } else {
-        Err(anyhow::anyhow!(
-            "main function was not findable".to_string(),
-        ))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+            has_preprocessor: None,
+        })
     }
 }
 
@@ -127,37 +125,44 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         name: "input1".to_string(),
                         typ: Typ::Str(None),
                         has_default: true,
-                        default: Some(Value::String("hey".to_string()))
+                        default: Some(Value::String("hey".to_string())),
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "input2".to_string(),
                         typ: Typ::Bool,
                         has_default: true,
-                        default: Some(Value::Bool(false))
+                        default: Some(Value::Bool(false)),
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "input3".to_string(),
                         typ: Typ::Int,
                         has_default: true,
-                        default: Some(Value::Number(Number::from(3)))
+                        default: Some(Value::Number(Number::from(3))),
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "input4".to_string(),
                         typ: Typ::Float,
                         has_default: true,
-                        default: Some(Value::Number(Number::from_f64(f64::from(4.5)).unwrap()))
+                        default: Some(Value::Number(Number::from_f64(f64::from(4.5)).unwrap())),
+                        oidx: None
                     },
                     Arg {
                         otyp: None,
                         name: "resource".to_string(),
                         typ: Typ::Resource("stripe".to_string()),
                         has_default: false,
-                        default: None
+                        default: None,
+                        oidx: None
                     }
-                ]
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: None
             }
         );
 

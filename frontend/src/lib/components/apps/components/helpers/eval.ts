@@ -1,6 +1,7 @@
-import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
+import { waitJob } from '$lib/components/waitJob'
+import { base } from '$lib/base'
 
 export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {
@@ -25,11 +26,11 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
+return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource, downloadFile) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
-		? `let ${contextKeys.map((key) => ` ${key} = context['${key}']`)};`
+		? `let ${contextKeys.map((key) => ` ${key} = createProxy('${key}', context['${key}'])`)};`
 		: ``
 }
 ${
@@ -46,6 +47,7 @@ return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_str
 type WmFunctor = (
 	context,
 	state,
+	createProxy,
 	goto,
 	setTab,
 	recompute,
@@ -60,7 +62,10 @@ type WmFunctor = (
 	invalidate,
 	validateAll,
 	clearFiles,
-	showToast
+	showToast,
+	waitJob,
+	askNewResource,
+	downloadFile
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
@@ -74,38 +79,6 @@ function make_context_evaluator(eval_string, contextKeys: string[], noReturn: bo
 	let r = functor()
 	functorCache[cacheKey] = r
 	return r
-}
-
-function isSerializable(obj) {
-	var isNestedSerializable
-	function isPlain(val) {
-		return (
-			val == null ||
-			typeof val === 'undefined' ||
-			typeof val === 'string' ||
-			typeof val === 'boolean' ||
-			typeof val === 'number' ||
-			Array.isArray(val) ||
-			isPlainObject(val)
-		)
-	}
-	if (!isPlain(obj)) {
-		return false
-	}
-	for (var property in obj) {
-		if (obj.hasOwnProperty(property)) {
-			if (!isPlain(obj[property])) {
-				return false
-			}
-			if (typeof obj[property] == 'object') {
-				isNestedSerializable = isSerializable(obj[property])
-				if (!isNestedSerializable) {
-					return false
-				}
-			}
-		}
-	}
-	return true
 }
 
 function hashCode(s: string): number {
@@ -141,33 +114,74 @@ export async function eval_like(
 			validateAll?: () => void
 			clearFiles?: () => void
 			showToast?: (message: string, error?: boolean) => void
+			waitJob?: (jobId: string) => void
+			askNewResource?: () => void
+			setGroupValue?: (key: string, value: any) => void
 		}
 	>,
 	worldStore: World | undefined,
 	runnableComponents: Record<string, { cb?: (() => void)[] }>,
-	noReturn: boolean
+	noReturn: boolean,
+	groupContextId: string | undefined
 ) {
-	const proxiedState = new Proxy(state, {
-		set(target, key, value) {
-			if (typeof key !== 'string') {
-				throw new Error('Invalid key')
+	const createProxy = (name: string, obj: any) => {
+		// console.log('Creating proxy', name, obj)
+		if (obj != null && obj != undefined && typeof obj == 'object') {
+			if (name == 'group' && groupContextId) {
+				return createGroupProxy(groupContextId, obj)
 			}
-			target[key] = value
-			let o = worldStore?.newOutput('state', key, value)
-			if (isSerializable(value)) {
-				o?.set(value, true)
-			} else {
-				o?.set('Not serializable object usable only by frontend scripts', true)
-			}
-			return true
+			return new Proxy(obj, {
+				set(target, key, value) {
+					if (name != 'state') {
+						throw new Error(
+							'Cannot set value on objects that are neither the global state or a container group field'
+						)
+					}
+					if (typeof key !== 'string') {
+						throw new Error('Invalid key')
+					}
+					target[key] = value
+					let o = worldStore?.newOutput(name, key, value)
+					o?.set(value, true)
+
+					return true
+				},
+				get(obj, prop) {
+					if (name != 'state' && prop == 'group') {
+						return createGroupProxy(name, obj[prop])
+					} else {
+						return obj[prop]
+					}
+				}
+			})
+		} else {
+			return obj
 		}
-	})
+	}
+
+	const createGroupProxy = (name: string, obj: any) => {
+		return new Proxy(obj, {
+			set(target, key, value) {
+				target[key] = value
+				let o = worldStore?.newOutput(name, 'group', target)
+				o?.set(target, true)
+				if (typeof key !== 'string') {
+					throw new Error('Invalid key')
+				}
+				controlComponents[name]?.setGroupValue?.(key, value)
+				return true
+			}
+		})
+	}
+
+	const proxiedState = createProxy('state', state)
 
 	let evaluator = make_context_evaluator(text, Object.keys(context ?? {}), noReturn)
 	// console.log(i, j)
 	return await evaluator(
 		context,
 		proxiedState,
+		createProxy,
 		async (x, newTab) => {
 			if (newTab || editor) {
 				if (!newTab) {
@@ -221,6 +235,68 @@ export async function eval_like(
 		},
 		(message, error) => {
 			sendUserToast(message, error)
+		},
+		async (id) => waitJob(id),
+		(id) => {
+			controlComponents[id]?.askNewResource?.()
+		},
+		(input, filename) => {
+			const handleError = (error) => {
+				console.error('Error downloading file:', error)
+				sendUserToast(
+					`Error downloading file: ${error.message}. Ensure it is a valid URL, a base64 encoded data URL (data:...), or a valid S3 object.`,
+					true
+				)
+			}
+
+			const isBase64 = (str) => {
+				try {
+					return btoa(atob(str)) === str
+				} catch (err) {
+					return false
+				}
+			}
+
+			const downloadFile = (url, downloadFilename) => {
+				console.log(url, downloadFilename)
+				const link = document.createElement('a')
+				link.href = url
+				link.download = downloadFilename || true
+				link.target = '_blank'
+				link.rel = 'external'
+				document.body.appendChild(link)
+				link.click()
+				document.body.removeChild(link)
+			}
+
+			if (typeof input === 'object' && input.s3) {
+				const workspaceId = computeGlobalContext(worldStore).ctx.workspace
+				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${
+					input?.s3
+				}${input?.storage ? `&storage=${input.storage}` : ''}`
+				downloadFile(s3href, filename || input.s3)
+			} else if (typeof input === 'string') {
+				if (input.startsWith('data:')) {
+					downloadFile(input, filename)
+				} else if (isBase64(input)) {
+					const base64Url = `data:application/octet-stream;base64,${input}`
+					downloadFile(base64Url, filename)
+				} else if (/^(http|https):\/\//.test(input) || input.startsWith('/')) {
+					const url = input.startsWith('/') ? `${window.location.origin}${input}` : input
+					console.log('Downloading file from:', url)
+					downloadFile(url, filename ?? url.split('/').pop()?.split('?')[0])
+				} else {
+					handleError(
+						new Error(
+							'The input must be a valid URL, a base64 encoded string, or a valid S3 object.'
+						)
+					)
+				}
+			} else {
+				handleError(
+					new Error('The input must be a string or an object with a getAuthenticatedUrl method.')
+				)
+			}
 		}
 	)
 }

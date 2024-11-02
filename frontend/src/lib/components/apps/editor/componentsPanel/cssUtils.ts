@@ -27,6 +27,7 @@ export const authorizedClassnames = [
 	'wm-currency-input',
 	'wm-date-input',
 	'wm-text-input',
+	'wm-user-resource-select',
 	'wm-html',
 	'wm-table-container',
 	'wm-table-header',
@@ -336,6 +337,17 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
+		components: ['userresourcecomponent'],
+		selectors: [
+			{
+				selector: '.wm-user-resource-select',
+				comment: 'User resource select',
+				customCssKey: 'input'
+			}
+		],
+		variables: []
+	},
+	{
 		components: ['htmlcomponent'],
 		selectors: [{ selector: '.wm-html', comment: 'HTML component', customCssKey: 'container' }],
 		variables: []
@@ -353,7 +365,13 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['aggridcomponent', 'aggridcomponentee'],
+		components: [
+			'aggridcomponent',
+			'aggridcomponentee',
+			'aggridinfinitecomponent',
+			'aggridinfinitecomponentee',
+			'dbexplorercomponent'
+		],
 		selectors: [
 			{ selector: '.wm-aggrid-container', comment: 'Ag grid container', customCssKey: 'container' }
 		],
@@ -386,7 +404,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['fileinputcomponent'],
+		components: ['fileinputcomponent', 's3fileinputcomponent'],
 		selectors: [
 			{ selector: '.wm-file-input', comment: 'File input component', customCssKey: 'input' }
 		],
@@ -549,7 +567,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['agchartscomponent'],
+		components: ['agchartscomponent', 'agchartscomponentee'],
 		selectors: [{ selector: '.wm-agchart', comment: 'AgCharts', customCssKey: 'container' }],
 		variables: []
 	},
@@ -561,7 +579,7 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['conditionalwrapper'],
 		selectors: [
-			{ selector: '.wm-conditional-tabs', comment: 'Conditional tabs', customCssKey: 'container' }
+			{ selector: '.wm-conditional-tabs', comment: 'Conditional Tabs', customCssKey: 'container' }
 		],
 		variables: []
 	},
@@ -603,7 +621,7 @@ export const customisationByComponent: Customisation[] = [
 	},
 
 	{
-		components: ['multiselectcomponent'],
+		components: ['multiselectcomponent', 'multiselectcomponentv2'],
 		selectors: [
 			{
 				selector: '.multiselect',
@@ -780,6 +798,36 @@ export const customisationByComponent: Customisation[] = [
 			}
 		],
 		root: '.multiselect'
+	},
+	{
+		components: ['alertcomponent'],
+		selectors: [
+			{
+				selector: 'wm-alert-card-container',
+				comment: 'Alert container',
+				customCssKey: 'container'
+			}
+		],
+		variables: []
+	},
+	{
+		components: ['decisiontreecomponent'],
+		selectors: [
+			{
+				selector: 'wm-decision-tree',
+				comment: 'Decision tree container',
+				customCssKey: 'container'
+			}
+		],
+		variables: []
+	},
+	{
+		components: ['menucomponent'],
+		selectors: [
+			{ selector: '.wm-menu-button', comment: 'Menu button', customCssKey: 'button' },
+			{ selector: '.wm-menu-button-container', comment: 'Menu button container' }
+		],
+		variables: []
 	}
 ]
 

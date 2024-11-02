@@ -28,11 +28,16 @@ pub fn global_service() -> Router {
         .route("/list_worker_groups", get(list_worker_groups))
         .route("/update/:name", post(update_config).delete(delete_config))
         .route("/get/:name", get(get_config))
+        .route("/list", get(list_configs))
+        .route(
+            "/list_autoscaling_events/:worker_group",
+            get(list_autoscaling_events),
+        )
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
 struct Config {
-    name: String,
+    name: Option<String>,
     config: serde_json::Value,
 }
 
@@ -40,9 +45,18 @@ async fn list_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    let configs_raw = sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
-        .fetch_all(&db)
-        .await?;
+    let mut configs_raw =
+        sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
+            .fetch_all(&db)
+            .await?;
+    // Remove the 'worker__' prefix from all config names
+    for config in configs_raw.iter_mut() {
+        if let Some(name) = &config.name {
+            if name.starts_with("worker__") {
+                config.name = Some(name.strip_prefix("worker__").unwrap().to_string());
+            }
+        }
+    }
     let configs = if !authed.is_admin {
         let mut obfuscated_configs: Vec<Config> = vec![];
         for config in configs_raw {
@@ -122,7 +136,7 @@ async fn update_config(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "worker_config.update",
         ActionKind::Update,
         "global",
@@ -149,7 +163,7 @@ async fn delete_config(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "worker_config.delete",
         ActionKind::Delete,
         "global",
@@ -165,4 +179,47 @@ async fn delete_config(
         )));
     }
     Ok(format!("Deleted config {name}"))
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+struct AutoscalingEvent {
+    id: i64,
+    worker_group: String,
+    event_type: Option<String>,
+    desired_workers: i32,
+    reason: Option<String>,
+    applied_at: chrono::NaiveDateTime,
+}
+
+async fn list_autoscaling_events(
+    Extension(db): Extension<DB>,
+    Path(worker_group): Path<String>,
+) -> error::JsonResult<Vec<AutoscalingEvent>> {
+    let events = sqlx::query_as!(
+        AutoscalingEvent,
+        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT 5",
+        worker_group
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(events))
+}
+
+#[cfg(feature = "enterprise")]
+async fn list_configs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<Vec<Config>> {
+    require_super_admin(&db, &authed.email).await?;
+    let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
+        .fetch_all(&db)
+        .await?;
+    Ok(Json(configs))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn list_configs() -> error::JsonResult<String> {
+    Err(error::Error::BadRequest(
+        "Config listing available only in the enterprise version".to_string(),
+    ))
 }

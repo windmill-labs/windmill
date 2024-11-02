@@ -2,21 +2,23 @@ use convert_case::{Case, Casing};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
     jobs::QueuedJob,
+    worker::write_file,
 };
 use windmill_parser::Typ;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_result, start_child_process, write_file,
+        create_args_and_out_file, get_main_override, get_reserved_variables, read_result,
+        start_child_process, OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
     NSJAIL_PATH, PHP_PATH,
 };
@@ -69,11 +71,14 @@ pub async fn composer_install(
     worker_name: &str,
     requirements: String,
     lock: Option<String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<String> {
-    write_file(job_dir, "composer.json", &requirements).await?;
+    check_php_exists()?;
+
+    write_file(job_dir, "composer.json", &requirements)?;
 
     if let Some(lock) = lock.as_ref() {
-        write_file(job_dir, "composer.lock", lock).await?;
+        write_file(job_dir, "composer.lock", lock)?;
     }
 
     let mut child_cmd = Command::new(&*COMPOSER_PATH);
@@ -98,6 +103,7 @@ pub async fn composer_install(
         "composer install",
         None,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -125,6 +131,24 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
     )
 }
 
+#[cfg(not(feature = "enterprise"))]
+fn check_php_exists() -> error::Result<()> {
+    if !Path::new(PHP_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run php jobs.", PHP_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+fn check_php_exists() -> error::Result<()> {
+    if !Path::new(PHP_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run php jobs.", PHP_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
     requirements_o: Option<String>,
@@ -139,7 +163,10 @@ pub async fn handle_php_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     shared_mount: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
+    check_php_exists()?;
+
     let (composer_json, composer_lock) = match requirements_o {
         Some(reqs_and_lock) if !reqs_and_lock.is_empty() => {
             let splitted = reqs_and_lock.split(COMPOSER_LOCK_SPLIT).collect_vec();
@@ -155,7 +182,7 @@ pub async fn handle_php_job(
 
     let autoload_line = if let Some(composer_json) = composer_json {
         let logs1 = "\n\n--- COMPOSER INSTALL ---\n".to_string();
-        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
         composer_install(
             mem_peak,
@@ -167,6 +194,7 @@ pub async fn handle_php_job(
             worker_name,
             composer_json,
             composer_lock,
+            occupancy_metrics,
         )
         .await?;
         "require './vendor/autoload.php';"
@@ -176,9 +204,9 @@ pub async fn handle_php_job(
 
     let init_logs = "\n\n--- PHP CODE EXECUTION ---\n".to_string();
 
-    append_logs(job.id.clone(), job.workspace_id.to_string(), init_logs, db).await;
+    append_logs(&job.id, job.workspace_id.to_string(), init_logs, db).await;
 
-    let _ = write_file(job_dir, "main.php", inner_content).await?;
+    let _ = write_file(job_dir, "main.php", inner_content)?;
 
     let main_override = get_main_override(job.args.as_ref());
 
@@ -229,7 +257,7 @@ try {{
 }} catch (Exception $e) {{
     $err = [
         "message" => $e->getMessage(),
-        "name" => $e->getName(),
+        "name" => get_class($e),
         "stack" => $e->getTraceAsString()
     ];
     $step_id = getenv('WM_FLOW_STEP_ID');
@@ -241,7 +269,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.php", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.php", &wrapper_content)?;
         Ok(()) as error::Result<()>
     };
 
@@ -269,8 +297,7 @@ try {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
+        )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = vec![
@@ -318,12 +345,13 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        false,
+        !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
         "php run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

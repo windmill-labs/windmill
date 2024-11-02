@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -11,8 +11,8 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
-	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import { deepEqual } from 'fast-equals'
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -143,8 +143,13 @@
 					const user = $userStore
 
 					if (workspace && user) {
-						userStore.set(await getUserExt(workspace))
-						console.log('refreshed user')
+						const newUser = await getUserExt(workspace)
+						if (!deepEqual(newUser, $userStore)) {
+							userStore.set(newUser)
+							console.info('refreshed user')
+						} else {
+							console.debug('user is the same')
+						}
 					}
 				} catch (e) {
 					console.error('Could not refresh user', e)
@@ -168,7 +173,5 @@
 		document.documentElement.classList.remove('dark')
 	}
 </script>
-
-<ChartHighlightTheme />
 
 <slot />

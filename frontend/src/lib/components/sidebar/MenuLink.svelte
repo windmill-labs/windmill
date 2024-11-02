@@ -2,6 +2,7 @@
 	import { classNames } from '$lib/utils'
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
+	import { base } from '$app/paths'
 
 	export let label: string
 	export let href: string
@@ -13,10 +14,10 @@
 	let isSelected = false
 
 	navigating.subscribe(() => {
-		if (href === '/') {
+		if (href === `${base}/`) {
 			isSelected = $page.url.pathname === href
 		} else {
-			isSelected = $page.url.pathname.includes(href)
+			isSelected = $page.url.pathname.startsWith(href)
 		}
 	})
 </script>

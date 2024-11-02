@@ -16,6 +16,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -23,6 +24,7 @@
 	import { RotateCw, Save } from 'lucide-svelte'
 	import { CUSTOM_TAGS_SETTING, WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
 	import { loadSchemaFromPath } from '$lib/infer'
+	import { hubPaths } from '$lib/hub'
 	export let appPath: string
 	export let open = false
 
@@ -144,19 +146,25 @@
 	const appPreviewScript = `import puppeteer from 'puppeteer-core';
 import dayjs from 'dayjs';
 export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
-  const browser = await puppeteer.launch({ headless: 'new', executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+  let browser = null
+  try {
+  browser = await puppeteer.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox',
+      '--no-zygote',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'] });
   const page = await browser.newPage();
   await page.setCookie({
     "name": "token",
     "value": Bun.env["WM_TOKEN"],
-    "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, '')
+    "domain": Bun.env["BASE_URL"]?.replace(/https?:\\/\\//, '')
   })
   page
     .on('console', msg =>
       console.log(dayjs().format("HH:mm:ss") + " " + msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
     .on('pageerror', ({ msg }) => console.log(dayjs().format("HH:mm:ss") + " " + msg));
   await page.setViewport({ width: 1200, height: 2000 });
-  await page.goto(Bun.env["WM_BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
+  await page.goto(Bun.env["BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
   await new Promise((resolve, _) => {
 		setTimeout(resolve, startup_duration * 1000)
@@ -180,13 +188,19 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		type: "png",
     captureBeyondViewport: false
 	});
-  await browser.close();
-  return Buffer.from(screenshot).toString('base64');
+	await browser.close();
+	return Buffer.from(screenshot).toString('base64');
+  } catch (err) {
+	if (browser) {
+	  await browser.close();
+	}
+	throw err;
+  }
 }`
 
 	const notificationScripts = {
 		discord: {
-			path: 'hub/7838/discord',
+			path: hubPaths.discordReport,
 			schema: {
 				type: 'object',
 				properties: {
@@ -202,7 +216,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			}
 		},
 		slack: {
-			path: 'hub/7836/slack', // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
+			path: hubPaths.slackReport, // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
 			schema: {
 				type: 'object',
 				properties: {
@@ -215,7 +229,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			}
 		},
 		email: {
-			path: 'hub/7837/smtp',
+			path: hubPaths.smtpReport,
 			schema: {
 				type: 'object',
 				properties: {
@@ -615,7 +629,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 									<p class="text-clip grow min-w-0">
 										The workspace needs to be connected to Slack to use this feature. You can <a
 											target="_blank"
-											href="/workspace_settings?tab=slack">configure it here</a
+											href="{base}/workspace_settings?tab=slack">configure it here</a
 										>.
 									</p>
 									<Button

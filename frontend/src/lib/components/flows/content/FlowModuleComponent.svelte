@@ -21,7 +21,7 @@
 	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowRetries from './FlowRetries.svelte'
-	import { getStepPropPicker } from '../previousResults'
+	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
 
@@ -30,7 +30,6 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
-	import { schemaToObject } from '$lib/schema'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -45,12 +44,25 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
+	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
+	import { debounce } from '$lib/utils'
+	import { dfs } from '../dfs'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, saveDraft } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		selectedId,
+		previewArgs,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		saveDraft,
+		flowInputsStore,
+		customUi
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
+	export let preprocessorModule: boolean = false
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
 	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
@@ -58,18 +70,19 @@
 	export let noEditor: boolean
 	export let enableAi: boolean
 
+	let tag: string | undefined = undefined
+
 	let editor: Editor
 	let diffEditor: DiffEditor
 	let modulePreview: ModulePreview
 	let websocketAlive = {
 		pyright: false,
-		black: false,
 		deno: false,
 		go: false,
 		ruff: false,
 		shellcheck: false
 	}
-	let selected = 'inputs'
+	let selected = preprocessorModule ? 'test' : 'inputs'
 	let advancedSelected = 'retries'
 	let advancedRuntimeSelected = 'concurrency'
 	let s3Kind = 's3_client'
@@ -95,22 +108,7 @@
 	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker = failureModule
-		? {
-				pickableProperties: {
-					flow_input: schemaToObject($flowStore.schema as any, $previewArgs),
-					priorIds: {},
-					previousId: undefined,
-					hasResume: false
-				},
-				extraLib: `
-				declare const error: {
-					message: string
-					name: string
-					stack: string
-				}
-				
-				`
-		  }
+		? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
 		: getStepPropPicker(
 				$flowStateStore,
 				parentModule,
@@ -133,8 +131,18 @@
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
+
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
+				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
+					$flowInputsStore[flowModule?.id] = {
+						flowStepWarnings: await initFlowStepWarnings(
+							flowModule.value,
+							schema ?? {},
+							dfs($flowStore.value.modules, (fm) => fm.id)
+						)
+					}
+				}
 			} else {
 				if (
 					flowModule.value.type == 'rawscript' ||
@@ -176,9 +184,37 @@
 	})
 
 	let forceReload = 0
-
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
+
+	$: $selectedId && onSelectedIdChange()
+
+	function onSelectedIdChange() {
+		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
+			reload(flowModule)
+		}
+	}
+
+	let debouncedWarning = debounce((argName: string) => {
+		if ($flowInputsStore) {
+			computeFlowStepWarning(
+				argName,
+				flowModule.value,
+				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
+				$flowStateStore[$selectedId]?.schema,
+				dfs($flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
+			).then((flowStepWarnings) => {
+				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
+			})
+		}
+	}, 100)
+
+	function setFlowInput(argName: string) {
+		if ($flowInputsStore && flowModule.id && $flowInputsStore?.[flowModule.id] === undefined) {
+			$flowInputsStore[flowModule.id] = {}
+		}
+		debouncedWarning(argName)
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -195,6 +231,7 @@
 		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
+					{tag}
 					bind:module={flowModule}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
@@ -222,7 +259,6 @@
 							flowModule,
 							$selectedId,
 							$flowStateStore[flowModule.id].schema,
-							$flowStore,
 							$pathStore
 						)
 						flowModule = module
@@ -234,6 +270,7 @@
 			{#if flowModule.value.type === 'rawscript' && !noEditor}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
+						customUi={customUi?.editorBar}
 						{validCode}
 						{editor}
 						{diffEditor}
@@ -263,7 +300,7 @@
 								{#key flowModule.id}
 									<Editor
 										folding
-										path={flowModule.value.path}
+										path={$pathStore + '/' + flowModule.id}
 										bind:websocketAlive
 										bind:this={editor}
 										class="h-full relative"
@@ -301,10 +338,12 @@
 										)}
 									/>
 									<DiffEditor
+										open={false}
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
-										class="hidden h-full"
+										defaultLang={scriptLangToEditorLang(flowModule.value.language)}
+										class="h-full"
 									/>
 								{/key}
 							{/if}
@@ -312,7 +351,12 @@
 							{#if !noEditor}
 								<div class="border-t">
 									{#key forceReload}
-										<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
+										<FlowModuleScript
+											bind:tag
+											showAllCode={false}
+											path={flowModule.value.path}
+											hash={flowModule.value.hash}
+										/>
 									{/key}
 								</div>
 							{/if}
@@ -322,15 +366,19 @@
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs">Step Input</Tab>
+							{#if !preprocessorModule}
+								<Tab value="inputs">Step Input</Tab>
+							{/if}
 							<Tab value="test">Test this step</Tab>
-							<Tab value="advanced">Advanced</Tab>
+							{#if !preprocessorModule}
+								<Tab value="advanced">Advanced</Tab>
+							{/if}
 						</Tabs>
 						<div
-							class={advancedSelected === 'runtime' ? 'h-[calc(100%-64px)]' : 'h-[calc(100%-32px)]'}
+							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
-								<div class="h-full overflow-auto" id="flow-editor-step-input">
+								<div class="h-full overflow-auto px-2" id="flow-editor-step-input">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
@@ -343,6 +391,10 @@
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
 											{enableAi}
+											on:changeArg={(e) => {
+												const { argName } = e.detail
+												setFlowInput(argName)
+											}}
 										/>
 									</PropPickerWrapper>
 								</div>
@@ -363,9 +415,15 @@
 									{#if !$selectedId.includes('failure')}
 										<Tab value="runtime">Runtime</Tab>
 										<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
-										<Tab value="early-stop" active={Boolean(flowModule.stop_after_if)}>
+										<Tab
+											value="early-stop"
+											active={Boolean(
+												flowModule.stop_after_if || flowModule.stop_after_all_iters_if
+											)}
+										>
 											Early Stop
 										</Tab>
+										<Tab value="skip" active={Boolean(flowModule.skip_if)}>Skip</Tab>
 										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
 										<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
 										<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
@@ -444,11 +502,22 @@
 														bind:seconds={flowModule.value.concurrency_time_window_s}
 													/>
 												</Label>
-												<Label label="Custom concurrency key">
-													<div class="text-tertiary text-xs"
-														>Custom concurrency keys can only be set as the setting of a workspace
-														script</div
-													>
+												<Label label="Custom concurrency key (optional)">
+													<svelte:fragment slot="header">
+														<Tooltip>
+															Concurrency keys are global, you can have them be workspace specific
+															using the variable `$workspace`. You can also use an argument's value
+															using `$args[name_of_arg]`</Tooltip
+														>
+													</svelte:fragment>
+													<!-- svelte-ignore a11y-autofocus -->
+													<input
+														type="text"
+														autofocus
+														disabled={!$enterpriseLicense}
+														bind:value={flowModule.value.custom_concurrency_key}
+														placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+													/>
 												</Label>
 											{:else}
 												<Alert type="warning" title="Limitation" size="xs">
@@ -518,6 +587,8 @@
 										</div>
 									{:else if advancedSelected === 'early-stop'}
 										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'skip'}
+										<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
 									{:else if advancedSelected === 'suspend'}
 										<div>
 											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />

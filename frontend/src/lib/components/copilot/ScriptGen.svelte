@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import { Button } from '../common'
 
 	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
@@ -36,12 +37,16 @@
 
 	// props
 	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage | 'frontend' | undefined
+	export let lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
 	export let editor: Editor | SimpleEditor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
 	export let args: Record<string, any>
 	export let transformer = false
+
+	$: if (lang == 'bunnative') {
+		lang = 'bun'
+	}
 
 	// state
 	let funcDesc = ''
@@ -70,6 +75,7 @@
 			if (mode === 'edit') {
 				await copilot(
 					{
+						// @ts-ignore
 						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						code: editor?.getCode() || '',
@@ -83,6 +89,7 @@
 			} else {
 				await copilot(
 					{
+						// @ts-ignore
 						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						dbSchema: dbSchema,
@@ -215,13 +222,20 @@
 
 	$: $generatedCode && updateScroll()
 
+	let innerWidth = 0
+
 	function autoResize() {
 		if (input) {
-			const maxLinesHeight = 100 // Adjust this value based on your font size and line-height to fit 5 lines
+			const maxLinesHeight = innerWidth > 2500 ? 146 : 130 // Adjust this value based on your font size and line-height to fit 5 lines
 			input.style.height = 'auto' // Reset height to recalibrate
-			const newHeight = Math.min(input.scrollHeight, maxLinesHeight) // Calculate new height, but not exceed max
+			const newHeight = Math.min(input.scrollHeight + 2, maxLinesHeight) // Calculate new height, but not exceed max
 			input.style.height = newHeight + 'px' // Set new height
-			input.style.overflowY = newHeight >= maxLinesHeight ? 'scroll' : 'hidden' // Show scrollbar if at max height
+			if (input.scrollHeight + 2 > maxLinesHeight) {
+				input.scrollTop = input.scrollHeight
+				input.style.overflowY = 'scroll'
+			} else {
+				input.style.overflowY = 'hidden'
+			}
 		}
 	}
 
@@ -229,6 +243,8 @@
 		abortController?.abort()
 	})
 </script>
+
+<svelte:window on:resize={autoResize} bind:innerWidth />
 
 {#if genLoading}
 	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
@@ -381,7 +397,7 @@
 						</ToggleButtonGroup>
 
 						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							GPT-4 Turbo<Bot size={14} />
+							GPT-4o<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96 items-start">
@@ -405,7 +421,7 @@
 							size="xs"
 							color="light"
 							buttonType="button"
-							btnClasses="h-[36px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
@@ -477,7 +493,7 @@
 			{:else}
 				<p class="text-sm">
 					Enable Windmill AI in the <a
-						href="/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=openai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

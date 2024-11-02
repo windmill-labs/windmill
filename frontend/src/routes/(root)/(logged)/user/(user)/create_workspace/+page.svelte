@@ -1,6 +1,13 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
-	import { ResourceService, SettingService, UserService, WorkspaceService } from '$lib/gen'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
+	import {
+		ResourceService,
+		SettingService,
+		UserService,
+		VariableService,
+		WorkspaceService
+	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
@@ -58,7 +65,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: true }
 			})
 		}
 		if (openAiKey != '') {
@@ -70,12 +77,21 @@
 				actualUsername = user.username
 			}
 			let path = `u/${actualUsername}/openai_windmill_codegen`
+			await VariableService.createVariable({
+				workspace: id,
+				requestBody: {
+					path,
+					value: openAiKey,
+					is_secret: true,
+					description: 'Token for openai'
+				}
+			})
 			await ResourceService.createResource({
 				workspace: id,
 				requestBody: {
 					path,
 					value: {
-						api_key: openAiKey
+						api_key: '$var:' + path
 					},
 					resource_type: 'openai'
 				}
@@ -148,7 +164,6 @@
 
 	let auto_invite = false
 	let operatorOnly = false
-	let autoAdd = false
 </script>
 
 <CenteredModal title="New Workspace">
@@ -188,7 +203,12 @@
 			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
 		</span>
 		<div class="flex flex-row gap-1">
-			<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
+			<input
+				type="password"
+				autocomplete="new-password"
+				bind:value={openAiKey}
+				on:keyup={handleKeyUp}
+			/>
 			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
 		</div>
 		{#if openAiKey}
@@ -216,15 +236,6 @@
 		<div class="text-xs mb-1 leading-6 pt-2">
 			Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
 		</div>
-		<ToggleButtonGroup
-			selected={autoAdd ? 'add' : 'invite'}
-			on:selected={(e) => {
-				autoAdd = e.detail == 'add'
-			}}
-		>
-			<ToggleButton value="invite" size="xs" label="Auto-invite" />
-			<ToggleButton value="add" size="xs" label="Auto-add" />
-		</ToggleButtonGroup>
 
 		<div class="text-xs mb-1 leading-6 pt-2"
 			>Role <Tooltip>Role of the auto-invited users</Tooltip></div
@@ -240,7 +251,7 @@
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="/user/workspaces"
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button

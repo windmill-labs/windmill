@@ -1,5 +1,5 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$app/navigation'
+// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'
@@ -11,9 +11,14 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Script } from './gen'
-import { cloneDeep } from 'lodash'
+import type { Job, Script } from './gen'
+import type { EnumType, SchemaProperty } from './common'
+import type { Schema } from './common'
 export { sendUserToast }
+
+export function isJobCancelable(j: Job): boolean {
+	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
@@ -47,6 +52,18 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 			day: '2-digit'
 		})
 	}
+}
+
+export function subtractDaysFromDateString(
+	dateString: string | undefined,
+	days: number
+): string | undefined {
+	if (dateString == undefined) {
+		return undefined
+	}
+	let date = new Date(dateString)
+	date.setDate(date.getDate() - days)
+	return date.toISOString()
 }
 
 export function displayDate(
@@ -99,6 +116,25 @@ export function msToSec(ms: number | undefined, maximumFractionDigits?: number):
 		maximumFractionDigits: maximumFractionDigits ?? 3,
 		minimumFractionDigits: maximumFractionDigits
 	})
+}
+
+export function msToReadableTime(ms: number | undefined): string {
+	if (ms === undefined) return '?'
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	if (days > 0) {
+		return `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`
+	} else if (hours > 0) {
+		return `${hours}h ${minutes % 60}m ${seconds % 60}s`
+	} else if (minutes > 0) {
+		return `${minutes}m ${seconds % 60}s`
+	} else {
+		return `${msToSec(ms)}s`
+	}
 }
 
 export function getToday() {
@@ -176,7 +212,7 @@ export interface DropdownItem {
 
 export const DELETE = 'delete' as 'delete'
 
-export function emptySchema() {
+export function emptySchema(): Schema {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
 		properties: {},
@@ -185,7 +221,7 @@ export function emptySchema() {
 	}
 }
 
-export function simpleSchema() {
+export function simpleSchema(): Schema {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
 		type: 'object',
@@ -258,44 +294,6 @@ export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
 		}
 	}
 	return false
-}
-
-export function decodeArgs(queryArgs: string | undefined): any {
-	if (queryArgs) {
-		const parsed = decodeState(queryArgs)
-		Object.entries(parsed).forEach(([k, v]) => {
-			if (v == '<function call>') {
-				parsed[k] = undefined
-			}
-		})
-		return parsed
-	}
-	return {}
-}
-
-let debounced: NodeJS.Timeout | undefined = undefined
-export function setQueryWithoutLoad(
-	url: URL,
-	args: { key: string; value: string | null | undefined }[],
-	bounceTime?: number
-): void {
-	debounced && clearTimeout(debounced)
-	debounced = setTimeout(() => {
-		const nurl = new URL(url.toString())
-		for (const { key, value } of args) {
-			if (value) {
-				nurl.searchParams.set(key, value)
-			} else {
-				nurl.searchParams.delete(key)
-			}
-		}
-
-		try {
-			history.replaceState(history.state, '', nurl.toString())
-		} catch (e) {
-			console.error(e)
-		}
-	}, bounceTime ?? 200)
 }
 
 export function groupBy<K, V>(
@@ -378,6 +376,8 @@ export type InputCat =
 	| 'sql'
 	| 'yaml'
 	| 'currency'
+	| 'oneOf'
+	| 'dynselect'
 
 export function setInputCat(
 	type: string | undefined,
@@ -394,6 +394,8 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
+	} else if (type == 'object' && format?.startsWith('dynselect-')) {
+		return 'dynselect'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
 	} else if (type == 'string' && enum_) {
@@ -412,6 +414,8 @@ export function setInputCat(
 		return 'email'
 	} else if (type == 'string' && format == 'currency') {
 		return 'currency'
+	} else if (type == 'oneOf') {
+		return 'oneOf'
 	} else {
 		return 'string'
 	}
@@ -468,7 +472,7 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 }
 
 export function pluralize(quantity: number, word: string, customPlural?: string) {
-	if (quantity <= 1) {
+	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
 		return `${quantity} ${customPlural}}`
@@ -556,7 +560,6 @@ export function deepMergeWithPriority<T>(target: T, source: T): T {
 
 	for (const key in source) {
 		if (source.hasOwnProperty(key) && merged?.hasOwnProperty(key)) {
-			console.log(target)
 			if (target?.hasOwnProperty(key)) {
 				merged[key] = deepMergeWithPriority(target[key], source[key])
 			} else {
@@ -653,13 +656,39 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
+export function computeSharableHash(args: any) {
+	let nargs = {}
+	for (let k in args) {
+		let v = args[k]
+		if (v !== undefined) {
+			// if
+			let size = roughSizeOfObject(v) > 1000000
+			if (size) {
+				console.error(`Value at key ${k} too big (${size}) to be shared`)
+				return ''
+			}
+			nargs[k] = JSON.stringify(v)
+		}
+	}
+	try {
+		let r = new URLSearchParams(nargs).toString()
+		return r.length > 1000000 ? '' : r
+	} catch (e) {
+		console.error('Error computing sharable hash', e)
+		return ''
+	}
+}
+
 export function toCamel(s: string) {
 	return s.replace(/([-_][a-z])/gi, ($1) => {
 		return $1.toUpperCase().replace('-', '').replace('_', '')
 	})
 }
 
-export function cleanExpr(expr: string): string {
+export function cleanExpr(expr: string | undefined): string {
+	if (!expr) {
+		return ''
+	}
 	return expr
 		.split('\n')
 		.filter((x) => x != '' && !x.startsWith(`import `))
@@ -695,7 +724,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -750,7 +779,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = cloneDeep(obj[key])
+				newObj[key] = structuredClone(obj[key])
 			}
 		}
 		return newObj
@@ -850,4 +879,74 @@ export function getLocalSetting(name: string) {
 	} catch (e) {
 		return undefined
 	}
+}
+
+export function computeKind(
+	enum_: EnumType,
+	contentEncoding: 'base64' | 'binary' | undefined,
+	pattern: string | undefined,
+	format: string | undefined
+): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'date-time' {
+	if (enum_ != undefined) {
+		return 'enum'
+	}
+	if (contentEncoding == 'base64') {
+		return 'base64'
+	}
+	if (pattern != undefined) {
+		return 'pattern'
+	}
+	if (format == 'date-time') {
+		return 'date-time'
+	}
+	if (format != undefined && format != '') {
+		if (format?.startsWith('resource')) {
+			return 'resource'
+		}
+		return 'format'
+	}
+	return 'none'
+}
+
+// Used to check whether a placeholder should be displayed in the input field, based on the schema
+export function shouldDisplayPlaceholder(
+	type: string | undefined,
+	format: string | undefined,
+	enum_: EnumType,
+	contentEncoding: 'base64' | 'binary' | undefined,
+	pattern: string | undefined,
+	extra: Record<string, any> | undefined
+): boolean {
+	if (type === 'string') {
+		const kind = computeKind(enum_, contentEncoding, pattern, format)
+
+		if (kind === 'format' && format) {
+			const whiteList = ['email', 'hostname', 'ipv4', 'uri', 'uuid']
+			return whiteList.includes(format)
+		}
+
+		return kind === 'none' || kind === 'pattern'
+	}
+
+	if (type === 'number' || type === 'integer') {
+		return extra?.['min'] === undefined || extra?.['max'] === undefined
+	}
+
+	return type === undefined
+}
+
+export function getSchemaFromProperties(properties: { [name: string]: SchemaProperty }): Schema {
+	return {
+		properties: Object.fromEntries(Object.entries(properties).filter(([k, v]) => k !== 'label')),
+		required: Object.keys(properties).filter((k) => properties[k].required),
+		$schema: '',
+		type: 'object',
+		order: Object.keys(properties).filter((k) => k !== 'label')
+	}
+}
+
+export function validateFileExtension(ext: string) {
+	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
+	return validExtensionRegex.test(ext)
+
 }

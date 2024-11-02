@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Menu, MenuButton, MenuItems, Transition } from '@rgossiaux/svelte-headlessui'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { twMerge } from 'tailwind-merge'
@@ -9,7 +10,7 @@
 	export let placement: any = 'bottom-start'
 	export let justifyEnd: boolean = false
 	export let lightMode: boolean = false
-
+	export let maxHeight: number = 900
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'fixed',
 		middleware: [offset(), flip(), shift()],
@@ -24,7 +25,7 @@
 			<slot name="trigger" />
 		</MenuButton>
 	</div>
-	<Portal>
+	<Portal name="menu-v2">
 		<div use:floatingContent class="z-[6000]">
 			<Transition
 				{open}
@@ -37,9 +38,10 @@
 			>
 				<MenuItems
 					class={twMerge(
-						'border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
+						'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
 						lightMode ? 'bg-surface-inverse' : 'bg-surface'
 					)}
+					style="max-height: {maxHeight}px;"
 				>
 					<div class="my-1">
 						<slot />

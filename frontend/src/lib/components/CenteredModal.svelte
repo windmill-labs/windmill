@@ -7,6 +7,7 @@
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
 	export let disableLogo = false
+	export let large = false
 
 	setLicense()
 </script>
@@ -23,7 +24,9 @@
 		{/if}
 
 		<div
-			class="border rounded-md shadow-md bg-surface w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20 z-10"
+			class="border rounded-md shadow-md bg-surface w-full {large
+				? 'max-w-5xl'
+				: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 mb-6 md:mb-20 z-10"
 		>
 			<div class="mb-10">
 				<h1 class="text-center text-primary">

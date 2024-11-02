@@ -1,87 +1,68 @@
-#[cfg(feature = "enterprise")]
 use crate::db::{ApiAuthed, DB};
-#[cfg(feature = "enterprise")]
+use crate::jobs::{
+    filter_list_completed_query, filter_list_queue_query, Job, ListCompletedQuery, ListQueueQuery,
+    UnifiedJob,
+};
+use crate::users::check_scopes;
 use axum::extract::Path;
-#[cfg(feature = "enterprise")]
 use axum::routing::{delete, get};
-#[cfg(feature = "enterprise")]
-use axum::{Extension, Json};
+use axum::{extract::Query, Extension, Json};
+use serde::Deserialize;
 
 use axum::Router;
 
-#[cfg(feature = "enterprise")]
 use serde::Serialize;
-#[cfg(feature = "enterprise")]
-use std::collections::HashMap;
-#[cfg(feature = "enterprise")]
+use sql_builder::bind::Bind;
+use sql_builder::SqlBuilder;
+use uuid::Uuid;
+use windmill_common::db::UserDB;
 use windmill_common::error::Error::{InternalErr, PermissionDenied};
-#[cfg(feature = "enterprise")]
-use windmill_common::error::JsonResult;
+use windmill_common::error::{self, JsonResult};
+use windmill_common::utils::require_admin;
 
-#[cfg(feature = "enterprise")]
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
-        .route("/*id", delete(delete_concurrency_group))
+        .route("/prune/*concurrency_key", delete(prune_concurrency_group))
+        .route("/:job_id/key", get(get_concurrency_key))
 }
 
-#[cfg(not(feature = "enterprise"))]
-pub fn global_service() -> Router {
-    Router::new()
+pub fn workspaced_service() -> Router {
+    Router::new().route("/list_jobs", get(get_concurrent_intervals))
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Serialize)]
 pub struct ConcurrencyGroups {
-    concurrency_id: String,
-    job_uuids: Vec<String>,
+    concurrency_key: String,
+    total_running: i64,
 }
 
-#[cfg(feature = "enterprise")]
 async fn list_concurrency_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ConcurrencyGroups>> {
-    if !authed.is_admin {
-        return Err(PermissionDenied(
-            "Only administrators can see concurrency groups".to_string(),
-        ));
-    }
-    let concurrency_groups_raw = sqlx::query_as::<_, (String, serde_json::Value)>(
-        "SELECT * FROM concurrency_counter ORDER BY concurrency_id ASC",
-    )
-    .fetch_all(&db)
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let concurrency_counts = sqlx::query_as::<_, (String, i64)>(
+        "SELECT concurrency_id, (select COUNT(*) from jsonb_object_keys(job_uuids)) as n_job_uuids FROM concurrency_counter",
+    ).fetch_all(&db)
     .await?;
 
     let mut concurrency_groups: Vec<ConcurrencyGroups> = vec![];
-    for (concurrency_id, job_uuids_json) in concurrency_groups_raw {
-        let job_uuids_map = serde_json::from_value::<HashMap<String, serde_json::Value>>(
-            job_uuids_json,
-        )
-        .map_err(|err| {
-            tracing::error!(
-                "Error deserializing concurrency_counter table content: {:?}",
-                err
-            );
-            InternalErr(format!(
-                "Error deserializing concurrency_counter table content: {}",
-                err.to_string()
-            ))
-        })?;
+    for (concurrency_key, count) in concurrency_counts {
         concurrency_groups.push(ConcurrencyGroups {
-            concurrency_id: concurrency_id.clone(),
-            job_uuids: job_uuids_map.keys().cloned().collect(),
+            concurrency_key: concurrency_key.clone(),
+            total_running: count,
         })
     }
 
     return Ok(Json(concurrency_groups));
 }
 
-#[cfg(feature = "enterprise")]
-async fn delete_concurrency_group(
+async fn prune_concurrency_group(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path(concurrency_id): Path<String>,
+    Path(concurrency_key): Path<String>,
 ) -> JsonResult<()> {
     if !authed.is_admin {
         return Err(PermissionDenied(
@@ -93,7 +74,7 @@ async fn delete_concurrency_group(
     let concurrency_group = sqlx::query_as::<_, (String, i64)>(
         "SELECT concurrency_id, (select COUNT(*) from jsonb_object_keys(job_uuids)) as n_job_uuids FROM concurrency_counter WHERE concurrency_id = $1 FOR UPDATE",
     )
-    .bind(concurrency_id.clone())
+    .bind(concurrency_key.clone())
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -108,18 +89,263 @@ async fn delete_concurrency_group(
 
     sqlx::query!(
         "DELETE FROM concurrency_counter WHERE concurrency_id = $1",
-        concurrency_id.clone(),
+        concurrency_key.clone(),
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
-        "DELETE FROM custom_concurrency_key_ended  WHERE key = $1",
-        concurrency_id.clone(),
+        "DELETE FROM concurrency_key WHERE key = $1",
+        concurrency_key.clone(),
     )
     .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
     Ok(Json(()))
+}
+
+#[derive(Serialize)]
+struct ExtendedJobs {
+    jobs: Vec<Job>,
+    obscured_jobs: Vec<ObscuredJob>,
+    omitted_obscured_jobs: bool,
+}
+
+#[derive(Serialize)]
+struct ObscuredJob {
+    typ: String,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+    duration_ms: Option<i64>,
+}
+#[derive(Deserialize)]
+struct ExtendedJobsParams {
+    row_limit: Option<i64>,
+}
+
+pub fn join_concurrency_key<'c>(
+    concurrency_key: Option<&String>,
+    mut sqlb: SqlBuilder,
+) -> SqlBuilder {
+    if let Some(key) = concurrency_key {
+        sqlb.join("concurrency_key")
+            .on_eq("id", "concurrency_key.job_id")
+            .and_where_eq("key", "?".bind(key));
+    }
+
+    sqlb
+}
+
+async fn get_concurrent_intervals(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(iq): Query<ExtendedJobsParams>,
+    Query(lq): Query<ListCompletedQuery>,
+) -> JsonResult<ExtendedJobs> {
+    check_scopes(&authed, || format!("jobs:listjobs"))?;
+
+    if lq.success.is_some() && lq.running.is_some_and(|x| x) {
+        return Err(error::Error::BadRequest(
+            "cannot specify both success and running".to_string(),
+        ));
+    }
+
+    let row_limit = iq.row_limit.unwrap_or(1000);
+
+    let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
+    let lqc = lq.clone();
+    let lqq: ListQueueQuery = lqc.into();
+    let mut sqlb_q = SqlBuilder::select_from("queue")
+        .fields(UnifiedJob::queued_job_fields())
+        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .limit(row_limit)
+        .clone();
+    let mut sqlb_c = SqlBuilder::select_from("completed_job")
+        .fields(UnifiedJob::completed_job_fields())
+        .order_by("started_at", lq.order_desc.unwrap_or(true))
+        .limit(row_limit)
+        .clone();
+    let mut sqlb_q_user = SqlBuilder::select_from("queue")
+        .fields(&["id"])
+        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .limit(row_limit)
+        .clone();
+    let mut sqlb_c_user = SqlBuilder::select_from("completed_job")
+        .fields(&["id"])
+        .order_by("started_at", lq.order_desc.unwrap_or(true))
+        .limit(row_limit)
+        .clone();
+
+    sqlb_q = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_q);
+    sqlb_c = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_c);
+    sqlb_q_user = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_q_user);
+    sqlb_c_user = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_c_user);
+
+    let should_fetch_obscured_jobs = match lq {
+        ListCompletedQuery {
+            script_path_start: None,
+            script_path_exact: None,
+            script_hash: None,
+            created_by: None,
+            success: None,
+            running: None,
+            parent_job: None,
+            is_skipped: None | Some(false),
+            suspended: None,
+            schedule_path: None,
+            args: None,
+            result: None,
+            tag: None,
+            has_null_parent: None,
+            label: None,
+            scheduled_for_before_now: _,
+            is_not_schedule: _,
+            started_before: _,
+            started_after: _,
+            created_before: _,
+            created_after: _,
+            created_or_started_before: _,
+            created_or_started_after: _,
+            created_or_started_after_completed_jobs: _,
+            order_desc: _,
+            job_kinds: _,
+            is_flow_step: _,
+            all_workspaces: _,
+            concurrency_key: Some(_),
+        } => true,
+        _ => false,
+    };
+
+    // When we have a concurrency key defined, fetch jobs from other workspaces
+    // as obscured unless we're in the admins workspace. This is to show the
+    // potential concurrency races without showing jobs that don't belong to
+    // the workspace.
+    // To avoid infering information through filtering, don't return obscured
+    // jobs if the filters are too specific
+    if should_fetch_obscured_jobs && w_id != "admins" {
+        // Get the obscured jobs from all workspaces (concurrency key could be global)
+        let (sqlb_q, sqlb_c) = (
+            filter_list_queue_query(
+                sqlb_q,
+                &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
+                "admins",
+                true,
+            ),
+            filter_list_completed_query(
+                sqlb_c,
+                &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
+                "admins",
+                true,
+            ),
+        );
+
+        sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str(), true);
+        sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str(), true);
+
+        let sql_q_user = sqlb_q_user.query()?;
+        let sql_c_user = sqlb_c_user.query()?;
+        let sql_q = sqlb_q.query()?;
+        let sql_c = sqlb_c.query()?;
+
+        // This first transaction uses the user_db to know which uuids are
+        // accessible to the user.
+        let mut tx = user_db.begin(&authed).await?;
+        let running_jobs_user: Vec<Uuid> = if lq.success.is_none() {
+            sqlx::query_scalar(&sql_q_user).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        let completed_jobs_user: Vec<Uuid> = if lq.running.is_none() {
+            sqlx::query_scalar(&sql_c_user).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        tx.commit().await?;
+
+        // This second transaction uses the db, so it will fetch information
+        // potentially forbidden to the user. It must be obscured before
+        // returning it
+        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() {
+            sqlx::query_as(&sql_q).fetch_all(&db).await?
+        } else {
+            vec![]
+        };
+        let completed_jobs_db: Vec<UnifiedJob> = if lq.running.is_none() {
+            sqlx::query_as(&sql_c).fetch_all(&db).await?
+        } else {
+            vec![]
+        };
+
+        let obscured_jobs = running_jobs_db
+            .iter()
+            .filter(|j| !running_jobs_user.iter().any(|id| j.id == *id))
+            .chain(
+                completed_jobs_db
+                    .iter()
+                    .filter(|j| !completed_jobs_user.iter().any(|id| j.id == *id)),
+            )
+            .map(|j| ObscuredJob {
+                typ: j.typ.clone(),
+                started_at: j.started_at,
+                duration_ms: j.duration_ms,
+            })
+            .collect();
+        let jobs = running_jobs_db
+            .into_iter()
+            .filter(|j| running_jobs_user.iter().any(|id| j.id == *id))
+            .chain(
+                completed_jobs_db
+                    .into_iter()
+                    .filter(|j| completed_jobs_user.iter().any(|id| j.id == *id)),
+            )
+            .map(From::from)
+            .collect();
+        Ok(Json(ExtendedJobs {
+            jobs,
+            obscured_jobs,
+            omitted_obscured_jobs: !should_fetch_obscured_jobs,
+        }))
+    } else {
+        sqlb_q = filter_list_queue_query(sqlb_q, &lqq, w_id.as_str(), true);
+        sqlb_c = filter_list_completed_query(sqlb_c, &lq, w_id.as_str(), true);
+        let sql_q = sqlb_q.query()?;
+        let sql_c = sqlb_c.query()?;
+
+        let mut tx = user_db.begin(&authed).await?;
+        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() {
+            sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        let completed_jobs: Vec<UnifiedJob> = if lq.running.is_none() {
+            sqlx::query_as(&sql_c).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        tx.commit().await?;
+
+        let jobs = running_jobs
+            .into_iter()
+            .chain(completed_jobs.into_iter())
+            .map(From::from)
+            .collect();
+
+        Ok(Json(ExtendedJobs {
+            jobs,
+            obscured_jobs: vec![],
+            omitted_obscured_jobs: !should_fetch_obscured_jobs,
+        }))
+    }
+}
+
+async fn get_concurrency_key(
+    Extension(db): Extension<DB>,
+    Path(job_id): Path<Uuid>,
+) -> JsonResult<Option<String>> {
+    let key = sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
+        .fetch_optional(&db)
+        .await?;
+    Ok(Json(key))
 }

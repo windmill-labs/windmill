@@ -106,6 +106,30 @@ export async function main({
     ).database_length;
   }
 
+  async function getFlowStepCount(
+    workspace: string,
+    path: string
+  ): Promise<number> {
+    const response = await fetch(
+      `${config.server}/api/w/${workspace}/flows/get/${path}`,
+      { headers: { ["Authorization"]: "Bearer " + config.token } }
+    );
+
+    const data = await response.json();
+    let stepCount = 0;
+
+    for (const mod of data.value.modules) {
+      if (mod.value.type === "flow" && mod.value.path) {
+        const subFlowCount = await getFlowStepCount(workspace, mod.value.path);
+        stepCount += subFlowCount;
+      } else {
+        stepCount += 1;
+      }
+    }
+
+    return stepCount;
+  }
+
   let pastJobs = 0;
   async function getCompletedJobsCount(): Promise<number> {
     const completedJobs = (
@@ -119,7 +143,11 @@ export async function main({
     return completedJobs - pastJobs;
   }
 
-  if (["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(kind)) {
+  if (
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+      kind
+    )
+  ) {
     await createBenchScript(kind, workspace);
   }
 
@@ -129,40 +157,46 @@ export async function main({
   console.log(`Bulk creating ${jobsSent} jobs`);
 
   const start_create = Date.now();
+  let nStepsFlow = 0;
   let body: string;
   if (kind === "noop") {
     body = JSON.stringify({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(kind)
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+      kind
+    )
   ) {
     body = JSON.stringify({
       kind: "script",
       path: "f/benchmarks/" + kind,
     });
   } else if (["2steps"].includes(kind)) {
+    nStepsFlow = 2;
     const payload = getFlowPayload(kind);
     body = JSON.stringify({
       kind: "flow",
       flow_value: payload.value,
     });
   } else if (kind.startsWith("flow:")) {
-    console.log("Detected custom flow ")
+    console.log("Detected custom flow ");
+    let flow_path = kind.substr(5);
+    nStepsFlow = await getFlowStepCount(config.workspace_id, flow_path);
+    console.log(`Total steps of flow including sub-flows: ${nStepsFlow}`);
     body = JSON.stringify({
       kind: "flow",
-      path: kind.substr(5)
+      path: flow_path,
     });
   } else if (kind.startsWith("script:")) {
-    console.log("Detected custom script")
+    console.log("Detected custom script");
     body = JSON.stringify({
       kind: "script",
-      path: kind.substr(7)
+      path: kind.substr(7),
     });
   } else {
     throw new Error("Unknown script pattern " + kind);
   }
-
 
   const response = await fetch(
     config.server +
@@ -179,7 +213,12 @@ export async function main({
     }
   );
   if (!response.ok) {
-    throw new Error("Failed to create jobs: " + response.statusText);
+    throw new Error(
+      "Failed to create jobs: " +
+        response.statusText +
+        " " +
+        (await response.text())
+    );
   }
   const uuids = await response.json();
   const end_create = Date.now();
@@ -208,7 +247,7 @@ export async function main({
       const elapsed = start ? Date.now() - start : 0;
       completedJobs = await getCompletedJobsCount();
       if (kind === "2steps" || kind.startsWith("flow:")) {
-        completedJobs = Math.floor(completedJobs / 3);
+        completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }
       const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
       const instThr =
@@ -247,7 +286,13 @@ export async function main({
   console.log("completed jobs", completedJobs);
   console.log("queue length:", await getQueueCount());
 
-  if (!noVerify && kind !== "noop" && kind !== 'nativets' && !kind.startsWith("flow:") && !kind.startsWith("script:")) {
+  if (
+    !noVerify &&
+    kind !== "noop" &&
+    kind !== "nativets" &&
+    !kind.startsWith("flow:") &&
+    !kind.startsWith("script:")
+  ) {
     await verifyOutputs(uuids, config.workspace_id);
   }
 

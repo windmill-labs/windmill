@@ -9,7 +9,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
-	import autosize from '$lib/autosize'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import TableCustom from './TableCustom.svelte'
@@ -17,6 +16,8 @@
 	import { canWrite } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Section from './Section.svelte'
+	import Label from './Label.svelte'
 
 	export let name: string
 	let can_write = false
@@ -27,6 +28,7 @@
 	let members: { member_name: string; role: Role }[] | undefined = undefined
 	let usernames: string[] | undefined = []
 	let username: string = ''
+	let summary = ''
 
 	const dispatch = createEventDispatcher()
 
@@ -78,9 +80,11 @@
 					role: getRole(x)
 				}
 			})
+			summary = group.summary ?? ''
 		} catch (e) {
 			can_write = false
 			members = []
+			summary = ''
 			group = {
 				name
 			}
@@ -101,37 +105,28 @@
 	}
 </script>
 
-<div class="flex flex-col gap-6">
-	<h1>{name}</h1>
-	{#if group}
-		<div class="flex flex-col gap-1">
-			<textarea
-				disabled={!can_write}
-				rows="2"
-				use:autosize
-				bind:value={group.summary}
-				placeholder="Summary of the group"
-			/>
-			<div class="flex justify-end">
-				<Button
-					disabled={!can_write}
-					size="xs"
-					on:click={async () => {
-						await GroupService.updateGroup({
-							workspace: $workspaceStore ?? '',
-							name,
-							requestBody: { summary: group?.summary }
-						})
-						dispatch('update')
-						sendUserToast('New summary saved')
-					}}>Save Summary</Button
-				>
-			</div>
+<Section label="Metadata" class="mb-4">
+	<Label label="Summary">
+		<div class="flex flex-row gap-2">
+			<input placeholder="Short summary to be displayed when listed" bind:value={summary} />
+			<Button
+				size="sm"
+				on:click={async () => {
+					await GroupService.updateGroup({
+						workspace: $workspaceStore ?? '',
+						name,
+						requestBody: { summary }
+					})
+					dispatch('update')
+					sendUserToast('Group summary updated')
+					loadGroup()
+				}}>Save</Button
+			>
 		</div>
-	{:else}
-		<Skeleton layout={[[4]]} />
-	{/if}
-	<h2>Members ({members?.length ?? 0})</h2>
+	</Label>
+</Section>
+
+<Section label={`Members (${members?.length ?? 0})`}>
 	{#if can_write}
 		<div class="flex items-start">
 			<AutoComplete required noInputStyles items={usernames} bind:selectedItem={username} />
@@ -221,13 +216,6 @@
 											label="Member"
 											tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
 										/>
-
-										<!-- <ToggleButton position="center" value="manager" size="xs"
-											>Manager <Tooltip
-												>A manager of a group can manage the group, adding and removing users and
-												change their roles. Being a manager does not make you a member.</Tooltip
-											></ToggleButton
-										> -->
 										<ToggleButton
 											position="right"
 											value="admin"
@@ -235,6 +223,15 @@
 											label="Admin"
 											tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
 										/>
+										{#if role === 'manager'}
+											<ToggleButton
+												value="manager"
+												size="xs"
+												label="Manager"
+												tooltip="A manager of a group can manage the group, adding and removing users and
+												change their roles. Being a manager does not make you a member"
+											/>
+										{/if}
 									</ToggleButtonGroup>
 								</div>
 							{:else}
@@ -281,58 +278,6 @@
 				</tbody>
 			</TableCustom>
 		{/if}
-
-		<!-- <h2 class="mt-10"
-			>Groups managing this group <Tooltip>Any member of those groups can manage this group</Tooltip
-			></h2
-		>
-		{#if can_write}
-			<div class="flex items-start">
-				<AutoComplete items={groups} bind:selectedItem={new_managing_group} />
-				<Button
-					variant="contained"
-					color="blue"
-					size="sm"
-					btnClasses="!ml-4"
-					on:click={addToManagingGroup}
-				>
-					Add group managing this group
-				</Button>
-			</div>
-		{/if}
-		{#if managing_groups.length == 0}
-			<p class="text-tertiary text-sm">No group is managing this group</p>
-		{:else}
-			<TableCustom>
-				<tr slot="header-row">
-					<th>group</th>
-					<th />
-				</tr>
-				<tbody slot="body">
-					{#each managing_groups as managing_group}<tr>
-							<td>{managing_group.split('/')[1]}</td>
-							<td>
-								{#if can_write}
-									<button
-										class="ml-2 text-red-500"
-										on:click={async () => {
-											await GranularAclService.removeGranularAcls({
-												workspace: $workspaceStore ?? '',
-												path: name,
-												kind: 'group_',
-												requestBody: {
-													owner: managing_group
-												}
-											})
-											loadGroup()
-										}}>remove</button
-									>
-								{/if}</td
-							>
-						</tr>{/each}
-				</tbody>
-			</TableCustom>
-		{/if} -->
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(6) as _}
@@ -340,4 +285,4 @@
 			{/each}
 		</div>
 	{/if}
-</div>
+</Section>

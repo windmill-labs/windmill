@@ -410,6 +410,12 @@ interface Console {
     log(...data: any[]): void;
 }
 
+
+declare function setTimeout(callback: (...args: any[]) => void, ms: number, ...args: any[]): number;
+declare function setInterval(callback: (...args: any[]) => void, ms: number, ...args: any[]): number;
+declare function clearTimeout(timeoutId: number): void;
+declare function clearInterval(intervalId: number): void;
+
 declare var console: Console;
 
 declare var process: Process
@@ -422,6 +428,7 @@ interface Process {
       WM_USERNAME: string;
       WM_BASE_URL: string;
       WM_JOB_ID: string;
+      WM_SCHEDULED_FOR: string;
       WM_JOB_PATH: string;
       WM_FLOW_JOB_ID: string;
       WM_ROOT_FLOW_JOB_ID: string;

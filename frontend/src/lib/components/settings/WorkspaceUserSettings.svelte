@@ -98,7 +98,9 @@
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
 			invites
-				.filter((x) => (isCloudHosted() ? x.email.endsWith('@' + auto_invite_domain ?? '') : true))
+				.filter((x) =>
+					isCloudHosted() ? x.email.endsWith('@' + (auto_invite_domain ?? '')) : true
+				)
 				.map(({ email, is_admin, operator }) =>
 					WorkspaceService.deleteInvite({
 						workspace: $workspaceStore ?? '',
@@ -137,9 +139,11 @@
 		</div>
 	</div>
 </div>
-<div class="flex flex-row justify-between items-center">
+<div class="flex flex-row justify-between items-center pt-2">
 	<PageHeader
-		title="Members ({filteredUsers?.length ?? users?.length ?? ''})"
+		title="Members {(filteredUsers?.length ?? users?.length) != undefined
+			? `(${filteredUsers?.length ?? users?.length})`
+			: ''}"
 		primary={true}
 		tooltip="Manage users manually or enable SSO authentication."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
@@ -312,7 +316,7 @@
 			{#if filteredUsers}
 				{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, disabled } (email)}
 					<tr class="!hover:bg-surface-hover">
-						<Cell first>{truncate(email, 20)}</Cell>
+						<Cell first><a href="mailto:{email}">{truncate(email, 20)}</a></Cell>
 						<Cell>{truncate(username, 30)}</Cell>
 						<Cell
 							>{#if usage?.[email] != undefined}{usage?.[email]}{:else}<Loader2

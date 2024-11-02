@@ -32,10 +32,10 @@
 						let val: { argName: string; type: string } | undefined = undefined
 
 						const [k, inputTransform] = x
-						const v = schema.properties[k]
+						const v = schema?.properties[k]
 
 						if (
-							v.format?.includes('resource') &&
+							v?.format?.includes('resource') &&
 							inputTransform.type === 'static' &&
 							(inputTransform.value === '' ||
 								inputTransform.value === undefined ||
@@ -66,7 +66,7 @@
 					Object.entries(v.input_transforms)
 						.filter((x) => {
 							const shouldDisplay = hideOptional
-								? $flowStateStore[m.id]?.schema.required?.includes(x[0])
+								? $flowStateStore[m.id]?.schema?.required?.includes(x[0])
 								: true
 							return x[1].type == 'static' && shouldDisplay
 						})
@@ -121,7 +121,7 @@
 					</Alert>
 				{/if}
 			{/if}
-			{#each steps as [args, filter, m] (m.id)}
+			{#each steps as [args, filter, m], index (m.id + index)}
 				{#if filter.length > 0}
 					<div class="relative h-full border-t p-4">
 						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">

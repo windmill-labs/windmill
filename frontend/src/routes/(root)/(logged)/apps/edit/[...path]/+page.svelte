@@ -4,11 +4,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { afterNavigate, replaceState } from '$app/navigation'
+    import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
-	import { cloneDeep } from 'lodash'
 
 	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
 	let savedApp:
@@ -26,10 +26,13 @@
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
-
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
@@ -38,7 +41,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = cloneDeep(app_w_draft)
+		const app_w_draft_ = structuredClone(app_w_draft)
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as App,
@@ -178,6 +181,19 @@
 	}
 
 	let diffDrawer: DiffDrawer
+
+	function onRestore(ev: any) {
+		sendUserToast('App restored from previous deployment')
+		app = ev.detail
+		const app_ = structuredClone(app!)
+		savedApp = {
+			summary: app_.summary,
+			value: app_.value as App,
+			path: app_.path,
+			policy: app_.policy
+		}
+		redraw++
+	}
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
@@ -186,11 +202,7 @@
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
-				on:restore={(e) => {
-					sendUserToast('App restored from previous deployment')
-					app = e.detail
-					redraw++
-				}}
+				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
 				path={app.path}

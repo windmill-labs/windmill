@@ -32,6 +32,16 @@
         "ordinal": 5,
         "name": "extra_perms",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -45,7 +55,9 @@
       true,
       true,
       false,
-      false
+      false,
+      true,
+      true
     ]
   },
   "hash": "45e4d13f5806122faecdb1d9ab18159555b652869a036b006f4a151e999b17b7"

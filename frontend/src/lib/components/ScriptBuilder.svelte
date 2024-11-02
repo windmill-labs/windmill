@@ -5,7 +5,8 @@
 		ScriptService,
 		type NewScriptWithDraft,
 		ScheduleService,
-		type Script
+		type Script,
+		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -16,7 +17,8 @@
 		emptyString,
 		encodeState,
 		formatCron,
-		orderedJsonStringify
+		orderedJsonStringify,
+		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -33,6 +35,7 @@
 		Calendar,
 		CheckCircle,
 		Code,
+		CornerDownLeft,
 		DiffIcon,
 		Pen,
 		Plus,
@@ -51,58 +54,92 @@
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
-	import ScriptSchedules from './ScriptSchedules.svelte'
 	import { writable } from 'svelte/store'
-	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
+	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
+	import CustomPopover from './CustomPopover.svelte'
+	import Summary from './Summary.svelte'
+	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import TriggersEditor from './triggers/TriggersEditor.svelte'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
 
 	export let script: NewScript
+	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
-	export let template: 'docker' | 'script' = 'script'
+	export let template: 'docker' | 'bunnative' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
+	export let neverShowMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedScript: NewScriptWithDraft | undefined = undefined
 	export let searchParams: URLSearchParams = new URLSearchParams()
 	export let disableHistoryChange = false
+	export let replaceStateFn: (url: string) => void = (url) =>
+		window.history.replaceState(null, '', url)
+	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	let metadataOpen =
-		showMeta ||
-		(initialPath == '' &&
-			searchParams.get('state') == undefined &&
-			searchParams.get('collab') == undefined)
+		!neverShowMeta &&
+		(showMeta ||
+			(initialPath == '' &&
+				searchParams.get('state') == undefined &&
+				searchParams.get('collab') == undefined))
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
 
-	let scheduleStore = writable<ScriptSchedule>({
-		summary: '',
-		cron: '0 */5 * * *',
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		args: {},
-		enabled: false
-	})
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
+	const triggersCount = writable<TriggersCount | undefined>(
+		savedPrimarySchedule
+			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+			: undefined
+	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+	>('webhooks')
 
-	async function loadSchedule() {
-		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
-		if (scheduleRes) {
-			scheduleStore.set(scheduleRes)
-		}
+	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
+		primaryScheduleStore.set(schedule)
+		loadTriggers()
 	}
 
 	const dispatch = createEventDispatcher()
 
-	$: {
-		if (initialPath != '') {
-			loadSchedule()
+	$: initialPath != '' && loadTriggers()
+
+	async function loadTriggers() {
+		$triggersCount = await ScriptService.getTriggersCountOfScript({
+			workspace: $workspaceStore!,
+			path: initialPath
+		})
+		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
+			$triggersCount = {
+				...($triggersCount ?? {}),
+				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
+				primary_schedule: {
+					schedule: $primaryScheduleStore.cron
+				}
+			}
 		}
 	}
+
+	setContext<TriggerContext>('TriggerContext', {
+		selectedTrigger: selectedTriggerStore,
+		primarySchedule: primaryScheduleStore,
+		triggersCount
+	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 
@@ -110,11 +147,14 @@
 		editor?.setCode(code)
 	}
 
-	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+	$: langs = processLangs(
+		script.language,
+		$defaultScripts?.order ?? Object.keys(defaultScriptLanguages)
+	)
 		.map((l) => [defaultScriptLanguages[l], l])
 		.filter(
 			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker'][]
+		) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
 
 	const scriptKindOptions: {
 		value: Script['kind']
@@ -163,7 +203,8 @@
 		})
 	}
 
-	$: !disableHistoryChange && window.history.replaceState(null, '', '#' + encodeState(script))
+	$: !disableHistoryChange &&
+		replaceStateFn('#' + encodeState({ ...script, primarySchedule: $primaryScheduleStore }))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -172,7 +213,7 @@
 	function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
 	) {
 		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
@@ -183,7 +224,10 @@
 	}
 
 	async function createSchedule(path: string) {
-		const { cron, timezone, args, enabled, summary } = $scheduleStore
+		if (!$primaryScheduleStore) {
+			return
+		}
+		const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
 
 		try {
 			await ScheduleService.createSchedule({
@@ -204,7 +248,78 @@
 		}
 	}
 
-	async function editScript(stay: boolean): Promise<void> {
+	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		// Fetch latest version and fetch entire script after if needed
+		let actual_parent_hash: string | undefined = undefined
+
+		try {
+			if (initialPath && initialPath != '') {
+				actual_parent_hash = (
+					await ScriptService.getScriptLatestVersion({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+				)?.script_hash
+			}
+		} catch (error) {
+			//
+		}
+
+		// Usually when we create new script, we put current hash as a parent_hash
+		// But if we specify parent_hash that is already used, than we get error
+		// In order to fix it we make sure that client's understanding of parent_hash
+		// is aligns with understanding of backend.
+		if (actual_parent_hash == undefined || script.parent_hash == actual_parent_hash) {
+			// Handle directly
+			await editScript(stay, script.parent_hash!, deployMsg)
+		} else {
+			// Fetch entire script, since we need it to show Diff
+			await syncWithDeployed()
+
+			// Handle through confirmation modal
+			confirmCallback = async () => {
+				open = false
+				if (actual_parent_hash) {
+					await editScript(stay, actual_parent_hash, deployMsg)
+				} else {
+					sendUserToast('Could not fetch latest version of the script', true)
+				}
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+
+	async function syncWithDeployed() {
+		const latestScript = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			withStarredInfo: true
+		})
+
+		deployedValue = {
+			...latestScript,
+			starred: undefined,
+			workspace_id: undefined,
+			archived: undefined,
+			created_at: undefined,
+			created_by: undefined,
+			deleted: undefined,
+			extra_perms: undefined,
+			is_template: undefined,
+			lock: undefined,
+			lock_error_logs: undefined,
+			parent_hashes: undefined
+		}
+
+		deployedBy = latestScript.created_by
+	}
+
+	async function editScript(
+		stay: boolean,
+		parentHash: string,
+		deploymentMsg?: string
+	): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -214,13 +329,11 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = undefined
+				const result = await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = result?.no_main_func || undefined
+				script.has_preprocessor = result?.has_preprocessor || undefined
 			} catch (error) {
-				script.no_main_func = true
-				sendUserToast(
-					`The main signature was not parsable. This script is considered to be without main function`
-				)
+				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
 			const newHash = await ScriptService.createScript({
@@ -230,7 +343,7 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: script.parent_hash,
+					parent_hash: parentHash,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
@@ -248,50 +361,61 @@
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
-					no_main_func: script.no_main_func
+					no_main_func: script.no_main_func,
+					has_preprocessor: script.has_preprocessor,
+					deployment_message: deploymentMsg || undefined
 				}
 			})
 
-			const { enabled, timezone, args, cron, summary } = $scheduleStore
-			const scheduleExists = await ScheduleService.existsSchedule({
-				workspace: $workspaceStore ?? '',
-				path: script.path
-			})
+			const scheduleExists =
+				initialPath != '' &&
+				(await ScheduleService.existsSchedule({
+					workspace: $workspaceStore ?? '',
+					path: script.path
+				}))
+			if ($primaryScheduleStore) {
+				const { enabled, timezone, args, cron, summary } = $primaryScheduleStore
 
-			if (scheduleExists) {
-				const schedule = await ScheduleService.getSchedule({
+				if (scheduleExists) {
+					const schedule = await ScheduleService.getSchedule({
+						workspace: $workspaceStore ?? '',
+						path: script.path
+					})
+					if (
+						JSON.stringify(schedule.args) != JSON.stringify(args) ||
+						schedule.schedule != cron ||
+						schedule.timezone != timezone ||
+						schedule.summary != summary
+					) {
+						await ScheduleService.updateSchedule({
+							workspace: $workspaceStore ?? '',
+							path: script.path,
+							requestBody: {
+								schedule: formatCron(cron),
+								timezone,
+								args,
+								summary
+							}
+						})
+					}
+					if (enabled != schedule.enabled) {
+						await ScheduleService.setScheduleEnabled({
+							workspace: $workspaceStore ?? '',
+							path: script.path,
+							requestBody: { enabled }
+						})
+					}
+				} else if (enabled) {
+					await createSchedule(script.path)
+				}
+			} else if (scheduleExists && !$triggersCount?.primary_schedule) {
+				await ScheduleService.deleteSchedule({
 					workspace: $workspaceStore ?? '',
 					path: script.path
 				})
-				if (
-					JSON.stringify(schedule.args) != JSON.stringify(args) ||
-					schedule.schedule != cron ||
-					schedule.timezone != timezone ||
-					schedule.summary != summary
-				) {
-					await ScheduleService.updateSchedule({
-						workspace: $workspaceStore ?? '',
-						path: script.path,
-						requestBody: {
-							schedule: formatCron(cron),
-							timezone,
-							args,
-							summary
-						}
-					})
-				}
-				if (enabled != schedule.enabled) {
-					await ScheduleService.setScheduleEnabled({
-						workspace: $workspaceStore ?? '',
-						path: script.path,
-						requestBody: { enabled }
-					})
-				}
-			} else if (enabled) {
-				await createSchedule(script.path)
 			}
 
-			savedScript = cloneDeep(script) as NewScriptWithDraft
+			savedScript = structuredClone(script) as NewScriptWithDraft
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
@@ -301,6 +425,7 @@
 				dispatch('deploy', newHash)
 			}
 		} catch (error) {
+			dispatch('deployError', error)
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
@@ -310,6 +435,7 @@
 		if (initialPath != '' && !savedScript) {
 			return
 		}
+
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
 			const current = cleanValueProperties(script)
@@ -335,13 +461,11 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = undefined
+				const result = await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = result?.no_main_func || undefined
+				script.has_preprocessor = result?.has_preprocessor || undefined
 			} catch (error) {
-				script.no_main_func = true
-				sendUserToast(
-					`The main signature was not parsable. This script is considered to be without main function`
-				)
+				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
 			if (initialPath == '' || savedScript?.draft_only) {
@@ -378,7 +502,8 @@
 							? undefined
 							: script.concurrency_key,
 						visible_to_runner_only: script.visible_to_runner_only,
-						no_main_func: script.no_main_func
+						no_main_func: script.no_main_func,
+						has_preprocessor: script.has_preprocessor
 					}
 				})
 			}
@@ -387,39 +512,44 @@
 				requestBody: {
 					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
 					typ: 'script',
-					value: script
+					value: { ...script, primary_schedule: $primaryScheduleStore }
 				}
 			})
 
 			savedScript = {
 				...(initialPath == '' || savedScript?.draft_only
-					? { ...cloneDeep(script), draft_only: true }
+					? { ...structuredClone(script), draft_only: true }
 					: savedScript),
-				draft: cloneDeep(script)
+				draft: structuredClone(script)
 			} as NewScriptWithDraft
 
+			let savedAtNewPath = false
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
+				savedAtNewPath = true
 				initialPath = script.path
 				dispatch('saveInitial', script.path)
 			}
+			dispatch('saveDraft', { path: script.path, savedAtNewPath, script })
+
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(
 				`Error while saving the script as a draft: ${error.body || error.message}`,
 				true
 			)
+			dispatch('saveDraftError', error)
 		}
 		loadingDraft = false
 	}
 
 	function computeDropdownItems(initialPath: string) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
-			initialPath != ''
+			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
 						{
 							label: 'Deploy & Stay here',
 							onClick: () => {
-								editScript(true)
+								handleEditScript(true)
 							}
 						},
 						{
@@ -458,14 +588,39 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = 'metadata'
+
+	let deploymentMsg = ''
+	let msgInput: HTMLInputElement | undefined = undefined
+
+	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
+		if (lang == 'docker') {
+			return 'bash'
+		}
+		if (lang == 'bunnative') {
+			return 'bun'
+		}
+		return lang
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 <slot />
 
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={script}
+/>
 {#if !$userStore?.operator}
-	<Drawer placement="right" bind:open={metadataOpen} size="800px">
+	<Drawer
+		placement="right"
+		bind:open={metadataOpen}
+		size={selectedTab === 'ui' ? '1200px' : '800px'}
+	>
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
 			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={selectedTab}>
@@ -480,9 +635,12 @@
 						cannot be inferred from the type directly.
 					</Tooltip>
 				</Tab>
-				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
+				<Tab value="triggers">Triggers</Tab>
 				<svelte:fragment slot="content">
-					<div class="p-4">
+					<div
+						class={selectedTab === 'ui' ? 'p-0' : 'p-4'}
+						style={selectedTab === 'ui' ? `height: calc(100% - 32px);` : ''}
+					>
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
@@ -560,6 +718,7 @@
 										{#each langs as [label, lang] (lang)}
 											{@const isPicked =
 												(lang == script.language && template == 'script') ||
+												(template == 'bunnative' && lang == 'bunnative') ||
 												(template == 'docker' && lang == 'docker')}
 											<Popover
 												disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
@@ -592,10 +751,12 @@
 																return
 															}
 															template = 'docker'
+														} else if (lang == 'bunnative') {
+															template = 'bunnative'
 														} else {
 															template = 'script'
 														}
-														let language = lang == 'docker' ? 'bash' : lang
+														let language = langToLanguage(lang)
 														//
 														initContent(language, script.kind, template)
 														script.language = language
@@ -605,6 +766,9 @@
 												>
 													<LanguageIcon {lang} />
 													<span class="ml-2 py-2 truncate">{label}</span>
+													{#if lang === 'ansible'}
+														<span class="text-tertiary !text-xs"> BETA </span>
+													{/if}
 												</Button>
 												<svelte:fragment slot="text"
 													>{label} is only available with an enterprise license</svelte:fragment
@@ -974,12 +1138,19 @@
 								{/if}
 							</div>
 						</TabContent>
-						<TabContent value="ui">
-							<div class="mt-4" />
+						<TabContent value="ui" class="h-full">
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
-						<TabContent value="schedule">
-							<ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} />
+						<TabContent value="triggers">
+							<TriggersEditor
+								{initialPath}
+								schema={script.schema}
+								noEditor={true}
+								isFlow={false}
+								currentPath={script.path}
+								newItem={initialPath == ''}
+							/>
+							<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
 						</TabContent>
 					</div>
 				</svelte:fragment>
@@ -990,9 +1161,10 @@
 	<div class="flex flex-col h-screen">
 		<div class="flex h-12 items-center px-4">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
-				<div class="flex flex-row gap-2">
+				<div class="flex flex-row gap-2 grow max-w-md">
 					<div class="center-center">
 						<button
+							disabled={customUi?.topBar?.settings == false}
 							on:click={async () => {
 								metadataOpen = true
 							}}
@@ -1000,18 +1172,14 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="min-w-32 lg:min-w-64 w-full max-w-md">
-						<input
-							type="text"
-							placeholder="Script summary"
-							class="text-sm w-full font-semibold"
-							bind:value={script.summary}
-						/>
-					</div>
+					<Summary
+						disabled={customUi?.topBar?.editableSummary == false}
+						bind:value={script.summary}
+					/>
 				</div>
 
 				<div class="gap-4 flex">
-					{#if $scheduleStore.enabled}
+					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1020,38 +1188,45 @@
 							size="xs"
 							on:click={async () => {
 								metadataOpen = true
-								selectedTab = 'schedule'
+								selectedTab = 'triggers'
+								$selectedTriggerStore = 'schedules'
 							}}
 						>
-							{$scheduleStore.cron ?? ''}
+							{$primaryScheduleStore != undefined
+								? $primaryScheduleStore
+									? $primaryScheduleStore?.cron
+									: ''
+								: $triggersCount?.primary_schedule?.schedule}
 						</Button>
 					{/if}
-					<div class="flex justify-start w-full border rounded-md overflow-hidden">
-						<div>
-							<button
-								on:click={async () => {
-									metadataOpen = true
-								}}
-							>
-								<Badge
-									color="gray"
-									class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+					{#if customUi?.topBar?.path != false}
+						<div class="flex justify-start w-full border rounded-md overflow-hidden">
+							<div>
+								<button
+									on:click={async () => {
+										metadataOpen = true
+									}}
 								>
-									<Pen size={12} class="mr-2" /> Path
-								</Badge>
-							</button>
+									<Badge
+										color="gray"
+										class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+									>
+										<Pen size={12} class="mr-2" /> Path
+									</Badge>
+								</button>
+							</div>
+							<input
+								type="text"
+								readonly
+								value={script.path}
+								size={script.path?.length || 50}
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								on:focus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
 						</div>
-						<input
-							type="text"
-							readonly
-							value={script.path}
-							size={script.path?.length || 50}
-							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-							on:focus={({ currentTarget }) => {
-								currentTarget.select()
-							}}
-						/>
-					</div>
+					{/if}
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
@@ -1059,40 +1234,46 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							if (!savedScript) {
-								return
-							}
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'normal',
-								deployed: savedScript,
-								draft: savedScript['draft'],
-								current: script
-							})
-						}}
-						disabled={!savedScript || !diffDrawer}
-					>
-						<div class="flex flex-row gap-2 items-center">
-							<DiffIcon size={14} />
-							<span class="hidden lg:flex"> Diff </span>
-						</div>
-					</Button>
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							metadataOpen = true
-						}}
-						startIcon={{ icon: Settings }}
-					>
-						<span class="hidden lg:flex"> Settings </span>
-					</Button>
+					{#if customUi?.topBar?.diff != false}
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							on:click={async () => {
+								if (!savedScript) {
+									return
+								}
+								await syncWithDeployed()
+
+								diffDrawer?.openDrawer()
+								diffDrawer?.setDiff({
+									mode: 'normal',
+									deployed: deployedValue ?? savedScript,
+									draft: savedScript['draft'],
+									current: script
+								})
+							}}
+							disabled={!savedScript || !diffDrawer}
+						>
+							<div class="flex flex-row gap-2 items-center">
+								<DiffIcon size={14} />
+								<span class="hidden lg:flex"> Diff </span>
+							</div>
+						</Button>
+					{/if}
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							on:click={() => {
+								metadataOpen = true
+							}}
+							startIcon={{ icon: Settings }}
+						>
+							<span class="hidden lg:flex"> Settings </span>
+						</Button>
+					{/if}
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1105,23 +1286,54 @@
 					>
 						<span class="hidden lg:flex"> Draft </span>
 					</Button>
-					<Button
-						loading={loadingSave}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => editScript(false)}
-						dropdownItems={computeDropdownItems(initialPath)}
-					>
-						Deploy
-					</Button>
+
+					<CustomPopover appearTimeout={0} focusEl={msgInput}>
+						<Button
+							loading={loadingSave}
+							size="xs"
+							disabled={!fullyLoaded}
+							startIcon={{ icon: Save }}
+							on:click={() => handleEditScript(false)}
+							dropdownItems={computeDropdownItems(initialPath)}
+						>
+							Deploy
+						</Button>
+						<svelte:fragment slot="overlay">
+							<div class="flex flex-row gap-2 min-w-72">
+								<input
+									type="text"
+									placeholder="Deployment message"
+									bind:value={deploymentMsg}
+									bind:this={msgInput}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') {
+											handleEditScript(false, deploymentMsg)
+										}
+									}}
+								/>
+								<Button
+									size="xs"
+									on:click={() => handleEditScript(false, deploymentMsg)}
+									endIcon={{ icon: CornerDownLeft }}
+									loading={loadingSave}
+								>
+									Deploy
+								</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
 				</div>
 			</div>
 		</div>
 
 		<ScriptEditor
+			{customUi}
 			collabMode
 			edit={initialPath != ''}
 			on:format={() => {
+				saveDraft()
+			}}
+			on:saveDraft={() => {
 				saveDraft()
 			}}
 			bind:editor

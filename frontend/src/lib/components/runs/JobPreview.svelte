@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { type Job, type WorkflowStatus } from '../../gen'
+	import { base } from '$lib/base'
+	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { Badge, Skeleton, Tab, Tabs } from '../common'
+	import { Badge, Button, Skeleton, Tab, Tabs } from '../common'
 	import HighlightCode from '../HighlightCode.svelte'
 	import { forLater } from '$lib/forLater'
 	import FlowProgressBar from '../flows/FlowProgressBar.svelte'
@@ -12,6 +13,10 @@
 	import DurationMs from '../DurationMs.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
+	import Popover from '../Popover.svelte'
+	import { truncateRev } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import { ListFilter } from 'lucide-svelte'
 
 	export let id: string
 	export let blankLink = false
@@ -38,11 +43,20 @@
 
 	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
 
+	let lastJobId: string | undefined = undefined
+	let concurrencyKey: string | undefined = undefined
+	$: job?.id && lastJobId !== job.id && getConcurrencyKey(job)
+	async function getConcurrencyKey(job: Job) {
+		lastJobId = job.id
+		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
+	}
+
 	let viewTab = 'result'
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
+	const dispatch = createEventDispatcher()
 </script>
 
 <TestJobLoader
@@ -53,6 +67,7 @@
 	bind:watchJob
 	on:done={onDone}
 />
+
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
 		<div class="flex gap-2 flex-wrap">
@@ -62,7 +77,11 @@
 				</Badge>
 			{/if}
 			{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-				<DurationMs duration_ms={job.duration_ms} />
+				<DurationMs
+					duration_ms={job.duration_ms}
+					self_wait_time_ms={job?.self_wait_time_ms}
+					aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
+				/>
 			{/if}
 			{#if job?.['mem_peak']}
 				<Badge large>
@@ -84,9 +103,28 @@
 					<Badge baseClass="text-2xs">Label: {label}</Badge>
 				{/each}
 			{/if}
+			{#if concurrencyKey}
+				<Popover notClickable>
+					<svelte:fragment slot="text">
+						This jobs has concurrency limits enabled with the key:
+						<Button
+							class="inline-text"
+							size="xs2"
+							color="light"
+							on:click={() => {
+								dispatch('filterByConcurrencyKey', concurrencyKey)
+							}}
+						>
+							{concurrencyKey}
+							<ListFilter class="inline-block" size={10} />
+						</Button>
+					</svelte:fragment>
+					<Badge large>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
+				</Popover>
+			{/if}
 		</div>
 		<a
-			href="/run/{job?.id}?workspace={job?.workspace_id}"
+			href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
 			class="flex flex-row gap-1 items-center"
 			target={blankLink ? '_blank' : undefined}
 		>
@@ -97,7 +135,11 @@
 		<span class="font-semibold text-xs leading-6">Arguments</span>
 
 		<div class="w-full">
-			<JobArgs args={job?.args} />
+			<JobArgs
+				id={job?.id}
+				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+				args={job?.args}
+			/>
 		</div>
 
 		{#if job?.type === 'CompletedJob'}
@@ -144,7 +186,7 @@
 										jobId={job.id}
 										duration={job?.['duration_ms']}
 										mem={job?.['mem_peak']}
-										isLoading={!(job && 'logs' in job && job.logs)}
+										isLoading={job?.['running'] == false}
 										content={job?.logs}
 										tag={job?.tag}
 									/>
@@ -185,7 +227,7 @@
 						duration={job?.['duration_ms']}
 						mem={job?.['mem_peak']}
 						content={job?.logs}
-						isLoading
+						isLoading={job?.['running'] == false}
 						tag={job?.tag}
 					/>
 				{/if}

@@ -4,10 +4,16 @@ use regex::Regex;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use tokio::process::Command;
-use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
+use windmill_common::{
+    error::Error,
+    jobs::QueuedJob,
+    worker::{to_raw_value, write_file},
+};
 use windmill_queue::{append_logs, CanceledBy};
 
-const BIN_BASH: &str = "/bin/bash";
+lazy_static::lazy_static! {
+    pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
+}
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
@@ -18,12 +24,16 @@ lazy_static::lazy_static! {
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, handle_child, read_file, read_file_content,
-        start_child_process, write_file,
+        build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
+        OccupancyMetrics,
     },
+    handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
+
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
 
 lazy_static::lazy_static! {
 
@@ -43,17 +53,48 @@ pub async fn handle_bash_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
-    append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
-    write_file(job_dir, "main.sh", &format!("set -e\n{content}")).await?;
-    write_file(
-        job_dir,
-        "wrapper.sh",
-        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n /bin/bash ./main.sh \"$@\" 2>&1 | tee bp\nwait $!"),
-    )
-    .await?;
+    write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
+    let script = format!(
+        r#"
+set -o pipefail
+set -e
+
+# Function to kill child processes
+cleanup() {{
+    echo "Terminating child processes..."
+
+    # Ignore SIGTERM and SIGINT
+    trap '' SIGTERM SIGINT
+
+    # Kill the process group of the script (negative PID value)
+    pkill -P $$
+    exit
+}}
+
+
+# Trap SIGTERM (or other signals) and call cleanup function
+trap cleanup SIGTERM SIGINT
+
+# Create a named pipe
+mkfifo bp
+
+# Start background processes
+cat bp | tail -1 >> ./result2.out &
+
+# Run main.sh in the same process group
+{bash} ./main.sh "$@" 2>&1 | tee bp &
+
+# Wait for all background processes to finish
+wait
+"#,
+        bash = BIN_BASH.as_str(),
+    );
+    write_file(job_dir, "wrapper.sh", &script)?;
 
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
@@ -76,9 +117,9 @@ pub async fn handle_bash_job(
         })
         .collect::<Vec<String>>();
     let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
-    let _ = write_file(job_dir, "result.json", "").await?;
-    let _ = write_file(job_dir, "result.out", "").await?;
-    let _ = write_file(job_dir, "result2.out", "").await?;
+    let _ = write_file(job_dir, "result.json", "")?;
+    let _ = write_file(job_dir, "result.out", "")?;
+    let _ = write_file(job_dir, "result2.out", "")?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -88,13 +129,12 @@ pub async fn handle_bash_job(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
+        )?;
         let mut cmd_args = vec![
             "--config",
             "run.config.proto",
             "--",
-            "/bin/bash",
+            BIN_BASH.as_str(),
             "wrapper.sh",
         ];
         cmd_args.extend(args);
@@ -103,6 +143,7 @@ pub async fn handle_bash_job(
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -112,7 +153,7 @@ pub async fn handle_bash_job(
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
-        let mut bash_cmd = Command::new(BIN_BASH);
+        let mut bash_cmd = Command::new(BIN_BASH.as_str());
         bash_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -124,7 +165,7 @@ pub async fn handle_bash_job(
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bash_cmd, BIN_BASH).await?
+        start_child_process(bash_cmd, BIN_BASH.as_str()).await?
     };
     handle_child(
         &job.id,
@@ -138,6 +179,7 @@ pub async fn handle_bash_job(
         "bash run",
         job.timeout,
         true,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -190,6 +232,7 @@ pub async fn handle_powershell_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
         let args = build_args_map(job, client, db).await?.map(Json);
@@ -218,13 +261,19 @@ pub async fn handle_powershell_job(
             .collect::<Vec<_>>()
     };
 
+    #[cfg(windows)]
+    let split_char = '\\';
+
+    #[cfg(unix)]
+    let split_char = '/';
+
     let installed_modules = fs::read_dir(POWERSHELL_CACHE_DIR)?
         .filter_map(|x| {
             x.ok().map(|x| {
                 x.path()
                     .display()
                     .to_string()
-                    .split('/')
+                    .split(split_char)
                     .last()
                     .unwrap_or_default()
                     .to_lowercase()
@@ -252,8 +301,8 @@ pub async fn handle_powershell_job(
 
     if !install_string.is_empty() {
         logs1.push_str("\n\nInstalling modules...");
-        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
-        let child = Command::new("pwsh")
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        let child = Command::new(POWERSHELL_PATH.as_str())
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -271,51 +320,100 @@ pub async fn handle_powershell_job(
             "powershell install",
             job.timeout,
             false,
+            &mut Some(occupancy_metrics),
         )
         .await?;
     }
 
     let mut logs2 = "".to_string();
     logs2.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
-    append_logs(job.id, job.workspace_id.clone(), logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
     // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
+    #[cfg(unix)]
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-$env:PSModulePath = ($Env:PSModulePath -split ':')[-1]
+$env:PSModulePath = \"$PSHome/Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
     );
+
+    #[cfg(windows)]
+    let profile = format!(
+        "$PSModuleAutoloadingPreference = 'None'
+$PSModulePathBackup = $env:PSModulePath
+$env:PSModulePath = \"C:\\Program Files\\PowerShell\\7\\Modules\"
+Get-Module -ListAvailable | Import-Module
+$env:PSModulePath = \"{};$PSModulePathBackup\"",
+        POWERSHELL_CACHE_DIR
+    );
+
+    // NOTE: powershell error handling / termination is quite tricky compared to bash
+    // here we're trying to catch terminating errors and propagate the exit code
+    // to the caller such that the job will be marked as failed. It's up to the user
+    // to catch specific errors in their script not caught by the below as there is no
+    // generic set -eu as in bash
+    let strict_termination_start = "$ErrorActionPreference = 'Stop'\n\
+        Set-StrictMode -Version Latest\n\
+        try {\n";
+
+    let strict_termination_end = "\n\
+        } catch {\n\
+            Write-Output \"An error occurred:\n\"\
+            Write-Output $_
+            exit 1\n\
+        }\n";
+
     // make sure param() is first
     let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
     let content: String = if let Some(param_match) = param_match {
         let param_match = param_match.as_str();
         format!(
-            "{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}",
             param_match,
             profile,
-            content.replace(param_match, "")
+            strict_termination_start,
+            content.replace(param_match, ""),
+            strict_termination_end
         )
     } else {
         format!("{}\n{}", profile, content)
     };
 
-    write_file(job_dir, "main.ps1", content.as_str()).await?;
+    write_file(job_dir, "main.ps1", content.as_str())?;
+
+    #[cfg(unix)]
     write_file(
         job_dir,
         "wrapper.sh",
         &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
-    )
-    .await?;
+    )?;
+
+    #[cfg(windows)]
+    write_file(
+        job_dir,
+        "wrapper.ps1",
+        &format!(
+            "param([string[]]$args)\n\
+    $ErrorActionPreference = 'Stop'\n\
+    $pipe = New-TemporaryFile\n\
+    & \"{}\" -File ./main.ps1 @args 2>&1 | Tee-Object -FilePath $pipe\n\
+    Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
+    Remove-Item $pipe\n\
+    exit $LASTEXITCODE\n",
+            POWERSHELL_PATH.as_str()
+        ),
+    )?;
+
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let _ = write_file(job_dir, "result.json", "").await?;
-    let _ = write_file(job_dir, "result.out", "").await?;
-    let _ = write_file(job_dir, "result2.out", "").await?;
+    let _ = write_file(job_dir, "result.json", "")?;
+    let _ = write_file(job_dir, "result.out", "")?;
+    let _ = write_file(job_dir, "result2.out", "")?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -326,19 +424,19 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
-        )
-        .await?;
+        )?;
         let mut cmd_args = vec![
             "--config",
             "run.config.proto",
             "--",
-            "/bin/bash",
+            BIN_BASH.as_str(),
             "wrapper.sh",
         ];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(PROXY_ENVS.clone())
             .envs(reserved_variables)
             .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
@@ -348,10 +446,24 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        let mut cmd_args = vec!["wrapper.sh"];
-        cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new("/bin/bash")
-            .current_dir(job_dir)
+        let mut cmd;
+        let mut cmd_args;
+
+        #[cfg(unix)]
+        {
+            cmd_args = vec!["wrapper.sh"];
+            cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
+            cmd = Command::new(BIN_BASH.as_str());
+        }
+
+        #[cfg(windows)]
+        {
+            cmd_args = vec![r".\wrapper.ps1".to_string()];
+            cmd_args.extend(pwsh_args.iter().map(|x| x.replace("--", "-")));
+            cmd = Command::new(POWERSHELL_PATH.as_str());
+        }
+
+        cmd.current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
@@ -359,11 +471,53 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(cmd_args)
+            .args(&cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+                )
+                .env(
+                    "ProgramData",
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                )
+                .env(
+                    "ProgramFiles",
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
+                )
+                .env(
+                    "ProgramFiles(x86)",
+                    std::env::var("ProgramFiles(x86)")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files (x86)")),
+                )
+                .env(
+                    "ProgramW6432",
+                    std::env::var("ProgramW6432")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
+                )
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "PATHEXT",
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
+                        String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
+                    }),
+                );
+        }
+
+        cmd.spawn()?
     };
+
     handle_child(
         &job.id,
         db,
@@ -376,8 +530,24 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         "powershell run",
         job.timeout,
         false,
+        &mut Some(occupancy_metrics),
     )
     .await?;
+
+    let result_json_path = format!("{job_dir}/result.json");
+    if let Ok(metadata) = tokio::fs::metadata(&result_json_path).await {
+        if metadata.len() > 0 {
+            return Ok(read_file(&result_json_path).await?);
+        }
+    }
+
+    let result_out_path = format!("{job_dir}/result.out");
+    if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
+        if metadata.len() > 0 {
+            let result = read_file_content(&result_out_path).await?;
+            return Ok(to_raw_value(&json!(result)));
+        }
+    }
 
     let result_out_path2 = format!("{job_dir}/result2.out");
     if tokio::fs::metadata(&result_out_path2).await.is_ok() {

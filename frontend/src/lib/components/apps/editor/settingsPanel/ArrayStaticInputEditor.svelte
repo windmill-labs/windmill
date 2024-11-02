@@ -4,10 +4,11 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
-	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
+	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
 
 	export let componentInput: StaticInput<any[]> & { loading?: boolean }
 	export let subFieldType: InputType | undefined = undefined
@@ -178,55 +179,37 @@
 		}
 	}
 
-	let dragDisabled = true
-
-	let dragging = false
 	function handleConsider(e) {
-		const {
-			items: newItems,
-			info: { source, trigger }
-		} = e.detail
+		const { items: newItems } = e.detail
 		items = newItems
-		// Ensure dragging is stopped on drag finish via keyboard
-		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
-			dragDisabled = true
-		}
 	}
 
 	function handleFinalize(e) {
-		const {
-			items: newItems,
-			info: { source }
-		} = e.detail
+		const { items: newItems } = e.detail
 
 		items = newItems
 
-		// Ensure dragging is stopped on drag finish via pointer (mouse, touch)
-		if (source === SOURCES.POINTER) {
-			dragDisabled = true
-		}
-
 		const reorderedValues = items.map((item) => item.value)
 		componentInput.value = reorderedValues
-		dragging = false
 	}
 
-	function startDrag(e) {
-		dragging = true
-		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
-		e.preventDefault()
-		dragDisabled = false
+	let items = getItems(componentInput)
+
+	function getItems(componentInput: StaticInput<any[]> & { loading?: boolean }) {
+		return (Array.isArray(componentInput.value) ? componentInput.value : [])
+			.filter((x) => x != undefined)
+			.map((item) => {
+				return { value: item, id: generateRandomString() }
+			})
 	}
 
-	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
+	function clearTableOnComponentReset(value: any[] | undefined) {
+		if (Array.isArray(value) && value.length === 0 && items.length > 0) {
+			items = []
+		}
 	}
 
-	let items = (Array.isArray(componentInput.value) ? componentInput.value : [])
-		.filter((x) => x != undefined)
-		.map((item, index) => {
-			return { value: item, id: generateRandomString() }
-		})
+	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
 
 	$: items != undefined && handleItemsChange()
 
@@ -272,9 +255,8 @@
 			{/if}
 		</div>
 		<section
-			use:dndzone={{
+			use:dragHandleZone={{
 				items,
-				dragDisabled,
 				flipDurationMs,
 				dropTargetStyle: {}
 			}}
@@ -293,19 +275,12 @@
 								bind:componentInput
 								bind:value={item.value}
 								on:remove={() => deleteElementByType(index)}
-								{dragging}
 							/>
 						</div>
 
 						<div class="flex justify-between flex-col items-center">
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div
-								tabindex={dragDisabled ? 0 : -1}
-								class="w-4 h-4 cursor-move"
-								on:mousedown={startDrag}
-								on:touchstart={startDrag}
-								on:keydown={handleKeyDown}
-							>
+							<div class="w-4 h-4 cursor-move handle" use:dragHandle>
 								<GripVertical size={16} />
 							</div>
 							{#if subFieldType !== 'db-explorer'}
@@ -325,11 +300,14 @@
 	{/if}
 	{#if subFieldType === 'db-explorer'}
 		{#if componentInput.loading}
-			<div class="flex flex-row gap-2 w-full items-center text-xs">
-				<Loader2 class="animate-spin" size={14} />
-				Loading columns defintions...
+			<div class="flex flex-row gap-2 w-full items-center">
+				<div class="flex flex-row gap-2 w-full items-center text-xs">
+					<Loader2 class="animate-spin" size={14} />
+					Loading columns defintions...
+				</div>
 			</div>
 		{/if}
+		<RefreshDatabaseStudioTable {id} />
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
 		<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>

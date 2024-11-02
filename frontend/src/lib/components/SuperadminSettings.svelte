@@ -4,9 +4,10 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$app/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
@@ -19,13 +20,14 @@
 	import { settingsKeys } from './instanceSettings'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import InstanceNameEditor from './InstanceNameEditor.svelte'
+	import Toggle from './Toggle.svelte'
 	let drawer: Drawer
 	let filter = ''
 
 	export function openDrawer() {
-		listUsers()
+		listUsers(activeOnly)
 		drawer?.openDrawer?.()
 	}
 
@@ -38,16 +40,19 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		goto(hashRemoved)
+		gotoUrl(hashRemoved)
 	}
 
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] = []
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	let activeOnly = false
 
-	async function listUsers(): Promise<void> {
-		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
+	async function listUsers(activeOnly: boolean): Promise<void> {
+		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000, activeOnly: activeOnly })
 	}
+
+	$: listUsers(activeOnly)
 
 	let tab: 'users' | string = 'users'
 
@@ -69,7 +74,22 @@
 		})
 		getAutomateUsernameCreationSetting()
 		sendUserToast('Automatic username creation enabled')
-		listUsers()
+		listUsers(activeOnly)
+	}
+
+	async function updateName(name: string | undefined, email: string) {
+		try {
+			await UserService.globalUserUpdate({
+				email,
+				requestBody: {
+					name
+				}
+			})
+			sendUserToast('User updated')
+			listUsers(activeOnly)
+		} catch (e) {
+			sendUserToast('Error updating user', true)
+		}
 	}
 </script>
 
@@ -80,8 +100,13 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 
-<Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:close={removeHash}>
-	<DrawerContent overflow_y={true} title="Instance Settings" on:close={closeDrawer}>
+<Drawer
+	bind:this={drawer}
+	on:open={() => listUsers(activeOnly)}
+	size="1200px"
+	on:close={removeHash}
+>
+	<DrawerContent overflow_y={true} title="Instance settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full w-full">
 			<div>
 				<div class="flex justify-between">
@@ -96,7 +121,7 @@
 					variant="border"
 					color="dark"
 					target="_blank"
-					href="/?workspace=admins"
+					href="{base}/?workspace=admins"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace
@@ -104,7 +129,7 @@
 			</div>
 			<div class="pt-4 h-full">
 				<Tabs bind:selected={tab}>
-					<Tab value="users">Global Users</Tab>
+					<Tab value="users">Global users</Tab>
 					{#each settingsKeys as category}
 						<Tab value={category}>{category}</Tab>
 					{/each}
@@ -114,13 +139,17 @@
 							<div class="h-full">
 								{#if !automateUsernameCreation && !isCloudHosted()}
 									<div class="mb-4">
-										<h3 class="mb-2">
-											Automatic username creation
-											<Tooltip>
-												Automatically create a username for new users based on their email, shared
-												across workspaces.
-											</Tooltip>
-										</h3>
+										<h3 class="mb-2"> Automatic username creation </h3>
+										<div class="mb-2">
+											<span class="text-primary text-sm"
+												>Automatically create a username for new users based on their email, shared
+												across workspaces. <a
+													target="_blank"
+													href="https://www.windmill.dev/docs/advanced/instance_settings#automatic-username-creation"
+													>Learn more</a
+												></span
+											>
+										</div>
 										<Button
 											btnClasses="w-auto"
 											size="sm"
@@ -149,10 +178,20 @@
 								{/if}
 
 								<div class="py-2 mb-4">
-									<InviteGlobalUser on:new={listUsers} />
+									<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
 								</div>
 
-								<h3>All instance users</h3>
+								<div class="flex flex-row justify-between">
+									<h3>All instance users</h3>
+									<Toggle
+										bind:checked={activeOnly}
+										options={{
+											left: 'Show active users only',
+											leftTooltip:
+												'An active user is a user who has performed at least one action in the last 30 days'
+										}}
+									/>
+								</div>
 								<div class="pb-1" />
 								<div>
 									<input placeholder="Search users" bind:value={filter} class="input mt-1" />
@@ -166,12 +205,15 @@
 											{#if automateUsernameCreation}
 												<th>username</th>
 											{/if}
+											{#if activeOnly}
+												<th>kind</th>
+											{/if}
 											<th />
 											<th />
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name, username } (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name, username, operator_only } (email)}
 													<tr class="border">
 														<td>{email}</td>
 														<td>{login_type}</td>
@@ -188,10 +230,19 @@
 																			{email}
 																			isConflict
 																			on:renamed={() => {
-																				listUsers()
+																				listUsers(activeOnly)
 																			}}
 																		/>
 																	{/key}
+																{/if}
+															</td>
+														{/if}
+														{#if activeOnly}
+															<td>
+																{#if operator_only}
+																	Operator only
+																{:else}
+																	Developer
 																{/if}
 															</td>
 														{/if}
@@ -199,10 +250,9 @@
 															<ToggleButtonGroup
 																selected={super_admin}
 																on:selected={async (e) => {
-																	console.log('BAR')
 																	if (email == $userStore?.email) {
 																		sendUserToast('You cannot demote yourself', true)
-																		listUsers()
+																		listUsers(activeOnly)
 																		return
 																	}
 																	await UserService.globalUserUpdate({
@@ -212,7 +262,7 @@
 																		}
 																	})
 																	sendUserToast('User updated')
-																	listUsers()
+																	listUsers(activeOnly)
 																}}
 															>
 																<ToggleButton value={false} size="xs" label="User" />
@@ -221,15 +271,18 @@
 														</td>
 														<td>
 															<div class="flex flex-row gap-x-1 justify-end">
-																{#if automateUsernameCreation && username}
-																	<ChangeInstanceUsername
-																		{username}
-																		{email}
-																		on:renamed={() => {
-																			listUsers()
-																		}}
-																	/>
-																{/if}
+																<InstanceNameEditor
+																	value={name}
+																	{username}
+																	{email}
+																	on:save={(e) => {
+																		updateName(e.detail, email)
+																	}}
+																	on:renamed={() => {
+																		listUsers(activeOnly)
+																	}}
+																	{automateUsernameCreation}
+																/>
 																<Button
 																	color="light"
 																	variant="contained"
@@ -238,10 +291,9 @@
 																	btnClasses="text-red-500"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
-																			console.log(email)
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
-																			listUsers()
+																			listUsers(activeOnly)
 																		}
 																	}}
 																>

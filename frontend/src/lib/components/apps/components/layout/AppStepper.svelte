@@ -6,12 +6,13 @@
 	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { RunnableComponent, RunnableWrapper } from '../helpers'
 	import type { AppInput } from '../../inputType'
 	import { ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import Stepper from '$lib/components/common/stepper/Stepper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -21,6 +22,8 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let componentInput: AppInput | undefined
+	export let onNext: string[] | undefined = undefined
+	export let onPrevious: string[] | undefined = undefined
 
 	const {
 		app,
@@ -29,7 +32,8 @@
 		selectedComponent,
 		componentControl,
 		connectingInput,
-		mode
+		mode,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected = tabs[0]
@@ -205,6 +209,7 @@
 						on:click={(e) => {
 							e.preventDefault()
 							directionClicked = 'left'
+							onPrevious?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 							runStep(selectedIndex - 1)
 						}}
 					>
@@ -226,6 +231,7 @@
 						on:click={(e) => {
 							e.preventDefault()
 							directionClicked = 'right'
+							onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 							runStep(selectedIndex + 1)
 						}}
 					>

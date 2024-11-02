@@ -1,16 +1,15 @@
 <script lang="ts">
-	import Svelvet from '$lib/components/graph/svelvet/container/views/Svelvet.svelte'
-	import type { UserEdgeType } from '$lib/components/graph/svelvet/types'
-	import { NODE, type Node } from '$lib/components/graph'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { NODE } from '$lib/components/graph'
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
-	import { deepEqual } from 'fast-equals'
+	import {
+		SvelteFlow,
+		type Node,
+		type Edge,
+		ConnectionLineType,
+		type Viewport,
+		Controls
+	} from '@xyflow/svelte'
 
-	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
-	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
-
-	import type { Writable } from 'svelte/store'
-	import type { AppComponent, DecisionTreeNode } from '../../component'
 	import {
 		addNewBranch,
 		addNode,
@@ -20,19 +19,23 @@
 		removeBranch,
 		removeNode
 	} from './utils'
-	import { createEdge, createNode } from './nodeHelpers'
+
+	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
+	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
+
+	import { writable, type Writable } from 'svelte/store'
+	import type { AppComponent, DecisionTreeNode } from '../../component'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
 
 	export let nodes: DecisionTreeNode[]
-	export let rebuildOnChange: any = undefined
 	export let paneWidth = 0
 	export let paneHeight = 0
 	export let component: AppComponent
 
-	let displayedNodes: Node[] = []
-	let edges: UserEdgeType[] = []
-	let scroll = false
+	const nodesStore = writable<Node[]>([])
+	const edgesStore = writable<Edge[]>([])
 
 	const dispatch = createEventDispatcher()
 
@@ -40,108 +43,8 @@
 		selectedNodeId: Writable<string | undefined>
 	}>('DecisionTreeEditor')
 
-	$: rebuildOnChange && triggerRebuild()
-
-	let oldRebuildOnChange = rebuildOnChange ? JSON.parse(JSON.stringify(rebuildOnChange)) : undefined
-
-	function triggerRebuild() {
-		if (!deepEqual(oldRebuildOnChange, rebuildOnChange)) {
-			oldRebuildOnChange = JSON.parse(JSON.stringify(rebuildOnChange))
-			createGraph()
-		}
-	}
-
-	function buildStartNode() {
-		const firstNode = getFirstNode(nodes)
-
-		if (!firstNode) {
-			return
-		}
-
-		const startNodeConfig = {
-			id: 'start',
-			data: {
-				custom: {
-					component: DecisionTreeGraphHeader,
-					props: {
-						node: {
-							id: 'start',
-							label: 'Start',
-							next: {
-								id: firstNode.id,
-								condition: {
-									type: 'evalv2',
-									expr: 'true',
-									fieldType: 'boolean'
-								}
-							}
-						},
-						canDelete: false,
-						label: 'Start'
-					},
-					cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, undefined, [], false)
-				}
-			}
-		}
-
-		const startNode = createNode(startNodeConfig)
-		displayedNodes.push(startNode)
-
-		edges.push(
-			createEdge({
-				id: `start-${firstNode?.id}`,
-				source: 'start',
-				target: firstNode?.id
-			})
-		)
-	}
 	const { app, runnableComponents, componentControl, debuggingComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	function buildEndNode() {
-		const lastNodesIds = nodes
-			.filter((node) => {
-				return node.next.length == 0
-			})
-			.map((node) => node.id)
-
-		displayedNodes.push(
-			createNode({
-				id: 'end',
-				data: {
-					custom: {
-						component: DecisionTreeGraphHeader,
-						props: {
-							node: {
-								id: 'end',
-								label: 'End',
-								next: []
-							},
-							canDelete: false,
-							isTail: true,
-							label: 'End'
-						},
-						cb: (e: string, detail: any) => {
-							if (e == 'select') {
-								$selectedNodeId = detail
-							}
-						}
-					}
-				},
-				parentIds: lastNodesIds
-			})
-		)
-
-		lastNodesIds.forEach((lastNodeId) => {
-			edges.push(
-				createEdge({
-					id: `${lastNodeId}-end`,
-					source: lastNodeId,
-					target: 'end'
-				})
-			)
-		})
-	}
 
 	function addSubGrid() {
 		const numberOfPanes = nodes.length
@@ -222,13 +125,18 @@
 			}
 
 			case 'delete': {
-				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
+				const graphNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
 
-				if (graphhNodeIndex > -1) {
-					deleteSubgrid(graphhNodeIndex)
+				if (graphNodeIndex > -1) {
+					deleteSubgrid(graphNodeIndex)
 				}
 
 				nodes = removeNode(nodes, graphNode)
+
+				$debuggingComponents = Object.fromEntries(
+					Object.entries($debuggingComponents).filter(([key]) => key !== component.id)
+				)
+
 				break
 			}
 			case 'addBranch': {
@@ -250,147 +158,231 @@
 		dispatch('render')
 	}
 
-	function buildGraphNodes() {
-		nodes?.forEach((graphNode, index) => {
-			const parentIds = getParents(nodes, graphNode.id)
-			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
-			const hasParentBranches = parentNext ? parentNext.length > 1 : false
+	function graphBuilder(decisionTreeNodes: DecisionTreeNode[]) {
+		const nodes: Node[] = []
+		const edges: Edge[] = []
 
-			if (hasParentBranches) {
-				const positionRelativeToParent = parentNext?.findIndex((next) => next.id == graphNode.id)
-				const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
+		function addNode(
+			node: DecisionTreeNode,
+			type: string = 'step',
+			data: {
+				canDelete: boolean
+				canAddBranch: boolean
+				index: number
+				parentIds?: string[]
+			},
+			x = nodeCallbackHandler
+		) {
+			nodes.push({
+				id: node.id,
+				type,
+				position: { x: -1, y: -1 },
+				data: {
+					node,
+					nodeCallbackHandler: x,
+					...data
+				}
+			})
+		}
 
-				// We create a header node for the branch, which will be the parent of the actual node
-				displayedNodes.push(
-					createNode({
+		const parents: { [key: string]: string[] } = {}
+
+		function addEdge(source: string, target: string) {
+			parents[target] = [...(parents[target] ?? []), source]
+
+			edges.push({
+				id: `${source}-${target}`,
+				source,
+				target,
+				type: 'edge'
+			})
+		}
+
+		function processNodes(decisionTreeNodes: DecisionTreeNode[]) {
+			decisionTreeNodes.forEach((graphNode, index) => {
+				const parentIds = getParents(decisionTreeNodes, graphNode.id)
+				const parentNext = decisionTreeNodes.find((node) => node.id == parentIds[0])?.next
+				const hasParentBranches = parentNext ? parentNext.length > 1 : false
+
+				if (hasParentBranches) {
+					const positionRelativeToParent = parentNext?.findIndex((next) => next.id == graphNode.id)
+					const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
+
+					// We create a header node for the branch, which will be the parent of the actual node
+					const header = {
 						id: branchHeaderId,
+						type: 'start',
+						position: { x: -1, y: -1 },
 						data: {
-							custom: {
-								component: DecisionTreeGraphHeader,
-								props: {
-									node: graphNode,
-									canDelete: true,
-									label:
-										positionRelativeToParent === 0
-											? 'Default branch'
-											: `Branch ${positionRelativeToParent}`
-								},
-								cb: (e: string, detail: any) => {
-									nodeCallbackHandler(e, detail, graphNode, parentIds, true)
-								}
-							}
+							node: {
+								label:
+									positionRelativeToParent === 0
+										? 'Default branch'
+										: `Branch ${positionRelativeToParent}`,
+								id: branchHeaderId,
+								allowed: undefined,
+								next: [],
+								parentIds: [parentIds[0]]
+							},
+							canDelete: true,
+							nodeCallbackHandler: (e, d) => {
+								nodeCallbackHandler(e, d, graphNode, parentIds, true)
+							},
+							branchHeader: true
+						}
+					}
+
+					nodes.push(header)
+
+					const cannotAddBranch =
+						graphNode.next.length === 0 ||
+						(graphNode.next.length === 1 &&
+							getParents(decisionTreeNodes, graphNode.next[0].id).length > 1)
+
+					// We create the actual node
+
+					addNode(
+						graphNode,
+						'step',
+						{
+							canDelete: !(graphNode.next.length > 1 && parentIds.length > 1),
+							canAddBranch: !cannotAddBranch,
+							index,
+							parentIds: [
+								branchHeaderId,
+								...parentIds.filter((pId) => {
+									const firstLetter = branchHeaderId.split('-')[0]
+									return pId !== firstLetter
+								})
+							]
 						},
-						parentIds: [parentIds[0]]
-					})
-				)
-
-				const cannotAddBranch =
-					graphNode.next.length === 0 ||
-					(graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1)
-
-				// We create the actual node
-				displayedNodes.push(
-					createNode({
-						id: graphNode.id,
-						data: {
-							custom: {
-								component: DecisionTreeGraphNode,
-								props: {
-									node: graphNode,
-									canDelete: !(graphNode.next.length > 1 && parentIds.length > 1),
-									canAddBranch: !cannotAddBranch,
-									index
-								},
-								cb: (e: string, detail: any) =>
-									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
-							}
-						},
-						parentIds: [
-							branchHeaderId,
-							...parentIds.filter((pId) => {
-								const firstLetter = branchHeaderId.split('-')[0]
-								return pId !== firstLetter
-							})
-						]
-					})
-				)
-
-				// Edge between branch header and node
-				edges.push(
-					createEdge({
-						id: `${graphNode.id}-${branchHeaderId}`,
-						source: branchHeaderId,
-						target: graphNode.id
-					})
-				)
-
-				if (graphNode.next.length === 1) {
-					edges.push(
-						createEdge({
-							id: `${branchHeaderId}-${graphNode.next[0].id}`,
-							source: graphNode.id,
-							target: graphNode.next[0].id
-						})
+						(e, d) => {
+							nodeCallbackHandler(e, d, graphNode, parentIds, false)
+							return undefined
+						}
 					)
+
+					addEdge(branchHeaderId, graphNode.id)
+
+					if (graphNode.next.length === 1) {
+						addEdge(graphNode.id, graphNode.next[0].id)
+					} else {
+						graphNode.next.forEach((nextNode) => {
+							addEdge(graphNode.id, `${graphNode.id}-${nextNode.id}-branch-header`)
+						})
+					}
 				} else {
+					const cannotAddBranch =
+						graphNode.next.length === 0 ||
+						(graphNode.next.length === 1 &&
+							getParents(decisionTreeNodes, graphNode.next[0].id).length > 1)
+
+					addNode(
+						graphNode,
+						'step',
+						{
+							canDelete:
+								!cannotAddBranch && (graphNode.next.length == 1 || !parentIds.includes('start')),
+							canAddBranch: !cannotAddBranch,
+							index,
+							parentIds: parentIds
+						},
+						(e, d) => {
+							nodeCallbackHandler(e, d, graphNode, parentIds, false)
+							return undefined
+						}
+					)
+
+					// if node has multiple next, it means it needs to be connected to a branch header
+					const hasMultipleNext = graphNode.next.length > 1
+
 					graphNode.next.forEach((nextNode) => {
-						edges.push(
-							createEdge({
-								id: `${graphNode.id}-${nextNode.id}-branch-header-${nextNode.id}`,
-								source: graphNode.id,
-								target: `${graphNode.id}-${nextNode.id}-branch-header`
-							})
-						)
+						const target = hasMultipleNext
+							? `${graphNode.id}-${nextNode.id}-branch-header`
+							: nextNode.id
+
+						addEdge(graphNode.id, target)
 					})
 				}
-			} else {
-				const cannotAddBranch =
-					graphNode.next.length === 0 ||
-					(graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1)
+			})
+		}
 
-				displayedNodes.push(
-					createNode({
-						id: graphNode.id,
-						data: {
-							custom: {
-								component: DecisionTreeGraphNode,
-								props: {
-									node: graphNode,
-									canDelete:
-										!cannotAddBranch &&
-										(graphNode.next.length == 1 || !parentIds.includes('start')),
-									canAddBranch: !cannotAddBranch,
-									index
-								},
-								cb: (e: string, detail: any) =>
-									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
+		const firstNode = getFirstNode(decisionTreeNodes)
+
+		if (firstNode) {
+			const startNode = {
+				id: 'start',
+				type: 'start',
+				position: { x: -1, y: -1 },
+				data: {
+					node: {
+						id: 'start',
+						label: 'Start',
+						allowed: undefined,
+						next: [
+							{
+								id: firstNode.id,
+								condition: {
+									type: 'evalv2',
+									expr: 'true',
+									fieldType: 'boolean'
+								}
 							}
-						},
-						parentIds: parentIds
-					})
-				)
+						]
+					},
+					canDelete: false,
+					nodeCallbackHandler
+				}
+			}
+			nodes.push(startNode)
+			addEdge('start', firstNode.id)
+		}
 
-				// if node has multiple next, it means it needs to be connected to a branch header
-				const hasMultipleNext = graphNode.next.length > 1
+		processNodes(decisionTreeNodes)
 
-				graphNode.next.forEach((nextNode) => {
-					const target = hasMultipleNext
-						? `${graphNode.id}-${nextNode.id}-branch-header`
-						: nextNode.id
+		const endNode = {
+			id: 'end',
+			type: 'end',
+			position: { x: -1, y: -1 },
+			data: {
+				node: {
+					id: 'end',
+					label: 'End',
+					allowed: undefined,
+					next: []
+				},
+				canDelete: false,
+				nodeCallbackHandler
+			}
+		}
 
-					edges.push(
-						createEdge({
-							id: `${graphNode.id}-${nextNode.id}`,
-							source: graphNode.id,
-							target
-						})
-					)
-				})
+		const lastNodesIds = decisionTreeNodes
+			.filter((node) => {
+				return node.next.length == 0
+			})
+			.map((node) => node.id)
+
+		lastNodesIds.forEach((id) => {
+			addEdge(id, endNode.id)
+		})
+
+		nodes.push(endNode)
+
+		Object.keys(parents).forEach((key) => {
+			const node = nodes.find((n) => n.id === key)
+
+			if (node) {
+				node.data.parentIds = parents[key]
 			}
 		})
+
+		$nodesStore = layoutNodes(nodes)
+		$edgesStore = edges
 	}
 
-	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number; width: number } {
+	$: graphBuilder(nodes)
+
+	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -398,8 +390,14 @@
 			}
 			seenId.push(n.id)
 		}
+
+		const flattenParentIds = nodes.map((n) => ({
+			...n,
+			parentIds: n.data?.parentIds ?? []
+		})) as any
+
 		const stratify = dagStratify().id(({ id }: Node) => id)
-		const dag = stratify(nodes)
+		const dag = stratify(flattenParentIds)
 
 		let boxSize: any
 		try {
@@ -415,71 +413,56 @@
 			boxSize = layout(dag)
 		}
 
-		return {
-			nodes: dag.descendants().map((des) => {
-				return {
-					...des.data,
-					id: des.data.id,
-					position: {
-						x: des.x ? des.x + paneWidth / 2 - boxSize.width / 2 - NODE.width / 2 : 0,
-						y: des.y || 0
-					}
-				}
-			}),
-			height: boxSize.height + NODE.height,
-			width: boxSize.width + NODE.width
-		}
+		const newNodes = dag.descendants().map((des) => ({
+			...des.data,
+			id: des.data.id,
+			position: {
+				x: des.x ? des.x - boxSize.width / 2 - NODE.width / 2 : 0,
+				y: des.y || 0
+			}
+		}))
+
+		return newNodes
 	}
 
-	function resetGraphData() {
-		displayedNodes = []
-		edges = []
-	}
-
-	function createGraph() {
-		try {
-			resetGraphData()
-			buildStartNode()
-			buildGraphNodes()
-			buildEndNode()
-			applyLayoutToNodes()
-		} catch (e) {
-			console.error(e)
-		}
-	}
-
-	function applyLayoutToNodes() {
-		const layered = layoutNodes(displayedNodes)
-
-		displayedNodes = layered.nodes
-	}
-
-	let mounted = false
-
-	onMount(() => {
-		setTimeout(() => {
-			createGraph()
-		}, 10)
-		mounted = true
+	const viewport = writable<Viewport>({
+		x: 0,
+		y: 5,
+		zoom: 1
 	})
 
-	$: if (nodes.length > 0 && !$selectedNodeId) {
-		$selectedNodeId = getFirstNode(nodes)?.id
+	function centerViewport(width: number) {
+		viewport.update((vp) => ({
+			...vp,
+			x: width / 2,
+			y: vp.y
+		}))
 	}
+
+	$: paneWidth && centerViewport(paneWidth)
+
+	const nodeTypes = {
+		step: DecisionTreeGraphNode,
+		start: DecisionTreeGraphHeader,
+		end: DecisionTreeGraphHeader
+	} as any
 </script>
 
-{#if mounted}
-	<Svelvet
-		download={false}
-		highlightEdges={false}
-		locked
-		dataflow={false}
-		nodes={displayedNodes}
-		{edges}
-		height={paneHeight}
-		{scroll}
-		nodeSelected={false}
-		background={false}
-		width={paneWidth}
-	/>
-{/if}
+<SvelteFlow
+	nodes={nodesStore}
+	edges={edgesStore}
+	{nodeTypes}
+	{viewport}
+	height={paneHeight}
+	minZoom={0.5}
+	connectionLineType={ConnectionLineType.SmoothStep}
+	defaultEdgeOptions={{ type: 'smoothstep' }}
+	zoomOnDoubleClick={false}
+	elementsSelectable={false}
+	proOptions={{ hideAttribution: true }}
+	nodesDraggable={false}
+>
+	<div class="absolute inset-0 !bg-surface-secondary" />
+
+	<Controls position="top-right" orientation="horizontal" showLock={false} />
+</SvelteFlow>

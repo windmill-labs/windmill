@@ -1,8 +1,8 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, future::Future, pin::Pin};
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
 use rsmq_async::{RedisBytes, RsmqConnection};
-use sqlx::{Postgres, Transaction};
+use sqlx::{Database, Postgres, Transaction};
 
 pub enum RedisOp {
     SendMessage(RedisBytes, Option<chrono::DateTime<chrono::Utc>>, String),
@@ -138,15 +138,20 @@ impl<'c, 'b, R: RsmqConnection + Send> sqlx::Executor<'b> for &'b mut QueueTrans
         self.transaction.fetch_optional(query)
     }
 
-    fn prepare_with<'e, 'q: 'e>(
+    fn prepare_with<'e, 'q>(
         self,
         sql: &'q str,
-        parameters: &'e [<Self::Database as sqlx::Database>::TypeInfo],
-    ) -> BoxFuture<
-        'e,
-        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
+        parameters: &'e [<Self::Database as Database>::TypeInfo],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<<Self::Database as Database>::Statement<'q>, sqlx::Error>>
+                + Send
+                + 'e,
+        >,
     >
     where
+        'q: 'e,
+        'c: 'e,
         'b: 'e,
     {
         self.transaction.prepare_with(sql, parameters)

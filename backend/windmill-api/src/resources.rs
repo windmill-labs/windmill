@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
@@ -24,7 +26,7 @@ use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -56,6 +58,10 @@ pub fn workspaced_service() -> Router {
         .route("/type/exists/:name", get(exists_resource_type))
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
+        .route(
+            "/file_resource_type_to_file_ext_map",
+            get(file_resource_ext_to_resource_type),
+        )
         .route("/type/create", post(create_resource_type))
 }
 
@@ -69,6 +75,9 @@ pub struct ResourceType {
     pub name: String,
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub format_extension: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +85,7 @@ pub struct CreateResourceType {
     pub name: String,
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
+    pub format_extension: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +102,8 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -102,6 +114,8 @@ pub struct ListableResource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_linked: Option<bool>,
     pub is_refreshed: Option<bool>,
     pub is_oauth: Option<bool>,
@@ -128,6 +142,7 @@ struct EditResource {
 pub struct ListResourceQuery {
     resource_type: Option<String>,
     resource_type_exclude: Option<String>,
+    path_start: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -209,6 +224,8 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "resource.created_by",
+            "resource.edited_at",
         ])
         .left()
         .join("variable")
@@ -239,6 +256,10 @@ async fn list_resources(
         for rt in rt.split(',') {
             sqlb.and_where_ne("resource_type", "?".bind(&rt));
         }
+    }
+
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("resource.path", path_start);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -473,15 +494,20 @@ pub async fn transform_json_value<'c>(
             let path = y.strip_prefix("$var:").unwrap();
             let tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
+
             let v = crate::variables::get_value_internal(
                 tx,
                 db,
                 workspace,
                 path,
-                user_db
+                &user_db
                     .clone()
-                    .map(|_| authed.username.as_str())
-                    .unwrap_or("backend"),
+                    .map(|_| authed.into())
+                    .unwrap_or(AuditAuthor {
+                        email: "backend".to_string(),
+                        username: "backend".to_string(),
+                        username_override: None,
+                    }),
             )
             .await?;
             Ok(Value::String(v))
@@ -549,6 +575,7 @@ pub async fn transform_json_value<'c>(
                 job.flow_step_id.clone(),
                 job.root_job.map(|x| x.to_string()),
                 None,
+                Some(job.scheduled_for.clone()),
             )
             .await;
 
@@ -637,20 +664,21 @@ async fn create_resource(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type)
-            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = $3, description = $4, resource_type = $5",
+            (workspace_id, path, value, description, resource_type, created_by, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = $3, description = $4, resource_type = $5, edited_at = now()",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
+        authed.username
     )
     .execute(&mut *tx)
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resources.create",
         ActionKind::Create,
         &w_id,
@@ -710,7 +738,7 @@ async fn delete_resource(
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resources.delete",
         ActionKind::Delete,
         &w_id,
@@ -767,6 +795,8 @@ async fn update_resource(
         sqlb.set_str("description", ndesc);
     }
 
+    sqlb.set_str("edited_at", "now()");
+
     sqlb.returning("path");
     let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
@@ -796,7 +826,7 @@ async fn update_resource(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resources.update",
         ActionKind::Update,
         &w_id,
@@ -848,7 +878,7 @@ async fn update_resource_value(
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
-        "UPDATE resource SET value = $1 WHERE path = $2 AND workspace_id = $3",
+        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3",
         nv.value,
         path,
         w_id
@@ -857,7 +887,7 @@ async fn update_resource_value(
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resources.update",
         ActionKind::Update,
         &w_id,
@@ -889,6 +919,35 @@ async fn update_resource_value(
     );
 
     Ok(format!("value of resource {} updated", path))
+}
+
+async fn file_resource_ext_to_resource_type(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<HashMap<String, String>> {
+    #[derive(Serialize, sqlx::FromRow)]
+    struct LocalFileResourceExtension {
+        name: String,
+        format_extension: Option<String>,
+    }
+
+    let r = sqlx::query_as!(LocalFileResourceExtension, "
+        SELECT name, format_extension FROM resource_type WHERE format_extension IS NOT NULL AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
+        .fetch_all(&db)
+        .await?;
+
+    let hashmap: HashMap<String, String> = r
+        .into_iter()
+        .filter_map(|entry| {
+            if let Some(format_extension) = entry.format_extension {
+                Some((entry.name, format_extension))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(Json(hashmap))
 }
 
 async fn list_resource_types(
@@ -974,12 +1033,14 @@ async fn create_resource_type(
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description)
-            VALUES ($1, $2, $3, $4)",
+            (workspace_id, name, schema, description, created_by, format_extension, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
         resource_type.description,
+        authed.username,
+        resource_type.format_extension,
     )
     .execute(&mut *tx)
     .await?;
@@ -1001,7 +1062,7 @@ async fn create_resource_type(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resource_types.create",
         ActionKind::Create,
         &w_id,
@@ -1065,7 +1126,7 @@ async fn delete_resource_type(
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resource_types.delete",
         ActionKind::Delete,
         &w_id,
@@ -1115,13 +1176,14 @@ async fn update_resource_type(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
+    sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "resource_types.update",
         ActionKind::Update,
         &w_id,

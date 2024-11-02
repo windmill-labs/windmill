@@ -2,7 +2,8 @@
 	import { Menu, Transition, MenuButton, MenuItems } from '@rgossiaux/svelte-headlessui'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import Button from '../common/button/Button.svelte'
 
 	const [popperRef, popperContent] = createPopperActions({ placement: 'auto' })
@@ -37,7 +38,7 @@
 		</MenuButton>
 	</span>
 
-	<Portal>
+	<Portal name="menu">
 		<div use:popperContent={popperOptions} class="z-[2000]">
 			<Transition
 				show={open}

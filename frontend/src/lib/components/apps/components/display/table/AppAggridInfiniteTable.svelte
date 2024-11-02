@@ -16,9 +16,10 @@
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import AppAggridExplorerTable from './AppAggridExplorerTable.svelte'
-	import { DebouncedInput, type RunnableComponent } from '../..'
 	import { getPrimaryKeys } from '../dbtable/utils'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
+	import RunnableComponent from '../../helpers/RunnableComponent.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -31,16 +32,10 @@
 	let runnableComponent: RunnableComponent | undefined = undefined
 
 	function clear() {
-		lastComponentInput = componentInput
-
 		setTimeout(() => {
 			aggrid?.clearRows()
 		}, 0)
 	}
-
-	let lastComponentInput = componentInput
-
-	$: JSON.stringify(lastComponentInput) !== JSON.stringify(componentInput) && clear()
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
@@ -95,6 +90,12 @@
 
 			if (!runnableComponent && result) {
 				params.successCallback(result, result.length)
+				return
+			}
+
+			if (!runnableComponent && !result) {
+				params.successCallback([], 0)
+				return
 			}
 
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
@@ -182,6 +183,9 @@
 	{render}
 	autoRefresh={true}
 	allowConcurentRequests
+	on:argsChanged={() => {
+		clear()
+	}}
 >
 	<div class="flex flex-col h-full">
 		{#if resolvedConfig.searchEnabled}

@@ -10,7 +10,8 @@
 	import { Building, Plus, Settings } from 'lucide-svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
@@ -38,9 +39,12 @@
 
 		if (!isOnEditPage) {
 			switchWorkspace(id)
+			if ($page.url.searchParams.get('workspace')) {
+				$page.url.searchParams.set('workspace', id)
+			}
 		} else {
-			await goto('/')
 			switchWorkspace(id)
+			await goto('/')
 		}
 	}
 </script>
@@ -73,7 +77,7 @@
 		</div>
 		<div class="py-1" role="none">
 			<a
-				href="/user/create_workspace"
+				href="{base}/user/create_workspace"
 				class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 				role="menuitem"
 				tabindex="-1"
@@ -84,7 +88,7 @@
 		</div>
 		<div class="py-1" role="none">
 			<a
-				href="/user/workspaces"
+				href="{base}/user/workspaces"
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}
@@ -99,7 +103,7 @@
 			<div class="py-1" role="none">
 				<MenuItem>
 					<a
-						href="/workspace_settings"
+						href="{base}/workspace_settings"
 						class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 						role="menuitem"
 						tabindex="-1"

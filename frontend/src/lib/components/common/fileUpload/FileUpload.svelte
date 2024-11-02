@@ -23,6 +23,8 @@
 	export let pathTransformer: any = undefined // function taking as input {file: File} and returning a string
 	export let forceDisplayUploads: boolean = false
 	export let defaultValue: string | undefined = undefined
+	export let workspace: string | undefined = undefined
+	export let fileUploads: Writable<FileUploadData[]> = writable([])
 
 	const dispatch = createEventDispatcher()
 
@@ -35,8 +37,6 @@
 		path?: string
 		file?: File
 	}
-
-	let fileUploads: Writable<FileUploadData[]> = writable([])
 
 	async function handleChange(files: File[] | undefined) {
 		for (const file of files ?? []) {
@@ -120,8 +120,8 @@
 			// 		duplex: 'half'
 			// 	}
 			// )
-
 			let xhr = new XMLHttpRequest()
+
 			activeUploads.push({ xhr, fileName: fileToUpload.name })
 
 			const response = (await new Promise((resolve, reject) => {
@@ -136,24 +136,25 @@
 						$fileUploads = $fileUploads
 					}
 				})
+
 				xhr?.addEventListener('loadend', () => {
+					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 					let response = xhr?.responseText
 					if (xhr?.readyState === 4 && xhr?.status === 200 && response) {
 						uploadData.progress = 100
 						resolve(JSON.parse(response))
 					} else {
+						xhr?.abort()
 						if (response) {
-							reject('An error occurred while uploading the file, see server logs')
-						} else {
 							reject(response)
+						} else {
+							reject('An error occurred while uploading the file, see server logs')
 						}
 					}
-
-					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 				})
 				xhr?.open(
 					'POST',
-					`/api/w/${$workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
+					`/api/w/${workspace ?? $workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -173,7 +174,7 @@
 			})
 			return
 		}
-		dispatch('addition', { path: uploadData.path })
+		dispatch('addition', { path: uploadData.path, filename: fileToUpload.name })
 		sendUserToast('File upload finished!')
 
 		uploadData.progress = 100
@@ -188,7 +189,7 @@
 
 	async function deleteFile(fileKey: string) {
 		await HelpersService.deleteS3File({
-			workspace: $workspaceStore!,
+			workspace: workspace ?? $workspaceStore!,
 			fileKey: fileKey
 		})
 		dispatch('deletion', { path: fileKey })

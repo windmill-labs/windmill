@@ -5,13 +5,15 @@ use futures::TryStreamExt;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use windmill_common::jobs::QueuedJob;
+use windmill_common::worker::to_raw_value;
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
 
-use crate::common::run_future_with_polling_update_job_poller;
+use crate::common::OccupancyMetrics;
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
 #[derive(Deserialize)]
@@ -40,6 +42,7 @@ pub async fn do_graphql(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    occupation_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -64,13 +67,18 @@ pub async fn do_graphql(
         .args;
     if let Some(job_args) = job_args {
         for arg in &sig {
-            variables.insert(
-                arg.name.clone(),
-                job_args
-                    .get(&arg.name)
-                    .map(|x| x.to_owned())
-                    .unwrap_or_default(),
-            );
+            match job_args.get(&arg.name) {
+                Some(x) => {
+                    variables.insert(arg.name.clone(), x.to_owned());
+                }
+                None if arg.default.is_some() => {
+                    variables.insert(
+                        arg.name.clone(),
+                        to_raw_value(arg.default.as_ref().unwrap()),
+                    );
+                }
+                _ => {}
+            }
         }
     }
 
@@ -145,6 +153,7 @@ pub async fn do_graphql(
         result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupation_metrics),
     )
     .await?;
 

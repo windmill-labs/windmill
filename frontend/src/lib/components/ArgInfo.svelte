@@ -53,7 +53,7 @@
 
 {#if value == undefined || value == null}
 	<span class="text-tertiary">null</span>
-{:else if value == '<function call>'}
+{:else if value === '<function call>'}
 	{'<function call>'}<Tooltip
 		>The arg was none and the default argument of the script is a function call, hence the actual
 		value used for this arg was the output of the script's function call for this arg</Tooltip
@@ -75,16 +75,18 @@
 		}}>{value}</button
 	>
 {:else if typeof value !== 'object'}
-	{truncate(JSON.stringify(value), 100)}
-	{#if JSON.stringify(value).length > 100}
-		<button
-			class="text-xs text-blue-500"
-			on:click={() => {
-				jsonViewerContent = value
-				jsonViewer.toggleDrawer()
-			}}>See expanded</button
-		>
-	{/if}
+	<span>
+		{truncate(JSON.stringify(value), 80)}
+		{#if JSON.stringify(value).length > 80}
+			<button
+				class="text-xs text-blue-500"
+				on:click={() => {
+					jsonViewerContent = value
+					jsonViewer.toggleDrawer()
+				}}>See expanded</button
+			>
+		{/if}
+	</span>
 {:else}
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}

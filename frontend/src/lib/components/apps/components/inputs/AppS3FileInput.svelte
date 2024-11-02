@@ -16,6 +16,7 @@
 	export let customCss: ComponentCustomCSS<'s3fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
+	export let onFileChange: string[] | undefined = undefined
 
 	let resolvedConfig = initConfig(
 		components['s3fileinputcomponent'].initialData.configuration,
@@ -33,7 +34,8 @@
 	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, runnableComponents, workspace } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	$componentControl[id] = {
 		clearFiles: () => {
@@ -42,8 +44,9 @@
 		}
 	}
 
+	let value: { path: string; filename: string }[] | undefined = undefined
 	const outputs = initOutput($worldStore, id, {
-		result: [] as { path: string }[] | undefined,
+		result: value ?? ([] as { path: string; filename: string }[] | undefined),
 		loading: false,
 		jobId: undefined
 	})
@@ -122,13 +125,18 @@
 		customResourceType="s3"
 		customClass={css?.container?.class}
 		customStyle={css?.container?.style}
+		{fileUploads}
+		{workspace}
 		on:addition={(evt) => {
 			const curr = outputs.result.peak()
-			outputs.result.set(curr.concat(evt.detail))
+			value = curr.concat(evt.detail)
+			outputs.result.set(value)
+			onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 		}}
 		on:deletion={(evt) => {
 			const curr = outputs.result.peak()
-			outputs.result.set(curr.filter((file) => file.path !== evt.detail?.path))
+			value = curr.filter((file) => file.path !== evt.detail?.path)
+			outputs.result.set(value)
 		}}
 		{forceDisplayUploads}
 	/>

@@ -140,27 +140,27 @@
 					{#if !onlyFlow}
 						<Tab size="sm" value="inlinescripts">
 							<div class="flex gap-2 items-center my-1">
-								<Building size={18} />
+								<Building size={18} strokeWidth={1.5} />
 								Detached Inline Scripts
 							</div>
 						</Tab>
 						<Tab size="sm" value="workspacescripts">
 							<div class="flex gap-2 items-center my-1">
-								<Building size={18} />
+								<Building size={18} strokeWidth={1.5}/>
 								Workspace Scripts
 							</div>
 						</Tab>
 					{/if}
 					<Tab size="sm" value="workspaceflows">
 						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
+							<Building size={18} strokeWidth={1.5} />
 							Workspace Flows
 						</div>
 					</Tab>
 					{#if !onlyFlow}
 						<Tab size="sm" value="hubscripts">
 							<div class="flex gap-2 items-center my-1">
-								<Globe2 size={18} />
+								<Globe2 size={18} strokeWidth={1.5} />
 								Hub Scripts
 							</div>
 						</Tab>

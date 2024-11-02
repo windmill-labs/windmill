@@ -11,11 +11,14 @@ path = "src/lib.rs"
 [features]
 default = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util", "dep:openidconnect"]
-benchmark = ["windmill-queue/benchmark"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:gcp_auth", "dep:pem", "dep:tiberius", "dep:tokio-util", "dep:openidconnect"]
+benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 flamegraph = []
-parquet = ["windmill-common/parquet", "dep:object_store", "dep:tar"]
+parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
+cloud = []
+sqlx = []
+deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core", "dep:deno_ast", "dep:deno_tls"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -24,7 +27,9 @@ windmill-common = { workspace = true, default-features = false }
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
+windmill-parser-rust.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser-yaml.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
@@ -48,28 +53,30 @@ chrono.workspace = true
 dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.
 const_format.workspace = true
+mappable-rc.workspace = true
 git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true
 rsmq_async.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
-deno_fetch.workspace = true
-deno_webidl.workspace = true
-deno_web.workspace = true
-deno_console.workspace = true
-deno_url.workspace = true
-deno_core.workspace = true
-deno_ast.workspace = true
-deno_tls.workspace = true
+deno_fetch = { workspace = true, optional = true }
+deno_webidl = { workspace = true, optional = true }
+deno_web = { workspace = true, optional = true }
+deno_net = { workspace = true, optional = true }
+deno_console = { workspace = true, optional = true }
+deno_url = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+deno_ast = { workspace = true, optional = true }
+deno_tls = { workspace = true, optional = true }
 postgres-native-tls.workspace = true
 native-tls.workspace = true
 mysql_async.workspace = true
 base64.workspace = true
 gcp_auth = { workspace = true, optional = true }
 rust_decimal.workspace = true
-jsonwebtoken = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
+jsonwebtoken.workspace = true
+sha2.workspace = true
 pem = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
@@ -79,14 +86,21 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 openidconnect = { workspace = true, optional = true}
-tar = { workspace = true, optional = true}
+tar.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true
+yaml-rust.workspace = true
+swc_ecma_parser.workspace = true
+
 
 [build-dependencies]
-deno_fetch.workspace = true
-deno_webidl.workspace = true
-deno_web.workspace = true
-deno_console.workspace = true
-deno_url.workspace = true
-deno_core.workspace = true
+deno_fetch = { workspace = true, optional = true }
+deno_webidl = { workspace = true, optional = true }
+deno_web = { workspace = true, optional = true }
+deno_net = { workspace = true, optional = true }
+deno_console = { workspace = true, optional = true }
+deno_url = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+deno_ast = { workspace = true, optional = true }
+deno_tls = { workspace = true, optional = true }
+zstd.workspace = true

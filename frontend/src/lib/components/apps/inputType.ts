@@ -39,6 +39,7 @@ export type InputType =
 	| 'ms_sql_server'
 	| 'snowflake'
 	| 'bigquery'
+	| 'app-path'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -57,12 +58,14 @@ export type InputConnectionEval = {
 export type ConnectedInput = {
 	type: 'connected'
 	connection: InputConnection | undefined
+	allowUserResources?: boolean
 }
 
 // User input, set by the user in the app
 export type UserInput<U> = {
 	type: 'user'
 	value: U | undefined
+	allowUserResources?: boolean
 }
 
 // Input can be uploaded with a file selector
@@ -81,6 +84,7 @@ export type EvalInputV2 = {
 	expr: string
 	connections: InputConnectionEval[]
 	onDemandOnly?: boolean
+	allowUserResources?: boolean
 }
 
 export type RowInput = {
@@ -222,6 +226,7 @@ export type AppInput =
 	| AppInputSpec<'resource', string, 'snowflake'>
 	| AppInputSpec<'resource', string, 'bigquery'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
+	| AppInputSpec<'app-path', string>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

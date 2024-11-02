@@ -1,27 +1,25 @@
 <script lang="ts">
-	import { RefreshCw } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
-	import Button from '../../common/button/Button.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { allItems } from '../utils'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { classNames } from '$lib/utils'
+	import RecomputeAllButton from './RecomputeAllButton.svelte'
 
-	const { runnableComponents, app, initialized } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app, initialized, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let loading: boolean = false
 	let timeout: NodeJS.Timeout | undefined = undefined
-	let interval: number | undefined = undefined
 	let shouldRefresh = false
 	let firstLoad = false
+	let progressTimer: NodeJS.Timeout | undefined = undefined
 
 	$: !firstLoad &&
 		$initialized.initializedComponents?.length ==
 			allItems($app.grid, $app.subgrids).length + ($app.hiddenInlineScripts?.length ?? 0) &&
 		refresh()
-	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
+
+	$: $recomputeAllContext.componentNumber =
+		Object.values($runnableComponents).filter((x) => x.autoRefresh).length ?? 0
 
 	onMount(() => {
 		if (appEditorContext) {
@@ -32,28 +30,52 @@
 		return () => {
 			document.removeEventListener('visibilitychange', visChange)
 			if (timeout) clearInterval(timeout)
+			if (progressTimer) clearInterval(progressTimer)
 		}
 	})
 
-	function onClick(stopAfterClear = true) {
+	function onClick(stopAfterClear = false) {
 		if (timeout) {
 			clearInterval(timeout)
 			timeout = undefined
 			shouldRefresh = false
+			if (progressTimer) {
+				clearInterval(progressTimer)
+				progressTimer = undefined
+			}
 			if (stopAfterClear) return
 		}
 		refresh()
-		if (interval) {
+
+		if ($recomputeAllContext.interval) {
 			shouldRefresh = true
-			timeout = setInterval(refresh, interval)
+			timeout = setInterval(refresh, $recomputeAllContext.interval)
+			startProgress()
 		}
 	}
 
+	function startProgress() {
+		$recomputeAllContext.progress = 100
+		if (progressTimer) clearInterval(progressTimer)
+		progressTimer = setInterval(() => {
+			if ($recomputeAllContext.progress) {
+				const newProgress =
+					$recomputeAllContext.progress - 100 / (($recomputeAllContext.interval ?? 1000) / 100)
+				if (newProgress <= 0) {
+					return 0
+				}
+
+				$recomputeAllContext.progress = newProgress
+			}
+		}, 100)
+	}
+
 	function setInter(inter: number | undefined) {
-		interval = inter
+		$recomputeAllContext.interval = inter
 		onClick(!inter)
 	}
 
+	let refreshing: string[] = []
 	function refresh() {
 		let isFirstLoad = false
 		if (!firstLoad) {
@@ -61,9 +83,11 @@
 			firstLoad = true
 			isFirstLoad = true
 		}
-		loading = true
+		$recomputeAllContext.loading = true
+		$recomputeAllContext.progress = 100
 
 		console.log('refresh all')
+		refreshing = []
 		const promises = Object.keys($runnableComponents)
 			.flatMap((id) => {
 				if (
@@ -73,15 +97,30 @@
 					return
 				}
 
-				console.log('refresh start', id)
-				return $runnableComponents?.[id]?.cb?.map((f) =>
-					f().then(() => console.log('refreshed', id))
-				)
+				let cb = $runnableComponents?.[id]?.cb
+				if (cb) {
+					console.log('refresh start', id)
+					refreshing.push(id)
+					return cb.map((f) =>
+						f()
+							.then(() => {
+								console.log('refreshed', id)
+								refreshing = refreshing.filter((x) => x !== id)
+							})
+							.catch((e) => {
+								console.error('refresh error', id)
+								refreshing = refreshing.filter((x) => x !== id)
+							})
+							.finally(() => {
+								$recomputeAllContext.refreshing = refreshing
+							})
+					)
+				}
 			})
 			.filter(Boolean)
 
 		Promise.all(promises).finally(() => {
-			loading = false
+			$recomputeAllContext.loading = false
 		})
 	}
 
@@ -90,81 +129,31 @@
 			if (timeout) {
 				clearInterval(timeout)
 				timeout = undefined
+				if (progressTimer) clearInterval(progressTimer)
 			}
 		} else if (shouldRefresh) {
-			timeout = setInterval(refresh, interval)
+			timeout = setInterval(refresh, $recomputeAllContext.interval)
+			startProgress()
 		}
 	}
 
-	let items = [
-		{
-			displayName: 'Once',
-			action: () => setInter(undefined)
-		},
-		...[1, 2, 3, 4, 5, 6].map((i) => ({
-			displayName: `Every ${i * 5} seconds`,
-			action: () => setInter(i * 5000)
-		}))
-	]
+	onMount(() => {
+		$recomputeAllContext = {
+			onClick,
+			setInter
+		}
+	})
 </script>
 
-<!-- {$initialized.initializedComponents?.join(', ')}
-{allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length} -->
-<!-- {$initialized.initializedComponents} -->
-<!-- {allItems($app.grid, $app.subgrids)
-	.map((x) => x.id)
-	.filter((x) => !$initialized.initializedComponents?.includes(x))
-	.sort()
-	.join(', ')} -->
-<!-- {allItems($app.grid, $app.subgrids).map((x) => x.id)} -->
-
-<div class="flex items-center">
-	<Button
-		disabled={componentNumber == 0}
-		on:click={() => onClick()}
-		color={timeout ? 'blue' : 'light'}
-		variant={timeout ? 'contained' : 'border'}
-		size="xs"
-		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
-		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
-			? `every ${interval / 1000} seconds`
-			: 'once'}"
-	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={14} /> &nbsp;{componentNumber}
-	</Button>
-
-	<ButtonDropdown hasPadding={true}>
-		<svelte:fragment slot="label">
-			<span
-				class={classNames('text-xs min-w-[2rem]', interval ? 'text-blue-500' : 'text-tertiary')}
-			>
-				{interval ? `${interval / 1000}s` : 'once'}
-			</span>
-		</svelte:fragment>
-		<svelte:fragment slot="items">
-			{#each items ?? [] as { }, index}
-				<MenuItem
-					on:click={() => {
-						if (index === 0) {
-							setInter(undefined)
-						} else {
-							setInter(index * 5000)
-						}
-					}}
-				>
-					<div
-						class={classNames(
-							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-						)}
-					>
-						{#if index === 0}
-							Once
-						{:else}
-							{`Every ${index * 5} seconds`}
-						{/if}
-					</div>
-				</MenuItem>
-			{/each}
-		</svelte:fragment>
-	</ButtonDropdown>
-</div>
+<RecomputeAllButton
+	on:click={() => onClick()}
+	interval={$recomputeAllContext.interval}
+	{refreshing}
+	componentNumber={$recomputeAllContext.componentNumber ?? 0}
+	loading={$recomputeAllContext.loading}
+	progress={$recomputeAllContext.progress}
+	on:setInter={(e) => {
+		setInter(e.detail)
+		onClick(false)
+	}}
+/>

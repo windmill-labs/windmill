@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import YAML from 'yaml'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils'
@@ -21,7 +22,7 @@
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argNames: string[] = []
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> } | undefined = undefined
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -56,14 +57,20 @@
 				results: pickableProperties?.priorIds,
 				flow_input: pickableProperties?.flow_input
 			}
-			const user = `I'm building a workflow which is a DAG of script steps. 
-The current step is ${selectedId}, you can find the details for the step and previous ones below:
+			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
+			const user = `I'm building a workflow which is a DAG of script steps.
+The current step is ${$selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
 Determine for all the inputs "${argNames.join(
 				'", "'
-			)}", what to pass either from the previous results of the flow inputs. 
-All possibles inputs either start with results. or flow_input. and are follow by the key of the input.			
+			)}", what to pass either from the previous results of the flow inputs.
+All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
+${
+	isInsideLoop
+		? 'As the step is in a loop, the iterator value is accessible as flow_input.iter.value.'
+		: 'As the step is not in a loop, flow_input.iter.value is not available.'
+}
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
@@ -123,7 +130,7 @@ input_name2: expression2
 		const properties = {
 			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
 			...newFlowInputs.reduce((acc, x) => {
-				acc[x] = (schema.properties ?? {})[x]
+				acc[x] = (schema?.properties ?? {})[x]
 				return acc
 			}, {})
 		}
@@ -232,7 +239,7 @@ input_name2: expression2
 				{#if !$copilotInfo.exists_openai_resource_path}
 					Enable Windmill AI in the{' '}
 					<a
-						href="/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=openai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

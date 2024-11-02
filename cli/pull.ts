@@ -14,10 +14,10 @@ export async function downloadZip(
   includeUsers?: boolean,
   includeGroups?: boolean,
   includeSettings?: boolean,
+  includeKey?: boolean,
   defaultTs?: "bun" | "deno"
 ): Promise<JSZip | undefined> {
-  const requestHeaders: HeadersInit & { set(x: string, y: string): void } =
-    new Headers();
+  const requestHeaders = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
 
@@ -40,9 +40,9 @@ export async function downloadZip(
         includeSchedules ?? false
       }&include_users=${includeUsers ?? false}&include_groups=${
         includeGroups ?? false
-      }&include_settings=${includeSettings ?? false}&default_ts=${
-        defaultTs ?? "deno"
-      }`,
+      }&include_settings=${includeSettings ?? false}&include_key=${
+        includeKey ?? false
+      }&default_ts=${defaultTs ?? "bun"}`,
     {
       headers: requestHeaders,
       method: "GET",
@@ -58,13 +58,10 @@ export async function downloadZip(
     log.debug(`Downloaded zip/tarball successfully`);
   }
   const blob = await zipResponse.blob();
-  return await JSZip.loadAsync(blob as any);
+  return await JSZip.loadAsync((await blob.arrayBuffer()) as any);
 }
 
-async function stub(
-  _opts: GlobalOptions & { override: boolean },
-  _dir: string
-) {
+function stub(_opts: GlobalOptions & { override: boolean }, _dir: string) {
   console.log(
     colors.red.underline(
       'Pull is deprecated. Use "sync pull --raw" instead. See <TODO_LINK_HERE> for more information.'

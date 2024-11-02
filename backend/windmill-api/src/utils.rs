@@ -6,23 +6,23 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::{body::Body, response::Response};
 use regex::Regex;
+use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
+    auth::is_super_admin_email,
     error::{self, Error},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     DB,
 };
 
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    if email == SUPERADMIN_SECRET_EMAIL || email == SUPERADMIN_NOTIFICATION_EMAIL {
-        return Ok(());
-    }
-    let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?
-        .unwrap_or(false);
+    let is_admin = is_super_admin_email(db, email).await?;
 
     if !is_admin {
         Err(Error::NotAuthorized(
@@ -148,28 +148,17 @@ pub async fn get_instance_username_or_create_pending<'c>(
             )
             .execute(&mut **tx)
             .await
-            .map_err(|e| Error::InternalErr(format!("creating pending user: {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("creating pending user: {e:#}")))?;
 
             Ok(username)
         }
     }
 }
 
-pub async fn get_and_delete_pending_username_or_generate<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    email: &str,
-) -> error::Result<String> {
-    let username = sqlx::query_scalar!("SELECT username FROM pending_user WHERE email = $1", email)
-        .fetch_optional(&mut **tx)
-        .await?;
-
-    if let Some(username) = username {
-        sqlx::query!("DELETE FROM pending_user WHERE email = $1", email)
-            .execute(&mut **tx)
-            .await?;
-        Ok(username)
-    } else {
-        let username = generate_instance_wide_unique_username(&mut *tx, email).await?;
-        Ok(username)
-    }
+pub fn content_plain(body: Body) -> Response {
+    use axum::http::header;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
 }

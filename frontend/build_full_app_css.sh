@@ -1,0 +1,1 @@
+NODE_ENV="production" npx tailwindcss -i src/lib/assets/app.css -o static/tailwind_full.css --postcss

@@ -14,10 +14,12 @@
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
 	export let noEditor: boolean
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let parentModule: FlowModule | undefined
 
 	let value = flowModule.value as BranchAll
 	$: value = flowModule.value as BranchAll
@@ -45,7 +47,6 @@
 						<h3 class="mb-4"
 							>{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}</h3
 						>
-						<p>Add branches and steps directly on the graph.</p>
 						<div class="flex flex-col gap-y-4 py-2 w-full">
 							{#each value.branches as branch, i}
 								<div class="flex flex-row gap-x-4 w-full items-center">
@@ -64,6 +65,7 @@
 								</div>
 							{/each}
 						</div>
+						<p class="text-sm">Add branches and steps directly on the graph.</p>
 						<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
 						<Toggle
 							bind:checked={value.parallel}
@@ -77,6 +79,7 @@
 					<Pane size={40}>
 						<Tabs bind:selected>
 							<Tab value="early-stop">Early Stop/Break</Tab>
+							<Tab value="skip">Skip</Tab>
 							<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
@@ -86,6 +89,11 @@
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleEarlyStop bind:flowModule />
+										</div>
+									</TabContent>
+									<TabContent value="skip" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
 										</div>
 									</TabContent>
 									<TabContent value="suspend" class="flex flex-col flex-1 h-full">

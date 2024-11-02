@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
-import type { AppComponent } from './editor/component'
+import { type AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {
@@ -58,7 +58,7 @@ export function schemaToInputsSpec(
 		const property = schema.properties[key]
 
 		accu[key] = {
-			type: defaultUserInput && !property.format?.startsWith('resource-') ? 'user' : 'static',
+			type: defaultUserInput ? 'user' : 'static',
 			value: property.default,
 			fieldType: property.type,
 			format: property.format
@@ -174,15 +174,42 @@ export function buildExtraLib(
 		.filter(([k, v]) => k != idToExclude && k != 'state')
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
 		.map(
-			([k, v]) => `declare const ${k}: ${JSON.stringify(v)};
+			([k, v]) => `declare const ${k}: WidenRo<${JSON.stringify(v)}>;
 `
 		)
 		.join('\n')
 
-	return `${cs}
+	return `
+
+type Widen<T> = T extends string
+  ? string
+  : T extends number
+  ? number
+  : T extends boolean
+  ? boolean
+  : T extends Array<infer U>
+  ? Array<Widen<U>>
+  : T extends object
+  ? Partial<{ [K in keyof T]: Widen<T[K]> } & {[key: string]: any}>
+  : T;
+
+type WidenRo<T> = T extends string
+  ? string
+  : T extends number
+  ? number
+  : T extends boolean
+  ? boolean
+  : T extends Array<infer U>
+  ? Readonly<Array<WidenRo<U>>>
+  : T extends object
+  ? Readonly<{ [K in keyof T]: WidenRo<T[K]> }>
+  : T;
+
 
 /** The mutable state of the app */
-declare const state: ${JSON.stringify(state)} & {[key: string]: any};
+declare const state: Widen<${JSON.stringify(state)}> & {[key: string]: any};
+
+${cs}
 
 ${
 	goto
@@ -258,6 +285,27 @@ declare function clearFiles(id: string): void;
  * @param message message to display
  */
 declare function showToast(message: string, error?: boolean): void;
+
+/**
+ * Wait for a job to finish
+ * @param id job id
+ * @returns the result of the job
+ */
+declare async function waitJob(id: string): Promise<any>;
+
+
+/**
+ * ask user resource on a UserResourceComponent
+ */
+declare async function askNewResource(id: string): void;
+
+/**
+ * Download a file from a url or base64 encoded string
+ * @param input url, base64 encoded string, [dataUrl](https://developer.mozilla.org/en-US/docs/Web/URI/Schemes/data) or S3 object
+ * @param [fileName] name of the file to download (optional)
+ */
+declare function downloadFile(input: string | {s3: string, storage?: string}, fileName?: string): void;
+
 `
 		: ''
 }
@@ -410,6 +458,9 @@ export function transformBareBase64IfNecessary(source: string | undefined) {
 	if (!source) {
 		return source
 	}
+	if (/^(http|https):\/\//.test(source) || source.startsWith('/')) {
+		return source
+	}
 	if (source.startsWith('data:') || source.includes(',')) {
 		return source
 	} else {
@@ -433,3 +484,5 @@ export function getImageDataURL(imageKind: string | undefined, image: string | u
 			return image
 	}
 }
+
+export const ctxRegex = /^ctx\.(workspace|groups|username|email|author)$/

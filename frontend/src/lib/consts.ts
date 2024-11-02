@@ -38,6 +38,7 @@ export const SCRIPT_CUSTOMISE_SHOW_KIND = true
 export const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
 export const CUSTOM_TAGS_SETTING = 'custom_tags'
 export const DEFAULT_TAGS_PER_WORKSPACE_SETTING = 'default_tags_per_workspace'
+export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
 
 export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'
 
@@ -64,8 +65,8 @@ export const POSTGRES_TYPES = [
 	'BIGSERIAL[]',
 	'REAL',
 	'REAL[]',
-	'DOUBLE PRECISION',
-	'DOUBLE PRECISION[]',
+	'FLOAT8',
+	'FLOAT8[]',
 	'NUMERIC',
 	'NUMERIC[]',
 	'DECIMAL',
@@ -76,12 +77,18 @@ export const POSTGRES_TYPES = [
 	'DATE[]',
 	'TIME',
 	'TIME[]',
+	'TIMETZ',
+	'TIMETZ[]',
 	'TIMESTAMP',
 	'TIMESTAMP[]',
+	'TIMESTAMPTZ',
+	'TIMESTAMPTZ[]',
 	'JSON',
 	'JSON[]',
 	'JSONB',
-	'JSONB[]'
+	'JSONB[]',
+	'BYTEA',
+	'BYTEA[]'
 ]
 
 export const MYSQL_TYPES = [

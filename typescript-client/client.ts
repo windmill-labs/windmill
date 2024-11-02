@@ -3,7 +3,9 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  MetricsService,
   OidcService,
+  UserService,
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -93,7 +95,7 @@ export async function getResource(
 }
 
 /**
- * Get a resource value by path
+ * Get the true root job id
  * @param jobId job id to get the root job id from (default to current job)
  * @returns root job id
  */
@@ -119,6 +121,21 @@ export async function runScript(
   }
 
   const jobId = await runScriptAsync(path, hash_, args);
+  return await waitJob(jobId, verbose);
+}
+
+export async function runFlow(
+  path: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  args = args || {};
+
+  if (verbose) {
+    console.info(`running \`${path}\` synchronously with args:`, args);
+  }
+
+  const jobId = await runFlowAsync(path, args, null, false);
   return await waitJob(jobId, verbose);
 }
 
@@ -252,6 +269,55 @@ export async function runScriptAsync(
     body: JSON.stringify(args),
   }).then((res) => res.text());
 }
+
+export async function runFlowAsync(
+  path: string | null,
+  args: Record<string, any> | null,
+  scheduledInSeconds: number | null = null,
+  // can only be set to false if this the job will be fully await and not concurrent with any other job
+  // as otherwise the child flow and its own child will store their state in the parent job which will
+  // lead to incorrectness and failures
+  doNotTrackInParent: boolean = true
+): Promise<string> {
+  // Create a script job and return its job id.
+
+  args = args || {};
+  const params: Record<string, any> = {};
+
+  if (scheduledInSeconds) {
+    params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  if (!doNotTrackInParent) {
+    let parentJobId = getEnv("WM_JOB_ID");
+    if (parentJobId !== undefined) {
+      params["parent_job"] = parentJobId;
+    }
+    let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+    if (rootJobId != undefined && rootJobId != "") {
+      params["root_job"] = rootJobId;
+    }
+  }
+
+  let endpoint: string;
+  if (path) {
+    endpoint = `/w/${getWorkspace()}/jobs/run/f/${path}`;
+  } else {
+    throw new Error("path must be provided");
+  }
+  let url = new URL(OpenAPI.BASE + endpoint);
+  url.search = new URLSearchParams(params).toString();
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OpenAPI.TOKEN}`,
+    },
+    body: JSON.stringify(args),
+  }).then((res) => res.text());
+}
+
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`
@@ -319,6 +385,52 @@ export async function setInternalState(state: any): Promise<void> {
  */
 export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
+}
+
+/**
+ * Set the progress
+ * Progress cannot go back and limited to 0% to 99% range
+ * @param percent Progress to set in %
+ * @param jobId? Job to set progress for
+ */
+export async function setProgress(percent: number, jobId?: any): Promise<void> {
+  const workspace = getWorkspace();
+  let flowId = getEnv("WM_FLOW_JOB_ID"); 
+
+  // If jobId specified we need to find if there is a parent/flow
+  if (jobId) {
+    const job = await JobService.getJob({
+      id: jobId ?? "NO_JOB_ID",
+      workspace,
+      noLogs: true
+    });    
+
+    // Could be actual flowId or undefined
+    flowId = job.parent_job;
+  }
+
+  await MetricsService.setJobProgress({
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace,
+    requestBody: {
+      // In case user inputs float, it should be converted to int
+      percent: Math.floor(percent),
+      flow_job_id: (flowId == "") ? undefined : flowId,
+    }
+  });
+}
+
+/**
+ * Get the progress
+ * @param jobId? Job to get progress from
+ * @returns Optional clamped between 0 and 100 progress value 
+ */
+export async function getProgress(jobId?: any): Promise<number | null> {
+  // TODO: Delete or set to 100 completed job metrics
+  return await MetricsService.getJobProgress({
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace: getWorkspace(),
+  }); 
 }
 
 /**
@@ -562,6 +674,9 @@ export async function loadS3FileStream(
   if (s3ResourcePath !== undefined) {
     params["s3_resource_path"] = s3ResourcePath;
   }
+  if (s3object.storage !== undefined) {
+    params["storage"] = s3object.storage;
+  }
   const queryParams = new URLSearchParams(params);
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
@@ -608,6 +723,7 @@ export async function writeS3File(
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
+    storage: s3object?.storage,
   });
   return {
     s3: response.file_key,
@@ -713,4 +829,16 @@ export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
   }
 
   return base64;
+}
+
+/**
+ * Get email from workspace username
+ * This method is particularly useful for apps that require the email address of the viewer.
+ * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+ * @param username
+ * @returns email address
+ */
+export async function usernameToEmail(username: string): Promise<string> {
+  const workspace = getWorkspace();
+  return await UserService.usernameToEmail({ username, workspace });
 }

@@ -27,12 +27,31 @@ pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             .iter()
             .map(|param| {
                 let (otyp, typ) = parse_go_typ(&param.typ);
-                Arg { name: get_name(param), otyp, typ, default: None, has_default: false }
+                Arg {
+                    name: get_name(param),
+                    otyp,
+                    typ,
+                    default: None,
+                    has_default: false,
+                    oidx: None,
+                }
             })
             .collect_vec();
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: Some(false),
+            has_preprocessor: None,
+        })
     } else {
-        Err(anyhow::anyhow!("no main function found".to_string(),))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+            has_preprocessor: None,
+        })
     }
 }
 
@@ -169,28 +188,32 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         name: "x".to_string(),
                         typ: Typ::Int,
                         has_default: false,
-                        default: None
+                        default: None,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("string".to_string()),
                         name: "y".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("bool".to_string()),
                         name: "z".to_string(),
                         typ: Typ::Bool,
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("[]string".to_string()),
                         name: "l".to_string(),
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("struct { Name string `json:\"name\"` }".to_string()),
@@ -200,23 +223,28 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                             typ: Box::new(Typ::Str(None))
                         },]),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("interface{}".to_string()),
                         name: "n".to_string(),
                         typ: Typ::Object(vec![]),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("map[string]interface{}".to_string()),
                         name: "m".to_string(),
                         typ: Typ::Object(vec![]),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
-                ]
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: None
             }
         );
 

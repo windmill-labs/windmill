@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
@@ -14,6 +15,8 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
+	import { isDeployable } from '$lib/utils_deployable'
+
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import {
 		Pen,
@@ -26,8 +29,11 @@
 		Share,
 		Archive,
 		Clipboard,
-		Eye
+		Eye,
+		HistoryIcon
 	} from 'lucide-svelte'
+	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -66,16 +72,18 @@
 		}
 	}
 	let scheduleEditor: ScheduleEditor
+	let flowHistory: FlowHistory
 </script>
 
 {#if menuOpen}
 	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<FlowHistory bind:this={flowHistory} path={flow.path} />
 {/if}
 
 <Row
 	href={flow.draft_only
-		? `/flows/edit/${flow.path}?nodraft=true`
-		: `/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+		? `${base}/flows/edit/${flow.path}?nodraft=true`
+		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
@@ -105,7 +113,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/flows/edit/{flow.path}?nodraft=true"
+							href="{base}/flows/edit/{flow.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -117,7 +125,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/flows/add?template={flow.path}"
+							href="{base}/flows/add?template={flow.path}"
 						>
 							Fork
 						</Button>
@@ -127,7 +135,7 @@
 		</span>
 
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				if (draft_only) {
@@ -155,18 +163,18 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/flows/add?template=${path}`,
+						href: `${base}/flows/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `/runs/${path}`
+						href: `${base}/runs/${path}`
 					},
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${path}`,
+						href: `${base}/audit_logs?resource=${path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -185,13 +193,25 @@
 							copyToClipboard(path)
 						}
 					},
+					...(isDeployable('flow', path, await getDeployUiSettings())
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: Globe,
+									action: () => {
+										deploymentDrawer.openDrawer(path, 'flow')
+									},
+									disabled: archived,
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
-						displayName: 'Deploy to staging/prod',
-						icon: Globe,
+						displayName: 'Deployments',
+						icon: HistoryIcon,
 						action: () => {
-							deploymentDrawer.openDrawer(path, 'flow')
+							flowHistory.open()
 						},
-						disabled: archived,
 						hide: $userStore?.operator
 					},
 					{

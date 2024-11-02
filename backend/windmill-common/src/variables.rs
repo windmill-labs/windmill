@@ -6,9 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use magic_crypt::{MagicCrypt256, MagicCryptTrait};
+use chrono::{SecondsFormat, Utc};
+use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
 
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 
@@ -40,10 +40,10 @@ pub struct ListableVariable {
     pub is_refreshed: Option<bool>,
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
+    pub expires_at: Option<chrono::DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
-
 pub struct ExportableListableVariable {
     pub workspace_id: String,
     pub path: String,
@@ -51,8 +51,16 @@ pub struct ExportableListableVariable {
     pub is_secret: bool,
     pub description: String,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<i32>,
+    #[serde(skip_serializing_if = "is_none_or_false")]
     pub is_oauth: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::DateTime<Utc>>,
+}
+
+fn is_none_or_false(b: &Option<bool>) -> bool {
+    b.is_none() || !b.unwrap()
 }
 
 #[derive(Deserialize)]
@@ -63,12 +71,10 @@ pub struct CreateVariable {
     pub description: String,
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
+    pub expires_at: Option<chrono::DateTime<Utc>>,
 }
 
-pub async fn build_crypt<'c>(
-    db: &mut Transaction<'c, Postgres>,
-    w_id: &str,
-) -> crate::error::Result<MagicCrypt256> {
+pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
     let key = get_workspace_key(w_id, db).await?;
     let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
         format!("{}{}", key, salt)
@@ -78,17 +84,28 @@ pub async fn build_crypt<'c>(
     Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
 }
 
-pub async fn get_workspace_key<'c>(
+pub async fn build_crypt_with_key_suffix(
+    db: &DB,
     w_id: &str,
-    db: &mut Transaction<'c, Postgres>,
-) -> crate::error::Result<String> {
+    key_suffix: &str,
+) -> crate::error::Result<MagicCrypt256> {
+    let key = get_workspace_key(w_id, db).await?;
+    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}{}", key, salt, key_suffix)
+    } else {
+        format!("{}{}", key, key_suffix)
+    };
+    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+}
+
+pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {
     let key = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
         w_id
     )
-    .fetch_one(&mut **db)
+    .fetch_one(db)
     .await
-    .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e}")))?;
+    .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e:#}")))?;
     Ok(key)
 }
 
@@ -115,12 +132,8 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mut tx = db.begin().await?;
-            let mc = build_crypt(&mut tx, &w_id).await?;
-            tx.commit().await?;
-
-            mc.decrypt_base64_to_string(value)
-                .map_err(|e| crate::Error::InternalErr(e.to_string()))?
+            let mc = build_crypt(&db, &w_id).await?;
+            decrypt_value_with_mc(value, mc).await?
         } else {
             "".to_string()
         }
@@ -130,6 +143,21 @@ pub async fn get_secret_value_as_admin(
 
     Ok(r)
 }
+
+pub async fn decrypt_value_with_mc(
+    value: String,
+    mc: MagicCrypt256,
+) -> Result<String, crate::error::Error> {
+    Ok(mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => crate::error::Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => crate::error::Error::InternalErr(e.to_string()),
+    })?)
+}
+
+pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
 pub async fn get_reserved_variables(
     db: &DB,
@@ -146,6 +174,7 @@ pub async fn get_reserved_variables(
     step_id: Option<String>,
     root_flow_id: Option<String>,
     jwt_token: Option<String>,
+    scheduled_for: Option<chrono::DateTime<Utc>>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -161,7 +190,7 @@ pub async fn get_reserved_variables(
             )
         } else if let Some(script_path) = path.clone() {
             let script_path = if script_path.ends_with("/") {
-                "noname".to_string()
+                format!("{script_path}state")
             } else {
                 script_path
             };
@@ -229,6 +258,14 @@ pub async fn get_reserved_variables(
             name: "WM_JOB_ID".to_string(),
             value: job_id.to_string(),
             description: "Job id of the current script".to_string(),
+            is_custom: false,
+        },
+        ContextualVariable {
+            name: WM_SCHEDULED_FOR.to_string(),
+            value: scheduled_for
+                .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Secs, true))
+                .unwrap_or_else(|| "".to_string()),
+            description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
             is_custom: false,
         },
         ContextualVariable {

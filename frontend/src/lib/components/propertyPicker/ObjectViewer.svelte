@@ -6,7 +6,8 @@
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -62,7 +63,7 @@
 	$: fullyCollapsed = keys.length > 1 && collapsed
 </script>
 
-<Portal>
+<Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
 
@@ -109,7 +110,9 @@
 							<button
 								class="val text-left {pureViewer
 									? 'cursor-auto'
-									: ''} rounded px-1 hover:bg-blue-100 dark:hover:bg-blue-100/10 {getTypeAsString(json[key])}"
+									: ''} rounded px-1 hover:bg-blue-100 dark:hover:bg-blue-100/10 {getTypeAsString(
+									json[key]
+								)}"
 								on:click={() => selectProp(key, json[key])}
 							>
 								{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -142,7 +145,9 @@
 					{#if getTypeAsString(json) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}`}
+							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}${
+								json?.storage ? `&storage=${json.storage}` : ''
+							}`}
 							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
 						>
 							<span class="flex items-center gap-1"><Download size={12} />download</span>

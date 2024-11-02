@@ -1,17 +1,22 @@
 <script lang="ts">
-	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
+	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { decodeState } from '$lib/utils'
 
 	let content = localStorage.getItem('svelvet')
-	const { modules, failureModule } = content
+	const { modules, failureModule, preprocessorModule } = content
 		? decodeState(content)
-		: { modules: [], failureModule: undefined }
+		: { modules: [], failureModule: undefined, preprocessorModule: undefined }
 </script>
 
-<FlowGraph fullSize {modules} {failureModule} />
+<FlowGraphV2 triggerNode={false} {modules} {failureModule} {preprocessorModule} />
 <a
 	download="flow.json"
 	href={'data:text/json;charset=utf-8,' +
-		encodeURIComponent(JSON.stringify({ value: { modules, failureModule }, summary: '' }, null, 4))}
-	>Download</a
+		encodeURIComponent(
+			JSON.stringify(
+				{ value: { modules, failureModule, preprocessorModule }, summary: '' },
+				null,
+				4
+			)
+		)}>Download</a
 >

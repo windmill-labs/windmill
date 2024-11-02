@@ -8,13 +8,14 @@
 		RichConfigurations
 	} from '../../../types'
 	import { initCss } from '../../../utils'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import { initConfig, initOutput } from '../../../editor/appUtils'
 	import { components } from '../../../editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import type { AgChartOptions, AgChartInstance } from 'ag-charts-community'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -57,6 +58,48 @@
 
 	let css = initCss($app.css?.agchartscomponent, customCss)
 	let chartInstance: AgChartInstance | undefined = undefined
+
+	function getChartStyleByTheme() {
+		const gridColor = darkMode ? '#555555' : '#dddddd'
+		const axisColor = darkMode ? '#555555' : '#dddddd'
+		const textColor = darkMode ? '#eeeeee' : '#333333'
+
+		return {
+			axes: [
+				{
+					type: 'category',
+					position: 'bottom',
+					label: { color: textColor },
+					line: { color: axisColor },
+					tick: { color: axisColor },
+					gridLine: {
+						style: [
+							{
+								stroke: gridColor
+							}
+						]
+					}
+				},
+				{
+					type: 'number',
+					position: 'left',
+					label: { color: textColor },
+					line: { color: axisColor },
+					tick: { color: axisColor },
+					gridLine: {
+						style: [
+							{
+								stroke: gridColor
+							}
+						]
+					}
+				}
+			],
+			background: {
+				visible: false
+			}
+		}
+	}
 
 	function updateChart() {
 		if (!chartInstance) {
@@ -111,7 +154,8 @@
 							yName: d.name
 						}
 					}
-				}) as any[]) ?? []
+				}) as any[]) ?? [],
+			...getChartStyleByTheme()
 		}
 
 		outputs.result.set({
@@ -220,6 +264,7 @@
 		}
 		const options = {
 			container: document.getElementById(`agchart-${id}`) as HTMLElement,
+			...getChartStyleByTheme(),
 			...result
 		}
 
@@ -246,23 +291,47 @@
 		}
 	}
 
-	onMount(() => {
-		loadLibrary().then(() => {
-			try {
-				// Chart Options
-				const options: AgChartOptions = {
-					container: document.getElementById(`agchart-${id}`) as HTMLElement,
-					data: [],
-					series: []
-				}
-
-				chartInstance = AgChartsInstance?.create(options)
-			} catch (error) {
-				console.error(error)
+	function initChart() {
+		try {
+			// Chart Options
+			const options: AgChartOptions = {
+				container: document.getElementById(`agchart-${id}`) as HTMLElement,
+				data: [],
+				series: [],
+				...getChartStyleByTheme()
 			}
+
+			chartInstance = AgChartsInstance?.create(options)
+		} catch (error) {
+			console.error(error)
+		}
+	}
+
+	function destroyChart() {
+		if (chartInstance) {
+			chartInstance.destroy()
+			chartInstance = undefined
+		}
+	}
+
+	$: if (render) {
+		destroyChart()
+		loadLibrary().then(() => {
+			initChart()
 		})
-	})
+	}
+
+	let darkMode = false
 </script>
+
+<DarkModeObserver
+	bind:darkMode
+	on:change={(e) => {
+		tick().then(() => {
+			updateChart()
+		})
+	}}
+/>
 
 {#if datasets}
 	<ResolveConfig

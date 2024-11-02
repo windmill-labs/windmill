@@ -20,6 +20,7 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
+	import EditorSettings from '$lib/components/EditorSettings.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -253,6 +254,7 @@
 					}, {})}
 					{transformer}
 				/>
+				<EditorSettings />
 
 				<Button
 					title="Delete"
@@ -298,7 +300,7 @@
 
 		<!-- {inlineScript.content} -->
 
-		<div class="border-y h-full">
+		<div class="border-y h-full w-full">
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
@@ -314,10 +316,12 @@
 							if (inlineScript) {
 								inlineScript.content = editor?.getCode() ?? ''
 							}
-							runLoading = true
-							await Promise.all(
-								$runnableComponents[id]?.cb?.map((f) => f?.(inlineScript, true)) ?? []
-							)
+							try {
+								runLoading = true
+								await Promise.all(
+									$runnableComponents[id]?.cb?.map((f) => f?.(inlineScript, true)) ?? []
+								)
+							} catch {}
 							runLoading = false
 						}}
 						on:change={async (e) => {
@@ -345,8 +349,9 @@
 				{:else}
 					<SimpleEditor
 						bind:this={simpleEditor}
-						class="h-full"
+						class="h-full max-w-full"
 						small
+						allowVim
 						{extraLib}
 						bind:code={inlineScript.content}
 						lang="javascript"
@@ -368,10 +373,12 @@
 				{/if}
 
 				<DiffEditor
+					open={false}
 					bind:this={diffEditor}
-					class="hidden h-full"
+					class="h-full"
 					automaticLayout
 					fixedOverflowWidgets
+					defaultLang={scriptLangToEditorLang(inlineScript?.language)}
 				/>
 			{/if}
 		</div>

@@ -9,7 +9,8 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	// @ts-ignore
 	import MultiSelect from 'svelte-multiselect'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'
@@ -185,7 +186,7 @@
 					{option}
 				</div>
 			</MultiSelect>
-			<Portal>
+			<Portal name="app-multiselect">
 				<div use:floatingContent class="z5000" hidden={!open}>
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<!-- svelte-ignore a11y-click-events-have-key-events -->

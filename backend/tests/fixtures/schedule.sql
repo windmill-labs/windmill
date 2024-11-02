@@ -41,12 +41,22 @@ export async function main() {
 '',
 'f/system/schedule_recovery_handler', -28028598712388160, 'deno', '');
 
-INSERT INTO public.flow(workspace_id, edited_by, value, schema, summary, description, path) VALUES (
+INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
 'test-workspace',
-'system',
-'{"modules": [{"id": "a", "value": {"path": "f/system/failing_script", "type": "script", "input_transforms": {"fail": {"expr": "flow_input.fail", "type": "javascript"}}}}]}',
+'',
+'',
+'f/system/failing_flow',
+'{1}',
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"fail":{"default":true,"description":"","type":"boolean","format":""}},"required":[],"type":"object"}',
-'',
-'',
-'f/system/failing_flow'
+'{"modules": [{"id": "a", "value": {"path": "f/system/failing_script", "type": "script", "input_transforms": {"fail": {"expr": "flow_input.fail", "type": "javascript"}}}}]}',
+'system'
+);
+
+INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES (
+1,
+'test-workspace',
+'f/system/failing_flow',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"fail":{"default":true,"description":"","type":"boolean","format":""}},"required":[],"type":"object"}',
+'{"modules": [{"id": "a", "value": {"path": "f/system/failing_script", "type": "script", "input_transforms": {"fail": {"expr": "flow_input.fail", "type": "javascript"}}}}]}',
+'system'
 );

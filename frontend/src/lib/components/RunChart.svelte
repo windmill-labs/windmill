@@ -2,6 +2,7 @@
 	import { Scatter } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
+	import Tooltip2 from '$lib/components/Tooltip.svelte'
 	import {
 		Chart as ChartJS,
 		Title,
@@ -17,16 +18,26 @@
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
+	import Button from './common/button/Button.svelte'
 
 	export let jobs: CompletedJob[] | undefined = []
 	export let maxIsNow: boolean = false
 	export let minTimeSet: string | undefined = undefined
 	export let maxTimeSet: string | undefined = undefined
+	export let selectedIds: string[] = []
+	export let canSelect: boolean = true
+	export let lastFetchWentToEnd: boolean = false
 
 	const dispatch = createEventDispatcher()
+	const SUCCESS_COLOR = '#4ade80'
+	// const SUCCESS_COLOR_TRANSPARENT = '#c9b638'
+	const SUCCESS_COLOR_TRANSPARENT = mergeColors(SUCCESS_COLOR, getBackgorundColor(), 0.8)
+	const FAIL_COLOR = '#f87171'
+	const FAIL_COLOR_TRANSPARENT = mergeColors(FAIL_COLOR, getBackgorundColor(), 0.8)
 
 	$: success = jobs?.filter((x) => x.success)
 	$: failed = jobs?.filter((x) => !x.success)
+
 	ChartJS.register(
 		Title,
 		Tooltip,
@@ -41,11 +52,11 @@
 	)
 
 	$: data = {
-		labels: ['Duration'],
 		datasets: [
 			{
-				// borderColor: 'rgba(99,0,125, .2)',
-				backgroundColor: '#f87171',
+				borderColor: 'rgba(99,0,125, 0)',
+				backgroundColor: FAIL_COLOR as string | string[],
+				radius: 3,
 				label: 'Failed',
 				data:
 					failed?.map((job) => ({
@@ -56,8 +67,9 @@
 					})) ?? []
 			},
 			{
-				// borderColor: 'rgba(99,0,125, .2)',
-				backgroundColor: '#4ade80',
+				borderColor: 'rgba(99,0,125, 0)',
+				backgroundColor: SUCCESS_COLOR as string | string[],
+				radius: 3,
 				label: 'Successful',
 				data:
 					success?.map((job) => ({
@@ -92,6 +104,63 @@
 					max: addSeconds(new Date(chart.scales.x.max), 1)
 				})
 			}
+		}
+	}
+
+	function isDark(): boolean {
+		return document.documentElement.classList.contains('dark')
+	}
+
+	ChartJS.defaults.color = isDark() ? '#ccc' : '#666'
+	ChartJS.defaults.borderColor = isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+
+	function getBackgorundColor(): string {
+		return isDark() ? '#2e3440' : '#ffffff'
+	}
+	function hexToRgb(hexColor: string): number[] {
+		hexColor = hexColor.replace(/^#/, '')
+
+		const r = parseInt(hexColor.substring(0, 2), 16)
+		const g = parseInt(hexColor.substring(2, 4), 16)
+		const b = parseInt(hexColor.substring(4, 6), 16)
+
+		return [r, g, b]
+	}
+
+	function rgbToHex(rgbColor: number[]): string {
+		// Convert RGB components to hexadecimal string
+		return (
+			'#' +
+			rgbColor
+				.map((c) => {
+					const hex = c.toString(16)
+					return hex.length === 1 ? '0' + hex : hex
+				})
+				.join('')
+		)
+	}
+
+	function mergeColors(color1: string, color2: string, slider: number): string {
+		const rgb1 = hexToRgb(color1)
+		const rgb2 = hexToRgb(color2)
+
+		// Blend colors based on percentage
+		const blendedRgb = rgb1.map((c1, i) => Math.round(c1 * (1 - slider) + rgb2[i] * slider))
+
+		return rgbToHex(blendedRgb)
+	}
+
+	function highlightSelectedPoints(ids: string[]) {
+		if (!canSelect || ids.length === 0) {
+			data.datasets[0].backgroundColor = FAIL_COLOR
+			data.datasets[1].backgroundColor = SUCCESS_COLOR
+		} else {
+			data.datasets[0].backgroundColor = data.datasets[0].data.map((p) =>
+				ids.includes(p.id) ? FAIL_COLOR : FAIL_COLOR_TRANSPARENT
+			)
+			data.datasets[1].backgroundColor = data.datasets[1].data.map((p) =>
+				ids.includes(p.id) ? SUCCESS_COLOR : SUCCESS_COLOR_TRANSPARENT
+			)
 		}
 	}
 
@@ -176,6 +245,13 @@
 				}
 			}
 		},
+		onClick: (e, u) => {
+			if (canSelect) {
+				const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
+				selectedIds = ids
+				dispatch('pointClicked', ids)
+			}
+		},
 
 		scales: {
 			x: {
@@ -199,6 +275,8 @@
 		},
 		animation: false
 	} as any
+
+	$: data && scatterOptions && highlightSelectedPoints(selectedIds)
 </script>
 
 <!-- {JSON.stringify(minTime)}
@@ -209,5 +287,18 @@
 {maxTime} -->
 <!-- {JSON.stringify(jobs?.map((x) => x.started_at))} -->
 <div class="relative max-h-40">
+	{#if !lastFetchWentToEnd}
+		<div class="absolute top-[-10px] left-[60px]"
+			><Button
+				size="xs"
+				color="transparent"
+				variant="contained"
+				on:click={() => dispatch('loadExtra')}
+				>Load more <Tooltip2
+					>There are more jobs to load but only the first 1000 were fetched</Tooltip2
+				></Button
+			></div
+		>
+	{/if}
 	<Scatter {data} options={scatterOptions} />
 </div>

@@ -1,19 +1,17 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
-import { SEP, log, yamlStringify } from "./deps.ts";
-import {
-  colors,
-  Command,
-  Flow,
-  FlowModule,
-  FlowService,
-  JobService,
-  Table,
-  yamlParse,
-} from "./deps.ts";
+import { Confirm, SEP, log, yamlStringify } from "./deps.ts";
+import { colors, Command, Table, yamlParseFile } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
+import { generateFlowLockInternal } from "./metadata.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
+import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
+import { readInlinePathSync } from "./utils.ts";
+import { Flow, FlowModule } from "./gen/types.gen.ts";
 
 export interface FlowFile {
   summary: string;
@@ -23,6 +21,49 @@ export interface FlowFile {
 }
 
 const alreadySynced: string[] = [];
+
+export function replaceInlineScripts(
+  modules: FlowModule[],
+  localPath: string,
+  removeLocks: string[] | undefined
+) {
+  modules.forEach((m) => {
+    if (m.value.type == "rawscript") {
+      if (m.value.content.startsWith("!inline")) {
+        const path = m.value.content.split(" ")[1];
+        m.value.content = Deno.readTextFileSync(localPath + path);
+        const lock = m.value.lock;
+        if (removeLocks && removeLocks.includes(path)) {
+          m.value.lock = undefined;
+        } else if (
+          lock &&
+          typeof lock == "string" &&
+          lock.trimStart().startsWith("!inline ")
+        ) {
+          const path = lock.split(" ")[1];
+          try {
+            m.value.lock = readInlinePathSync(localPath + path);
+          } catch {
+            log.error(`Lock file ${path} not found`);
+          }
+        }
+      }
+    } else if (m.value.type == "forloopflow") {
+      replaceInlineScripts(m.value.modules, localPath, removeLocks);
+    } else if (m.value.type == "whileloopflow") {
+      replaceInlineScripts(m.value.modules, localPath, removeLocks);
+    } else if (m.value.type == "branchall") {
+      m.value.branches.forEach((b) =>
+        replaceInlineScripts(b.modules, localPath, removeLocks)
+      );
+    } else if (m.value.type == "branchone") {
+      m.value.branches.forEach((b) =>
+        replaceInlineScripts(b.modules, localPath, removeLocks)
+      );
+      replaceInlineScripts(m.value.default, localPath, removeLocks);
+    }
+  });
+}
 
 export async function pushFlow(
   workspace: string,
@@ -34,9 +75,10 @@ export async function pushFlow(
     return;
   }
   alreadySynced.push(localPath);
+  remotePath = remotePath.replaceAll(SEP, "/");
   let flow: Flow | undefined = undefined;
   try {
-    flow = await FlowService.getFlowByPath({
+    flow = await wmill.getFlowByPath({
       workspace: workspace,
       path: remotePath,
     });
@@ -47,42 +89,9 @@ export async function pushFlow(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const localFlowRaw = await Deno.readTextFile(localPath + "flow.yaml");
-  const localFlow = yamlParse(localFlowRaw) as FlowFile;
+  const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
-  function replaceInlineScripts(modules: FlowModule[]) {
-    modules.forEach((m) => {
-      if (m.value.type == "rawscript") {
-        const path = m.value.content.split(" ")[1];
-        m.value.content = Deno.readTextFileSync(localPath + path);
-        const lock = m.value.lock;
-
-        if (
-          lock &&
-          typeof lock == "string" &&
-          lock.trimStart().startsWith("!inline ")
-        ) {
-          const path = lock.split(" ")[1];
-          try {
-            m.value.lock = Deno.readTextFileSync(localPath + path);
-          } catch {
-            log.error(`Lock file ${path} not found`);
-          }
-        }
-      } else if (m.value.type == "forloopflow") {
-        replaceInlineScripts(m.value.modules);
-      } else if (m.value.type == "whileloopflow") {
-        replaceInlineScripts(m.value.modules);
-      } else if (m.value.type == "branchall") {
-        m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
-      } else if (m.value.type == "branchone") {
-        m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
-        replaceInlineScripts(m.value.default);
-      }
-    });
-  }
-
-  replaceInlineScripts(localFlow.value.modules);
+  replaceInlineScripts(localFlow.value.modules, localPath, undefined);
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
@@ -90,25 +99,32 @@ export async function pushFlow(
       return;
     }
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
-    await FlowService.updateFlow({
+    await wmill.updateFlow({
       workspace: workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
       },
     });
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
-    await FlowService.createFlow({
-      workspace: workspace,
-      requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
-        deployment_message: message,
-        ...localFlow,
-      },
-    });
+    try {
+      await wmill.createFlow({
+        workspace: workspace,
+        requestBody: {
+          path: remotePath.replaceAll(SEP, "/"),
+          deployment_message: message,
+          ...localFlow,
+        },
+      });
+    } catch (e) {
+      throw new Error(
+        //@ts-ignore
+        `Failed to create flow ${remotePath}: ${e.body ?? e.message}`
+      );
+    }
   }
 }
 
@@ -125,7 +141,9 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   log.info(colors.bold.underline.green("Flow pushed"));
 }
 
-async function list(opts: GlobalOptions & { showArchived?: boolean }) {
+async function list(
+  opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean }
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -133,11 +151,12 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   const perPage = 10;
   const total: Flow[] = [];
   while (true) {
-    const res = await FlowService.listFlows({
+    const res = await wmill.listFlows({
       workspace: workspace.workspaceId,
       page,
       perPage,
       showArchived: opts.showArchived ?? false,
+      includeDraftOnly: opts.includeDraftOnly ?? false,
     });
     page += 1;
     total.push(...res);
@@ -165,7 +184,7 @@ async function run(
 
   const input = opts.data ? await resolve(opts.data) : {};
 
-  const id = await JobService.runFlowByPath({
+  const id = await wmill.runFlowByPath({
     workspace: workspace.workspaceId,
     path,
     requestBody: input,
@@ -173,7 +192,7 @@ async function run(
 
   let i = 0;
   while (true) {
-    const jobInfo = await JobService.getJob({
+    const jobInfo = await wmill.getJob({
       workspace: workspace.workspaceId,
       id,
     });
@@ -203,11 +222,70 @@ async function run(
     log.info(colors.green.underline.bold("Flow ran to completion"));
     log.info("\n");
   }
-  const jobInfo = await JobService.getCompletedJob({
+  const jobInfo = await wmill.getCompletedJob({
     workspace: workspace.workspaceId,
     id,
   });
   log.info(jobInfo.result ?? {});
+}
+
+async function generateLocks(
+  opts: GlobalOptions & {
+    yes?: boolean;
+  } & SyncOptions,
+  folder: string | undefined
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
+  if (folder) {
+    // read script metadata file
+    await generateFlowLockInternal(folder, false, workspace);
+  } else {
+    const ignore = await ignoreF(opts);
+    const elems = Object.keys(
+      await elementsToMap(
+        await FSFSElement(Deno.cwd(), []),
+        (p, isD) => {
+          return (
+            ignore(p, isD) ||
+            (!isD &&
+              !p.endsWith(SEP + "flow.yaml") &&
+              !p.endsWith(SEP + "flow.json"))
+          );
+        },
+        false,
+        {}
+      )
+    ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+    let hasAny = false;
+
+    for (const folder of elems) {
+      const candidate = await generateFlowLockInternal(folder, true, workspace);
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+
+    if (hasAny) {
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the locks of the inline scripts of the above flows?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No locks to update"));
+      return;
+    }
+    for (const folder of elems) {
+      await generateFlowLockInternal(folder, false, workspace);
+    }
+  }
 }
 
 export function bootstrap(
@@ -258,6 +336,21 @@ const command = new Command()
     "Do not ouput anything other then the final output. Useful for scripting."
   )
   .action(run as any)
+  .command(
+    "generate-locks",
+    "re-generate the lock files of all inline scripts of all updated flows"
+  )
+  .arguments("[flow:file]")
+  .option("--yes", "Skip confirmation prompt")
+  .option(
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
+  )
+  .action(generateLocks as any)
   .command("bootstrap", "create a new empty flow")
   .arguments("<flow_path:string>")
   .option("--summary <summary:string>", "script summary")

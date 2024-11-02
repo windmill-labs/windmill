@@ -3,6 +3,7 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -11,7 +12,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 	import { Plus } from 'lucide-svelte'
 
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> }
 	export let args: Record<string, InputTransform | any> = {}
 
 	export let isValid: boolean = true
@@ -27,6 +28,9 @@
 	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
+
+	const dispatch = createEventDispatcher()
+
 	$: isValid = allTrue(inputCheck) ?? false
 
 	$: if (args == undefined || typeof args !== 'object') {
@@ -94,6 +98,10 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
+						on:change={(e) => {
+							const { argName } = e.detail
+							dispatch('changeArg', { argName })
+						}}
 					/>
 				</div>
 			{/if}

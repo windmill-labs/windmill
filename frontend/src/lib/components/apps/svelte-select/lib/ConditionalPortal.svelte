@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import type { AppViewerContext } from '../../types'
 
 	export let condition = false
@@ -11,7 +12,7 @@
 </script>
 
 {#if condition}
-	<Portal {target}><slot /></Portal>
+	<Portal name="conditional-portal-select" {target}><slot /></Portal>
 {:else}
 	<slot />
 {/if}

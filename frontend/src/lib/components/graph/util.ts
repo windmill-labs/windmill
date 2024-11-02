@@ -1,6 +1,4 @@
-import type { FlowStatusModule, FlowModule } from '$lib/gen'
-import MapItem from '../flows/map/MapItem.svelte'
-import type { GraphModuleState } from './model'
+import type { FlowStatusModule } from '$lib/gen'
 
 export const NODE = {
 	width: 275,
@@ -11,18 +9,19 @@ export const NODE = {
 	}
 }
 
-export function* createIdGenerator(): Generator<number, number, unknown> {
-	let id = 0
-	while (true) {
-		yield id++
-	}
-}
-
-export function getStateColor(state: FlowStatusModule['type'] | undefined): string {
-	const isDark = document.documentElement.classList.contains('dark')
+export function getStateColor(
+	state: FlowStatusModule['type'] | undefined,
+	isDark: boolean,
+	nonVirtualItem?: boolean,
+	isSkipped?: boolean
+): string {
 	switch (state) {
 		case 'Success':
-			return isDark ? '#059669' : 'rgb(193, 255, 216)'
+			if (isSkipped) {
+				return isDark ? '#1E3A8A' : 'rgb(191, 219, 254)'
+			} else {
+				return isDark ? '#059669' : 'rgb(193, 255, 216)'
+			}
 		case 'Failure':
 			return isDark ? '#dc2626' : 'rgb(248 113 113)'
 		case 'InProgress':
@@ -32,54 +31,10 @@ export function getStateColor(state: FlowStatusModule['type'] | undefined): stri
 		case 'WaitingForExecutor':
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:
-			return isDark ? '#2e3440' : '#fff'
-	}
-}
-
-export function flowModuleToNode(
-	parentIds: string[],
-	mod: FlowModule,
-	edgeLabel: string | undefined,
-	annotation: string | undefined,
-	loopDepth: number,
-	insertableEnd: boolean,
-	branchable: boolean,
-	modules: FlowModule[],
-	callbackHandler: (event: string, detail: any) => void,
-	flowModuleStates: Record<string, GraphModuleState>,
-	insertable: boolean,
-	moving: boolean,
-	disableAi: boolean
-) {
-	return {
-		type: 'node',
-		id: mod.id,
-		position: { x: -1, y: -1 },
-		data: {
-			custom: {
-				component: MapItem,
-				props: {
-					trigger: parentIds.length == 0,
-					mod,
-					insertable,
-					insertableEnd,
-					branchable,
-					duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
-					bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
-					annotation,
-					modules,
-					moving,
-					disableAi
-				},
-				cb: callbackHandler
+			if (nonVirtualItem) {
+				return isDark ? '#2E3440' : 'white'
+			} else {
+				return isDark ? '#313742' : '#dfe6ee'
 			}
-		},
-		width: NODE.width,
-		height: NODE.height,
-		parentIds,
-		sourcePosition: 'bottom',
-		targetPosition: 'top',
-		edgeLabel,
-		loopDepth
 	}
 }

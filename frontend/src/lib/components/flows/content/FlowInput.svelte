@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { Button, DrawerContent } from '$lib/components/common'
-
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { copyFirstStepSchema } from '../flowStore'
@@ -13,8 +11,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
+	import AddProperty from '$lib/components/schema/AddProperty.svelte'
+	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 
 	export let noEditor: boolean
+	export let disabled: boolean
 
 	const { flowStore, flowStateStore, previewArgs, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -23,6 +24,7 @@
 	let inputLibraryDrawer: Drawer
 	let jsonPayload: Drawer
 	let pendingJson: string
+	let addProperty: AddProperty | undefined = undefined
 
 	function importJson() {
 		const parsed = JSON.parse(pendingJson)
@@ -36,12 +38,14 @@
 
 		jsonPayload.closeDrawer()
 	}
+	const yOffset = 191
 </script>
 
 <CapturePayload bind:this={capturePayload} />
+
 <FlowCard {noEditor} title="Flow Input">
-	<div class="p-6">
-		<div class="flex flex-row items-center gap-2 pb-2 border-b border-gray-400">
+	{#if !disabled}
+		<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
 			<div>Copy input's schema from</div>
 			<Button
 				color="dark"
@@ -80,20 +84,33 @@
 				First step's inputs
 			</Button>
 		</div>
-		<div class="pt-6">
-			<SchemaEditor
-				isFlowInput
+		<div class="p-4 border-b">
+			<AddProperty
 				bind:schema={$flowStore.schema}
+				bind:this={addProperty}
 				on:change={() => {
 					$flowStore = $flowStore
 				}}
 			/>
 		</div>
-	</div>
-	<div class="p-6">
-		<h2 class="mb-4">Customize Flow Inputs</h2>
-		<EditableSchemaForm bind:schema={$flowStore.schema} />
-	</div>
+
+		<EditableSchemaForm
+			bind:schema={$flowStore.schema}
+			isFlowInput
+			on:edit={(e) => {
+				addProperty?.openDrawer(e.detail)
+			}}
+			on:delete={(e) => {
+				addProperty?.handleDeleteArgument([e.detail])
+			}}
+			offset={yOffset}
+			displayWebhookWarning
+		/>
+	{:else}
+		<div class="p-4 border-b">
+			<FlowInputViewer schema={$flowStore.schema} />
+		</div>
+	{/if}
 </FlowCard>
 
 <Drawer bind:this={jsonPayload} size="800px">

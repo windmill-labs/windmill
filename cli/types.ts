@@ -1,20 +1,27 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
+import {
+  Diff,
+  SEP,
+  colors,
+  log,
+  path,
+  yamlParseContent,
+  yamlStringify,
+} from "./deps.ts";
 import { pushApp } from "./apps.ts";
 import { pushFolder } from "./folder.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { pushVariable } from "./variable.ts";
-import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
-import { deepEqual } from "./utils.ts";
+import { deepEqual, isFileResource } from "./utils.ts";
 import { pushSchedule } from "./schedule.ts";
 import { pushWorkspaceUser } from "./user.ts";
 import { pushGroup } from "./user.ts";
-import { pushWorkspaceSettings } from "./settings.ts";
+import { pushWorkspaceSettings, pushWorkspaceKey } from "./settings.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -38,6 +45,7 @@ export interface DifferenceChange {
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
 export type GlobalOptions = {
+  baseUrl: string | undefined;
   workspace: string | undefined;
   token: string | undefined;
 };
@@ -106,22 +114,26 @@ export async function pushObj(
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
+  alreadySynced: string[],
   message?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    const appName = p.split(".app" + path.sep)[0];
+    const appName = p.split(".app" + SEP)[0];
     await pushApp(workspace, appName, appName + ".app", message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = p.split(".flow" + path.sep)[0];
+    const flowName = p.split(".flow" + SEP)[0];
     await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
-    await pushResource(workspace, p, befObj, newObj);
+    if (!alreadySynced.includes(p)) {
+      alreadySynced.push(p);
+      await pushResource(workspace, p, befObj, newObj);
+    }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
@@ -132,6 +144,8 @@ export async function pushObj(
     await pushGroup(workspace, p, befObj, newObj);
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
+  } else if (typeEnding === "encryption_key") {
+    await pushWorkspaceKey(workspace, p, befObj, newObj);
   } else {
     throw new Error(
       `The item ${p} has an unrecognized type ending ${typeEnding}`
@@ -141,7 +155,7 @@ export async function pushObj(
 
 export function parseFromPath(p: string, content: string): any {
   return p.endsWith(".yaml")
-    ? yamlParse(content)
+    ? yamlParseContent(p, content)
     : p.endsWith(".json")
     ? JSON.parse(content)
     : content;
@@ -150,7 +164,7 @@ export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
     return JSON.parse(Deno.readTextFileSync(p));
   } else if (p.endsWith(".yaml") || p.endsWith(".yml")) {
-    return yamlParse(Deno.readTextFileSync(p));
+    return yamlParseContent(p, Deno.readTextFileSync(p));
   } else {
     throw new Error("Could not read file " + p);
   }
@@ -168,11 +182,12 @@ export function getTypeStrFromPath(
   | "schedule"
   | "user"
   | "group"
-  | "settings" {
-  if (p.includes(".flow" + path.sep)) {
+  | "settings"
+  | "encryption_key" {
+  if (p.includes(".flow" + SEP)) {
     return "flow";
   }
-  if (p.includes(".app" + path.sep)) {
+  if (p.includes(".app" + SEP)) {
     return "app";
   }
   const parsed = path.parse(p);
@@ -185,7 +200,9 @@ export function getTypeStrFromPath(
     parsed.ext == ".gql" ||
     parsed.ext == ".ps1" ||
     parsed.ext == ".js" ||
-    parsed.ext == ".php"
+    parsed.ext == ".php" ||
+    parsed.ext == ".rs" ||
+    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
   }
@@ -204,10 +221,14 @@ export function getTypeStrFromPath(
     typeEnding === "schedule" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
-    typeEnding === "settings"
+    typeEnding === "settings" ||
+    typeEnding === "encryption_key"
   ) {
     return typeEnding;
   } else {
+    if (isFileResource(p)) {
+      return "resource";
+    }
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
   }
 }

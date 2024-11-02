@@ -1,17 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import {
-  AppService,
-  colors,
-  Command,
-  ListableApp,
-  log,
-  Policy,
-  SEP,
-  Table,
-  yamlParse,
-} from "./deps.ts";
+import { colors, Command, log, SEP, Table, yamlParseFile } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+import { ListableApp, Policy } from "./gen/types.gen.ts";
+
 import { GlobalOptions, isSuperset } from "./types.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface AppFile {
   value: any;
@@ -31,13 +25,13 @@ export async function pushApp(
     return;
   }
   alreadySynced.push(localPath);
-
+  remotePath = remotePath.replaceAll(SEP, "/");
   let app: any = undefined;
   // deleting old app if it exists in raw mode
   try {
-    app = await AppService.getAppByPath({
+    app = await wmill.getAppByPath({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath,
     });
   } catch {
     //ignore
@@ -46,8 +40,8 @@ export async function pushApp(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const localAppRaw = await Deno.readTextFile(localPath + "app.yaml");
-  const localApp = yamlParse(localAppRaw) as AppFile;
+  const path = localPath + "app.yaml";
+  const localApp = (await yamlParseFile(path)) as AppFile;
 
   function replaceInlineScripts(rec: any) {
     if (!rec) {
@@ -59,11 +53,11 @@ export async function pushApp(
           const o: Record<string, any> = v as any;
           if (o["content"] && o["content"].startsWith("!inline")) {
             const basePath = localPath + o["content"].split(" ")[1];
-            o["content"] = Deno.readTextFileSync(basePath);
+            o["content"] = readInlinePathSync(basePath);
           }
           if (o["lock"] && o["lock"].startsWith("!inline")) {
             const basePath = localPath + o["lock"].split(" ")[1];
-            o["lock"] = Deno.readTextFileSync(basePath);
+            o["lock"] = readInlinePathSync(basePath);
           }
         } else {
           replaceInlineScripts(v);
@@ -81,9 +75,9 @@ export async function pushApp(
       return;
     }
     log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
-    await AppService.updateApp({
+    await wmill.updateApp({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath,
       requestBody: {
         deployment_message: message,
         ...localApp,
@@ -92,10 +86,10 @@ export async function pushApp(
   } else {
     log.info(colors.yellow.bold("Creating new app..."));
 
-    await AppService.createApp({
+    await wmill.createApp({
       workspace,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath,
         deployment_message: message,
         ...localApp,
       },
@@ -103,7 +97,7 @@ export async function pushApp(
   }
 }
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { includeDraftOnly?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -111,10 +105,11 @@ async function list(opts: GlobalOptions) {
   const perPage = 10;
   const total: ListableApp[] = [];
   while (true) {
-    const res = await AppService.listApps({
+    const res = await wmill.listApps({
       workspace: workspace.workspaceId,
       page,
       perPage,
+      includeDraftOnly: opts.includeDraftOnly ?? false,
     });
     page += 1;
     total.push(...res);

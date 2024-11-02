@@ -7,6 +7,12 @@ pub struct WorkspaceGitSyncSettings {
     pub repositories: Vec<GitRepositorySettings>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct WorkspaceDeploymentUISettings {
+    pub include_path: Vec<String>,
+    pub include_type: Vec<ObjectType>,
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ObjectType {

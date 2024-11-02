@@ -11,18 +11,21 @@ import type { ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
  */
 export abstract class AbstractCellRenderer implements ICellRendererComp {
 	eGui: any
-	protected value: any
-	protected params: any
+	protected component:
+		| {
+				refresh: (params: ICellRendererParams) => void
+				destroy: () => void
+		  }
+		| undefined
 	constructor(parentElement = 'span') {
 		// create empty span (or other element) to place svelte component in
+		this.component = undefined
 		this.eGui = document.createElement(parentElement)
 	}
 
 	init(params: ICellRendererParams & { onClick?: (data: any) => void }) {
-		this.value = params.value
-		this.createComponent(params)
+		this.component = this.createComponent(params)
 		this.eGui.addEventListener('click', () => params.onClick?.(params.data))
-		this.params = params
 	}
 
 	getGui() {
@@ -30,11 +33,13 @@ export abstract class AbstractCellRenderer implements ICellRendererComp {
 	}
 
 	refresh(params: ICellRendererParams) {
-		this.value = params.value
-
+		this.component?.refresh?.(params)
 		return true
 	}
 
+	destroy(): void {
+		this.component?.destroy?.()
+	}
 	/**
 	 * Define and create the svelte component to use in the cell
 	 * @example
@@ -48,7 +53,10 @@ export abstract class AbstractCellRenderer implements ICellRendererComp {
 	 * }
 	 * @param params params for rendering the call, including the value for the cell
 	 */
-	abstract createComponent(params: ICellRendererParams): void
+	abstract createComponent(params: ICellRendererParams): {
+		refresh: (params: ICellRendererParams) => void
+		destroy: () => void
+	}
 }
 
 /**
@@ -58,11 +66,20 @@ export abstract class AbstractCellRenderer implements ICellRendererComp {
  * @returns
  */
 export function cellRendererFactory(
-	svelteComponent: (cell: AbstractCellRenderer, params: ICellRendererParams) => void
+	svelteComponent: (
+		cell: AbstractCellRenderer,
+		params: ICellRendererParams
+	) => {
+		refresh: (params: ICellRendererParams) => void
+		destroy: () => void
+	}
 ) {
 	class Renderer extends AbstractCellRenderer {
-		createComponent(params: ICellRendererParams<any, any>): void {
-			svelteComponent(this, params)
+		createComponent(params: ICellRendererParams<any, any>): {
+			refresh: (params: ICellRendererParams) => void
+			destroy: () => void
+		} {
+			return svelteComponent(this, params)
 		}
 	}
 	return Renderer

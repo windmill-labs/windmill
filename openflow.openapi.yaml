@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.330.1
+  version: 1.416.2
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -43,6 +43,8 @@ components:
           items:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
+          $ref: "#/components/schemas/FlowModule"
+        preprocessor_module:
           $ref: "#/components/schemas/FlowModule"
         same_worker:
           type: boolean
@@ -103,6 +105,22 @@ components:
               type: string
           required:
             - expr
+        stop_after_all_iters_if:
+          type: object
+          properties:
+            skip_if_stopped:
+              type: boolean
+            expr:
+              type: string
+          required:
+            - expr
+        skip_if:
+          type: object
+          properties:
+            expr:
+              type: string
+          required:
+            - expr
         sleep:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
@@ -138,6 +156,8 @@ components:
             self_approval_disabled:
               type: boolean
             hide_cancel:
+              type: boolean
+            continue_on_disapprove_timeout:
               type: boolean
         priority:
           type: number
@@ -247,6 +267,8 @@ components:
           type: number
         concurrency_time_window_s:
           type: number
+        custom_concurrency_key:
+          type: string
       required:
         - type
         - content
@@ -268,6 +290,8 @@ components:
           type: string
           enum:
             - script
+        tag_override:
+          type: string
       required:
         - type
         - path
@@ -424,6 +448,9 @@ components:
             $ref: "#/components/schemas/FlowStatusModule"
         user_states:
           additionalProperties: true
+        preprocessor_module:
+          allOf:
+            - $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
           allOf:
             - $ref: "#/components/schemas/FlowStatusModule"
@@ -466,6 +493,8 @@ components:
           format: uuid
         count:
           type: integer
+        progress:
+          type: integer
         iterator:
           type: object
           properties:
@@ -479,6 +508,10 @@ components:
           type: array
           items:
             type: string
+        flow_jobs_success:
+          type: array
+          items:
+            type: boolean
         branch_chosen:
           type: object
           properties:
@@ -511,5 +544,11 @@ components:
             required:
               - resume_id
               - approver
-
+        failed_retries:
+          type: array
+          items:
+            type: string
+            format: uuid
+        skipped:
+          type: boolean
       required: [type]
