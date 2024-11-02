@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.416.2](https://github.com/windmill-labs/windmill/compare/v1.416.1...v1.416.2) (2024-11-02)
+
+
+### Bug Fixes
+
+* apply NO_PROXY and HTTP_PROXY, HTTPS_PROXY more consistently ([567d621](https://github.com/windmill-labs/windmill/commit/567d6216d2631a90fbe59ec6142c38b3b352eea7))
+
 ## [1.416.1](https://github.com/windmill-labs/windmill/compare/v1.416.0...v1.416.1) (2024-11-01)
 
 
