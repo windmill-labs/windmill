@@ -26,7 +26,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
-    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -275,6 +275,7 @@ pub async fn install_bun_lockfile(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .envs(PROXY_ENVS.clone())
         .envs(common_bun_proc_envs)
         .args(vec!["install"])
         .stdout(Stdio::piped())
