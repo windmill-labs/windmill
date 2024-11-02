@@ -75,7 +75,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, PROXY_ENVS,
     INSTANCE_PYTHON_VERSION, LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
     PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
@@ -868,6 +868,7 @@ mount {{
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1394,15 +1395,6 @@ pub async fn handle_python_reqs(
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 vars.push(("TRUSTED_HOST", host));
             }
-            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
-                vars.push(("HTTP_PROXY", http_proxy));
-            }
-            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
-                vars.push(("HTTPS_PROXY", https_proxy));
-            }
-            if let Some(no_proxy) = NO_PROXY.as_ref() {
-                vars.push(("NO_PROXY", no_proxy));
-            }
         } else {
             if let Some(url) = pip_extra_index_url.as_ref() {
                 vars.push(("UV_EXTRA_INDEX_URL", url));
@@ -1422,15 +1414,6 @@ pub async fn handle_python_reqs(
             }
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 vars.push(("TRUSTED_HOST", host));
-            }
-            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
-                vars.push(("HTTP_PROXY", http_proxy));
-            }
-            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
-                vars.push(("HTTPS_PROXY", https_proxy));
-            }
-            if let Some(no_proxy) = NO_PROXY.as_ref() {
-                vars.push(("NO_PROXY", no_proxy));
             }
         }
 
@@ -1595,6 +1578,7 @@ pub async fn handle_python_reqs(
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(vars)
+                .envs(PROXY_ENVS.clone())
                 .args(vec!["--config", "download.config.proto"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -1675,15 +1659,6 @@ pub async fn handle_python_reqs(
             }
 
             let mut envs = vec![("PATH", PATH_ENV.as_str())];
-            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
-                envs.push(("HTTP_PROXY", http_proxy));
-            }
-            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
-                envs.push(("HTTPS_PROXY", https_proxy));
-            }
-            if let Some(no_proxy) = NO_PROXY.as_ref() {
-                envs.push(("NO_PROXY", no_proxy));
-            }
 
             envs.push(("HOME", HOME_ENV.as_str()));
 
@@ -1700,6 +1675,7 @@ pub async fn handle_python_reqs(
                 let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
                 flock_cmd
                     .env_clear()
+                    .envs(PROXY_ENVS.clone())
                     .envs(envs)
                     .args([
                         "-x",
@@ -1718,6 +1694,7 @@ pub async fn handle_python_reqs(
                 pip_cmd
                     .env_clear()
                     .envs(envs)
+                    .envs(PROXY_ENVS.clone())
                     .env("SystemRoot", SYSTEM_ROOT.as_str())
                     .args(&command_args[1..])
                     .stdout(Stdio::piped())
