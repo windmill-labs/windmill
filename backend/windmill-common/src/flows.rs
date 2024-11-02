@@ -101,6 +101,7 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub failure_module: Option<Box<FlowModule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub preprocessor_module: Option<Box<FlowModule>>,
     #[serde(default)]
@@ -269,6 +270,13 @@ pub struct FlowModule {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continue_on_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_if: Option<SkipIf>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct SkipIf {
+    pub expr: String,
 }
 
 #[derive(Deserialize)]
@@ -416,6 +424,7 @@ pub enum FlowModuleValue {
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<ScriptHash>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tag_override: Option<String>,
     },
     Flow {
@@ -631,6 +640,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             priority: None,
             delete_after_use: None,
             continue_on_error: None,
+            skip_if: None,
         });
     }
 }

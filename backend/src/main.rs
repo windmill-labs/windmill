@@ -27,7 +27,7 @@ use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::schedule_key_renewal;
+use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
     global_settings::{
@@ -67,7 +67,7 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -92,9 +92,6 @@ const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 mod ee;
 mod monitor;
 
-#[cfg(feature = "pg_embed")]
-mod pg_embed;
-
 #[inline(always)]
 fn create_and_run_current_thread_inner<F, R>(future: F) -> R
 where
@@ -118,7 +115,8 @@ where
 }
 
 pub fn main() -> anyhow::Result<()> {
-    deno_core::JsRuntime::init_platform(None);
+    #[cfg(feature = "deno_core")]
+    deno_core::JsRuntime::init_platform(None, false);
     create_and_run_current_thread_inner(windmill_main())
 }
 
@@ -137,6 +135,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     })?;
 
     create_dir_all(HUB_CACHE_DIR).await?;
+    create_dir_all(BUN_BUNDLE_CACHE_DIR).await?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -168,7 +167,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             create_dir_all(&job_dir).await?;
             if let Some(lockfile) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
-
+                let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
                     &mut None,
@@ -177,11 +176,31 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     None,
                     &job_dir,
                     "cache_init",
-                    windmill_worker::get_common_bun_proc_envs(None).await,
+                    envs.clone(),
                     false,
                     &mut None,
                 )
                 .await?;
+
+                let _ = windmill_common::worker::write_file(&job_dir, "main.js", &res.content)?;
+
+                if let Err(e) = windmill_worker::prebundle_bun_script(
+                    &res.content,
+                    Some(lockfile),
+                    &path,
+                    &job_id,
+                    "admins",
+                    None,
+                    &job_dir,
+                    "",
+                    "cache_init",
+                    "",
+                    &mut None,
+                )
+                .await
+                {
+                    panic!("Error prebundling bun script: {e:#}");
+                }
             } else {
                 tracing::warn!("No lockfile found for bun script {path}, skipping...");
             }
@@ -265,7 +284,8 @@ async fn windmill_main() -> anyhow::Result<()> {
                 tracing::info!("Binary is in 'indexer' mode");
                 #[cfg(not(feature = "tantivy"))]
                 {
-                    panic!("Indexer mode requires the tantivy feature flag");
+                    tracing::error!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
                 }
                 #[cfg(feature = "tantivy")]
                 Mode::Indexer
@@ -288,7 +308,8 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    let num_workers = if mode == Mode::Server || mode == Mode::Indexer {
+    #[allow(unused_mut)]
+    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -341,14 +362,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         config
     });
 
-    #[cfg(feature = "pg_embed")]
-    let _pg = {
-        let (db_url, pg) = pg_embed::start().await.expect("pg embed");
-        tracing::info!("Use embedded pg: {db_url}");
-        std::env::set_var("DATABASE_URL", db_url);
-        pg
-    };
-
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
@@ -373,8 +386,16 @@ async fn windmill_main() -> anyhow::Result<()> {
     let is_agent = mode == Mode::Agent;
 
     if !is_agent {
-        // migration code to avoid break
-        windmill_api::migrate_db(&db).await?;
+        let skip_migration = std::env::var("SKIP_MIGRATION")
+            .map(|val| val == "true")
+            .unwrap_or(false);
+
+        if !skip_migration {
+            // migration code to avoid break
+            windmill_api::migrate_db(&db).await?;
+        } else {
+            tracing::info!("SKIP_MIGRATION set, skipping db migration...")
+        }
     }
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -403,6 +424,50 @@ Windmill Community Edition {GIT_VERSION}
 
     display_config(&ENV_SETTINGS);
 
+    if let Err(e) = reload_base_url_setting(&db).await {
+        tracing::error!("Error loading base url: {:?}", e)
+    }
+
+    if let Err(e) = reload_critical_error_channels_setting(&db).await {
+        tracing::error!("Could loading critical error emails setting: {:?}", e);
+    }
+
+    #[cfg(feature = "enterprise")]
+    {
+        // load the license key and check if it's valid
+        // if not valid and not server mode just quit
+        // if not expired and server mode then force renewal
+        // if key still invalid and num_workers > 0, set to 0
+        if let Err(err) = reload_license_key(&db).await {
+            tracing::error!("Failed to reload license key: {err:#}");
+        }
+        let valid_key = *LICENSE_KEY_VALID.read().await;
+        if !valid_key && !server_mode {
+            panic!("Invalid license key, workers require a valid license key");
+        }
+        if server_mode {
+            // only force renewal if invalid but not empty (= expired)
+            let renewed_now = maybe_renew_license_key_on_start(
+                &HTTP_CLIENT,
+                &db,
+                !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
+            )
+            .await;
+            if renewed_now {
+                if let Err(err) = reload_license_key(&db).await {
+                    tracing::error!("Failed to reload license key: {err:#}");
+                }
+            }
+            if num_workers > 0 {
+                let valid_key = *LICENSE_KEY_VALID.read().await;
+                if !valid_key {
+                    tracing::warn!("License key invalid, setting num_workers to 0");
+                    num_workers = 0;
+                }
+            }
+        }
+    }
+
     let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
@@ -429,7 +494,16 @@ Windmill Community Edition {GIT_VERSION}
 
         initial_load(&db, killpill_tx.clone(), worker_mode, server_mode, is_agent).await;
 
-        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode, true).await;
+        monitor_db(
+            &db,
+            &base_internal_url,
+            rsmq.clone(),
+            server_mode,
+            worker_mode,
+            true,
+            killpill_tx.clone(),
+        )
+        .await;
 
         monitor_pool(&db).await;
 
@@ -457,7 +531,7 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::indexer_ee::init_index().await?;
+            let (r, w) = windmill_indexer::indexer_ee::init_index(&db).await?;
             (Some(r), Some(w))
         } else {
             (None, None)
@@ -529,8 +603,11 @@ Windmill Community Edition {GIT_VERSION}
                     rx.recv().await?;
                 }
             }
-            tracing::info!("Starting phase 2 of shutdown");
-            killpill_phase2_tx.send(())?;
+            if killpill_phase2_tx.receiver_count() > 0 {
+                tracing::info!("Starting phase 2 of shutdown");
+                killpill_phase2_tx.send(())?;
+                tracing::info!("Phase 2 of shutdown completed");
+            }
             Ok(()) as anyhow::Result<()>
         };
 
@@ -556,7 +633,9 @@ Windmill Community Edition {GIT_VERSION}
                                 &base_internal_url,
                                 rsmq.clone(),
                                 server_mode,
-                                false
+                                worker_mode,
+                                false,
+                                tx.clone(),
                             )
                             .await;
                         },
@@ -599,7 +678,15 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 LICENSE_KEY_SETTING => {
                                                     if let Err(e) = reload_license_key(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload license key setting");
+                                                        tracing::error!("Failed to reload license key: {e:#}");
+                                                    }
+                                                    #[cfg(feature = "enterprise")]
+                                                    if worker_mode {
+                                                        let valid_key = *LICENSE_KEY_VALID.read().await;
+                                                        if !valid_key {
+                                                            tracing::error!("Invalid license key, exiting...");
+                                                            tx.send(()).expect("send");
+                                                        }
                                                     }
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
@@ -745,14 +832,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        let instance_name = rd_string(8);
-        if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
-        }
-
-        #[cfg(feature = "enterprise")]
-        if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_key_renewal(&HTTP_CLIENT, &db).await;
+        if server_mode {
+            schedule_stats(&db, &HTTP_CLIENT).await;
         }
 
         futures::try_join!(
@@ -875,6 +956,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         PIP_CACHE_DIR,
+        UV_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,

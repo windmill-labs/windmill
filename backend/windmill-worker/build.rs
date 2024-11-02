@@ -1,13 +1,24 @@
+#[cfg(feature = "deno_core")]
 use deno_fetch::FetchPermissions;
+#[cfg(feature = "deno_core")]
 use deno_net::NetPermissions;
+#[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
+#[cfg(feature = "deno_core")]
+use std::borrow::Cow;
+#[cfg(feature = "deno_core")]
 use std::env;
+#[cfg(feature = "deno_core")]
 use std::io::Write;
-use std::path::PathBuf;
+#[cfg(feature = "deno_core")]
+use std::path::{Path, PathBuf};
+#[cfg(feature = "deno_core")]
 use std::sync::Arc;
 
+// #[cfg(feature = "deno_core")]
 pub struct PermissionsContainer;
 
+#[cfg(feature = "deno_core")]
 impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_net_url(
@@ -15,19 +26,20 @@ impl FetchPermissions for PermissionsContainer {
         _url: &deno_core::url::Url,
         _api_name: &str,
     ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+        unreachable!("snapshotting")
     }
 
     #[inline(always)]
-    fn check_read(
+    fn check_read<'a>(
         &mut self,
-        _p: &std::path::Path,
+        _p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<Cow<'a, Path>, deno_core::error::AnyError> {
+        unreachable!("snapshotting")
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl TimersPermission for PermissionsContainer {
     #[inline(always)]
     fn allow_hrtime(&mut self) -> bool {
@@ -35,21 +47,22 @@ impl TimersPermission for PermissionsContainer {
     }
 }
 
+#[cfg(feature = "deno_core")]
 impl NetPermissions for PermissionsContainer {
-    fn check_read(
+    fn check_read<'a>(
         &mut self,
-        _p: &std::path::Path,
+        _p: &'a str,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<PathBuf, deno_core::error::AnyError> {
+        unreachable!("snapshotting")
     }
 
-    fn check_write(
+    fn check_write<'a>(
         &mut self,
-        _p: &std::path::Path,
+        _p: &'a str,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+    ) -> Result<PathBuf, deno_core::error::AnyError> {
+        unreachable!("snapshotting")
     }
 
     fn check_net<T: AsRef<str>>(
@@ -57,16 +70,26 @@ impl NetPermissions for PermissionsContainer {
         _host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), deno_core::error::AnyError> {
-        Ok(())
+        unreachable!("snapshotting")
+    }
+
+    fn check_write_path<'a>(
+        &mut self,
+        _: &'a Path,
+        _: &str,
+    ) -> Result<Cow<'a, Path>, deno_core::anyhow::Error> {
+        todo!()
     }
 }
 
+#[cfg(feature = "deno_core")]
 deno_core::extension!(
     fetch,
     esm_entry_point = "ext:fetch/src/runtime.js",
     esm = ["src/runtime.js"],
 );
 
+#[cfg(feature = "deno_core")]
 fn main() {
     println!("cargo:rustc-env=TARGET={}", env::var("TARGET").unwrap());
     println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
@@ -122,3 +145,6 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 }
+
+#[cfg(not(feature = "deno_core"))]
+fn main() {}

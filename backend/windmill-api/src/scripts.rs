@@ -9,6 +9,9 @@
 use crate::{
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
+    triggers::{
+        get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
+    },
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -53,7 +56,7 @@ use windmill_common::{
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
-    worker::{get_annotation, to_raw_value},
+    worker::to_raw_value,
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -132,6 +135,8 @@ pub fn workspaced_service() -> Router {
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/get_triggers_count/*path", get(get_triggers_count))
+        .route("/list_tokens/*path", get(list_tokens))
         .route("/raw/p/*path", get(raw_script_by_path))
         .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
@@ -147,6 +152,7 @@ pub fn workspaced_service() -> Router {
             post(toggle_workspace_error_handler),
         )
         .route("/history/p/*path", get(get_script_history))
+        .route("/get_latest_version/*path", get(get_latest_version))
         .route(
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
@@ -601,8 +607,8 @@ async fn create_script_internal<'c>(
     };
 
     let lang = if &ns.language == &ScriptLang::Bun || &ns.language == &ScriptLang::Bunnative {
-        let anns = get_annotation(&ns.content);
-        if anns.native_mode {
+        let anns = windmill_common::worker::TypeScriptAnnotations::parse(&ns.content);
+        if anns.native {
             ScriptLang::Bunnative
         } else {
             ScriptLang::Bun
@@ -874,6 +880,22 @@ async fn get_script_by_path(
     Ok(Json(script))
 }
 
+async fn list_tokens(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let path = path.to_path();
+    list_tokens_internal(&db, &w_id, &path, false).await
+}
+
+async fn get_triggers_count(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<TriggersCount> {
+    let path = path.to_path();
+    get_triggers_count_internal(&db, &w_id, &path, false).await
+}
+
 async fn get_script_by_path_w_draft(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -925,6 +947,38 @@ async fn get_script_history(
         })
         .collect();
     return Ok(Json(result));
+}
+
+async fn get_latest_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<ScriptHistory>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let row_o = sqlx::query!(
+
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
+        WHERE s.workspace_id = $1 AND s.path = $2
+        ORDER by created_at DESC",
+        w_id,
+        path.to_path(),
+    )
+
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    if let Some(row) = row_o {
+        let result = ScriptHistory {
+            script_hash: ScriptHash(row.hash),
+            deployment_msg: row.deployment_msg, //
+        };
+        return Ok(Json(Some(result)));
+    } else {
+        return Ok(Json(None));
+    }
+
 }
 
 async fn update_script_history(

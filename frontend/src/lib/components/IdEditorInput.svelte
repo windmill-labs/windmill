@@ -47,7 +47,6 @@
 	<div class="flex w-full">
 		<input
 			bind:this={inputDiv}
-			autofocus
 			type="text"
 			bind:value
 			class="!w-auto grow"

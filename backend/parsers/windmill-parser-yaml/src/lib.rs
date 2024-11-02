@@ -189,8 +189,14 @@ pub struct AnsiblePlaybookOptions {
 }
 
 #[derive(Debug, Clone)]
+pub enum ResourceOrVariablePath {
+    Resource(String),
+    Variable(String),
+}
+
+#[derive(Debug, Clone)]
 pub struct FileResource {
-    pub resource_path: String,
+    pub resource_path: ResourceOrVariablePath,
     pub target_path: String,
 }
 
@@ -309,7 +315,7 @@ pub fn parse_ansible_reqs(
                         }
                     }
                 }
-                Yaml::String(key) if key == "file_resources" => {
+                Yaml::String(key) if key == "files" || key == "file_resources" => {
                     if let Yaml::Array(file_resources) = value {
                         let resources: anyhow::Result<Vec<FileResource>> =
                             file_resources.iter().map(parse_file_resource).collect();
@@ -399,15 +405,11 @@ fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {
                             if c > 0 && c <= 6 {
                                 ret.verbosity = Some("v".repeat(c.min(6)));
                             }
-
                         }
                     }
-                    _ => ()
-
+                    _ => (),
                 }
             }
-
-
         }
     }
 
@@ -422,10 +424,10 @@ fn count_consecutive_vs(s: &str) -> usize {
         if c == 'v' {
             current_count += 1;
             if current_count == 6 {
-                return 6;  // Stop early if we reach 6
+                return 6; // Stop early if we reach 6
             }
         } else {
-            current_count = 0;  // Reset count if the character is not 'v'
+            current_count = 0; // Reset count if the character is not 'v'
         }
         max_count = max_count.max(current_count);
     }
@@ -444,7 +446,24 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
                     "No `target` provided for file resource {}. Please input a target relative path for the ansible playbook to see this file.",
                     resource_path
                 ))?;
-            return Ok(FileResource { resource_path: resource_path.clone(), target_path });
+            return Ok(FileResource {
+                resource_path: ResourceOrVariablePath::Resource(resource_path.clone()),
+                target_path,
+            });
+        }
+        if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("variable".to_string())) {
+            let target_path = f
+                .get(&Yaml::String("target".to_string()))
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string())
+                .ok_or(anyhow!(
+                    "No `target` provided for file resource {}. Please input a target relative path for the ansible playbook to see this file.",
+                    resource_path
+                ))?;
+            return Ok(FileResource {
+                resource_path: ResourceOrVariablePath::Variable(resource_path.clone()),
+                target_path,
+            });
         }
         return Err(anyhow!(
             "File resource should have a `resource` field, linking to a text file resource"

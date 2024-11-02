@@ -9,9 +9,8 @@
 		type WorkflowStatus,
 		type NewScript,
 		ConcurrencyGroupsService,
-
-		MetricsService
-
+		MetricsService,
+		type ScriptArgs
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -93,11 +92,13 @@
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
+	import CustomPopover from '$lib/components/CustomPopover.svelte'
+	import { isWindmillTooBigObject } from '$lib/components/job_args'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
 
-	let scriptProgress: number | undefined = undefined;
+	let scriptProgress: number | undefined = undefined
 	let currentJobIsLongRunning: boolean = false
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
@@ -203,20 +204,20 @@
 	async function onJobLoaded() {
 		// We want to set up scriptProgress once job is loaded
 		// We need this to show progress bar if job has progress and is finished
-		if (job && job.type == "CompletedJob"){
+		if (job && job.type == 'CompletedJob') {
 			// If error occured and job is completed
 			// than we fetch progress from server to display on what progress did it fail
 			// Could be displayed after run or as a historical page
 			// If opening page without running job (e.g. reloading page after run) progress will be displayed instantly
 			MetricsService.getJobProgress({
-				workspace: job.workspace_id ?? "NO_WORKSPACE",
-				id: job.id,
-			}).then(progress => {
-			  // Returned progress is not always 100%, could be 65%, 33%, anything
-			  // Its ok if its a failure and we want to keep that value
-			  // But we want progress to be 100% if job has been succeeded
-				scriptProgress = progress;
-			});
+				workspace: job.workspace_id ?? 'NO_WORKSPACE',
+				id: job.id
+			}).then((progress) => {
+				// Returned progress is not always 100%, could be 65%, 33%, anything
+				// Its ok if its a failure and we want to keep that value
+				// But we want progress to be 100% if job has been succeeded
+				scriptProgress = progress
+			})
 		}
 
 		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
@@ -229,7 +230,6 @@
 		if (script.restart_unless_cancelled ?? false) {
 			persistentScriptDefinition = script
 		}
-
 	}
 
 	$: {
@@ -309,6 +309,46 @@
 	}
 
 	let scheduleEditor: ScheduleEditor
+
+	let runImmediatelyLoading = false
+	async function runImmediately() {
+		runImmediatelyLoading = true
+		try {
+			let args = job?.args as ScriptArgs
+			if (isWindmillTooBigObject(args)) {
+				args = (await JobService.getJobArgs({
+					workspace: $workspaceStore!,
+					id: job?.id!
+				})) as ScriptArgs
+			}
+
+			const commonArgs = {
+				workspace: $workspaceStore!,
+				requestBody: args
+			}
+			if (job?.job_kind == 'script' || job?.job_kind == 'flow') {
+				let id
+
+				if (job?.job_kind == 'script') {
+					id = await JobService.runScriptByHash({
+						...commonArgs,
+						hash: job.script_hash!
+					})
+				} else {
+					id = await JobService.runFlowByPath({
+						...commonArgs,
+						path: job.script_path!
+					})
+				}
+
+				await goto('/run/' + id + '?workspace=' + $workspaceStore)
+			} else {
+				sendUserToast('Cannot run this job immediately', true)
+			}
+		} finally {
+			runImmediatelyLoading = false
+		}
+	}
 </script>
 
 <HighlightTheme />
@@ -349,7 +389,7 @@
 
 <TestJobLoader
 	lazyLogs
-	bind:scriptProgress 
+	bind:scriptProgress
 	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
@@ -360,7 +400,7 @@
 	bind:notfound
 />
 
-<Portal>
+<Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
@@ -598,14 +638,23 @@
 				{/if}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-				<Button
-					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args)}`)
-					}}
-					color="blue"
-					size="sm"
-					startIcon={{ icon: RefreshCw }}>Run again</Button
-				>
+				<CustomPopover noPadding appearTimeout={0}>
+					<Button
+						on:click|once={() => {
+							goto(viewHref + `#${computeSharableHash(job?.args)}`)
+						}}
+						color="blue"
+						size="sm"
+						startIcon={{ icon: RefreshCw }}>Run again</Button
+					>
+					<svelte:fragment slot="overlay">
+						<div class="flex flex-row gap-2">
+							<Button size="xs" loading={runImmediatelyLoading} on:click={() => runImmediately()}>
+								Run immediately with same args
+							</Button>
+						</div>
+					</svelte:fragment>
+				</CustomPopover>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				{#if !$userStore?.operator}
@@ -613,11 +662,7 @@
 						<Button
 							on:click|once={() => {
 								$initialArgsStore = job?.args
-								goto(
-									`${stem}/edit/${
-										job?.script_path
-									}${isScript ? `` : `?nodraft=true`}`
-								)
+								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
 							size="sm"
@@ -753,7 +798,7 @@
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}
 					<FlowMetadata {job} {scheduleEditor} />
-					{#if currentJobIsLongRunning && showExplicitProgressTip  && !scriptProgress && 'running' in job}
+					{#if currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
 						<Alert
 							class="mt-4 p-1 flex flex-row relative text-center"
 							size="xs"
@@ -801,7 +846,7 @@
 					/>
 				{/if}
 				{#if scriptProgress}
-					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true}/>
+					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
 				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">

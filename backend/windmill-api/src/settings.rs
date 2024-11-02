@@ -24,17 +24,17 @@ use axum::{
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 
+use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
-use serde::Deserialize;
 use windmill_common::{
+    email_ee::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        HUB_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    utils::send_email,
 };
 
 #[cfg(feature = "parquet")]
@@ -163,8 +163,13 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    validate_license_key(license_key).await?;
-    Ok("Sent test email".to_string())
+    let (_, expired) = validate_license_key(license_key).await?;
+
+    if expired {
+        Err(error::Error::BadRequest("Expired license key".to_string()))
+    } else {
+        Ok("Valid license key".to_string())
+    }
 }
 
 pub async fn get_local_settings(
@@ -257,6 +262,7 @@ pub async fn get_global_setting(
         && !key.starts_with("default_success_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
         && key != HUB_BASE_URL_SETTING
+        && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
@@ -298,7 +304,12 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
+    windmill_common::stats_ee::send_stats(
+        &HTTP_CLIENT,
+        &db,
+        windmill_common::stats_ee::SendStatsReason::Manual,
+    )
+    .await?;
 
     Ok("Sent stats".to_string())
 }
@@ -357,8 +368,13 @@ pub async fn renew_license_key(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
-    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key, true).await;
+    let result = windmill_common::ee::renew_license_key(
+        &HTTP_CLIENT,
+        &db,
+        license_key,
+        windmill_common::ee::RenewReason::Manual,
+    )
+    .await;
 
     if result != "success" {
         return Err(error::Error::BadRequest(format!(

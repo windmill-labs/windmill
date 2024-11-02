@@ -186,7 +186,7 @@
 					{option}
 				</div>
 			</MultiSelect>
-			<Portal>
+			<Portal name="app-multiselect">
 				<div use:floatingContent class="z5000" hidden={!open}>
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<!-- svelte-ignore a11y-click-events-have-key-events -->

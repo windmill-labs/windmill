@@ -28,6 +28,7 @@
 
 	let script_path = ''
 	let initialScriptPath = ''
+	let fixedScriptPath = ''
 
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -38,6 +39,7 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			dirtyRoutePath = false
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
@@ -46,7 +48,7 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, initial_script_path?: string) {
+	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -57,9 +59,11 @@
 			requires_auth = false
 			initialRoutePath = ''
 			route_path = ''
+			dirtyRoutePath = false
 			http_method = 'post'
-			initialScriptPath = initial_script_path ?? ''
-			script_path = initialScriptPath
+			initialScriptPath = ''
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
 			dirtyPath = false
@@ -71,6 +75,7 @@
 	let path: string = ''
 	let pathError = ''
 	let routeError = ''
+	let dirtyRoutePath = false
 	let is_async = false
 	let requires_auth = false
 	let initialRoutePath = ''
@@ -237,6 +242,9 @@
 								class={routeError === ''
 									? ''
 									: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+								on:input={() => {
+									dirtyRoutePath = true
+								}}
 							/>
 						</label>
 
@@ -270,7 +278,10 @@
 									}}
 								/>
 							</div>
-							<div class="text-red-600 dark:text-red-400 text-2xs">{routeError}</div>
+
+							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+								>{dirtyRoutePath ? routeError : ''}</div
+							>
 						</div>
 					</div>
 				</Section>
@@ -282,8 +293,8 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={!can_write}
-							initialPath={initialScriptPath}
+							disabled={fixedScriptPath != '' || !can_write}
+							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
 							bind:itemKind

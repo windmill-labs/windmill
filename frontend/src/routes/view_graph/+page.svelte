@@ -8,7 +8,7 @@
 		: { modules: [], failureModule: undefined, preprocessorModule: undefined }
 </script>
 
-<FlowGraphV2 {modules} {failureModule} {preprocessorModule} />
+<FlowGraphV2 triggerNode={false} {modules} {failureModule} {preprocessorModule} />
 <a
 	download="flow.json"
 	href={'data:text/json;charset=utf-8,' +

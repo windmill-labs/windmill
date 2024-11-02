@@ -38,7 +38,8 @@
 		suspendStatus,
 		hideDownloadInGraph,
 		hideTimeline,
-		hideNodeDefinition
+		hideNodeDefinition,
+		hideDownloadLogs
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
@@ -196,6 +197,7 @@
 								args: job?.args,
 								tag: job?.tag
 							}
+
 							setModuleState(mod.id ?? '', newState)
 						})
 						.catch((e) => {
@@ -206,7 +208,6 @@
 					(mod.type == 'Success' || mod.type == 'Failure') &&
 					!['Success', 'Failure'].includes($localModuleStates?.[mod.id ?? '']?.type)
 				) {
-					// console.log(mod.id, 'FOO')
 					setModuleState(
 						mod.id ?? '',
 						{
@@ -422,6 +423,11 @@
 					started_at
 				})
 			} else {
+				const parent_module = mod['parent_module']
+
+				// Delete existing failure node attached to the same parent module
+				removeFailureNode(mod.id, parent_module)
+
 				setModuleState(
 					mod.id,
 					{
@@ -431,17 +437,19 @@
 						result: job['result'],
 						job_id: job.id,
 						tag: job.tag,
-						parent_module: mod['parent_module'],
+						parent_module,
 						duration_ms: job['duration_ms'],
 						started_at: started_at,
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
 						iteration_total: mod.iterator?.itered?.length,
-						retries: mod?.failed_retries?.length
+						retries: mod?.failed_retries?.length,
+						skipped: mod.skipped
 						// retries: $flowStateStore?.raw_flow
 					},
 					force
 				)
+
 				setDurationStatusByJob(mod.id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at,
@@ -606,6 +614,23 @@
 
 	let storedListJobs: Record<number, Job> = {}
 	let wrapperHeight: number = 0
+
+	function removeFailureNode(id: string, parent_module: any) {
+		if (id?.startsWith('failure-') && parent_module) {
+			;[...globalModuleStates, localModuleStates].forEach((stateMapStore) => {
+				stateMapStore.update((stateMap) => {
+					if (id) {
+						Object.keys(stateMap).forEach((key) => {
+							if (stateMap[key]?.parent_module == parent_module) {
+								delete stateMap[key]
+							}
+						})
+					}
+					return stateMap
+				})
+			})
+		}
+	}
 </script>
 
 {#if notAnonynmous}
@@ -668,6 +693,7 @@
 								result={job.result}
 								logs={job.logs}
 								durationStates={localDurationStatuses}
+								downloadLogs={!hideDownloadLogs}
 							/>
 						</div>
 					{/if}
@@ -854,7 +880,7 @@
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
-											render={failedRetry == retry_selected}
+											render={failedRetry == retry_selected && render}
 											reducedPolling={false}
 											{workspaceId}
 											jobId={failedRetry}
@@ -942,6 +968,7 @@
 						</div>
 
 						<FlowGraphV2
+							triggerNode={true}
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
@@ -1025,6 +1052,7 @@
 											result={job['result']}
 											logs={job.logs ?? ''}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -1054,7 +1082,11 @@
 											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
 										{/if}
 										<div class="px-2 flex gap-2 min-w-0 w-full">
-											<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
+											<ModuleStatus
+												type={node.type}
+												scheduled_for={node.scheduled_for}
+												skipped={node.skipped}
+											/>
 											{#if node.duration_ms}
 												<Badge>
 													<Hourglass class="mr-2" size={10} />
@@ -1096,6 +1128,7 @@
 											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

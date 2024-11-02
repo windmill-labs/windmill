@@ -11,7 +11,6 @@ use axum::http::HeaderValue;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use windmill_common::error::JsonResult;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -19,12 +18,13 @@ use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use tower::ServiceBuilder;
+use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
     ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::worker::TMP_DIR;
+use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
@@ -70,7 +70,10 @@ use windmill_common::{
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, now_from_db, paginate, paginate_without_limits, require_admin,
+        Pagination, StripPath,
+    },
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -81,7 +84,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     cancel_job, get_queued_job, get_result_by_id_from_running_flow, job_is_complete, push,
-    DecodeQueries, PushArgs, PushArgsOwned, PushIsolationLevel, QueueTransaction,
+    DecodeQueries, PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -293,11 +296,8 @@ pub fn workspace_unauthed_service() -> Router {
 
 pub fn global_root_service() -> Router {
     Router::new()
-    .route("/db_clock", get(get_db_clock))
-    .route(
-        "/completed/count_by_tag",
-        get(count_by_tag),
-    )
+        .route("/db_clock", get(get_db_clock))
+        .route("/completed/count_by_tag", get(count_by_tag))
 }
 
 #[derive(Deserialize)]
@@ -547,8 +547,8 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
-pub async fn get_path_tag_limits_cache_for_hash<'c, R: rsmq_async::RsmqConnection + Send>(
-    tx: &mut QueueTransaction<'c, R>,
+pub async fn get_path_tag_limits_cache_for_hash(
+    tx: &DB,
     w_id: &str,
     hash: i64,
 ) -> error::Result<(
@@ -1471,6 +1471,8 @@ async fn cancel_jobs(
             }
         }
     }
+
+    uuids.extend(trivial_jobs);
 
     Ok(Json(uuids))
 }
@@ -2813,8 +2815,6 @@ pub async fn run_flow_by_path_inner(
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let (tag, dedicated_worker, has_preprocessor) = sqlx::query!(
         "SELECT tag, dedicated_worker, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor 
         FROM flow 
@@ -2824,7 +2824,7 @@ pub async fn run_flow_by_path_inner(
         flow_path,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&db)
     .await?
     .map(|x| (x.tag, x.dedicated_worker, x.has_preprocessor))
     .ok_or_else(|| {
@@ -2837,7 +2837,7 @@ pub async fn run_flow_by_path_inner(
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
     let (uuid, tx) = push(
         &db,
         tx,
@@ -2909,14 +2909,12 @@ pub async fn restart_flow(
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let completed_job = sqlx::query_as::<_, CompletedJob>(
         "SELECT *, result->'wm_labels' as labels from completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(job_id)
     .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&db)
     .await?
     .with_context(|| "Unable to find completed job with the given job UUID")?;
 
@@ -2934,7 +2932,7 @@ pub async fn restart_flow(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -3010,16 +3008,14 @@ pub async fn run_script_by_path_inner(
 
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let (job_payload, tag, _delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path, &db, &w_id, run_query.skip_preprocessor).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -3052,6 +3048,11 @@ pub async fn run_script_by_path_inner(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+#[derive(Deserialize)]
+pub struct WorkflowAsCodeQuery {
+    pub skip_update: Option<bool>,
+}
+
 pub async fn run_workflow_as_code(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3059,15 +3060,32 @@ pub async fn run_workflow_as_code(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, job_id, entrypoint)): Path<(String, Uuid, String)>,
     Query(run_query): Query<RunJobQuery>,
+    Query(wkflow_query): Query<WorkflowAsCodeQuery>,
     Json(task): Json<WorkflowTask>,
 ) -> error::Result<(StatusCode, String)> {
+    let mut i = 1;
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
+
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     check_tag_available_for_workspace(&w_id, &run_query.tag).await?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
 
     let job = get_queued_job(&job_id, &w_id, &db).await?;
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
+
     let job = not_found_if_none(job, "Queued Job", &job_id.to_string())?;
     let (job_payload, tag, _delete_after_use, timeout) = match job.job_kind {
         JobKind::Preview => (
@@ -3090,16 +3108,16 @@ pub async fn run_workflow_as_code(
             run_query.timeout,
         ),
         JobKind::Script => {
-            script_path_to_payload(
-                job.script_path(),
-                &mut tx,
-                &w_id,
-                run_query.skip_preprocessor,
-            )
-            .await?
+            script_path_to_payload(job.script_path(), &db, &w_id, run_query.skip_preprocessor)
+                .await?
         }
         _ => return Err(anyhow::anyhow!("Not supported").into()),
     };
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
 
     let mut extra = HashMap::new();
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
@@ -3109,7 +3127,17 @@ pub async fn run_workflow_as_code(
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
+
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
 
     let (uuid, mut tx) = push(
         &db,
@@ -3136,14 +3164,35 @@ pub async fn run_workflow_as_code(
         Some(&authed.clone().into()),
     )
     .await?;
-    sqlx::query!(
-        "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
-        uuid.to_string(),
-        job_id,
-        w_id,
-        entrypoint
-    ).execute(&mut tx).await?;
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
+
+    if !wkflow_query.skip_update.unwrap_or(false) {
+        sqlx::query!(
+            "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
+            uuid.to_string(),
+            job_id,
+            w_id,
+            entrypoint
+        ).execute(&mut tx).await?;
+    } else {
+        tracing::info!("Skipping update of flow status for job {job_id} in workspace {w_id}");
+    }
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+        i += 1;
+    }
+
     tx.commit().await?;
+
+    if *CLOUD_HOSTED {
+        tracing::info!("workflow_as_code_tracing id {i} ");
+    }
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -3507,15 +3556,13 @@ pub async fn run_wait_result_job_by_path_get(
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path, &db, &w_id, run_query.skip_preprocessor).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -3632,15 +3679,13 @@ pub async fn run_wait_result_script_by_path_internal(
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &mut tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path, &db, &w_id, run_query.skip_preprocessor).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -3692,8 +3737,6 @@ pub async fn run_wait_result_script_by_hash(
 
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let hash = script_hash.0;
     let (
         path,
@@ -3708,7 +3751,7 @@ pub async fn run_wait_result_script_by_hash(
         delete_after_use,
         timeout,
         has_preprocessor,
-    ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
+    ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -3717,7 +3760,7 @@ pub async fn run_wait_result_script_by_hash(
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -3799,8 +3842,6 @@ pub async fn run_wait_result_flow_by_path_internal(
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let (tag, dedicated_worker, early_return, has_preprocessor) = sqlx::query!(
@@ -3812,7 +3853,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         flow_path,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&db)
     .await?
     .map(|x| (x.tag, x.dedicated_worker, x.early_return, x.has_preprocessor))
     .ok_or_else(|| {
@@ -3824,7 +3865,7 @@ pub async fn run_wait_result_flow_by_path_internal(
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -4130,10 +4171,10 @@ async fn run_dependencies_job(
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
         if language == ScriptLang::Bun {
-            let annotation = windmill_common::worker::get_annotation(&raw_code);
+            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(&raw_code);
             hm.insert(
                 "npm_mode".to_string(),
-                JsonRawValue::from_string(annotation.npm_mode.to_string()).unwrap(),
+                JsonRawValue::from_string(annotation.npm.to_string()).unwrap(),
             );
         }
         (PushArgs { extra: Some(hm), args: &ehm }, deps)
@@ -4296,8 +4337,6 @@ async fn add_batch_jobs(
             }
         }
         "flow" => {
-            let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
-
             let mut uuids: Vec<Uuid> = Vec::new();
             let payload = if let Some(ref fv) = batch_info.flow_value {
                 JobPayload::RawFlow { value: fv.clone(), path: None, restarted_from: None }
@@ -4314,6 +4353,7 @@ async fn add_batch_jobs(
                     ))?
                 }
             };
+            let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
             for _ in 0..n {
                 let ehm = HashMap::new();
                 let (uuid, ntx) = push(
@@ -4514,8 +4554,6 @@ pub async fn run_job_by_hash_inner(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-
     let hash = script_hash.0;
     let (
         path,
@@ -4530,7 +4568,7 @@ pub async fn run_job_by_hash_inner(
         _delete_after_use, // not taken into account in async endpoints
         timeout,
         has_preprocessor,
-    ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
+    ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -4539,7 +4577,7 @@ pub async fn run_job_by_hash_inner(
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
         &db,
@@ -4683,13 +4721,12 @@ async fn get_job_update(
     .fetch_optional(&db)
     .await?;
 
-    let progress: Option<i32> = if get_progress == Some(true){
-         sqlx::query_scalar!(
+    let progress: Option<i32> = if get_progress == Some(true) {
+        sqlx::query_scalar!(
                 "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &w_id,
                  job_id,
                 "progress_perc"
-                
             )
             .fetch_optional(&db)
             .await?.and_then(|inner| inner)
@@ -5115,8 +5152,6 @@ async fn get_completed_job_result(
     Ok(Json(result).into_response())
 }
 
-
-
 #[derive(Deserialize)]
 struct CountByTagQuery {
     horizon_secs: Option<i64>,
@@ -5130,7 +5165,7 @@ struct TagCount {
 }
 
 async fn count_by_tag(
-    ApiAuthed { email, ..}: ApiAuthed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<CountByTagQuery>,
 ) -> JsonResult<Vec<TagCount>> {

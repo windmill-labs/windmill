@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToReadableTime, truncateHash, truncateRev } from '$lib/utils'
+	import { displayDate, msToReadableTime, truncateHash, truncateRev, isJobCancelable } from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -39,12 +39,9 @@
 
 	$: isExternal = job && job.id === '-'
 
-	function isJobCancelable(j: Job): boolean {
-		return j.type === 'QueuedJob' && !j.schedule_path
-	}
 </script>
 
-<Portal>
+<Portal name="run-row">
 	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -94,6 +91,10 @@
 			<Badge color="blue" baseClass="!px-1.5">
 				<Calendar size={14} />
 			</Badge>
+		{:else if job.canceled}
+			<Badge color="red" baseClass="!px-1.5">
+				<Hourglass size={14} />
+			</Badge>
 		{:else}
 			<Badge baseClass="!px-1.5">
 				<Hourglass size={14} />
@@ -105,7 +106,7 @@
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
-					Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
+					Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
 					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 						(Ran in {msToReadableTime(
 							job.duration_ms
@@ -120,12 +121,11 @@
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}
+				{:else if job.canceled}
+					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+
 				{:else}
-					Waiting for executor (created <TimeAgo
-						withDate
-						agoOnlyIfRecent
-						date={job.created_at || ''}
-					/>)
+					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}
 			{/if}
 		</div>

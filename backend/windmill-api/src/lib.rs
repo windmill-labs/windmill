@@ -39,9 +39,8 @@ use tower_http::{
     trace::TraceLayer,
 };
 use windmill_common::db::UserDB;
-use windmill_common::utils::rd_string;
-use windmill_common::worker::ALL_TAGS;
-use windmill_common::BASE_URL;
+use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
+use windmill_common::{BASE_URL, INSTANCE_NAME};
 
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
@@ -83,12 +82,16 @@ pub mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
+mod triggers;
 mod users;
+mod users_ee;
 mod utils;
 mod variables;
 mod webhook_util;
+mod websocket_triggers;
 mod workers;
 mod workspaces;
+mod workspaces_ee;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -225,7 +228,7 @@ pub async fn run_server(
             db: db.clone(),
             user_db: user_db,
             auth_cache: auth_cache.clone(),
-            rsmq: rsmq,
+            rsmq: rsmq.clone(),
             base_internal_url: base_internal_url.clone(),
         });
         if let Err(err) = smtp_server.start_listener_thread(addr).await {
@@ -244,6 +247,11 @@ pub async fn run_server(
             Router::new()
         }
     };
+
+    if !*CLOUD_HOSTED {
+        let ws_killpill_rx = rx.resubscribe();
+        websocket_triggers::start_websockets(db.clone(), rsmq, ws_killpill_rx).await;
+    }
 
     // build our application with a route
     let app = Router::new()
@@ -285,7 +293,11 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", http_triggers::workspaced_service()),
+                        .nest("/http_triggers", http_triggers::workspaced_service())
+                        .nest(
+                            "/websocket_triggers",
+                            websocket_triggers::workspaced_service(),
+                        ),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -373,8 +385,6 @@ pub async fn run_server(
         )
     };
 
-    let instance_name = rd_string(5);
-
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener
@@ -385,7 +395,7 @@ pub async fn run_server(
     let server = axum::serve(listener, app.into_make_service());
 
     tracing::info!(
-        instance = %instance_name,
+        instance = %*INSTANCE_NAME,
         "server started on port={} and addr={}",
         port,
         ip
@@ -448,9 +458,13 @@ async fn ee_license() -> &'static str {
 
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
-    use windmill_common::ee::LICENSE_KEY_ID;
+    use windmill_common::ee::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    LICENSE_KEY_ID.read().await.clone()
+    if *LICENSE_KEY_VALID.read().await {
+        LICENSE_KEY_ID.read().await.clone()
+    } else {
+        "".to_string()
+    }
 }
 
 async fn openapi() -> &'static str {

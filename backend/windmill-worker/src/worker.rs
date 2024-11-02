@@ -237,6 +237,7 @@ pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
+pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
@@ -323,6 +324,20 @@ lazy_static::lazy_static! {
     pub static ref NO_PROXY: Option<String> = std::env::var("no_proxy").ok().or(std::env::var("NO_PROXY").ok());
     pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
     pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
+
+    pub static ref PROXY_ENVS: Vec<(&'static str, String)> = {
+        let mut proxy_env = Vec::new();
+        if let Some(no_proxy) = NO_PROXY.as_ref() {
+            proxy_env.push(("NO_PROXY", no_proxy.to_string()));
+        }
+        if let Some(http_proxy) = HTTP_PROXY.as_ref() {
+            proxy_env.push(("HTTP_PROXY", http_proxy.to_string()));
+        }
+        if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
+            proxy_env.push(("HTTPS_PROXY", https_proxy.to_string()));
+        }
+        proxy_env
+    };
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref BUN_PATH: String = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
     pub static ref NPM_PATH: String = std::env::var("NPM_PATH").unwrap_or_else(|_| "/usr/bin/npm".to_string());
@@ -347,7 +362,6 @@ lazy_static::lazy_static! {
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
-
 
     static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
         .ok()
@@ -389,6 +403,12 @@ lazy_static::lazy_static! {
 
 
 }
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+}
+
 //only matter if CLOUD_HOSTED
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
@@ -1267,16 +1287,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         };
 
-        #[cfg(feature = "prometheus")]
-        if let Some(wb) = worker_busy.as_ref() {
-            wb.set(1);
-            tracing::debug!("set worker busy to 1");
-        }
-
-        occupancy_metrics.running_job_started_at = Some(Instant::now());
-
         match next_job {
             Ok(Some(job)) => {
+                #[cfg(feature = "prometheus")]
+                if let Some(wb) = worker_busy.as_ref() {
+                    wb.set(1);
+                    tracing::debug!("set worker busy to 1");
+                }
+
+                occupancy_metrics.running_job_started_at = Some(Instant::now());
+
                 last_executed_job = None;
                 jobs_executed += 1;
 
@@ -2061,15 +2081,10 @@ pub fn build_envs(
         hm
     };
 
-    if let Some(ref env) = *HTTPS_PROXY {
-        envs.insert("HTTPS_PROXY".to_string(), env.to_string());
+    for (k, v) in PROXY_ENVS.iter() {
+        envs.insert(k.to_string(), v.to_string());
     }
-    if let Some(ref env) = *HTTP_PROXY {
-        envs.insert("HTTP_PROXY".to_string(), env.to_string());
-    }
-    if let Some(ref env) = *NO_PROXY {
-        envs.insert("NO_PROXY".to_string(), env.to_string());
-    }
+
     Ok(envs)
 }
 

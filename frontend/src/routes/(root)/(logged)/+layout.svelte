@@ -8,7 +8,6 @@
 		RawAppService,
 		ScriptService,
 		SettingService,
-		HttpTriggerService,
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -140,7 +139,8 @@
 
 	async function loadHubBaseUrl() {
 		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ??
+			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			'https://hub.windmill.dev'
 	}
 
@@ -187,8 +187,17 @@
 	}
 
 	async function loadUsedTriggerKinds() {
-		const httpUsed = await HttpTriggerService.used({ workspace: $workspaceStore ?? '' })
-		$usedTriggerKinds = httpUsed ? ['http'] : []
+		let usedKinds: string[] = []
+		const { http_routes_used, websocket_used } = await WorkspaceService.getUsedTriggers({
+			workspace: $workspaceStore ?? ''
+		})
+		if (http_routes_used) {
+			usedKinds.push('http')
+		}
+		if (websocket_used) {
+			usedKinds.push('ws')
+		}
+		$usedTriggerKinds = usedKinds
 	}
 
 	function pathInAppMode(pathname: string | undefined): boolean {

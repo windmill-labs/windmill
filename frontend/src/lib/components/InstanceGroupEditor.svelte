@@ -6,6 +6,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let name: string
 
@@ -57,7 +58,12 @@
 				>
 			</div>
 		</div>
-		<h2>Members ({members?.length ?? 0})</h2>
+		<h2
+			>Members ({#if members?.length != undefined}{members?.length ?? 0}{:else}<Loader2
+					class="animate-spin"
+					size={10}
+				/>{/if})</h2
+		>
 		<div class="flex items-start">
 			<input type="text" placeholder="john@acme.com" bind:value={email} />
 			<Button

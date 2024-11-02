@@ -666,6 +666,7 @@ $res = json_decode(curl_exec($ch));`)
 	</div>
 
 	<div class="flex flex-row items-center gap-2">
+		<slot name="right" />
 		{#if scriptPath && !noHistory}
 			<Button
 				btnClasses="!font-medium text-tertiary"

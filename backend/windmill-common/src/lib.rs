@@ -17,10 +17,12 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
+pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod db;
 pub mod ee;
+pub mod email_ee;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
@@ -32,9 +34,8 @@ pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod queue;
 pub mod s3_helpers;
-
-pub mod auth;
 pub mod schedule;
 pub mod scripts;
 pub mod server;
@@ -95,6 +96,8 @@ lazy_static::lazy_static! {
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
+    pub static ref INSTANCE_NAME: String = rd_string(5);
+
 }
 
 pub async fn shutdown_signal(
@@ -141,6 +144,7 @@ pub async fn shutdown_signal(
 use tokio::sync::RwLock;
 #[cfg(feature = "prometheus")]
 use tokio::task::JoinHandle;
+use utils::rd_string;
 
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(

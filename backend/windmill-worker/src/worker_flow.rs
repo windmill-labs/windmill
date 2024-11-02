@@ -561,6 +561,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen: None,
                             approvers: vec![],
                             failed_retries: vec![],
+                            skipped: false,
                         }
                     } else {
                         success = false;
@@ -698,6 +699,20 @@ pub async fn update_flow_status_after_job_completion_internal<
                     }
                 }
                 if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
+                    let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
+                        sqlx::query_scalar!(
+                            "SELECT job_kind = 'identity' FROM completed_job WHERE id = $1",
+                            job_id_for_status
+                        )
+                        .fetch_one(db)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error during skip check: {e:#}"))
+                        })?
+                        .unwrap_or(false)
+                    } else {
+                        false
+                    };
                     success = true;
                     (
                         true,
@@ -709,6 +724,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen,
                             approvers: vec![],
                             failed_retries: old_status.retry.failed_jobs.clone(),
+                            skipped: is_skipped,
                         }),
                     )
                 } else {
@@ -2210,6 +2226,23 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     drop(resume_messages);
 
+    let is_skipped = if let Some(skip_if) = &module.skip_if {
+        let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status).await?;
+        compute_bool_from_expr(
+            skip_if.expr.to_string(),
+            arc_flow_job_args.clone(),
+            arc_last_job_result.clone(),
+            None,
+            Some(idcontext.clone()),
+            Some(client),
+            Some((resumes.clone(), resume.clone(), approvers.clone())),
+            None,
+        )
+        .await?
+    } else {
+        false
+    };
+
     let args: windmill_common::error::Result<_> =
         if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
             let mut hm = HashMap::new();
@@ -2249,7 +2282,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             );
             Ok(Marc::new(hm))
         } else {
-            match &module.get_value() {
+            let value = module.get_value();
+            match &value {
+                Ok(_) if matches!(value, Ok(FlowModuleValue::Identity)) || is_skipped => serde_json::from_str(
+                    &serde_json::to_string(&PreviousResult {
+                        previous_result: Some(&arc_last_job_result),
+                    })
+                    .unwrap(),
+                )
+                .map(Marc::new)
+                .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
                 Ok(
                     FlowModuleValue::Script { input_transforms, .. }
                     | FlowModuleValue::RawScript { input_transforms, .. }
@@ -2270,16 +2312,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     )
                     .await
                     .map(Marc::new)
-                }
-                Ok(FlowModuleValue::Identity) => serde_json::from_str(
-                    &serde_json::to_string(&PreviousResult {
-                        previous_result: Some(&arc_last_job_result),
-                    })
-                    .unwrap(),
-                )
-                .map(Marc::new)
-                .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
-
+                },
                 Ok(_) => Ok(arc_flow_job_args.clone()),
                 Err(e) => {
                     return Err(error::Error::InternalErr(format!(
@@ -2305,6 +2338,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         resumes.clone(),
         resume.clone(),
         approvers.clone(),
+        is_skipped,
     )
     .await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "next flow transform computed");
@@ -2326,6 +2360,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 branch_chosen: None,
                 approvers: vec![],
                 failed_retries: vec![],
+                skipped: false,
             }))
             .bind(flow_job.id)
             .execute(db)
@@ -2368,15 +2403,15 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushing job {i} of {len}");
         let payload_tag = match &job_payloads {
-            ContinuePayload::SingleJob(payload) => payload.clone(),
-            ContinuePayload::BranchAllJobs(payloads) => payloads[i].clone(),
+            ContinuePayload::SingleJob(payload) => payload,
+            ContinuePayload::BranchAllJobs(payloads) => &payloads[i],
             ContinuePayload::ForloopJobs { flow_value, delete_after_use, .. } => {
                 let mut fv = flow_value.clone();
 
                 if let Some(failure_module) = fv.failure_module.as_mut() {
                     failure_module.id_append(&format!("{}-{i}", &status.step.to_string()));
                 }
-                JobPayloadWithTag {
+                &JobPayloadWithTag {
                     payload: JobPayload::RawFlow {
                         value: fv,
                         path: Some(format!("{}/forloop-{i}", flow_job.script_path())),
@@ -2555,13 +2590,17 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         };
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-
+        let tag = if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
+            payload_tag.tag.clone()
+        } else {
+            Some(flow_job.tag.clone())
+        };
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
             tx2,
             &flow_job.workspace_id,
-            payload_tag.payload,
+            payload_tag.payload.clone(),
             push_args,
             &flow_job.created_by,
             &flow_job.email,
@@ -2575,11 +2614,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
-                payload_tag.tag
-            } else {
-                Some(flow_job.tag.clone())
-            },
+            tag,
             payload_tag.timeout,
             Some(module.id.clone()),
             new_job_priority_override,
@@ -2971,6 +3006,7 @@ async fn compute_next_flow_transform(
     resumes: Arc<Box<RawValue>>,
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
+    is_skipped: bool,
 ) -> error::Result<NextFlowTransform> {
     if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
         return Ok(NextFlowTransform::Continue(
@@ -2997,6 +3033,9 @@ async fn compute_next_flow_transform(
     let delete_after_use = module.delete_after_use.unwrap_or(false);
 
     tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
+    if is_skipped {
+        return trivial_next_job(JobPayload::Identity);
+    }
     match &module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
@@ -3490,6 +3529,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].retry.is_none()
         && modules[0].stop_after_if.is_none()
         && modules[0].stop_after_all_iters_if.is_none()
+        && modules[0].skip_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
         && flow.failure_module.is_none();
     is_simple
@@ -3721,6 +3761,11 @@ async fn script_to_payload(
     module: &FlowModule,
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
+    let tag_override = if tag_override.as_ref().is_some_and(|x| x.trim().is_empty()) {
+        None
+    } else {
+        tag_override.clone()
+    };
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         let (jp, tag, delete_after_use, script_timeout) =
             script_path_to_payload(script_path, db, &flow_job.workspace_id, Some(true)).await?;

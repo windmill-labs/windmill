@@ -19,11 +19,11 @@
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
-	import { Button, Tab } from '$lib/components/common'
+	import { Alert, Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState, sendUserToast } from '$lib/utils'
+	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -693,7 +693,15 @@
 			{#if $componentActive}
 				<div
 					class="absolute z-50 inset-0 h-full w-full bg-surface-secondary [background-size:16px_16px]"
-				/>
+				>
+					<div class="w-min whitespace-nowrap mx-auto pt-0.5 z-50">
+						<Alert
+							title={`Press ${getModifierKey()} to drop component inside a container.`}
+							size="xs"
+							class="h-10 py-1"
+						/>
+					</div>
+				</div>
 			{/if}
 
 			<SplitPanesWrapper>

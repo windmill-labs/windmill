@@ -15,7 +15,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: workspace = workspaceOverride ?? $workspaceStore
+	$: workspace = workspaceOverride ?? $workspaceStore!
 
 	let syncIteration: number = 0
 	let errorIteration = 0
@@ -76,7 +76,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptByPath({
-					workspace: $workspaceStore!,
+					workspace: workspace,
 					path: path,
 					requestBody: args,
 					skipPreprocessor: true
@@ -93,7 +93,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptByHash({
-					workspace: $workspaceStore!,
+					workspace: workspace,
 					hash: hash,
 					requestBody: args,
 					skipPreprocessor: true
@@ -110,7 +110,7 @@
 		return abstractRun(
 			() =>
 				JobService.runFlowByPath({
-					workspace: $workspaceStore!,
+					workspace: workspace,
 					path: path ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -130,7 +130,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptPreview({
-					workspace: $workspaceStore!,
+					workspace: workspace,
 					requestBody: {
 						path,
 						content: code,
@@ -154,7 +154,7 @@
 			currentId = undefined
 			try {
 				await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspace ?? '',
 					id,
 					requestBody: {}
 				})

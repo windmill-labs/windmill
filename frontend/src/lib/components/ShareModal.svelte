@@ -25,6 +25,7 @@
 		| 'app'
 		| 'raw_app'
 		| 'http_trigger'
+		| 'websocket_trigger'
 	let kind: Kind
 
 	let path: string = ''

@@ -26,7 +26,7 @@
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
 			{:else}
-				Received job <TimeAgo withDate date={job.created_at ?? ''} />
+				Received job <TimeAgo date={job.created_at ?? ''} />
 			{/if}
 			<Tooltip small>{job?.created_at}</Tooltip>
 		</span>
@@ -35,7 +35,7 @@
 		<div class="flex flex-row gap-2 items-center text-sm">
 			<Clock size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 			<span class="whitespace-nowrap">
-				Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
+				Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
 				<Tooltip small>{job?.started_at}</Tooltip>
 			</span>
 		</div>

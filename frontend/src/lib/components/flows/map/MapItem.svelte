@@ -11,11 +11,9 @@
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
-	import FlowCopilotButton from './FlowCopilotButton.svelte'
 
 	export let mod: FlowModule
 	export let insertable: boolean
-	export let disableAi: boolean
 	export let annotation: string | undefined = undefined
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
@@ -48,6 +46,7 @@
 		selected: $selectedId === mod.id,
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
+		skip: Boolean(mod.skip_if),
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),
@@ -62,9 +61,6 @@
 
 {#if mod}
 	<div class="relative">
-		{#if insertable && !disableAi && mod.id === 'preprocessor'}
-			<FlowCopilotButton className="-top-10" />
-		{/if}
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">
 				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border">

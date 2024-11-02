@@ -15,13 +15,13 @@ use windmill_parser::{
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
-    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
-    MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Str,
-    TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
-    TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement, TsTypeLit,
-    TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident,
+    IdentName, Lit, MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat,
+    Param, Pat, Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
+    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
+    TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
-use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsConfig};
+use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 
 use regex::Regex;
 #[cfg(target_arch = "wasm32")]
@@ -48,9 +48,9 @@ impl Visit for ImportsFinder {
 
 pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
     let lexer = Lexer::new(
-        Syntax::Typescript(TsConfig::default()),
+        Syntax::Typescript(TsSyntax::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -69,7 +69,7 @@ pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     })?;
 
     let mut visitor = ImportsFinder { imports: HashSet::new() };
-    swc_ecma_visit::visit_module(&mut visitor, &expr);
+    visitor.visit_module(&expr);
 
     Ok(visitor.imports.into_iter().collect())
 }
@@ -87,7 +87,7 @@ impl Visit for OutputFinder {
             c.visit_with(self);
         }
         match m {
-            MemberExpr { obj, prop: MemberProp::Ident(Ident { sym, .. }), .. } => {
+            MemberExpr { obj, prop: MemberProp::Ident(IdentName { sym, .. }), .. } => {
                 match *obj.to_owned() {
                     Expr::Ident(Ident { sym: sym_i, .. }) => {
                         self.idents.insert((sym_i.to_string(), sym.to_string()));
@@ -102,10 +102,10 @@ impl Visit for OutputFinder {
 
 pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
         // We want to parse ecmascript
-        Syntax::Es(EsConfig { jsx: false, ..Default::default() }),
+        Syntax::Es(EsSyntax { jsx: false, ..Default::default() }),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -124,7 +124,7 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     })?;
 
     let mut visitor = OutputFinder { idents: HashSet::new() };
-    swc_ecma_visit::visit_module(&mut visitor, &expr);
+    visitor.visit_module(&expr);
 
     Ok(visitor.idents.into_iter().collect())
 }
@@ -135,10 +135,10 @@ pub fn parse_deno_signature(
     main_override: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
         // We want to parse ecmascript
-        Syntax::Typescript(TsConfig::default()),
+        Syntax::Typescript(TsSyntax::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),

@@ -1,13 +1,8 @@
 <script context="module">
 	import { tick } from 'svelte'
 
-	/**
-	 * Usage: <div use:portal={'css selector'}> or <div use:portal={document.body}>
-	 *
-	 * @param {HTMLElement} el
-	 * @param {HTMLElement|string} target DOM Element or CSS Selector
-	 */
-	export function portal(el, target = 'body') {
+	export function portal(el, options) {
+		let { target, name } = options
 		let targetEl
 		async function update(newTarget) {
 			target = newTarget
@@ -31,6 +26,9 @@
 			}
 			if (!el.classList.contains('windmill-app')) {
 				el.classList.add('windmill-app')
+			}
+			if (name && !el.classList.contains(name)) {
+				el.classList.add(name)
 			}
 			targetEl.appendChild(el)
 			el.hidden = false
@@ -56,8 +54,9 @@
 	 * @type { HTMLElement|string}
 	 */
 	export let target = 'body'
+	export let name = undefined
 </script>
 
-<div use:portal={target} hidden>
+<div use:portal={{ target, name }} hidden>
 	<slot />
 </div>

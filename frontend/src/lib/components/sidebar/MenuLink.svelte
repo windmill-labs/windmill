@@ -17,7 +17,7 @@
 		if (href === `${base}/`) {
 			isSelected = $page.url.pathname === href
 		} else {
-			isSelected = $page.url.pathname.includes(href)
+			isSelected = $page.url.pathname.startsWith(href)
 		}
 	})
 </script>

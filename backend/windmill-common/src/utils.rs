@@ -11,13 +11,11 @@ use crate::ee::LICENSE_KEY_ID;
 use crate::ee::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
-use crate::server::Smtp;
 use crate::DB;
 use anyhow::Context;
 use gethostname::gethostname;
 use git_version::git_version;
-use mail_send::mail_builder::MessageBuilder;
-use mail_send::SmtpClientBuilder;
+
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -189,7 +187,7 @@ pub fn calculate_hash(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub async fn get_uid(db: &DB) -> Result<String> {
+pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
     let mut uid = LICENSE_KEY_ID.read().await.clone();
 
     if uid == "" {
@@ -204,6 +202,14 @@ pub async fn get_uid(db: &DB) -> Result<String> {
     }
 
     Ok(uid)
+}
+
+pub fn map_string_to_number(s: &str, max_number: u64) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish() % (max_number + 1)
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone)]
@@ -228,56 +234,11 @@ impl std::fmt::Display for Mode {
     }
 }
 
-pub async fn send_email(
-    subject: &str,
-    content: &str,
-    to: Vec<String>,
-    smtp: Smtp,
-    client_timeout: Option<tokio::time::Duration>,
-) -> Result<()> {
-    let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
-        .implicit_tls(smtp.tls_implicit.unwrap_or(false));
-    if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
-        client = client.allow_invalid_certs();
-    }
-    let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
-        if !username.is_empty() {
-            client.credentials((username, password))
-        } else {
-            client
-        }
-    } else {
-        client
-    };
-    let message = MessageBuilder::new()
-        .from(("Windmill", smtp.from.as_str()))
-        .to(to.clone())
-        .subject(subject)
-        .text_body(content);
-
-    match client_timeout {
-        Some(timeout) => {
-            tokio::time::timeout(timeout, client.connect())
-                .await
-                .map_err(to_anyhow)?
-                .map_err(to_anyhow)?
-                .send(message)
-                .await
-                .map_err(to_anyhow)?;
-        }
-        None => {
-            client
-                .connect()
-                .await
-                .map_err(to_anyhow)?
-                .send(message)
-                .await
-                .map_err(to_anyhow)?;
-        }
-    }
-    tracing::info!("Sent email to {:#?}: {subject}", to);
-
-    return Ok(());
+// inspired from rails: https://github.com/rails/rails/blob/6e49cc77ab3d16c06e12f93158eaf3e507d4120e/activerecord/lib/active_record/migration.rb#L1308
+pub fn generate_lock_id(database_name: &str) -> i64 {
+    const CRC_IEEE: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+    // 0x3d32ad9e chosen by fair dice roll
+    0x3d32ad9e * (CRC_IEEE.checksum(database_name.as_bytes()) as i64)
 }
 
 pub async fn report_critical_error(error_message: String, _db: DB) -> () {

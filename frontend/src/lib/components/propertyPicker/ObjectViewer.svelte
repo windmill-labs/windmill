@@ -63,7 +63,7 @@
 	$: fullyCollapsed = keys.length > 1 && collapsed
 </script>
 
-<Portal>
+<Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
 

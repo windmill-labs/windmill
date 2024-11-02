@@ -56,12 +56,11 @@
 			  '/' +
 			  (state?.iteration_total ?? '?')
 			: ''}
-		bgColor={getStateColor(type, darkMode, true)}
+		bgColor={getStateColor(type, darkMode, true, state?.skipped)}
 		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={state?.duration_ms}
 		retries={data.retries}
-		disableAi={data.disableAi}
 		{flowJobs}
 		on:delete={(e) => {
 			data.eventHandlers.delete(e.detail, '')

@@ -41,7 +41,7 @@
 		</MenuButton>
 	</span>
 
-	<Portal {target}>
+	<Portal name="button-dropdown" {target}>
 		<div use:popperContent={popperOptions} class="z-[6000]">
 			<Transition
 				show={open}

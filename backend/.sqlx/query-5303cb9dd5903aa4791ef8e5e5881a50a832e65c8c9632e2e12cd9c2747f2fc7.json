@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT *\n            FROM websocket_trigger\n            WHERE enabled IS TRUE AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "filters",
+        "type_info": "JsonbArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "5303cb9dd5903aa4791ef8e5e5881a50a832e65c8c9632e2e12cd9c2747f2fc7"
+}

@@ -1,3 +1,4 @@
+use crate::PROXY_ENVS;
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
@@ -189,6 +190,7 @@ func Run(req Req) (interface{{}}, error){{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str())
+            .envs(PROXY_ENVS.clone())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -225,7 +227,12 @@ func Run(req Req) (interface{{}}, error){{
         }
     } else {
         let target = format!("{job_dir}/main");
-        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
+        #[cfg(unix)]
+        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
+        #[cfg(windows)]
+        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+
+        symlink.map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))

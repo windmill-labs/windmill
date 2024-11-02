@@ -133,8 +133,10 @@
 						Error handler
 					{:else if stepDetail.id === 'preprocessor'}
 						Preprocessor
-					{:else}
-						Anonymous step
+					{:else if stepDetail.value.type == 'rawscript'}
+						Inline {stepDetail.value.language} script
+					{:else if stepDetail.value.type == 'script'}
+						Workspace script
 					{/if}
 				</span>
 			</div>

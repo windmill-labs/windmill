@@ -1,6 +1,14 @@
+#[cfg(unix)]
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+#[cfg(windows)]
+use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
 };
@@ -15,7 +23,7 @@ use windmill_common::{
     jobs::QueuedJob,
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
-use windmill_parser_yaml::AnsibleRequirements;
+use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -25,9 +33,9 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile},
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    TZ_ENV,
+    PROXY_ENVS, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -72,7 +80,7 @@ async fn handle_ansible_python_deps(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(
+                uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,
@@ -82,6 +90,8 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
+                    false,
+                    false,
                 )
                 .await
                 .map_err(|e| {
@@ -137,6 +147,7 @@ async fn install_galaxy_collections(
     galaxy_command
         .current_dir(job_dir)
         .env_clear()
+        .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
         // .env("BASE_INTERNAL_URL", base_internal_url)
@@ -175,7 +186,7 @@ async fn install_galaxy_collections(
 #[cfg(not(feature = "enterprise"))]
 fn check_ansible_exists() -> Result<(), error::Error> {
     if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
         return Err(error::Error::NotFound(msg));
     }
     Ok(())
@@ -184,7 +195,7 @@ fn check_ansible_exists() -> Result<(), error::Error> {
 #[cfg(feature = "enterprise")]
 fn check_ansible_exists() -> Result<(), error::Error> {
     if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
+        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
         return Err(error::Error::NotFound(msg));
     }
     Ok(())
@@ -378,12 +389,14 @@ fi
 
         let file = write_file(job_dir, "wrapper.sh", &wrapper)?;
 
+        #[cfg(unix)]
         file.metadata()?.permissions().set_mode(0o777);
         // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
+            .envs(PROXY_ENVS.clone())
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
@@ -545,22 +558,12 @@ async fn create_file_resources(
     }
 
     for file_res in &r.file_resources {
-        let r = client
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &file_res.resource_path,
-                Some(job_id.to_string()),
-            )
-            .await?;
+        let r =
+            get_resource_or_variable_content(client, &file_res.resource_path, job_id.to_string())
+                .await?;
         let path = file_res.target_path.clone();
-        let validated_path = write_file_at_user_defined_location(
-            job_dir,
-            path.as_str(),
-            r.get("content").and_then(|v| v.as_str()).ok_or(anyhow!(
-                "Invalid text file resource {}, `content` field absent or invalid",
-                &file_res.resource_path
-            ))?,
-        )
-        .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
+        let validated_path = write_file_at_user_defined_location(job_dir, path.as_str(), &r)
+            .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
 
         nsjail_mounts.push(
             define_nsjail_mount(job_dir, &validated_path)
@@ -568,11 +571,34 @@ async fn create_file_resources(
         );
 
         logs.push_str(&format!(
-            "\nCreated {} from {}",
+            "\nCreated {} from {:?}",
             file_res.target_path, file_res.resource_path
         ));
     }
     append_logs(job_id, w_id, logs, db).await;
 
     Ok(nsjail_mounts)
+}
+
+async fn get_resource_or_variable_content(
+    client: &crate::AuthedClient,
+    path: &ResourceOrVariablePath,
+    job_id: String,
+) -> anyhow::Result<String> {
+    Ok(match path {
+        ResourceOrVariablePath::Resource(p) => {
+            let r = client
+                .get_resource_value_interpolated::<serde_json::Value>(&p, Some(job_id))
+                .await?;
+
+            r.get("content")
+                .and_then(|v| v.as_str())
+                .ok_or(anyhow!(
+                    "Invalid text file resource {}, `content` field absent or invalid",
+                    p
+                ))?
+                .to_string()
+        }
+        ResourceOrVariablePath::Variable(p) => client.get_variable_value(&p).await?,
+    })
 }

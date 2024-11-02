@@ -55,7 +55,10 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (a.valueOf !== Object.prototype.valueOf) {
       return a.valueOf() === b.valueOf();
     }
-    if (a.toString !== Object.prototype.toString) {
+    if (
+      a.toString !== Object.prototype.toString &&
+      typeof a.toString == "function"
+    ) {
       return a.toString() === b.toString();
     }
 

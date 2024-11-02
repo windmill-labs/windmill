@@ -13,6 +13,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
+use windmill_macros::annotations;
 
 use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::Smtp, DB};
 
@@ -303,44 +304,23 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-pub struct Annotations {
-    pub npm_mode: bool,
-    pub nodejs_mode: bool,
-    pub native_mode: bool,
+#[annotations("#")]
+pub struct PythonAnnotations {
+    pub no_cache: bool,
+    pub no_uv: bool,
+}
+
+#[annotations("//")]
+pub struct TypeScriptAnnotations {
+    pub npm: bool,
+    pub nodejs: bool,
+    pub native: bool,
     pub nobundling: bool,
 }
 
-pub fn get_annotation(inner_content: &str) -> Annotations {
-    let annotations = inner_content
-        .lines()
-        .take_while(|x| x.starts_with("//"))
-        .map(|x| x.to_string().replace("//", "").trim().to_string())
-        .collect_vec();
-    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
-    let npm_mode: bool = annotations.contains(&"npm".to_string());
-    let native_mode: bool = annotations.contains(&"native".to_string());
-
-    //TODO: remove || npm_mode when bun build is more powerful
-    let nobundling: bool =
-        annotations.contains(&"nobundling".to_string()) || nodejs_mode || *DISABLE_BUNDLING;
-
-    Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
-}
-
+#[annotations("--")]
 pub struct SqlAnnotations {
     pub return_last_result: bool,
-}
-
-pub fn get_sql_annotations(inner_content: &str) -> SqlAnnotations {
-    let annotations = inner_content
-        .lines()
-        .take_while(|x| x.starts_with("--"))
-        .map(|x| x.to_string().replace("--", "").trim().to_string())
-        .collect_vec();
-
-    let return_last_result: bool = annotations.contains(&"return_last_result".to_string());
-
-    SqlAnnotations { return_last_result }
 }
 
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
@@ -449,10 +429,13 @@ pub async fn save_cache(
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::{File, Permissions};
     use std::io::Write;
+
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     let mut file = File::create(main_path)?;
     file.write_all(byts)?;
+    #[cfg(unix)]
     file.set_permissions(Permissions::from_mode(0o755))?;
     file.flush()?;
     Ok(())
