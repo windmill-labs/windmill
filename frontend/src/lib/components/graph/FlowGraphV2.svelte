@@ -15,7 +15,7 @@
 		ControlButton,
 		type Viewport
 	} from '@xyflow/svelte'
-	import graphBuilder from './graphBuilder'
+	import { graphBuilder, type SimplifiableFlow } from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
@@ -38,6 +38,7 @@
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
+
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -79,13 +80,9 @@
 
 	export let simplifyFlow: boolean = false
 
-	let flowIsSimplifiable: { triggerNode: any; forLoopNode: any } | undefined = undefined
+	let simplifiableFlow: SimplifiableFlow | undefined = undefined
 
-	function updateFlowSimplifiability() {
-		flowIsSimplifiable = isSimplifiable(graph)
-	}
-
-	$: if (graph) updateFlowSimplifiability()
+	$: simplifiableFlow = modules ? isSimplifiable(modules) : undefined
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -193,12 +190,8 @@
 		$useDataflow,
 		$selectedId,
 		moving,
-		triggerNode
-			? {
-					path,
-					flowIsSimplifiable: flowIsSimplifiable ? true : false
-			  }
-			: undefined
+		simplifiableFlow,
+		triggerNode ? path : undefined
 	)
 
 	const nodes = writable<Node[]>([])
@@ -269,36 +262,7 @@
 		return newGraph
 	}
 
-	function isSimplifiable(graph): undefined | { triggerNode: any; forLoopNode: any } {
-		if (!graph || !graph.nodes || graph.nodes.length < 6) {
-			return undefined
-		}
-
-		// Find the node that has 'Input' as parent in parentIds
-		const triggerNode = graph.nodes.find(
-			(node) =>
-				node.data?.parentIds &&
-				node.data.parentIds.includes('Input') &&
-				node.data?.module?.isTrigger
-		)
-
-		if (!triggerNode) {
-			return undefined
-		}
-
-		// Check if there's a node which parent is triggerNode and that is a for loop
-		const forLoopNode = graph.nodes.find(
-			(node) =>
-				node.data?.parentIds &&
-				node.data.parentIds.includes(triggerNode.id) &&
-				node.data.value?.type === 'forloopflow'
-		)
-
-		if (!forLoopNode) {
-			return undefined
-		}
-		return { triggerNode: triggerNode, forLoopNode: forLoopNode }
-	}
+	function isSimplifiable(modules: FlowModule[]): SimplifiableFlow | undefined {}
 
 	function updateStores() {
 		if (graph.error) {
@@ -306,8 +270,8 @@
 		}
 		let newGraph = graph
 
-		if (flowIsSimplifiable && simplifyFlow) {
-			newGraph = processGraph(graph, flowIsSimplifiable)
+		if (simplifiableFlow && simplifyFlow) {
+			newGraph = processGraph(graph, simplifiableFlow)
 		}
 
 		$nodes = layoutNodes(newGraph.nodes)

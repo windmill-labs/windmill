@@ -17,7 +17,9 @@ export type GraphEventHandlers = {
 	simplifyFlow: (detail: boolean) => void
 }
 
-export default function graphBuilder(
+export type SimplifiableFlow = { path?: string }
+
+export function graphBuilder(
 	modules: FlowModule[] | undefined,
 	extra: Record<string, any>,
 	failureModule: FlowModule | undefined,
@@ -27,10 +29,12 @@ export default function graphBuilder(
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
 	moving: string | undefined,
-	triggerProps?: {
-		path?: string
-		flowIsSimplifiable?: boolean
-	}
+	simplifiableFlow: SimplifiableFlow | undefined,
+	flowPathForTriggerNode: string | undefined
+	// triggerProps?: {
+	// 	path?: string
+	// 	flowIsSimplifiable?: boolean
+	// }
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -158,14 +162,14 @@ export default function graphBuilder(
 			}
 		}
 
-		if (extra.path && triggerProps != undefined) {
+		if (extra.path) {
 			const triggerNode: Node = {
 				id: 'Trigger',
 				position: { x: -1, y: -1 },
 				type: 'trigger',
 				data: {
-					flowIsSimplifiable: triggerProps?.flowIsSimplifiable,
-					path: triggerProps?.path,
+					flowIsSimplifiable: simplifiableFlow,
+					path: 'TODO',
 					newFlow: extra.newFlow,
 					eventHandlers: eventHandlers,
 					modules: modules
