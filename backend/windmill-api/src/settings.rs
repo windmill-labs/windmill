@@ -28,13 +28,13 @@ use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use windmill_common::{
+    email_ee::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    utils::send_email,
 };
 
 #[cfg(feature = "parquet")]

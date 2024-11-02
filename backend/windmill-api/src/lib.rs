@@ -84,12 +84,14 @@ mod stripe_ee;
 mod tracing_init;
 mod triggers;
 mod users;
+mod users_ee;
 mod utils;
 mod variables;
 mod webhook_util;
 mod websocket_triggers;
 mod workers;
 mod workspaces;
+mod workspaces_ee;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
