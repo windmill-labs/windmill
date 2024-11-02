@@ -59,6 +59,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
 <div
+	id="flow-editor-error-handler"
 	class={classNames(
 		'z-10',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
