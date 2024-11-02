@@ -1,12 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
 import {
-  FlowValue,
   SEP,
   colors,
   log,
   path,
-  yamlParse,
+  yamlParseFile,
   yamlStringify,
 } from "./deps.ts";
 import {
@@ -15,6 +14,7 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 import {
   instantiate as instantiateWasm,
+  parse_ansible,
   parse_bash,
   parse_bigquery,
   parse_deno,
@@ -22,8 +22,10 @@ import {
   parse_graphql,
   parse_mssql,
   parse_mysql,
+  parse_php,
   parse_powershell,
   parse_python,
+  parse_rust,
   parse_snowflake,
   parse_sql,
 } from "./wasm/windmill_parser_wasm.generated.js";
@@ -42,6 +44,8 @@ import {
 import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { getIsWin } from "./main.ts";
+import { FlowValue } from "./gen/types.gen.ts";
 
 export async function generateAllMetadata() {}
 
@@ -122,9 +126,9 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  const flowValue = yamlParse(
-    await Deno.readTextFile(folder! + SEP + "flow.yaml")
-  ) as FlowFile;
+  const flowValue = (await yamlParseFile(
+    folder! + SEP + "flow.yaml"
+  )) as FlowFile;
 
   if (!justUpdateMetadataLock) {
     const changedScripts = [];
@@ -169,6 +173,12 @@ export async function generateFlowLockInternal(
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
 
+// on windows, when using powershell, blue is not readable
+async function blueColor(): Promise<(x: string) => void> {
+  const isWin = await getIsWin();
+  return isWin ? colors.black : colors.blue;
+}
+
 export async function generateScriptMetadataInternal(
   scriptPath: string,
   workspace: Workspace,
@@ -196,7 +206,7 @@ export async function generateScriptMetadataInternal(
   );
   if (rawReqs) {
     log.info(
-      colors.blue(
+      (await blueColor())(
         `Found raw requirements (package.json/requirements.txt/composer.json) for ${scriptPath}, using it`
       )
     );
@@ -299,13 +309,17 @@ export async function updateScriptSchema(
 ): Promise<void> {
   // infer schema from script content and update it inplace
   await instantiateWasm();
-  const newSchema = inferSchema(
+  const result = inferSchema(
     language,
     scriptContent,
     metadataContent.schema,
     path
   );
-  metadataContent.schema = newSchema;
+  metadataContent.schema = result.schema;
+  if (result.has_preprocessor != null)
+    metadataContent.has_preprocessor = result.has_preprocessor;
+  if (result.no_main_func != null)
+    metadataContent.no_main_func = result.no_main_func;
 }
 
 async function updateScriptLock(
@@ -322,7 +336,9 @@ async function updateScriptLock(
       language == "python3" ||
       language == "go" ||
       language == "deno" ||
-      language == "php"
+      language == "php" ||
+      language == "rust" ||
+      language == "ansible"
     )
   ) {
     return;
@@ -406,8 +422,10 @@ export async function updateFlow(
 
   let responseText = "reading response failed";
   try {
-    const res = await rawResponse.json();
-    return res?.["updated_flow_value"];
+    const res = (await rawResponse.json()) as
+      | { updated_flow_value: any }
+      | undefined;
+    return res?.updated_flow_value;
   } catch (e) {
     try {
       responseText = await rawResponse.text();
@@ -478,6 +496,12 @@ export function inferSchema(
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
     inferedSchema = JSON.parse(parse_powershell(content));
+  } else if (language === "php") {
+    inferedSchema = JSON.parse(parse_php(content));
+  } else if (language === "rust") {
+    inferedSchema = JSON.parse(parse_rust(content));
+  } else if (language === "ansible") {
+    inferedSchema = JSON.parse(parse_ansible(content));
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -487,7 +511,11 @@ export function inferSchema(
         `Script ${path} invalid, it cannot be parsed to infer schema.`
       )
     );
-    return defaultScriptMetadata().schema;
+    return {
+      schema: defaultScriptMetadata().schema,
+      has_preprocessor: false,
+      no_main_func: false,
+    };
   }
 
   currentSchema.required = [];
@@ -513,7 +541,11 @@ export function inferSchema(
     }
   }
 
-  return currentSchema;
+  return {
+    schema: currentSchema,
+    has_preprocessor: inferedSchema.has_preprocessor,
+    no_main_func: inferedSchema.no_main_func,
+  };
 }
 
 function sortObject(obj: any): any {
@@ -528,17 +560,19 @@ function sortObject(obj: any): any {
     );
 }
 
+//copied straight fron frontend /src/utils/inferArgs.ts
 export function argSigToJsonSchemaType(
   t:
     | string
     | { resource: string | null }
     | {
         list:
-          | string
+          | (string | { object: { key: string; typ: any }[] })
           | { str: any }
           | { object: { key: string; typ: any }[] }
           | null;
       }
+    | { dynselect: string }
     | { str: string[] | null }
     | { object: { key: string; typ: any }[] }
     | {
@@ -551,7 +585,7 @@ export function argSigToJsonSchemaType(
       },
   oldS: SchemaProperty
 ): void {
-  let newS: SchemaProperty = { type: "" };
+  const newS: SchemaProperty = { type: "" };
   if (t === "int") {
     newS.type = "integer";
   } else if (t === "float") {
@@ -616,6 +650,9 @@ export function argSigToJsonSchemaType(
     if (t.str) {
       newS.originalType = "enum";
       newS.enum = t.str;
+    } else if (oldS.originalType == "string" && oldS.enum) {
+      newS.originalType = "string";
+      newS.enum = oldS.enum;
     } else {
       newS.originalType = "string";
       newS.enum = undefined;
@@ -623,6 +660,9 @@ export function argSigToJsonSchemaType(
   } else if (typeof t !== "string" && `resource` in t) {
     newS.type = "object";
     newS.format = `resource-${t.resource}`;
+  } else if (typeof t !== "string" && `dynselect` in t) {
+    newS.type = "object";
+    newS.format = `dynselect-${t.dynselect}`;
   } else if (typeof t !== "string" && `list` in t) {
     newS.type = "array";
     if (t.list === "int" || t.list === "float") {
@@ -633,6 +673,31 @@ export function argSigToJsonSchemaType(
       newS.items = { type: "string" };
     } else if (t.list && typeof t.list == "object" && "str" in t.list) {
       newS.items = { type: "string", enum: t.list.str };
+    } else if (
+      t.list &&
+      typeof t.list == "object" &&
+      "resource" in t.list &&
+      t.list.resource
+    ) {
+      newS.items = {
+        type: "resource",
+        resourceType: t.list.resource as string,
+      };
+    } else if (
+      t.list &&
+      typeof t.list == "object" &&
+      "object" in t.list &&
+      t.list.object &&
+      t.list.object.length > 0
+    ) {
+      const properties: Record<string, any> = {};
+      for (const prop of t.list.object) {
+        properties[prop.key] = { description: "", type: "" };
+
+        argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+      }
+
+      newS.items = { type: "object", properties: properties };
     } else {
       newS.items = { type: "object" };
     }
@@ -740,7 +805,7 @@ export async function parseMetadataFile(
     try {
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
-      const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
+      const payload: any = await yamlParseFile(metadataFilePath);
       replaceLock(payload);
 
       return {
@@ -751,7 +816,9 @@ export async function parseMetadataFile(
     } catch {
       // no metadata file at all. Create it
       log.info(
-        colors.blue(`Creating script metadata file for ${metadataFilePath}`)
+        (await blueColor())(
+          `Creating script metadata file for ${metadataFilePath}`
+        )
       );
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
@@ -765,7 +832,9 @@ export async function parseMetadataFile(
 
       if (generateMetadataIfMissing) {
         log.info(
-          colors.blue(`Generating lockfile and schema for ${metadataFilePath}`)
+          (await blueColor())(
+            `Generating lockfile and schema for ${metadataFilePath}`
+          )
         );
         try {
           await generateScriptMetadataInternal(
@@ -778,9 +847,9 @@ export async function parseMetadataFile(
             codebases,
             false
           );
-          scriptInitialMetadata = yamlParse(
-            await Deno.readTextFile(metadataFilePath)
-          ) as ScriptMetadata;
+          scriptInitialMetadata = (await yamlParseFile(
+            metadataFilePath
+          )) as ScriptMetadata;
           replaceLock(scriptInitialMetadata);
         } catch (e) {
           log.info(
@@ -806,8 +875,7 @@ interface Lock {
 const WMILL_LOCKFILE = "wmill-lock.yaml";
 export async function readLockfile(): Promise<Lock> {
   try {
-    const lockfile = await Deno.readTextFile(WMILL_LOCKFILE);
-    const read = yamlParse(lockfile);
+    const read = await yamlParseFile(WMILL_LOCKFILE);
     if (typeof read == "object") {
       return read as Lock;
     } else {

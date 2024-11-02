@@ -72,7 +72,7 @@
 	/>
 </div>
 {#if bucket_config}
-	<div class="flex gap-2">
+	<div class="flex gap-2 py-1">
 		<Button
 			spacingSize="sm"
 			size="xs"
@@ -123,81 +123,83 @@
 		<Tab size="sm" value="S3">S3</Tab>
 		<Tab size="sm" value="Azure">Azure Blob</Tab>
 	</Tabs>
-	{#if bucket_config.type === 'S3'}
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Bucket</span>
-			<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
-		</label>
+	<div class="flex flex-col gap-2 mt-2 p-2 border rounded-md">
+		{#if bucket_config.type === 'S3'}
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Bucket</span>
+				<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
+			</label>
 
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Region</span>
-			<span class="text-tertiary text-2xs"
-				>If left empty, will be derived automatically from $AWS_REGION</span
-			>
-			<input type="text" bind:value={bucket_config.region} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Access Key ID</span>
-			<span class="text-tertiary text-2xs"
-				>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2 profile</span
-			>
-			<input type="text" bind:value={bucket_config.access_key} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Secret Key</span>
-			<span class="text-tertiary text-2xs"
-				>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
-			>
-			<input type="password" autocomplete="new-password" bind:value={bucket_config.secret_key} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Endpoint</span>
-			<span class="text-tertiary text-2xs"
-				>Only needed for non AWS S3 providers like R2 or MinIo</span
-			>
-			<input type="text" bind:value={bucket_config.endpoint} />
-		</label>
-		<div class="block pb-2">
-			<span class="text-tertiary text-2xs">Disable if using https only policy</span>
-			<div>
-				<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'allow http' }} />
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Region</span>
+				<span class="text-tertiary text-2xs"
+					>If left empty, will be derived automatically from $AWS_REGION</span
+				>
+				<input type="text" bind:value={bucket_config.region} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Access key ID</span>
+				<span class="text-tertiary text-2xs"
+					>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2 profile</span
+				>
+				<input type="text" bind:value={bucket_config.access_key} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Secret key</span>
+				<span class="text-tertiary text-2xs"
+					>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
+				>
+				<input type="password" autocomplete="new-password" bind:value={bucket_config.secret_key} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Endpoint</span>
+				<span class="text-tertiary text-2xs"
+					>Only needed for non AWS S3 providers like R2 or MinIo</span
+				>
+				<input type="text" bind:value={bucket_config.endpoint} />
+			</label>
+			<div class="block pb-2">
+				<span class="text-tertiary text-2xs">Disable if using https only policy</span>
+				<div>
+					<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'Allow http' }} />
+				</div>
 			</div>
-		</div>
-	{:else if bucket_config.type === 'Azure'}
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Account Name</span>
-			<input type="text" placeholder="account-name" bind:value={bucket_config.accountName} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Container Name</span>
-			<input type="text" placeholder="container-name" bind:value={bucket_config.containerName} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">Access Key</span>
-			<input type="password" autocomplete="new-password" bind:value={bucket_config.accessKey} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm"
-				>Tenant ID <span class="text-2xs text-tertiary">(optional)</span></span
-			>
-			<input type="text" bind:value={bucket_config.tenantId} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm"
-				>Client ID <span class="text-2xs text-tertiary">(optional)</span></span
-			>
-			<input type="text" bind:value={bucket_config.clientId} />
-		</label>
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm"
-				>Endpoint <span class="text-2xs text-tertiary">(optional)</span></span
-			>
-			<span class="text-tertiary text-2xs"
-				>Only needed for non Azure Blob providers like Azurite</span
-			>
-			<input type="text" bind:value={bucket_config.endpoint} />
-		</label>
-	{:else}
-		<div>Unknown bucket type {bucket_config['type']}</div>
-	{/if}
+		{:else if bucket_config.type === 'Azure'}
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Account name</span>
+				<input type="text" placeholder="account-name" bind:value={bucket_config.accountName} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Container name</span>
+				<input type="text" placeholder="container-name" bind:value={bucket_config.containerName} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">Access key</span>
+				<input type="password" autocomplete="new-password" bind:value={bucket_config.accessKey} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm"
+					>Tenant ID <span class="text-2xs text-tertiary">(optional)</span></span
+				>
+				<input type="text" bind:value={bucket_config.tenantId} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm"
+					>Client ID <span class="text-2xs text-tertiary">(optional)</span></span
+				>
+				<input type="text" bind:value={bucket_config.clientId} />
+			</label>
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm"
+					>Endpoint <span class="text-2xs text-tertiary">(optional)</span></span
+				>
+				<span class="text-tertiary text-2xs"
+					>Only needed for non Azure Blob providers like Azurite</span
+				>
+				<input type="text" bind:value={bucket_config.endpoint} />
+			</label>
+		{:else}
+			<div>Unknown bucket type {bucket_config['type']}</div>
+		{/if}
+	</div>
 {/if}

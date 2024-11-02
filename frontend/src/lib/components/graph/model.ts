@@ -33,7 +33,13 @@ export type FlowStatusViewerContext = {
 	flowStateStore?: Writable<FlowState>
 	retryStatus: Writable<Record<string, number | undefined>>
 	suspendStatus: Writable<Record<string, { nb: number; job: Job }>>
+	hideDownloadInGraph?: boolean
+	hideTimeline?: boolean
+	hideNodeDefinition?: boolean
+	hideJobId?: boolean
+	hideDownloadLogs
 }
+
 export type GraphModuleState = {
 	type: FlowStatusModule['type']
 	args: any
@@ -55,6 +61,7 @@ export type GraphModuleState = {
 	started_at?: number
 	suspend_count?: number
 	isListJob?: boolean
+	skipped?: boolean
 }
 
 export type NestedNodes = GraphItem[]

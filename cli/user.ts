@@ -10,21 +10,18 @@ import { compareInstanceObjects } from "./instance.ts";
 import {
   colors,
   Command,
-  GlobalUserInfo,
   log,
-  passwordGenerator,
   Table,
-  UserService,
-  GroupService,
-  WorkspaceService,
-  GranularAclService,
   yamlStringify,
-  yamlParse,
-  ExportedUser,
+  yamlParseFile,
 } from "./deps.ts";
-import { InstanceGroup } from "./deps.ts";
-import { SettingService } from "./deps.ts";
-import { ExportedInstanceGroup } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+import {
+  ExportedInstanceGroup,
+  ExportedUser,
+  GlobalUserInfo,
+  InstanceGroup,
+} from "./gen/types.gen.ts";
 
 async function list(opts: GlobalOptions) {
   await requireLogin(opts);
@@ -33,7 +30,7 @@ async function list(opts: GlobalOptions) {
   let page = 0;
   const total: GlobalUserInfo[] = [];
   while (true) {
-    const res = await UserService.listUsersAsSuperAdmin({ page, perPage });
+    const res = await wmill.listUsersAsSuperAdmin({ page, perPage });
     total.push(...res);
     page += 1;
 
@@ -57,6 +54,10 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
+function rdString() {
+  return Math.random().toString(36).slice(2, 7);
+}
+
 async function add(
   opts: GlobalOptions & {
     superadmin?: boolean;
@@ -67,8 +68,8 @@ async function add(
   password?: string
 ) {
   await requireLogin(opts);
-  const password_final = password ?? passwordGenerator("*", 15);
-  await UserService.createUserGlobally({
+  const password_final = password ?? rdString();
+  await wmill.createUserGlobally({
     requestBody: {
       email,
       password: password_final,
@@ -85,7 +86,7 @@ async function add(
 async function remove(opts: GlobalOptions, email: string) {
   await requireLogin(opts);
 
-  await UserService.globalUserDelete({ email });
+  await wmill.globalUserDelete({ email });
   log.info(colors.green("Deleted User " + email));
 }
 
@@ -95,7 +96,7 @@ async function createToken(
   if (opts.email && opts.password) {
     log.info(
       "Token: " +
-        (await UserService.login({
+        (await wmill.login({
           requestBody: {
             email: opts.email,
             password: opts.password,
@@ -105,7 +106,7 @@ async function createToken(
   }
 
   await requireLogin(opts);
-  log.info("Token: " + (await UserService.createToken({ requestBody: {} })));
+  log.info("Token: " + (await wmill.createToken({ requestBody: {} })));
 }
 
 interface SimplifiedUser {
@@ -129,7 +130,7 @@ export async function pushWorkspaceUser(
   }
 
   try {
-    const remoteUser = await UserService.getUser({
+    const remoteUser = await wmill.getUser({
       workspace,
       username: localUser.username,
     });
@@ -159,7 +160,7 @@ export async function pushWorkspaceUser(
     }
     log.debug(`User ${email} is not up-to-date, updating...`);
     try {
-      await UserService.updateUser({
+      await wmill.updateUser({
         workspace: workspace,
         username: localUser.username,
         requestBody: {
@@ -169,17 +170,17 @@ export async function pushWorkspaceUser(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
   } else {
     console.log(colors.bold.yellow("Creating new user: " + email));
     try {
-      const automatedUsernameCreation: boolean =
-        (await SettingService.getGlobal({
-          key: "automate_username_creation",
-        })) as boolean;
-      await WorkspaceService.addUser({
+      const automatedUsernameCreation: boolean = (await wmill.getGlobal({
+        key: "automate_username_creation",
+      })) as boolean;
+      await wmill.addUser({
         workspace: workspace,
         requestBody: {
           email: email,
@@ -189,6 +190,7 @@ export async function pushWorkspaceUser(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -212,7 +214,7 @@ export async function pushGroup(
   log.debug(`Processing local group ${name}`);
 
   try {
-    const remoteGroup = await GroupService.getGroup({
+    const remoteGroup = await wmill.getGroup({
       workspace,
       name,
     });
@@ -243,7 +245,7 @@ export async function pushGroup(
     }
     log.debug(`Group ${name} is not up-to-date, updating...`);
     try {
-      await GroupService.updateGroup({
+      await wmill.updateGroup({
         workspace: workspace,
         name,
         requestBody: {
@@ -251,6 +253,7 @@ export async function pushGroup(
         },
       });
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -261,7 +264,7 @@ export async function pushGroup(
           log.debug(`${member} is already in group ${name}`);
         } else {
           log.debug(`Adding ${member} to group ${name}`);
-          await GroupService.addUserToGroup({
+          await wmill.addUserToGroup({
             workspace: workspace,
             name,
             requestBody: {
@@ -274,7 +277,7 @@ export async function pushGroup(
           !group.admins.includes(member)
         ) {
           log.debug(`Setting role of ${member} as admin in group ${name}`);
-          await GranularAclService.addGranularAcls({
+          await wmill.addGranularAcls({
             workspace: workspace,
             kind: "group_",
             path: name,
@@ -290,7 +293,7 @@ export async function pushGroup(
           !group.members.includes(member)
         ) {
           log.debug(`Setting role of ${member} as member in group ${name}`);
-          await GranularAclService.addGranularAcls({
+          await wmill.addGranularAcls({
             workspace: workspace,
             kind: "group_",
             path: name,
@@ -301,6 +304,7 @@ export async function pushGroup(
           });
         }
       } catch (e) {
+        //@ts-ignore
         console.error(e.body);
         throw e;
       }
@@ -312,7 +316,7 @@ export async function pushGroup(
           `Removing ${member} and any associated role from group ${name}`
         );
         try {
-          await GroupService.removeUserToGroup({
+          await wmill.removeUserToGroup({
             workspace: workspace,
             name,
             requestBody: {
@@ -320,7 +324,7 @@ export async function pushGroup(
             },
           });
 
-          await GranularAclService.removeGranularAcls({
+          await wmill.removeGranularAcls({
             workspace: workspace,
             kind: "group_",
             path: name,
@@ -329,6 +333,7 @@ export async function pushGroup(
             },
           });
         } catch (e) {
+          //@ts-ignore
           console.error(e.body);
           throw e;
         }
@@ -337,7 +342,7 @@ export async function pushGroup(
   } else {
     console.log(colors.bold.yellow("Creating new user: " + name));
     try {
-      await GroupService.createGroup({
+      await wmill.createGroup({
         workspace: workspace,
         requestBody: {
           name,
@@ -348,7 +353,7 @@ export async function pushGroup(
       for (const member of [...localGroup.members, ...localGroup.admins]) {
         log.debug(`Adding user ${member} to group ${name}`);
         try {
-          await GroupService.addUserToGroup({
+          await wmill.addUserToGroup({
             workspace: workspace,
             name,
             requestBody: {
@@ -357,7 +362,7 @@ export async function pushGroup(
           });
           if (localGroup.admins.includes(member)) {
             log.debug(`Setting role of ${member} as admin in group ${name}`);
-            await GranularAclService.addGranularAcls({
+            await wmill.addGranularAcls({
               workspace: workspace,
               kind: "group_",
               path: name,
@@ -368,11 +373,13 @@ export async function pushGroup(
             });
           }
         } catch (e) {
+          //@ts-ignore
           console.error(e.body);
           throw e;
         }
       }
     } catch (e) {
+      //@ts-ignore
       console.error(e.body);
       throw e;
     }
@@ -380,14 +387,10 @@ export async function pushGroup(
 }
 
 export async function pullInstanceUsers(preview: boolean = false) {
-  const remoteUsers = await UserService.globalUsersExport();
+  const remoteUsers = await wmill.globalUsersExport();
 
   if (preview) {
-    let localUsers: ExportedUser[] = [];
-    try {
-      const raw = await Deno.readTextFile("instance_users.yaml");
-      localUsers = yamlParse(raw) as ExportedUser[];
-    } catch {}
+    const localUsers: ExportedUser[] = await readInstanceUsers();
     return compareInstanceObjects(remoteUsers, localUsers, "email", "user");
   } else {
     log.info("Pulling users from instance...");
@@ -399,17 +402,37 @@ export async function pullInstanceUsers(preview: boolean = false) {
   }
 }
 
+export async function readInstanceUsers() {
+  let localUsers: ExportedUser[] = [];
+  try {
+    localUsers = (await yamlParseFile("instance_users.yaml")) as ExportedUser[];
+  } catch {
+    log.warn("No instance_users.yaml file found");
+  }
+  return localUsers;
+}
+
+export async function readInstanceGroups() {
+  let localGroups: InstanceGroup[] = [];
+  try {
+    localGroups = (await yamlParseFile(
+      "instance_groups.yaml"
+    )) as ExportedInstanceGroup[];
+  } catch {
+    log.warn("No instance_groups.yaml file found");
+  }
+  return localGroups;
+}
+
 export async function pushInstanceUsers(preview: boolean = false) {
-  const remoteUsers = await UserService.globalUsersExport();
-  const localUsers = (await Deno.readTextFile("instance_users.yaml")
-    .then((raw) => yamlParse(raw))
-    .catch(() => [])) as ExportedUser[];
+  const remoteUsers = await wmill.globalUsersExport();
+  const localUsers: ExportedUser[] = await readInstanceUsers();
 
   if (preview) {
     return compareInstanceObjects(localUsers, remoteUsers, "email", "user");
   } else {
     log.info("Pushing users to instance...");
-    await UserService.globalUsersOverwrite({
+    await wmill.globalUsersOverwrite({
       requestBody: localUsers,
     });
 
@@ -418,14 +441,10 @@ export async function pushInstanceUsers(preview: boolean = false) {
 }
 
 export async function pullInstanceGroups(preview = false) {
-  const remoteGroups = await GroupService.exportInstanceGroups();
+  const remoteGroups = await wmill.exportInstanceGroups();
 
   if (preview) {
-    let localGroups: InstanceGroup[] = [];
-    try {
-      const raw = await Deno.readTextFile("instance_groups.yaml");
-      localGroups = yamlParse(raw) as InstanceGroup[];
-    } catch {}
+    const localGroups = await readInstanceGroups();
     return compareInstanceObjects(remoteGroups, localGroups, "name", "group");
   } else {
     log.info("Pulling groups from instance...");
@@ -440,16 +459,14 @@ export async function pullInstanceGroups(preview = false) {
 }
 
 export async function pushInstanceGroups(preview: boolean = false) {
-  const remoteGroups = await GroupService.exportInstanceGroups();
-  const localGroups = (await Deno.readTextFile("instance_groups.yaml")
-    .then((raw) => yamlParse(raw))
-    .catch(() => [])) as ExportedInstanceGroup[];
+  const remoteGroups = await wmill.exportInstanceGroups();
+  const localGroups = await readInstanceGroups();
 
   if (preview) {
     return compareInstanceObjects(localGroups, remoteGroups, "name", "group");
   } else {
     log.info("Pushing groups to instance...");
-    await GroupService.overwriteInstanceGroups({
+    await wmill.overwriteInstanceGroups({
       requestBody: localGroups,
     });
 

@@ -11,6 +11,8 @@ use uuid::Uuid;
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 
+pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
+
 use crate::{
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
@@ -302,6 +304,7 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         language: ScriptLang,
         priority: Option<i16>,
+        apply_preprocessor: bool,
     },
     Code(RawCode),
     Dependencies {
@@ -331,6 +334,7 @@ pub enum JobPayload {
     Flow {
         path: String,
         dedicated_worker: Option<bool>,
+        apply_preprocessor: bool,
     },
     RestartedFlow {
         completed_job_id: Uuid,
@@ -383,6 +387,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
     script_path: &str,
     db: E,
     w_id: &str,
+    skip_preprocessor: Option<bool>,
 ) -> error::Result<(JobPayload, Option<Tag>, Option<bool>, Option<i32>)> {
     let (job_payload, tag, delete_after_use, script_timeout) = if script_path.starts_with("hub/") {
         (
@@ -404,6 +409,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
             priority,
             delete_after_use,
             script_timeout,
+            has_preprocessor,
         ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
@@ -416,6 +422,8 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 language,
                 dedicated_worker,
                 priority,
+                apply_preprocessor: !skip_preprocessor.unwrap_or(false)
+                    && has_preprocessor.unwrap_or(false),
             },
             tag,
             delete_after_use,
@@ -473,7 +481,7 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>), Error> {
     let (payload, tag, _, _) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id).await?
+        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let r = sqlx::query!(
@@ -486,7 +494,12 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
         let (tag, dedicated_worker) = r
             .map(|x| (x.tag, x.dedicated_worker))
             .unwrap_or_else(|| (None, None));
-        (JobPayload::Flow { path, dedicated_worker }, tag, None, None)
+        (
+            JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false },
+            tag,
+            None,
+            None,
+        )
     } else {
         return Err(Error::BadRequest(format!(
             "path must start with script/ or flow/ (got {})",
@@ -627,9 +640,7 @@ pub async fn get_logs_from_store(
 
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
-            tracing::debug!("Getting logs from store: {file_index:?}");
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                tracing::debug!("object store client present, streaming from there");
 
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {

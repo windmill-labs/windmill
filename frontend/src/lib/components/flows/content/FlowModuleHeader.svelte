@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { WorkerService, type FlowModule } from '$lib/gen'
+	import { type FlowModule } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import {
 		Bed,
@@ -17,24 +17,16 @@
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
-	import { workerTags } from '$lib/stores'
 	import { getLatestHashForScript } from '$lib/scripts'
-	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
 
 	export let module: FlowModule
-	const { scriptEditorDrawer, flowStore, selectedId } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	export let tag: string | undefined
+	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
-	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
-
-	loadWorkerGroups()
-
-	async function loadWorkerGroups() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
-		}
-	}
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
@@ -71,7 +63,7 @@
 				<svelte:fragment slot="text">Cache</svelte:fragment>
 			</Popover>
 		{/if}
-		{#if module.stop_after_if}
+		{#if module.stop_after_if || module.stop_after_all_iters_if}
 			<Popover
 				placement="bottom"
 				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
@@ -134,6 +126,7 @@
 				Edit {#if module.value.hash != undefined} (locked hash){/if}
 			</Button>
 		{/if}
+		<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
 		{#if customUi?.scriptFork != false}
 			<Button
 				size="xs"
@@ -148,42 +141,7 @@
 	{/if}
 	<div class="px-0.5" />
 	{#if module.value.type === 'rawscript'}
-		{#if $workerTags}
-			{#if $workerTags?.length > 0}
-				<div class="w-40">
-					{#if $flowStore.tag == undefined}
-						<select
-							placeholder="Tag"
-							bind:value={module.value.tag}
-							on:change={(e) => {
-								if (module.value.type === 'rawscript') {
-									if (module.value.tag == '') {
-										module.value.tag = undefined
-									}
-								}
-							}}
-						>
-							{#if module.value.tag}
-								<option value="">reset to default</option>
-							{:else}
-								<option value="" disabled selected>Tag</option>
-							{/if}
-							{#each $workerTags ?? [] as tag (tag)}
-								<option value={tag}>{tag}</option>
-							{/each}
-						</select>
-					{:else}
-						<button
-							title="Worker Group is defined at the flow level"
-							class="w-full text-left items-center font-normal p-1 border text-xs rounded"
-							on:click={() => ($selectedId = 'settings-worker-group')}
-						>
-							Flow's WG: {$flowStore.tag}
-						</button>
-					{/if}
-				</div>
-			{/if}
-		{/if}
+		<FlowModuleWorkerTagSelect bind:tag={module.value.tag} />
 		<Button
 			size="xs"
 			color="light"

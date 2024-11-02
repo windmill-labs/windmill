@@ -1,4 +1,5 @@
 import { languages } from 'monaco-editor/esm/vs/editor/editor.api'
+import { ShowLightbulbIconMode } from 'vscode/vscode/vs/editor/common/config/editorOptions'
 export function editorConfig(
 	code: string,
 	lang: string,
@@ -21,13 +22,17 @@ export function editorConfig(
 			enabled: false
 		},
 		lightbulb: {
-			enabled: true
+			enabled: ShowLightbulbIconMode.On
 		},
 		suggest: {
 			showKeywords: true
 		},
 		bracketPairColorization: {
 			enabled: true
+		},
+		'workbench.colorTheme': 'Default Dark Modern',
+		workbench: {
+			colorTheme: 'Default Dark Modern'
 		},
 		'bracketPairColorization.enabled': true,
 		matchBrackets: 'always' as 'always'
@@ -62,6 +67,8 @@ export function langToExt(lang: string): string {
 			return 'ps1'
 		case 'php':
 			return 'php'
+		case 'rust':
+			return 'rs'
 		case 'deno':
 			return 'ts'
 		case 'nativets':
@@ -70,7 +77,8 @@ export function langToExt(lang: string): string {
 			return 'gql'
 		case 'css':
 			return 'css'
-
+		case 'ansible':
+			return 'yml'
 		default:
 			return 'unknown'
 	}

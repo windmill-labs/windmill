@@ -18,7 +18,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { getUserExt } from '$lib/user'
 	import { User, UserRoundX } from 'lucide-svelte'
-	import { goto, replaceState } from '$app/navigation'
+	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
@@ -71,10 +71,9 @@
 			userStore.set(await getUserExt($page.params.workspace))
 			if (!$userStore && parsedSecret.jwt) {
 				jwtError = true
-				sendUserToast("Could not authentify user with jwt token", true)
+				sendUserToast('Could not authentify user with jwt token', true)
 			}
 		} catch (e) {
-
 			console.warn('Anonymous user')
 		}
 	}
@@ -121,24 +120,24 @@
 	>
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
-		<Login
-			on:login={() => {
-				// window.location.reload()
-				loadUser().then(() => {
-					loadApp()
-				})
-				app = app
-			}}
-			popup
-			rd={$page.url.toString()}
-		/>
+			<Login
+				on:login={() => {
+					// window.location.reload()
+					loadUser().then(() => {
+						loadApp()
+					})
+					app = app
+				}}
+				popup
+				rd={$page.url.toString()}
+			/>
 		{/if}
 	</div>
 {:else if app}
 	{#key app}
 		<div
 			class={twMerge(
-				'min-h-screen h-full w-full',
+				'min-h-screen h-full w-full flex',
 				app?.value?.['css']?.['app']?.['viewer']?.class,
 				'wm-app-viewer'
 			)}
@@ -151,7 +150,7 @@
 					groups: $userStore?.groups,
 					username: $userStore?.username,
 					query: Object.fromEntries($page.url.searchParams.entries()),
-					hash: $page.url.hash
+					hash: $page.url.hash.substring(1)
 				}}
 				workspace={$page.params.workspace}
 				summary={app.summary}
@@ -160,7 +159,7 @@
 				{breakpoint}
 				policy={app.policy}
 				isEditor={false}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
+				replaceStateFn={(path) => goto(path)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			/>
 		</div>

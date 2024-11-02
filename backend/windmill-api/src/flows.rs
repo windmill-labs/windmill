@@ -9,6 +9,10 @@
 use std::collections::HashMap;
 
 use crate::db::ApiAuthed;
+use crate::triggers::{
+    get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
+};
+use crate::utils::WithStarredInfoQuery;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -35,7 +39,7 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
@@ -52,11 +56,14 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_flow))
         .route("/archive/*path", post(archive_flow_by_path))
         .route("/delete/*path", delete(delete_flow_by_path))
+        .route("/get_triggers_count/*path", get(get_triggers_count))
+        .route("/list_tokens/*path", get(list_tokens))
         .route("/get/*path", get(get_flow_by_path))
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
         .route("/history/p/*path", get(get_flow_history))
+        .route("/get_latest_version/*path", get(get_latest_version))
         .route(
             "/history_update/v/:version/p/*path",
             post(update_flow_history),
@@ -241,6 +248,7 @@ pub async fn get_hub_flow_by_id(
 
 #[derive(Deserialize)]
 pub struct ToggleWorkspaceErrorHandler {
+    #[cfg(feature = "enterprise")]
     pub muted: Option<bool>,
 }
 
@@ -529,6 +537,30 @@ async fn get_flow_history(
     tx.commit().await?;
 
     Ok(Json(flows))
+}
+
+async fn get_latest_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<FlowVersion>> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let version = sqlx::query_as!(
+        FlowVersion,
+        "SELECT flow_version.id, flow_version.created_at, deployment_metadata.deployment_msg FROM flow_version 
+        LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
+        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 
+        ORDER BY flow_version.created_at DESC",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(version))
 }
 
 async fn get_flow_version(
@@ -872,17 +904,51 @@ async fn update_flow(
     Ok(nf.path.to_string())
 }
 
+async fn get_triggers_count(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<TriggersCount> {
+    let path = path.to_path();
+    get_triggers_count_internal(&db, &w_id, &path, true).await
+}
+
+async fn list_tokens(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let path = path.to_path();
+    list_tokens_internal(&db, &w_id, &path, true).await
+}
+
 async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Flow> {
+    Query(query): Query<WithStarredInfoQuery>,
+) -> JsonResult<FlowWithStarred> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let flow_o =
-        sqlx::query_as::<_, Flow>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+    let flow_o = if query.with_starred_info.unwrap_or(false) {
+        sqlx::query_as::<_, FlowWithStarred>(
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
+            FROM flow
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'flow' 
+                AND favorite.workspace_id = flow.workspace_id 
+                AND favorite.path = flow.path 
+                AND favorite.usr = $3
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 AND flow.workspace_id = $2"
+        )
+            .bind(path)
+            .bind(w_id)
+            .bind(&authed.username)
+            .fetch_optional(&mut *tx)
+            .await?
+    } else {
+        sqlx::query_as::<_, FlowWithStarred>(
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
             FROM flow
             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
             WHERE flow.path = $1 AND flow.workspace_id = $2"
@@ -890,7 +956,8 @@ async fn get_flow_by_path(
             .bind(path)
             .bind(w_id)
             .fetch_optional(&mut *tx)
-            .await?;
+            .await?
+    };
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1144,6 +1211,7 @@ mod tests {
                         tag_override: None,
                     }),
                     stop_after_if: None,
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -1154,6 +1222,7 @@ mod tests {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1172,6 +1241,7 @@ mod tests {
                         expr: "foo = 'bar'".to_string(),
                         skip_if_stopped: false,
                     }),
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -1182,6 +1252,7 @@ mod tests {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1198,6 +1269,7 @@ mod tests {
                         expr: "previous.isEmpty()".to_string(),
                         skip_if_stopped: false,
                     }),
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -1208,6 +1280,7 @@ mod tests {
                     priority: None,
                     delete_after_use: None,
                     continue_on_error: None,
+                    skip_if: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1223,6 +1296,7 @@ mod tests {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,
                 }),
+                stop_after_all_iters_if: None,
                 summary: None,
                 suspend: Default::default(),
                 retry: None,
@@ -1233,7 +1307,9 @@ mod tests {
                 priority: None,
                 delete_after_use: None,
                 continue_on_error: None,
+                skip_if: None,
             })),
+            preprocessor_module: None,
             same_worker: false,
             concurrent_limit: None,
             concurrency_time_window_s: None,
@@ -1256,7 +1332,6 @@ mod tests {
                   },
                 "type": "script",
                 "path": "test",
-                "tag_override": Option::<String>::None,
               },
             },
             {
@@ -1300,13 +1375,12 @@ mod tests {
               "input_transforms": {},
               "type": "script",
               "path": "test",
-              "tag_override": Option::<String>::None,
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
                 "skip_if_stopped": false
             }
-          }
+          },
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
     }

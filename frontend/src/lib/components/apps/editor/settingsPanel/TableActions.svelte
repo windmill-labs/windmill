@@ -4,18 +4,22 @@
 	import { getNextId } from '$lib/components/flows/idUtils'
 	import { classNames, generateRandomString } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
-	import type { AppViewerContext, BaseAppComponent } from '../../types'
+	import type { AppViewerContext, BaseAppComponent, RichConfiguration } from '../../types'
 	import { appComponentFromType } from '../appUtils'
 	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import { GripVertical, Inspect, List, ToggleRightIcon } from 'lucide-svelte'
+	import { GripVertical, Inspect, List, ToggleRightIcon, ListOrdered } from 'lucide-svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { flip } from 'svelte/animate'
+	import TableActionsWizard from '$lib/components/wizards/TableActionsWizard.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	export let components:
 		| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
 		| undefined
+
+	export let actionsOrder: RichConfiguration | undefined = undefined
 
 	// Migration code:
 	onMount(() => {
@@ -90,6 +94,23 @@
 
 {#if components}
 	<PanelSection title={`Table Actions`}>
+		<svelte:fragment slot="action">
+			<TableActionsWizard bind:actionsOrder selectedId={$selectedComponent?.[0] ?? ''} {components}>
+				<svelte:fragment slot="trigger">
+					<Button
+						color="light"
+						size="xs2"
+						nonCaptureEvent={true}
+						btnClasses={actionsOrder ? 'bg-blue-100 dark:bg-blue-900' : 'text-primary'}
+						title="Edit order programmatically"
+					>
+						<div class="flex flex-row items-center gap-2 text-xs font-normal">
+							<ListOrdered size={16} />
+						</div>
+					</Button>
+				</svelte:fragment>
+			</TableActionsWizard>
+		</svelte:fragment>
 		{#if components.length == 0}
 			<span class="text-xs text-tertiary">No action buttons</span>
 		{/if}
@@ -141,9 +162,11 @@
 								<CloseButton small on:close={() => deleteComponent(component.id, index)} />
 							</div>
 						</div>
-						<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
-							<GripVertical size={16} />
-						</div>
+						{#if actionsOrder === undefined}
+							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
+								<GripVertical size={16} />
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</section>
@@ -179,6 +202,23 @@
 			>
 				+ <List size={14} />
 			</Button>
+		</div>
+		<div class="w-full flex flex-col">
+			{#if actionsOrder}
+				<Alert size="xs" title="Order managed programmatically" type="info">
+					Actions order is managed programmatically. Adding or removing an action will require you
+					to update the order manually.
+					<Button
+						btnClasses="mt-2"
+						size="xs2"
+						on:click={() => {
+							actionsOrder = undefined
+						}}
+					>
+						Disable order management
+					</Button>
+				</Alert>
+			{/if}
 		</div>
 	</PanelSection>
 {/if}

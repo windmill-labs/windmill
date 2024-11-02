@@ -4,10 +4,12 @@ import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
 
-export function scriptLangToEditorLang(lang: Script['language'] | 'bunnative' | undefined) {
+export function scriptLangToEditorLang(
+	lang: Script['language'] | 'bunnative' | 'frontend' | undefined
+) {
 	if (lang == 'deno') {
 		return 'typescript'
-	} else if (lang == 'bun' || lang == 'bunnative') {
+	} else if (lang == 'bun' || lang == 'bunnative' || lang == 'frontend') {
 		return 'typescript'
 	} else if (lang == 'nativets') {
 		return 'typescript'
@@ -31,8 +33,12 @@ export function scriptLangToEditorLang(lang: Script['language'] | 'bunnative' | 
 		return 'powershell'
 	} else if (lang == 'php') {
 		return 'php'
+	} else if (lang == 'rust') {
+		return 'rust'
 	} else if (lang == 'graphql') {
 		return 'graphql'
+	} else if (lang == 'ansible') {
+		return 'yaml'
 	} else if (lang == undefined) {
 		return 'typescript'
 	} else {
@@ -108,6 +114,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['graphql', 'GraphQL'],
 	['powershell', 'PowerShell'],
 	['php', 'PHP'],
+	['rust', 'Rust'],
+	['ansible', 'Ansible Playbook'],
 	['docker', 'Docker']
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -115,9 +123,14 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		return langs
 	} else {
 		let ls = langs.filter((lang) => lang !== 'nativets')
-		if (!ls.includes('bunnative')) {
-			ls.push('bunnative')
-		}
+
+		//those languages are newer and may not be in the saved list
+		let nl = ['bunnative', 'rust', 'ansible']
+		nl.forEach((lang) => {
+			if (!ls.includes(lang)) {
+				ls.push(lang)
+			}
+		})
 		return ls
 	}
 }

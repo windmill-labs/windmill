@@ -178,10 +178,10 @@
 				{/if}
 
 				<div class="px-2 py-2 grid grid-cols-6 w-full">
-					<div>{k}</div>
-					<div class="col-span-5 flex min-h-6 w-full">
+					<div class="truncate">{k}</div>
+					<div class="col-span-5 flex min-h-6">
 						{#if min && total}
-							<div class="flex flex-col gap-2 w-full p-2">
+							<div class="flex flex-col gap-2 w-full p-2 ml-4">
 								{#each items?.[k] ?? [] as b}
 									{@const waitingLen = b?.created_at
 										? b.started_at

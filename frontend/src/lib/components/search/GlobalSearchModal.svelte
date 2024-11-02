@@ -33,12 +33,13 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
+	import ServiceLogsInner from '../ServiceLogsInner.svelte'
 
 	let open: boolean = false
 
@@ -179,7 +180,9 @@
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 1000
 	let loadingCompletedRuns: boolean = false
+
 	let queryParseErrors: string[] = []
+	let indexMetadata: any = {}
 
 	async function handleSearch() {
 		queryParseErrors = []
@@ -239,6 +242,7 @@
 					})
 					itemMap['runs'] = searchResults.hits
 					queryParseErrors = searchResults.query_parse_errors
+					indexMetadata = searchResults.index_metadata
 				} catch (e) {
 					sendUserToast(e, true)
 				}
@@ -273,23 +277,25 @@
 					open = false
 				}
 			}
-			if (event.key === 'ArrowDown') {
-				event.preventDefault()
-				let idx = itemMap[tab].indexOf(selectedItem)
-				if (idx != -1) {
-					idx = (idx + 1) % itemMap[tab].length
-					selectedItem = selectItem(idx)
-					let el = document.getElementById(selectedItem.search_id)
-					if (el) scroll_into_view_if_needed_polyfill(el, false)
-				}
-			} else if (event.key === 'ArrowUp') {
-				event.preventDefault()
-				let idx = itemMap[tab].indexOf(selectedItem)
-				if (idx != -1) {
-					idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
-					selectedItem = selectItem(idx)
-					let el = document.getElementById(selectedItem.search_id)
-					if (el) scroll_into_view_if_needed_polyfill(el, false)
+			if (tab != 'logs') {
+				if (event.key === 'ArrowDown') {
+					event.preventDefault()
+					let idx = itemMap[tab].indexOf(selectedItem)
+					if (idx != -1) {
+						idx = (idx + 1) % itemMap[tab].length
+						selectedItem = selectItem(idx)
+						let el = document.getElementById(selectedItem.search_id)
+						if (el) scroll_into_view_if_needed_polyfill(el, false)
+					}
+				} else if (event.key === 'ArrowUp') {
+					event.preventDefault()
+					let idx = itemMap[tab].indexOf(selectedItem)
+					if (idx != -1) {
+						idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
+						selectedItem = selectItem(idx)
+						let el = document.getElementById(selectedItem.search_id)
+						if (el) scroll_into_view_if_needed_polyfill(el, false)
+					}
 				}
 			}
 		}
@@ -477,7 +483,7 @@
 	}
 
 	function maxModalWidth(tab: SearchMode) {
-		if (tab === 'runs') {
+		if (tab === 'runs' || tab === 'logs') {
 			return 'max-w-7xl'
 		} else {
 			return 'max-w-4xl'
@@ -485,7 +491,7 @@
 	}
 
 	function maxModalHeight(tab: SearchMode) {
-		if (tab === 'runs') {
+		if (tab === 'runs' || tab === 'logs') {
 			return ''
 		} else if (tab === 'content') {
 			return 'max-h-[70vh]'
@@ -496,7 +502,7 @@
 </script>
 
 {#if open}
-	<Portal>
+	<Portal name="global-search">
 		<div
 			class={twMerge(
 				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-start justify-center`,
@@ -518,8 +524,9 @@
 							id="quickSearchInput"
 							bind:this={textInput}
 							type="text"
-							class="quick-search-input"
+							class="quick-search-input !bg-surface"
 							bind:value={searchTerm}
+							autocomplete="off"
 						/>
 						<label
 							for="quickSearchInput"
@@ -603,9 +610,17 @@
 						/>
 					{:else if tab === 'logs'}
 						<div class="p-2">
-							<Alert title="Service log search is coming soon" type="info">
-								Full text search on windmill's service logs is coming soon
-							</Alert>
+							{#if !$superadmin}
+								<Alert title="Service logs are only available to superadmins" type="warning">
+									Service logs are only available to superadmins
+								</Alert>
+							{:else if searchTerm.length == 1}
+								<ServiceLogsInner />
+							{:else}
+								<Alert title="Not yet supported" type="info">
+									Full-text search across Windmill logs is not yet supported
+								</Alert>
+							{/if}
 						</div>
 					{:else if tab === 'runs'}
 						<div class="flex h-full p-2 divide-x">
@@ -668,8 +683,33 @@
 								{#if selectedItem === undefined}
 									Select a result to preview
 								{:else}
-									<div class="w-8/12 overflow-y-scroll max-h-[70vh]">
-										<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+									<div class="w-8/12 max-h-[70vh]">
+										<div class="h-[95%] overflow-y-scroll">
+											<JobPreview
+												id={selectedItem?.document?.id[0]}
+												workspace={selectedWorkspace}
+											/>
+										</div>
+										<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
+											{#if indexMetadata.indexed_until}
+												<span class="px-2">
+												Most recent indexed job was created <TimeAgo
+													agoOnlyIfRecent
+													date={indexMetadata.indexed_until || ''}
+												/>
+												</span>
+											{/if}
+											{#if indexMetadata.lost_lock_ownership}
+												<Popover notClickable placement="top">
+													<AlertTriangle size={16} class="text-gray-500" />
+													<svelte:fragment slot="text">
+														The current indexer is no longer indexing new jobs. This is most likely
+														because of an ongoing deployment and indexing will resume once it's
+														complete.
+													</svelte:fragment>
+												</Popover>
+											{/if}
+										</div>
 									</div>
 								{/if}
 							{:else}

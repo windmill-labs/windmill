@@ -32,10 +32,18 @@
 
 	const dispatch = createEventDispatcher()
 
-	let { flowStateStore, retryStatus, suspendStatus } =
-		getContext<FlowStatusViewerContext>('FlowStatusViewer')
+	let {
+		flowStateStore,
+		retryStatus,
+		suspendStatus,
+		hideDownloadInGraph,
+		hideTimeline,
+		hideNodeDefinition,
+		hideDownloadLogs
+	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
+	export let initialJob: Job | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let flowJobIds:
 		| {
@@ -141,6 +149,9 @@
 			status?.modules?.concat(
 				status.failure_module.type != 'WaitingForPriorSteps' ? status.failure_module : []
 			) ?? []
+		if (status.preprocessor_module) {
+			innerModules.unshift(status.preprocessor_module)
+		}
 		updateInnerModules()
 
 		let count = status.retry?.fail_count
@@ -186,6 +197,7 @@
 								args: job?.args,
 								tag: job?.tag
 							}
+
 							setModuleState(mod.id ?? '', newState)
 						})
 						.catch((e) => {
@@ -196,7 +208,6 @@
 					(mod.type == 'Success' || mod.type == 'Failure') &&
 					!['Success', 'Failure'].includes($localModuleStates?.[mod.id ?? '']?.type)
 				) {
-					// console.log(mod.id, 'FOO')
 					setModuleState(
 						mod.id ?? '',
 						{
@@ -278,11 +289,16 @@
 		dispatch('start')
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
-				const newJob = await JobService.getJob({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: jobId ?? '',
-					noLogs: true
-				})
+				const newJob =
+					jobId == initialJob?.id &&
+					initialJob?.id != undefined &&
+					initialJob?.type === 'CompletedJob'
+						? initialJob
+						: await JobService.getJob({
+								workspace: workspaceId ?? $workspaceStore ?? '',
+								id: jobId ?? '',
+								noLogs: true
+						  })
 				if (!deepEqual(job, newJob)) {
 					job = newJob
 					job?.flow_status && updateStatus(job?.flow_status)
@@ -407,6 +423,11 @@
 					started_at
 				})
 			} else {
+				const parent_module = mod['parent_module']
+
+				// Delete existing failure node attached to the same parent module
+				removeFailureNode(mod.id, parent_module)
+
 				setModuleState(
 					mod.id,
 					{
@@ -416,17 +437,19 @@
 						result: job['result'],
 						job_id: job.id,
 						tag: job.tag,
-						parent_module: mod['parent_module'],
+						parent_module,
 						duration_ms: job['duration_ms'],
 						started_at: started_at,
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
 						iteration_total: mod.iterator?.itered?.length,
-						retries: mod?.failed_retries?.length
+						retries: mod?.failed_retries?.length,
+						skipped: mod.skipped
 						// retries: $flowStateStore?.raw_flow
 					},
 					force
 				)
+
 				setDurationStatusByJob(mod.id, job.id, {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at,
@@ -479,7 +502,7 @@
 
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
-					...($flowStateStore[modId] ?? {}),
+					...(($flowStateStore[modId] as object) ?? {}),
 					previewResult: jobLoaded.args
 				}
 			}
@@ -591,6 +614,23 @@
 
 	let storedListJobs: Record<number, Job> = {}
 	let wrapperHeight: number = 0
+
+	function removeFailureNode(id: string, parent_module: any) {
+		if (id?.startsWith('failure-') && parent_module) {
+			;[...globalModuleStates, localModuleStates].forEach((stateMapStore) => {
+				stateMapStore.update((stateMap) => {
+					if (id) {
+						Object.keys(stateMap).forEach((key) => {
+							if (stateMap[key]?.parent_module == parent_module) {
+								delete stateMap[key]
+							}
+						})
+					}
+					return stateMap
+				})
+			})
+		}
+	}
 </script>
 
 {#if notAnonynmous}
@@ -653,6 +693,7 @@
 								result={job.result}
 								logs={job.logs}
 								durationStates={localDurationStatuses}
+								downloadLogs={!hideDownloadLogs}
 							/>
 						</div>
 					{/if}
@@ -776,7 +817,8 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules.length > 0}
+			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
+				{@const hasPreprocessor = innerModules[0]?.id == 'preprocessor' ? 1 : 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
@@ -786,10 +828,12 @@
 						{#if render}
 							<div class="line w-8 h-10" />
 							<h3 class="text-tertiary mb-2 w-full">
-								{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
+								{#if mod.id === 'preprocessor'}
+									<h3>Preprocessor module</h3>
+								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
 									Step
 									<span class="font-medium text-primary">
-										{i + 1}
+										{i + 1 - hasPreprocessor}
 									</span>
 									out of
 									<span class="font-medium text-primary">{job?.raw_flow?.modules.length}</span>
@@ -836,7 +880,7 @@
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
-											render={failedRetry == retry_selected}
+											render={failedRetry == retry_selected && render}
 											reducedPolling={false}
 											{workspaceId}
 											jobId={failedRetry}
@@ -896,6 +940,8 @@
 						</li>
 					{/each}
 				</ul>
+			{:else}
+				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
 	</div>
@@ -922,7 +968,8 @@
 						</div>
 
 						<FlowGraphV2
-							download
+							triggerNode={true}
+							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
@@ -938,8 +985,11 @@
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										selectedNode = e.detail
-										stepDetail = e.detail
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
+											(m) => m?.id === e?.detail
+										)
+										stepDetail = mod
+										selectedNode = e?.detail
 									}
 								} else {
 									stepDetail = e.detail
@@ -956,15 +1006,22 @@
 								globalRefreshes[detail.moduleId]?.({ job: detail.id, index: detail.index })
 							}}
 							modules={job.raw_flow?.modules ?? []}
+							failureModule={job.raw_flow?.failure_module}
+							preprocessorModule={job.raw_flow?.preprocessor_module}
 						/>
 					</div>
 					<div
 						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col z-0 h-full"
 					>
 						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							{#if !hideTimeline}
+								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							{/if}
 							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
-							<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab>
+							{#if !hideNodeDefinition}
+								<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab
+								>
+							{/if}
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
 							{/if}
@@ -995,6 +1052,7 @@
 											result={job['result']}
 											logs={job.logs ?? ''}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -1024,7 +1082,11 @@
 											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
 										{/if}
 										<div class="px-2 flex gap-2 min-w-0 w-full">
-											<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
+											<ModuleStatus
+												type={node.type}
+												scheduled_for={node.scheduled_for}
+												skipped={node.skipped}
+											/>
 											{#if node.duration_ms}
 												<Badge>
 													<Hourglass class="mr-2" size={10} />
@@ -1066,6 +1128,7 @@
 											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

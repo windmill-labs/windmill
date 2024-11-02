@@ -9,7 +9,11 @@
 use crate::{
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
+    triggers::{
+        get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
+    },
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
+    utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -46,13 +50,13 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
-        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang,
+        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
     },
     users::username_to_permissioned_as,
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
-    worker::{get_annotation, to_raw_value},
+    worker::to_raw_value,
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -102,6 +106,8 @@ pub struct ScriptWDraft {
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_main_func: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_preprocessor: Option<bool>,
 }
 
 pub fn global_service() -> Router {
@@ -129,6 +135,8 @@ pub fn workspaced_service() -> Router {
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/get_triggers_count/*path", get(get_triggers_count))
+        .route("/list_tokens/*path", get(list_tokens))
         .route("/raw/p/*path", get(raw_script_by_path))
         .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
@@ -144,6 +152,7 @@ pub fn workspaced_service() -> Router {
             post(toggle_workspace_error_handler),
         )
         .route("/history/p/*path", get(get_script_history))
+        .route("/get_latest_version/*path", get(get_latest_version))
         .route(
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
@@ -526,7 +535,8 @@ async fn create_script_internal<'c>(
                 )));
             };
 
-            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
+            let ScriptWithStarred { script: ps, .. } =
+                get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash, None).await?;
 
             if ps.path != ns.path {
                 require_owner_of_path(&authed, &ps.path)?;
@@ -578,6 +588,8 @@ async fn create_script_internal<'c>(
         || ns.language == ScriptLang::Bun
         || ns.language == ScriptLang::Bunnative
         || ns.language == ScriptLang::Deno
+        || ns.language == ScriptLang::Rust
+        || ns.language == ScriptLang::Ansible
         || ns.language == ScriptLang::Php)
     {
         Some(String::new())
@@ -595,8 +607,8 @@ async fn create_script_internal<'c>(
     };
 
     let lang = if &ns.language == &ScriptLang::Bun || &ns.language == &ScriptLang::Bunnative {
-        let anns = get_annotation(&ns.content);
-        if anns.native_mode {
+        let anns = windmill_common::worker::TypeScriptAnnotations::parse(&ns.content);
+        if anns.native {
             ScriptLang::Bunnative
         } else {
             ScriptLang::Bun
@@ -609,8 +621,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)",
         &w_id,
         &hash.0,
         ns.path,
@@ -640,7 +652,8 @@ async fn create_script_internal<'c>(
         ns.concurrency_key,
         ns.visible_to_runner_only,
         ns.no_main_func,
-        codebase
+        codebase,
+        ns.has_preprocessor,
     )
     .execute(&mut tx)
     .await?;
@@ -735,6 +748,7 @@ async fn create_script_internal<'c>(
             },
         );
     }
+
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
@@ -826,23 +840,60 @@ async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Script> {
+    Query(query): Query<WithStarredInfoQuery>,
+) -> JsonResult<ScriptWithStarred> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let script_o = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE path = $1 AND workspace_id = $2 \
-         AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-         workspace_id = $2)",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let script_o = if query.with_starred_info.unwrap_or(false) {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT s.*, favorite.path IS NOT NULL as starred
+            FROM script s
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'script' 
+                AND favorite.workspace_id = s.workspace_id 
+                AND favorite.path = s.path 
+                AND favorite.usr = $3
+            WHERE s.path = $1
+                AND s.workspace_id = $2
+                AND s.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+        )
+        .bind(path)
+        .bind(w_id)
+        .bind(&authed.username)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
+             workspace_id = $2)",
+        )
+        .bind(path)
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    };
     tx.commit().await?;
 
     let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn list_tokens(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let path = path.to_path();
+    list_tokens_internal(&db, &w_id, &path, false).await
+}
+
+async fn get_triggers_count(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<TriggersCount> {
+    let path = path.to_path();
+    get_triggers_count_internal(&db, &w_id, &path, false).await
 }
 
 async fn get_script_by_path_w_draft(
@@ -854,7 +905,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -898,6 +949,38 @@ async fn get_script_history(
     return Ok(Json(result));
 }
 
+async fn get_latest_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<ScriptHistory>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let row_o = sqlx::query!(
+
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
+        WHERE s.workspace_id = $1 AND s.path = $2
+        ORDER by created_at DESC",
+        w_id,
+        path.to_path(),
+    )
+
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    if let Some(row) = row_o {
+        let result = ScriptHistory {
+            script_hash: ScriptHash(row.hash),
+            deployment_msg: row.deployment_msg, //
+        };
+        return Ok(Json(Some(result)));
+    } else {
+        return Ok(Json(None));
+    }
+
+}
+
 async fn update_script_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -938,6 +1021,7 @@ async fn list_paths(
 
 #[derive(Deserialize)]
 pub struct ToggleWorkspaceErrorHandler {
+    #[cfg(feature = "enterprise")]
     pub muted: Option<bool>,
 }
 
@@ -1096,13 +1180,33 @@ async fn get_script_by_hash_internal<'c>(
     db: &mut Transaction<'c, Postgres>,
     workspace_id: &str,
     hash: &ScriptHash,
-) -> Result<Script> {
-    let script_o =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(hash)
-            .bind(workspace_id)
-            .fetch_optional(&mut **db)
-            .await?;
+    with_starred_info_for_username: Option<&str>,
+) -> Result<ScriptWithStarred> {
+    let script_o = if let Some(username) = with_starred_info_for_username {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT s.*, favorite.path IS NOT NULL as starred
+            FROM script s
+            LEFT JOIN favorite 
+            ON favorite.favorite_kind = 'script' 
+                AND favorite.workspace_id = s.workspace_id 
+                AND favorite.path = s.path 
+                AND favorite.usr = $1 
+            WHERE s.hash = $2 AND s.workspace_id = $3",
+        )
+        .bind(&username)
+        .bind(hash)
+        .bind(workspace_id)
+        .fetch_optional(&mut **db)
+        .await?
+    } else {
+        sqlx::query_as::<_, ScriptWithStarred>(
+            "SELECT *, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
+        )
+        .bind(hash)
+        .bind(workspace_id)
+        .fetch_optional(&mut **db)
+        .await?
+    };
 
     let script = not_found_if_none(script_o, "Script", hash.to_string())?;
     Ok(script)
@@ -1111,9 +1215,23 @@ async fn get_script_by_hash_internal<'c>(
 async fn get_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
-) -> JsonResult<Script> {
+    Query(query): Query<WithStarredInfoQuery>,
+    Extension(authed): Extension<ApiAuthed>,
+) -> JsonResult<ScriptWithStarred> {
     let mut tx = db.begin().await?;
-    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    let r = get_script_by_hash_internal(
+        &mut tx,
+        &w_id,
+        &hash,
+        query.with_starred_info.and_then(|x| {
+            if x {
+                Some(authed.username.as_str())
+            } else {
+                None
+            }
+        }),
+    )
+    .await?;
     tx.commit().await?;
 
     Ok(Json(r))
@@ -1127,10 +1245,10 @@ async fn raw_script_by_hash(
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
-    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await?;
     tx.commit().await?;
 
-    Ok(r.content)
+    Ok(r.script.content)
 }
 
 #[derive(FromRow, Serialize)]

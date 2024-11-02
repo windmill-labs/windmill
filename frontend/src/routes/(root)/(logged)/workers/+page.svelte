@@ -13,17 +13,18 @@
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
+	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
 	import { WorkerService, type WorkerPing, ConfigService, SettingService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { AlertTriangle, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
+	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -74,7 +75,7 @@
 	async function loadWorkerGroups(): Promise<void> {
 		try {
 			workerGroups = Object.fromEntries(
-				(await ConfigService.listWorkerGroups()).map((x) => [x.name.substring(8), x.config])
+				(await ConfigService.listWorkerGroups()).map((x) => [x.name, x.config])
 			)
 		} catch (err) {
 			sendUserToast(`Could not load worker groups: ${err}`, true)
@@ -186,13 +187,13 @@
 		await loadWorkerGroups()
 	}
 
-	let queueMetricsDrawer: Drawer
+	let queueMetricsDrawer: QueueMetricsDrawer
 	let selectedTab: string = 'default'
 
-	$: workerGroups && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
 
 	function updateSelectedTabIfDefaultDoesNotExist() {
-		if (selectedTab == 'default' && !workerGroups?.hasOwnProperty('default')) {
+		if (selectedTab == 'default' && !groupedWorkers.some((x) => x[0] == 'default')) {
 			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
 		}
 	}
@@ -237,10 +238,21 @@
 
 		return [worker_group[0], filteredWorkerGroup]
 	}
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
+
+	function displayOccupancyRate(occupancy_rate: number | undefined) {
+		if (occupancy_rate == undefined) {
+			return '--'
+		}
+
+		return Math.ceil(occupancy_rate * 100) + '%'
+	}
 </script>
 
 {#if $superadmin}
-	<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
+	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
 {/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">
@@ -292,6 +304,20 @@
 						Queue metrics
 					</Button>
 				</div>
+				<div>
+					<Button
+						size="xs"
+						color="dark"
+						startIcon={{
+							icon: List
+						}}
+						on:click={() => {
+							openSearchWithPrefilledText('!')
+						}}
+					>
+						Service logs
+					</Button>
+				</div>
 			</div>
 		{/if}
 	</PageHeader>
@@ -301,7 +327,7 @@
 			<p>No workers seem to be available</p>
 		{/if}
 
-		<div class="py-4 w-full flex justify-between"
+		<div class="pt-4 pb-8 w-full flex justify-between items-center"
 			><h4
 				>{groupWorkers?.length} Worker Groups <Tooltip
 					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
@@ -311,6 +337,7 @@
 				</Tooltip></h4
 			>
 			<div />
+
 			{#if $superadmin}
 				<div class="flex flex-row items-center">
 					<Popup
@@ -321,30 +348,28 @@
 							<div class="flex items-center gap-2">
 								<Button
 									size="sm"
-									variant="border"
-									startIcon={{ icon: FileJson }}
-									color="dark"
-									on:click={() => {
-										if (!workerGroups) {
-											return sendUserToast('No worker groups found', true)
-										}
-
-										const workersConfig = Object.entries(workerGroups).map(([name, config]) => ({
-											name,
-											...config
-										}))
-										navigator.clipboard.writeText(YAML.stringify(workersConfig))
-										sendUserToast('Worker groups config copied to clipboard as YAML')
-									}}
-								>
-									<span class="hidden md:block">Copy groups config</span>
-								</Button>
-								<Button
-									size="sm"
 									startIcon={{ icon: Plus }}
 									nonCaptureEvent
+									disabled={!$enterpriseLicense}
 									dropdownItems={$enterpriseLicense
 										? [
+												{
+													label: 'Copy groups config as YAML',
+													onClick: () => {
+														if (!workerGroups) {
+															return sendUserToast('No worker groups found', true)
+														}
+
+														const workersConfig = Object.entries(workerGroups).map(
+															([name, config]) => ({
+																name,
+																...config
+															})
+														)
+														navigator.clipboard.writeText(YAML.stringify(workersConfig))
+														sendUserToast('Worker groups config copied to clipboard as YAML')
+													}
+												},
 												{
 													label: 'Import groups config from YAML',
 													onClick: () => {
@@ -354,7 +379,9 @@
 										  ]
 										: undefined}
 								>
-									<span class="hidden md:block">New group config</span>
+									<span class="hidden md:block"
+										>New group config {!$enterpriseLicense ? '(EE)' : ''}</span
+									>
 
 									<Tooltip light>
 										Worker Group configs are propagated to every workers in the worker group
@@ -446,6 +473,7 @@
 				<WorkspaceGroup
 					{customTags}
 					name={worker_group[0]}
+					workers={worker_group[1]}
 					{config}
 					on:reload={() => {
 						loadWorkerGroups()
@@ -485,8 +513,8 @@
 								<Cell head>Worker start</Cell>
 								<Cell head>Jobs ran</Cell>
 								{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
-									<Cell head>Current job</Cell>
-									<Cell head>Occupancy rate</Cell>
+									<Cell head>Last job</Cell>
+									<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
 								{/if}
 								<Cell head>Memory usage<br />(Windmill)</Cell>
 								<Cell head>Limits</Cell>
@@ -521,7 +549,7 @@
 								</tr>
 
 								{#if workers}
-									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 										<tr>
 											<Cell first>{worker}</Cell>
 											<Cell>
@@ -538,18 +566,20 @@
 											<Cell>{jobs_executed}</Cell>
 											{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 												<Cell>
-													{#if current_job_id}
-														<a
-															href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}
-														>
-															View job
+													{#if last_job_id}
+														<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
+															View last job
 														</a>
 														<br />
-														(workspace {current_job_workspace_id})
+														(workspace {last_job_workspace_id})
 													{/if}
 												</Cell>
 												<Cell>
-													{Math.ceil((occupancy_rate ?? 0) * 100)}%
+													{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
+														occupancy_rate_5m
+													)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
+														occupancy_rate
+													)}
 												</Cell>
 											{/if}
 											<Cell>
@@ -605,6 +635,7 @@
 				{#if worker_group}
 					<WorkspaceGroup
 						{customTags}
+						workers={worker_group[1]}
 						on:reload={() => {
 							loadWorkerGroups()
 						}}
@@ -616,7 +647,8 @@
 				{/if}
 			{/if}
 		</div>
-		<div class="pb-4" />
+		<div class="pb-20" />
+		<AutoscalingEvents worker_group={selectedTab} />
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(4) as _}

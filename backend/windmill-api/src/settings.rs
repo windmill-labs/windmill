@@ -25,14 +25,16 @@ use axum::{
 use axum::extract::Query;
 
 use serde::Deserialize;
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use windmill_common::{
+    email_ee::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        HUB_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    utils::send_email,
 };
 
 #[cfg(feature = "parquet")]
@@ -55,7 +57,8 @@ pub fn global_service() -> Router {
             get(get_latest_key_renewal_attempt),
         )
         .route("/renew_license_key", post(renew_license_key))
-        .route("/customer_portal", post(create_customer_portal_session));
+        .route("/customer_portal", post(create_customer_portal_session))
+        .route("/test_critical_channels", post(test_critical_channels));
 
     #[cfg(feature = "parquet")]
     {
@@ -104,21 +107,12 @@ use windmill_common::s3_helpers::build_object_store_from_settings;
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
     use futures::StreamExt;
-    use windmill_common::ee::{get_license_plan, LicensePlan};
 
-    if matches!(get_license_plan().await, LicensePlan::Pro) {
-        return Err(error::Error::InternalErr(
-            "This feature is only available in Enterprise, not Pro".to_string(),
-        ));
-    }
-
-    require_super_admin(&db, &authed.email).await?;
     let client = build_object_store_from_settings(test_s3_bucket).await?;
 
     let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
@@ -169,8 +163,13 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    validate_license_key(license_key).await?;
-    Ok("Sent test email".to_string())
+    let (_, expired) = validate_license_key(license_key).await?;
+
+    if expired {
+        Err(error::Error::BadRequest("Expired license key".to_string()))
+    } else {
+        Ok("Valid license key".to_string())
+    }
 }
 
 pub async fn get_local_settings(
@@ -260,8 +259,10 @@ pub async fn get_global_setting(
 ) -> JsonResult<serde_json::Value> {
     if !key.starts_with("default_error_handler_")
         && !key.starts_with("default_recovery_handler_")
+        && !key.starts_with("default_success_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
         && key != HUB_BASE_URL_SETTING
+        && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
@@ -303,7 +304,12 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
+    windmill_common::stats_ee::send_stats(
+        &HTTP_CLIENT,
+        &db,
+        windmill_common::stats_ee::SendStatsReason::Manual,
+    )
+    .await?;
 
     Ok("Sent stats".to_string())
 }
@@ -362,8 +368,13 @@ pub async fn renew_license_key(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
-    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key).await;
+    let result = windmill_common::ee::renew_license_key(
+        &HTTP_CLIENT,
+        &db,
+        license_key,
+        windmill_common::ee::RenewReason::Manual,
+    )
+    .await;
 
     if result != "success" {
         return Err(error::Error::BadRequest(format!(
@@ -394,4 +405,28 @@ pub async fn create_customer_portal_session(
         windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
 
     return Ok(url);
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn test_critical_channels(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(test_critical_channels): Json<Vec<CriticalErrorChannel>>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    #[cfg(feature = "enterprise")]
+    send_critical_alert(
+        "Test critical error".to_string(),
+        &db,
+        CriticalAlertKind::CriticalError,
+        Some(test_critical_channels),
+    )
+    .await;
+    Ok("Sent test critical error".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn test_critical_channels() -> Result<String> {
+    Ok("Critical channels require EE".to_string())
 }

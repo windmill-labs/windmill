@@ -18,7 +18,9 @@ export interface InstantiateResult {
     parse_mssql: typeof parse_mssql;
     parse_db_resource: typeof parse_db_resource;
     parse_graphql: typeof parse_graphql;
-    parse_php: typeof parse_php
+    parse_php: typeof parse_php;
+    parse_rust: typeof parse_rust;
+    parse_ansible: typeof parse_ansible
   };
 }
 
@@ -45,9 +47,10 @@ export function instantiateWithInstance(opts?: InstantiateOptions): Promise<Inst
 
 /**
 * @param {string} code
+* @param {string | undefined} [main_override]
 * @returns {string}
 */
-export function parse_deno(code: string): string;
+export function parse_deno(code: string, main_override?: string): string;
 /**
 * @param {string} code
 * @returns {string}
@@ -75,9 +78,10 @@ export function parse_powershell(code: string): string;
 export function parse_go(code: string): string;
 /**
 * @param {string} code
+* @param {string | undefined} [main_override]
 * @returns {string}
 */
-export function parse_python(code: string): string;
+export function parse_python(code: string, main_override?: string): string;
 /**
 * @param {string} code
 * @returns {string}
@@ -118,3 +122,13 @@ export function parse_graphql(code: string): string;
 * @returns {string}
 */
 export function parse_php(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_rust(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_ansible(code: string): string;

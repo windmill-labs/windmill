@@ -8,7 +8,9 @@
 		type Script,
 		type WorkflowStatus,
 		type NewScript,
-		ConcurrencyGroupsService
+		ConcurrencyGroupsService,
+		MetricsService,
+		type ScriptArgs
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -68,6 +70,7 @@
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -87,9 +90,16 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
+	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
+	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
+	import CustomPopover from '$lib/components/CustomPopover.svelte'
+	import { isWindmillTooBigObject } from '$lib/components/job_args'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
+
+	let scriptProgress: number | undefined = undefined
+	let currentJobIsLongRunning: boolean = false
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -105,6 +115,8 @@
 	let persistentScriptDrawer: PersistentScriptDrawer
 	let getLogs: (() => Promise<void>) | undefined = undefined
 
+	let showExplicitProgressTip: boolean =
+		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
 	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
 
 	let lastJobId: string | undefined = undefined
@@ -190,6 +202,24 @@
 	let persistentScriptDefinition: Script | undefined = undefined
 
 	async function onJobLoaded() {
+		// We want to set up scriptProgress once job is loaded
+		// We need this to show progress bar if job has progress and is finished
+		if (job && job.type == 'CompletedJob') {
+			// If error occured and job is completed
+			// than we fetch progress from server to display on what progress did it fail
+			// Could be displayed after run or as a historical page
+			// If opening page without running job (e.g. reloading page after run) progress will be displayed instantly
+			MetricsService.getJobProgress({
+				workspace: job.workspace_id ?? 'NO_WORKSPACE',
+				id: job.id
+			}).then((progress) => {
+				// Returned progress is not always 100%, could be 65%, 33%, anything
+				// Its ok if its a failure and we want to keep that value
+				// But we want progress to be 100% if job has been succeeded
+				scriptProgress = progress
+			})
+		}
+
 		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
 			return
 		}
@@ -279,6 +309,46 @@
 	}
 
 	let scheduleEditor: ScheduleEditor
+
+	let runImmediatelyLoading = false
+	async function runImmediately() {
+		runImmediatelyLoading = true
+		try {
+			let args = job?.args as ScriptArgs
+			if (isWindmillTooBigObject(args)) {
+				args = (await JobService.getJobArgs({
+					workspace: $workspaceStore!,
+					id: job?.id!
+				})) as ScriptArgs
+			}
+
+			const commonArgs = {
+				workspace: $workspaceStore!,
+				requestBody: args
+			}
+			if (job?.job_kind == 'script' || job?.job_kind == 'flow') {
+				let id
+
+				if (job?.job_kind == 'script') {
+					id = await JobService.runScriptByHash({
+						...commonArgs,
+						hash: job.script_hash!
+					})
+				} else {
+					id = await JobService.runFlowByPath({
+						...commonArgs,
+						path: job.script_path!
+					})
+				}
+
+				await goto('/run/' + id + '?workspace=' + $workspaceStore)
+			} else {
+				sendUserToast('Cannot run this job immediately', true)
+			}
+		} finally {
+			runImmediatelyLoading = false
+		}
+	}
 </script>
 
 <HighlightTheme />
@@ -319,6 +389,7 @@
 
 <TestJobLoader
 	lazyLogs
+	bind:scriptProgress
 	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
@@ -329,11 +400,11 @@
 	bind:notfound
 />
 
-<Portal>
+<Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
-{#if notfound}
+{#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
@@ -567,14 +638,23 @@
 				{/if}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-				<Button
-					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args)}`)
-					}}
-					color="blue"
-					size="sm"
-					startIcon={{ icon: RefreshCw }}>Run again</Button
-				>
+				<CustomPopover noPadding appearTimeout={0}>
+					<Button
+						on:click|once={() => {
+							goto(viewHref + `#${computeSharableHash(job?.args)}`)
+						}}
+						color="blue"
+						size="sm"
+						startIcon={{ icon: RefreshCw }}>Run again</Button
+					>
+					<svelte:fragment slot="overlay">
+						<div class="flex flex-row gap-2">
+							<Button size="xs" loading={runImmediatelyLoading} on:click={() => runImmediately()}>
+								Run immediately with same args
+							</Button>
+						</div>
+					</svelte:fragment>
+				</CustomPopover>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				{#if !$userStore?.operator}
@@ -637,6 +717,9 @@
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
 						{/if}
+						{#if job && job.flow_status && job.job_kind === 'script'}
+							<PreprocessedArgsDisplay flowStatus={job.flow_status} />
+						{/if}
 						{#if persistentScriptDefinition}
 							<button on:click={() => persistentScriptDrawer.open?.(persistentScriptDefinition)}
 								><Badge color="red">persistent</Badge></button
@@ -647,7 +730,7 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'nativets', 'bash', 'powershell', 'php', 'other', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
@@ -713,7 +796,35 @@
 			</div>
 			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
-				{#if job}<FlowMetadata {job} {scheduleEditor} />{/if}
+				{#if job}
+					<FlowMetadata {job} {scheduleEditor} />
+					{#if currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
+						<Alert
+							class="mt-4 p-1 flex flex-row relative text-center"
+							size="xs"
+							type="info"
+							title="tip: Track progress of longer jobs"
+							tooltip="For better transparency and verbosity, you can try setting progress from within the script."
+							documentationLink="https://www.windmill.dev/docs/advanced/explicit_progress"
+						>
+							<button
+								type="button"
+								on:click={() => {
+									localStorage.setItem('hideExplicitProgressTip', 'true')
+									showExplicitProgressTip = false
+								}}
+								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+							>
+								<span class="sr-only">Close</span>
+								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+									<path
+										d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+									/>
+								</svg>
+							</button>
+						</Alert>
+					{/if}
+				{/if}
 			</div>
 		</div>
 
@@ -723,6 +834,9 @@
 			</div>
 		{/if}
 		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
+			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || job?.job_kind == 'preview')}
+				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
+			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
 					<div class="mt-10" />
@@ -730,6 +844,9 @@
 						flow_status={asWorkflowStatus(job.flow_status)}
 						flowDone={job.type == 'CompletedJob'}
 					/>
+				{/if}
+				{#if scriptProgress}
+					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
 				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
@@ -786,13 +903,18 @@
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10" />
-			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4" />
+			<FlowProgressBar
+				{job}
+				bind:currentSubJobProgress={scriptProgress}
+				class="py-4 max-w-7xl mx-auto px-4"
+			/>
 			<div class="w-full mt-10">
 				<FlowStatusViewer
 					jobId={job.id}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					initialJob={job}
 					workspaceId={$workspaceStore}
 					bind:selectedJobStep
 				/>

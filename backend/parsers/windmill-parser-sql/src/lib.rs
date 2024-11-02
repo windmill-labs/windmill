@@ -1,7 +1,12 @@
 #![allow(non_snake_case)] // TODO: switch to parse_* function naming
 
 use anyhow::anyhow;
+
+#[cfg(not(target_arch = "wasm32"))]
 use regex::Regex;
+#[cfg(target_arch = "wasm32")]
+use regex_lite::Regex;
+
 use serde_json::json;
 
 use std::{
@@ -15,7 +20,13 @@ pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -25,7 +36,13 @@ pub fn parse_pgsql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_pg_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -35,7 +52,13 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_bigquery_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -45,7 +68,13 @@ pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_snowflake_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -55,7 +84,13 @@ pub fn parse_mssql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mssql_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -565,7 +600,8 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         oidx: Some(2),
                     },
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 
@@ -613,7 +649,8 @@ SELECT $2::TEXT;
                         oidx: Some(3),
                     },
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 
@@ -739,7 +776,8 @@ SELECT ?, ?;
                         oidx: None,
                     },
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 
@@ -786,7 +824,8 @@ SELECT :param2;
                         oidx: None,
                     },
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 
@@ -825,7 +864,8 @@ SELECT @token;
                         oidx: None,
                     },
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 
@@ -872,7 +912,8 @@ SELECT ?;
                         oidx: None,
                     }
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 
@@ -919,7 +960,8 @@ SELECT @p2;
                         oidx: None,
                     },
                 ],
-                no_main_func: None
+                no_main_func: None,
+                has_preprocessor: None
             }
         );
 

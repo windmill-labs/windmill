@@ -17,9 +17,10 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
-	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let failureModule: boolean
+	export let preprocessorModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
 	export let noEditor: boolean
 	export let summary: string | undefined = undefined
@@ -45,17 +46,18 @@
 		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
 			return true
 		}
+
 		if (lang == 'go') {
-			return kind == 'script' || kind == 'trigger' || failureModule
+			return (kind == 'script' || kind == 'trigger' || failureModule) && !preprocessorModule
 		}
 
 		if (lang == 'bash' || lang == 'nativets') {
-			return kind == 'script'
+			return kind == 'script' && !preprocessorModule
 		}
-		return kind == 'script' && !failureModule
+		return kind == 'script' && !failureModule && !preprocessorModule
 	}
 
-	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
@@ -63,7 +65,7 @@
 		<Alert role="info" title="The flow stops here"
 			>This is an identity step with an early stop that has 'true' for expression</Alert
 		>
-	{:else}{#if !failureModule}
+	{:else}{#if !failureModule && !preprocessorModule}
 			<div class="center-center">
 				<div class="max-w-min">
 					<ToggleButtonGroup bind:selected={kind}>
@@ -126,7 +128,7 @@
 			</Alert>
 		{/if}
 
-		{#if kind == 'script' && !noEditor}
+		{#if kind == 'script' && !noEditor && !preprocessorModule}
 			<div class="mt-2" />
 			<Alert title="Action Scripts" role="info">
 				An action script is simply a script that is neither a trigger nor an approval script. Those
@@ -224,7 +226,7 @@
 							dispatch('new', {
 								language: lang == 'docker' ? 'bash' : lang,
 								kind,
-								subkind: lang == 'docker' ? 'docker' : 'flow',
+								subkind: lang == 'docker' ? 'docker' : preprocessorModule ? 'preprocessor' : 'flow',
 								summary
 							})
 						}}

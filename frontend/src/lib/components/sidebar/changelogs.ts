@@ -6,6 +6,51 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Custom HTTP routes',
+		href: 'https://www.windmill.dev/changelog/http-routing',
+		date: '2024-09-23'
+	},
+	{
+		label: 'Set/Get progress from code',
+		href: 'https://www.windmill.dev/changelog/explicit-progress',
+		date: '2024-09-18'
+	},
+	{
+		label: 'Directly edit flow YAML',
+		href: 'https://www.windmill.dev/changelog/flow-yaml-editor',
+		date: '2024-09-02'
+	},
+	{
+		label: 'Critical alert channels',
+		href: 'https://www.windmill.dev/changelog/critical-alert-channels',
+		date: '2024-09-01'
+	},
+	{
+		label: 'See service logs directly in Windmill',
+		href: 'https://www.windmill.dev/changelog/service-logs',
+		date: '2024-09-01'
+	},
+	{
+		label: 'Vim support for Monaco/webeditor',
+		href: 'https://www.windmill.dev/changelog/vim-support',
+		date: '2024-08-28'
+	},
+	{
+		label: 'Hide / Show App Editor Panels',
+		href: 'https://www.windmill.dev/changelog/hide-show-app-panels',
+		date: '2024-08-26'
+	},
+	{
+		label: 'Email triggers',
+		href: 'https://www.windmill.dev/changelog/email-triggers',
+		date: '2024-08-06'
+	},
+	{
+		label: 'Continue on disapproval/timeout',
+		href: 'https://www.windmill.dev/changelog/continue-on-disapproval',
+		date: '2024-08-14'
+	},
+	{
 		label: 'Nativets runtime supports npm packages and relative imports',
 		href: 'https://www.windmill.dev/changelog/native-runtime-imports',
 		date: '2024-07-29'

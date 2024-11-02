@@ -26,10 +26,11 @@
 	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
-	export let password = false
+	export let password: undefined | boolean = undefined
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
-	export let nullable: boolean = false
+	export let nullable: boolean | undefined = undefined
+	export let disabled: boolean | undefined = undefined
 	export let defaultValue: any = undefined
 	export let propsNames: any = []
 	export let showExpr: string | undefined = undefined
@@ -43,9 +44,9 @@
 				multiselect?: string[]
 		  }
 		| undefined = undefined
-	export let properties: Record<string, any> = {}
-	export let order: string[] = []
-	export let requiredProperty: string[] = []
+	export let properties: Record<string, any> | undefined = undefined
+	export let order: string[] | undefined = undefined
+	export let requiredProperty: string[] | undefined = undefined
 	export let displayWebhookWarning: boolean = true
 	export let lightweightMode: boolean = false
 
@@ -125,7 +126,7 @@
 				return {
 					...v,
 					properties: {
-						...v.properties,
+						...(v.properties ?? {}),
 						label: {
 							type: 'string',
 							enum: [v.title ?? '']
@@ -336,9 +337,11 @@
 					{contentEncoding}
 					{format}
 					{extra}
+					{disabled}
 				/>
 			{:else}
 				<ArgInput
+					noDefaultOnSelectFirst
 					{itemPicker}
 					resourceTypes={getResourceTypesFromFormat(format)}
 					bind:value={defaultValue}
@@ -350,6 +353,7 @@
 					{contentEncoding}
 					{format}
 					{extra}
+					{disabled}
 					{nullable}
 					{variableEditor}
 					compact
@@ -382,10 +386,33 @@
 				}}
 				lightMode
 				size="xs"
-				bind:checked={nullable}
+				checked={nullable}
+				on:change={(event) => {
+					if (event?.detail) {
+						nullable = true
+					} else {
+						nullable = undefined
+					}
+				}}
 				disabled={required}
 			/>
 		{/if}
+		<Toggle
+			options={{
+				right: 'Disabled',
+				rightTooltip: 'Do not let user modify this field'
+			}}
+			lightMode
+			size="xs"
+			checked={disabled}
+			on:change={(event) => {
+				if (event?.detail) {
+					disabled = true
+				} else {
+					disabled = undefined
+				}
+			}}
+		/>
 	</div>
 
 	{#if displayWebhookWarning && !(type === 'object' && oneOf && oneOf.length >= 2)}

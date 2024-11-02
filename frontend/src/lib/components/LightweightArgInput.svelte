@@ -36,6 +36,9 @@
 	export let type: string | undefined = undefined
 	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
+	//todo
+	// export let nullable = false
+	export let disabled: boolean = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
 	export let enum_: EnumType = undefined
@@ -258,7 +261,7 @@
 			<div class="flex space-x-1">
 				{#if inputCat == 'number'}
 					{#if extra['min'] != undefined && extra['max'] != undefined}
-						<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
+						<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} {disabled} />
 					{:else if extra?.currency}
 						<CurrencyInput
 							inputClasses={{
@@ -270,6 +273,7 @@
 							bind:value
 							currency={extra?.currency}
 							locale={extra?.currencyLocale ?? 'en-US'}
+							{disabled}
 						/>
 					{:else}
 						<input
@@ -277,15 +281,14 @@
 								dispatch('focus')
 							}}
 							type="number"
-							class={twMerge(
-								valid && error == ''
-									? ''
-									: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'
-							)}
+							class={valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 							min={extra['min']}
 							max={extra['max']}
+							{disabled}
 						/>
 					{/if}
 				{:else if inputCat == 'boolean'}
@@ -293,13 +296,11 @@
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						class={twMerge(
-							valid && error == ''
-								? ''
-								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30',
-							'w-full'
-						)}
+						class={valid && error == ''
+							? ''
+							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 						bind:checked={value}
+						{disabled}
 					/>
 					{#if type == 'boolean' && value == undefined}
 						<span>&nbsp; Not set</span>
@@ -313,6 +314,7 @@
 									bind:selected={value}
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
+									{disabled}
 								/>
 							</div>
 						{:else if Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -322,6 +324,7 @@
 									bind:selected={value}
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
+									{disabled}
 								/>
 							</div>
 						{:else if Array.isArray(enum_) && Array.isArray(value)}
@@ -331,6 +334,7 @@
 									bind:selected={value}
 									options={enum_ ?? []}
 									selectedOptionsDraggable={true}
+									{disabled}
 								/>
 							</div>
 						{:else}
@@ -339,13 +343,14 @@
 									{#each value ?? [] as v, i}
 										<div class="flex flex-row max-w-md mt-1 w-full">
 											{#if itemsType?.type == 'number'}
-												<input type="number" bind:value={v} />
+												<input type="number" bind:value={v} {disabled} />
 											{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 												<input
 													type="file"
 													class="my-6"
 													on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 													multiple={false}
+													{disabled}
 												/>
 											{:else if Array.isArray(itemsType?.enum)}
 												<select
@@ -354,6 +359,7 @@
 													}}
 													class="px-6"
 													bind:value={v}
+													{disabled}
 												>
 													{#each itemsType?.enum ?? [] as e}
 														<option>{e}</option>
@@ -363,16 +369,18 @@
 												<LightweightResourcePicker
 													bind:value={v}
 													resourceType={itemsType?.resourceType}
+													{disabled}
 												/>
 											{:else if itemsType?.type === 'object' && itemsType?.properties}
 												<div class="p-8 border rounded-md w-full">
 													<LightweightSchemaForm
 														schema={getSchemaFromProperties(itemsType?.properties)}
 														bind:args={v}
+														{disabled}
 													/>
 												</div>
 											{:else}
-												<input type="text" bind:value={v} />
+												<input type="text" bind:value={v} {disabled} />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
@@ -384,6 +392,7 @@
 														value = undefined
 													}
 												}}
+												{disabled}
 											>
 												<X size={14} />
 											</button>
@@ -403,6 +412,7 @@
 										addItemByItemsType()
 									}}
 									startIcon={{ icon: Plus }}
+									{disabled}
 								>
 									Add
 								</Button>
@@ -422,7 +432,8 @@
 							randomFileKey={true}
 							on:addition={(evt) => {
 								value = {
-									s3: evt.detail?.path ?? ''
+									s3: evt.detail?.path ?? '',
+									filename: evt.detail?.filename ?? ''
 								}
 							}}
 							on:deletion={(evt) => {
@@ -434,13 +445,13 @@
 						/>
 					</div>
 				{:else if inputCat == 'resource-object'}
-					<LightweightObjectResourceInput {format} bind:value />
+					<LightweightObjectResourceInput {format} bind:value {disabled} />
 				{:else if inputCat == 'object' && oneOf && oneOf.length >= 2}
 					<div class="flex flex-col gap-2 w-full">
 						{#if oneOf && oneOf.length >= 2}
-							<ToggleButtonGroup bind:selected={oneOfSelected}>
+							<ToggleButtonGroup bind:selected={oneOfSelected} {disabled}>
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title} label={obj.title} />
+									<ToggleButton value={obj.title} label={obj.title} {disabled} />
 								{/each}
 							</ToggleButtonGroup>
 
@@ -459,6 +470,7 @@
 												type: 'object'
 											}}
 											bind:args={value}
+											{disabled}
 										/>
 									</div>
 								{/if}
@@ -476,6 +488,7 @@
 									type: 'object'
 								}}
 								bind:args={value}
+								{disabled}
 							/>
 						</div>
 					{:else}
@@ -491,6 +504,7 @@
 								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
 							placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
 							bind:value={rawValue}
+							{disabled}
 						/>
 					{/if}
 				{:else if inputCat == 'enum'}
@@ -500,6 +514,7 @@
 						}}
 						class="px-6"
 						bind:value
+						{disabled}
 					>
 						{#each enum_ ?? [] as e}
 							<option value={e}>{extra?.['enumLabels']?.[e] ?? e}</option>
@@ -508,9 +523,9 @@
 				{:else if inputCat == 'date'}
 					{#key defaultChange}
 						{#if format === 'date'}
-							<DateInput bind:value dateFormat={extra['dateFormat']} />
+							<DateInput bind:value dateFormat={extra['dateFormat']} {disabled} />
 						{:else}
-							<DateTimeInput useDropdown bind:value />
+							<DateTimeInput useDropdown bind:value {disabled} />
 						{/if}
 					{/key}
 				{:else if inputCat == 'base64'}
@@ -519,6 +534,7 @@
 							type="file"
 							on:change={(x) => fileChanged(x, (val) => (value = val))}
 							multiple={false}
+							{disabled}
 						/>
 						{#if value?.length}
 							<div class="text-2xs text-tertiary mt-1"
@@ -535,6 +551,7 @@
 							resourceType={format.split('-').length > 1
 								? format.substring('resource-'.length)
 								: undefined}
+							{disabled}
 						/>
 					</div>
 				{:else if inputCat == 'email'}
@@ -546,6 +563,7 @@
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
 						placeholder={placeholder ?? defaultValue ?? ''}
 						bind:value
+						{disabled}
 					/>
 				{:else if inputCat == 'currency'}
 					<input
@@ -555,12 +573,13 @@
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
 						placeholder={placeholder ?? defaultValue ?? ''}
 						bind:value
+						{disabled}
 					/>
 				{:else if inputCat == 'string'}
 					<div class="flex flex-col w-full">
 						<div class="flex flex-row w-full items-center justify-between">
 							{#if extra?.['password'] == true}
-								<Password bind:password={value} />
+								<Password bind:password={value} {disabled} />
 							{:else}
 								<textarea
 									rows={extra?.['minRows'] || 1}
@@ -577,6 +596,7 @@
 									on:pointerdown|stopPropagation={(e) => {
 										dispatch('inputClicked', e)
 									}}
+									{disabled}
 								/>
 							{/if}
 						</div>
@@ -607,5 +627,6 @@
 	/* Firefox */
 	input[type='number'] {
 		-moz-appearance: textfield !important;
+		appearance: textfield !important;
 	}
 </style>

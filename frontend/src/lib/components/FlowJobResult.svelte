@@ -22,6 +22,7 @@
 	export let workspaceId: string | undefined = undefined
 	export let refreshLog: boolean = false
 	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
+	export let downloadLogs = true
 
 	let lastJobId: string | undefined = undefined
 	let drawer: Drawer | undefined = undefined
@@ -84,6 +85,12 @@
 		<div class="absolute z-40 text-xs top-0 left-1"
 			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
 		>
-		<LogViewer content={logs ?? ''} {jobId} isLoading={waitingForExecutor} {tag} />
+		<LogViewer
+			download={downloadLogs}
+			content={logs ?? ''}
+			{jobId}
+			isLoading={waitingForExecutor}
+			{tag}
+		/>
 	</div>
 </div>

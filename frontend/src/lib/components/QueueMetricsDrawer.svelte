@@ -1,278 +1,429 @@
 <script lang="ts">
-	import { Drawer, DrawerContent } from './common'
-	import 'chartjs-adapter-date-fns'
-	import { Line } from 'svelte-chartjs'
+	import { onMount } from 'svelte'
+	import { Drawer, DrawerContent, Button } from './common'
+	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
+	import { ConfigService } from '$lib/gen'
+	import Section from './Section.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { Pencil, Trash, Check, PlusCircle, SaveIcon } from 'lucide-svelte'
+	import Tooltip from './Tooltip.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
-	import {
-		Chart as ChartJS,
-		Title,
-		Tooltip,
-		Legend,
-		LineElement,
-		CategoryScale,
-		LinearScale,
-		PointElement,
-		LogarithmicScale,
-		TimeScale,
-		type ChartData,
-		type Point
-	} from 'chart.js'
-	import { WorkerService } from '$lib/gen'
-	import { superadmin } from '$lib/stores'
-	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import DarkModeObserver from './DarkModeObserver.svelte'
-	import Alert from './common/alert/Alert.svelte'
-	export let drawer: Drawer
-
-	let isOpen: boolean = false
-	let loading: boolean = true
-
-	const colorTuples = [
-		['#7EB26D', 'rgba(126, 178, 109, 0.2)'],
-		['#EAB839', 'rgba(234, 184, 57, 0.2)'],
-		['#6ED0E0', 'rgba(110, 208, 224, 0.2)'],
-		['#EF843C', 'rgba(239, 132, 60, 0.2)'],
-		['#E24D42', 'rgba(226, 77, 66, 0.2)'],
-		['#1F78C1', 'rgba(31, 120, 193, 0.2)'],
-		['#BA43A9', 'rgba(186, 67, 169, 0.2)'],
-		['#705DA0', 'rgba(112, 93, 160, 0.2)'],
-		['#508642', 'rgba(80, 134, 66, 0.2)'],
-		['#CCA300', 'rgba(204, 163, 0, 0.2)'],
-		['#447EBC', 'rgba(68, 126, 188, 0.2)'],
-		['#C15C17', 'rgba(193, 92, 23, 0.2)'],
-		['#890F02', 'rgba(137, 15, 2, 0.2)'],
-		['#666666', 'rgba(102, 102, 102, 0.2)'],
-		['#44AA99', 'rgba(68, 170, 153, 0.2)'],
-		['#6D8764', 'rgba(109, 135, 100, 0.2)'],
-		['#555555', 'rgba(85, 85, 85, 0.2)'],
-		['#B3B3B3', 'rgba(179, 179, 179, 0.2)'],
-		['#008C9E', 'rgba(0, 140, 158, 0.2)'],
-		['#6BBA70', 'rgba(107, 186, 112, 0.2)']
-	]
-
-	function getColors(labels: string[]) {
-		const colors = labels.map((_, i) => colorTuples[i % colorTuples.length])
-		return Object.fromEntries(colors.map((c, i) => [labels[i], c]))
+	function updateChangesMade() {
+		changesMade = JSON.stringify(alerts) !== JSON.stringify(originalAlerts)
 	}
 
-	ChartJS.register(
-		Title,
-		Tooltip,
-		Legend,
-		LineElement,
-		LinearScale,
-		PointElement,
-		CategoryScale,
-		TimeScale,
-		LogarithmicScale
-	)
+	function handleInput(event) {
+		const target = event.target
+		console.log(target)
+		if (target.tagName.toLowerCase() === 'input') {
+			updateChangesMade()
+		}
+	}
 
-	let countData: ChartData<'line', Point[], undefined> | undefined = undefined
-	let delayData: ChartData<'line', Point[], undefined> | undefined = undefined
+	type Alert = {
+		name: string
+		tags_to_monitor: string[]
+		jobs_num_threshold: number
+		alert_cooldown_seconds: number
+		alert_time_threshold_seconds: number
+	}
 
-	let minDate = new Date()
+	let drawer: Drawer
+	export function openDrawer() {
+		drawer?.openDrawer()
+	}
 
-	let noMetrics = false
+	let alerts: Alert[] = []
 
-	function fillData(
-		data: {
-			created_at: string
-			value: number
-		}[],
-		zero = 0
-	) {
-		// fill holes with 0
-		const sorted: typeof data = []
-		for (const el of [
-			...data,
-			{
-				created_at: new Date().toISOString(),
-				value: zero
-			}
-		]) {
-			const last =
-				sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : undefined
-			const currentTs = new Date(el.created_at).getTime()
-			if (last && currentTs - last > 1000 * 60 * 2) {
-				const numElements = Math.floor((currentTs - last) / (1000 * 30))
-				for (let i = 1; i < numElements; i++) {
-					sorted.push({
-						created_at: new Date(last + i * (1000 * 30)).toISOString(),
-						value: zero
-					})
+	let configName = 'alert__job_queue_waiting'
+	let originalAlerts: Alert[] = []
+	let newTag = ''
+	let editingIndex = -1
+	let changesMade = false
+	let removedAlerts: Alert[] = []
+	let stagedNewAlert = false
+	let workerTags: string[] = []
+	let filteredTags: string[] = []
+
+	$: removedAlerts
+
+	onMount(async () => {
+		await fetchConfig()
+		workerTags = await fetchWorkerTags()
+	})
+
+	async function fetchConfig() {
+		try {
+			const response = (await ConfigService.getConfig({ name: configName })) as { alerts: Alert[] }
+			alerts = response.alerts || []
+			originalAlerts = JSON.parse(JSON.stringify(alerts))
+		} catch (error) {
+			console.error('Failed to fetch config:', error)
+		}
+	}
+
+	async function fetchWorkerTags(): Promise<string[]> {
+		try {
+			const response = await ConfigService.listConfigs()
+			const workerTagsSet = new Set<string>()
+
+			response.forEach((config) => {
+				if (config.name.startsWith('worker__') && Array.isArray(config.config?.worker_tags)) {
+					config?.config?.worker_tags.forEach((tag) => workerTagsSet.add(tag))
 				}
-			}
-			sorted.push(el)
-		}
+			})
 
-		// remove high frequency data points for similar values
-		const light: typeof sorted = []
-		for (const el of sorted) {
-			const last = light.length > 0 ? light[light.length - 1] : undefined
-			if (
-				!last ||
-				Math.abs((el.value - last.value) / last.value) > 0.1 ||
-				new Date(el.created_at).getTime() - new Date(last.created_at).getTime() > 1000 * 60 * 15
-			) {
-				light.push(el)
-			}
+			return Array.from(workerTagsSet)
+		} catch (error) {
+			console.error('Failed to fetch worker tags:', error)
+			return []
 		}
-
-		return light
 	}
 
-	async function loadMetrics() {
-		loading = true
-		let metrics = await WorkerService.getQueueMetrics()
+	function startEditing(index) {
+		if (editingIndex !== -1) {
+			const success = saveAlert(editingIndex)
+			if (!success) return
+		}
+		editingIndex = index
+		updateWorkerTags()
+	}
 
-		if (metrics.length == 0) {
-			noMetrics = true
-			loading = false
+	function saveAlert(index): boolean {
+		const newAlert = alerts[index]
+
+		if (newAlert.tags_to_monitor.length === 0) {
+			sendUserToast('Please add at least one tag before saving.', true)
+			return false
+		}
+
+		if (
+			newAlert.jobs_num_threshold <= 0 ||
+			newAlert.alert_cooldown_seconds <= 0 ||
+			newAlert.alert_time_threshold_seconds <= 0
+		) {
+			sendUserToast('All numeric values must be strictly positive.', true)
+			return false
+		}
+
+		const alertExists = originalAlerts.some(
+			(alert) =>
+				originalAlerts.indexOf(alert) !== index &&
+				JSON.stringify(alert.tags_to_monitor.sort()) ===
+					JSON.stringify(newAlert.tags_to_monitor.sort())
+		)
+
+		if (alertExists) {
+			sendUserToast('You can only define one alert per identical set of tags', true)
+			return false
+		}
+
+		editingIndex = -1
+		updateChangesMade()
+
+		stagedNewAlert = false
+		return true
+	}
+
+	function stageDeleteAlert(index) {
+		const alert = alerts[index]
+		removedAlerts = [...removedAlerts, alert]
+		changesMade =
+			removedAlerts.length > 0 || JSON.stringify(alerts) !== JSON.stringify(originalAlerts)
+	}
+
+	function filterTags(event: Event) {
+		const input = (event.target as HTMLInputElement).value
+		filteredTags = workerTags.filter((tag) => tag.toLowerCase().includes(input.toLowerCase()))
+	}
+
+	function addTag(alertIndex, tag) {
+		if (workerTags.includes(tag) && !alerts[alertIndex].tags_to_monitor.includes(tag)) {
+			alerts[alertIndex].tags_to_monitor = [...alerts[alertIndex].tags_to_monitor, tag]
+		}
+		newTag = ''
+		filteredTags = []
+		updateChangesMade()
+	}
+
+	function removeTag(alertIndex, tag) {
+		alerts[alertIndex].tags_to_monitor = alerts[alertIndex].tags_to_monitor.filter((t) => t !== tag)
+		updateChangesMade()
+	}
+
+	async function applyConfig() {
+		if (editingIndex !== -1) {
+			const success = saveAlert(editingIndex)
+			if (!success) return
+		}
+
+		try {
+			await ConfigService.updateConfig({ name: configName, requestBody: { alerts } })
+			sendUserToast('Configuration updated successfully')
+			alerts = alerts.filter((alert) => !removedAlerts.includes(alert))
+			originalAlerts = JSON.parse(JSON.stringify(alerts))
+			removedAlerts = []
+			changesMade = false
+			stagedNewAlert = false
+			editingIndex = -1
+		} catch (error) {
+			console.error('Failed to update config:', error)
+		}
+	}
+
+	async function cancelChanges() {
+		alerts = [...alerts, ...removedAlerts]
+		alerts = JSON.parse(JSON.stringify(originalAlerts))
+		removedAlerts = []
+		editingIndex = -1
+		changesMade = false
+		stagedNewAlert = false
+	}
+
+	function addNewAlert() {
+		// alert already being added
+		if (stagedNewAlert) {
 			return
 		}
 
-		const labels = metrics
-			.map((m) => m.id.slice(12))
-			.filter((v, i, a) => a.indexOf(v) === i)
-			.sort()
-		const labelColors = getColors(labels)
-
-		countData = {
-			datasets: metrics
-				.filter((m) => m.id.startsWith('queue_count_'))
-				.map((m) => {
-					const [color, bgColor] = labelColors[m.id.slice(12)]
-					return {
-						label: m.id.slice(12),
-						backgroundColor: bgColor,
-						borderColor: color,
-						data: fillData(m.values).map((v) => ({ x: v.created_at as any, y: v.value }))
-					}
-				})
+		const newAlert = {
+			name: 'Job Queue Alert',
+			tags_to_monitor: [],
+			jobs_num_threshold: 3,
+			alert_cooldown_seconds: 600,
+			alert_time_threshold_seconds: 30
 		}
 
-		delayData = {
-			datasets: metrics
-				.filter((m) => m.id.startsWith('queue_delay_'))
-				.map((m) => {
-					const [color, bgColor] = labelColors[m.id.slice(12)]
-					return {
-						label: m.id.slice(12),
-						borderColor: color,
-						backgroundColor: bgColor,
-						data: fillData(m.values, 1).map((v) => ({
-							x: v.created_at as any,
-							y: v.value
-						}))
-					}
-				})
-		}
-
-		minDate = new Date(Math.min(...countData.datasets.map((d) => new Date(d.data[0].x).getTime())))
-
-		loading = false
+		alerts = [...alerts, newAlert]
+		editingIndex = alerts.length - 1
+		stagedNewAlert = true
+		updateChangesMade()
+		updateWorkerTags()
 	}
 
-	$: if ($superadmin && isOpen) {
-		loadMetrics()
-	} else {
-		countData = undefined
-		delayData = undefined
+	async function updateWorkerTags() {
+		workerTags = await fetchWorkerTags()
 	}
 
-	let darkMode = false
-
-	$: ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
-	$: ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+	function addAllTags(alertIndex) {
+		alerts[alertIndex].tags_to_monitor = [
+			...new Set([...alerts[alertIndex].tags_to_monitor, ...workerTags])
+		]
+		alerts = [...alerts]
+		updateChangesMade()
+	}
 </script>
 
-<DarkModeObserver bind:darkMode />
-
-<Drawer bind:this={drawer} bind:open={isOpen}>
-	<DrawerContent title="Queue Metrics" on:close={drawer.closeDrawer}>
-		{#if loading}
-			<Skeleton layout={[[20]]} />
-		{:else if noMetrics}
-			<p class="text-secondary">No jobs delayed by more than 3 seconds in the last 14 days</p>
-		{:else}
-			<div class="flex flex-col gap-4">
-				{#if countData}
-					<Line
-						data={countData}
-						options={{
-							animation: false,
-							plugins: {
-								title: {
-									display: true,
-									text: 'Number of delayed jobs per tag (> 3s)'
-								}
-							},
-							scales: {
-								x: {
-									type: 'time',
-									min: minDate.toISOString(),
-									max: new Date().toISOString()
-								},
-								y: {
-									title: {
-										display: true,
-										text: 'count'
-									}
-								}
-							}
-						}}
-					/>
+<Drawer bind:this={drawer} size="800px">
+	<DrawerContent
+		title="Queues"
+		on:close={drawer.closeDrawer}
+		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#queue-metrics"
+	>
+		<Section
+			label="Queue Alert Settings"
+			collapsable={true}
+			tooltip="A critical alert is triggered when the number of jobs in the queue exceeds the set threshold and they have been waiting for at least the specified time. After an alert, no new alerts will be triggered during the cooldown period."
+			eeOnly={true}
+		>
+			{#if $enterpriseLicense}
+				{#if changesMade}
+					<div class="text-red-600 text-xs whitespace-nowrap pb-2">Non applied changes</div>
 				{/if}
-				{#if delayData}
-					<Line
-						data={delayData}
-						options={{
-							animation: false,
-							plugins: {
-								title: {
-									display: true,
-									text: 'Queue delay per tag (> 3s)'
-								},
-								tooltip: {
-									callbacks: {
-										label: function (context) {
-											// @ts-ignore
-											if (context.raw.y === 1) {
-												return context.dataset.label + ': 0'
-											} else {
-												// @ts-ignore
-												return context.dataset.label + ': ' + context.raw.y
-											}
-										}
-									}
-								}
-							},
-							scales: {
-								x: {
-									type: 'time',
-									min: minDate.toISOString(),
-									max: new Date().toISOString()
-								},
+				<div class="flex gap-2 pb-2">
+					<Button color="blue" size="xs" on:click={applyConfig} disabled={!changesMade}>
+						<SaveIcon size={16} /> Apply Config
+					</Button>
+					<Button color="light" size="xs" on:click={cancelChanges} disabled={!changesMade}>
+						Cancel
+					</Button>
+				</div>
 
-								y: {
-									type: 'logarithmic',
-									title: {
-										display: true,
-										text: 'delay (s)'
-									},
-									ticks: {
-										callback: (value, _) => (value === 1 ? '0' : value)
-									}
-								}
-							}
-						}}
-					/>
+				{#if alerts.length > 0}
+					<div>
+						<form on:submit|preventDefault>
+							<table class="w-full border-collapse mb-2 text-xs table-auto">
+								<thead class="bg-gray-200 dark:bg-slate-600 text-left text-xs">
+									<tr>
+										<th class="p-2 w-full">
+											Queue Tags to Monitor
+											<Tooltip markdownTooltip="Queue tags to monitor for this alert." />
+										</th>
+										<th class="p-2 min-w-[65px]">
+											Jobs
+											<Tooltip
+												markdownTooltip="Number of jobs threshold: An alert will be triggered if the number of jobs in the queue exceeds this threshold and they have been waiting for at least the specified time threshold."
+											/>
+										</th>
+										<th class="p-2 min-w-[115px]">
+											Cooldown (s)
+											<Tooltip
+												markdownTooltip="Cooldown period in seconds: This defines the time interval after an alert is triggered during which no additional alerts will be sent."
+											/>
+										</th>
+										<th class="p-2 min-w-[105px]">
+											Time (s)
+											<Tooltip
+												markdownTooltip="Time threshold in seconds: An alert will be triggered if the number of jobs in the queue exceeds the job threshold and they have remained in the queue for at least this duration."
+											/>
+										</th>
+										<th class="p-2 min-w-[100px]"> Actions </th>
+									</tr>
+								</thead>
+								<tbody on:input={handleInput}>
+									{#each alerts as alert, index}
+										<tr
+											class={removedAlerts.includes(alert)
+												? 'bg-red-100 dark:bg-red-900 pointer-events-none opacity-50'
+												: ''}
+										>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<div class="flex flex-wrap gap-1 mb-2">
+														{#each alert.tags_to_monitor as tag}
+															<span
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
+															>
+																{tag}
+																<button
+																	on:click={() => removeTag(index, tag)}
+																	aria-label="Remove Tag"
+																	class="ml-1 text-xs">x</button
+																>
+															</span>
+														{/each}
+													</div>
+													<div class="flex items-center">
+														<input
+															type="text"
+															bind:value={newTag}
+															placeholder="{workerTags.length === alert.tags_to_monitor.length ? 'All tags already added' : 'Add tag from dropdown' }"
+															on:input={(e) => filterTags(e)}
+															disabled={workerTags.length === alert.tags_to_monitor.length}
+															class="p-1 flex-grow mr-1"
+														/>
+														<button on:click={() => addTag(index, newTag)} aria-label="Add Tag">
+															<PlusCircle size={16} />
+														</button>
+													</div>
+													<!-- Add the new "Add All Tags" button here -->
+													<button
+														on:click={() => addAllTags(index)}
+														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded px-2 py-1 mt-1"
+														disabled={workerTags.length === alert.tags_to_monitor.length}
+													>
+														Add All Tags
+													</button>
+													{#if filteredTags.length > 0}
+														<ul
+															class="autocomplete-list border max-h-36 overflow-y-auto absolute z-50"
+														>
+															{#each filteredTags as tag}
+																{#if !alert.tags_to_monitor.includes(tag)}
+																<li>
+																	<button
+																		type="button"
+																		class="w-full text-left p-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+																		on:click={() => addTag(index, tag)}
+																	>
+																		{tag}
+																	</button>
+																</li>
+																{/if}
+															{/each}
+														</ul>
+													{/if}
+												{:else}
+													<div class="flex flex-wrap gap-1">
+														{#each alert.tags_to_monitor as tag}
+															<span
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
+																>{tag}</span
+															>
+														{/each}
+													</div>
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input
+														type="number"
+														bind:value={alert.jobs_num_threshold}
+														class="w-full p-1"
+													/>
+												{:else}
+													{alert.jobs_num_threshold}
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input
+														type="number"
+														bind:value={alert.alert_cooldown_seconds}
+														class="w-full p-1"
+													/>
+												{:else}
+													{alert.alert_cooldown_seconds}
+												{/if}
+											</td>
+											<td class="border p-2">
+												{#if editingIndex === index}
+													<input
+														type="number"
+														bind:value={alert.alert_time_threshold_seconds}
+														class="w-full p-1"
+													/>
+												{:else}
+													{alert.alert_time_threshold_seconds}
+												{/if}
+											</td>
+											<td class="border p-2">
+												<div class="flex gap-3 justify-center items-center">
+													{#if editingIndex === index}
+														<button on:click={() => saveAlert(index)} aria-label="Save">
+															<Check size={16} />
+														</button>
+													{:else}
+														<button on:click={() => startEditing(index)} aria-label="Edit">
+															<Pencil size={16} />
+														</button>
+														<button on:click={() => stageDeleteAlert(index)} aria-label="Delete">
+															<Trash size={16} />
+														</button>
+													{/if}
+												</div>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</form>
+					</div>
 				{/if}
-				<Alert title="Info">
-					Only tags for jobs that have been delayed by more than 3 seconds in the last 14 days are
-					included in the graph.
-				</Alert>
-			</div>
-		{/if}
+
+				<!-- Button to Add New Alert at the Bottom of the Table -->
+				<div class="flex">
+					<Button color="blue" size="xs" on:click={addNewAlert}>
+						<PlusCircle size={16} />
+						Add New Alert
+					</Button>
+				</div>
+			{:else}
+				<p class="text-sm">
+					Queue Metric Alerts are an enterprise feature allowing you to monitor queues for waiting
+					jobs. Please upgrade to access this functionality.
+					<a
+						href="https://www.windmill.dev/docs/misc/plans_details"
+						target="_blank"
+						class="text-blue-500 underline">Learn more about our plans.</a
+					>
+				</p>
+			{/if}
+		</Section>
+		<h1 class="pt-4">Queue Metrics</h1>
+		<div class="p-8">
+			<QueueMetricsDrawerInner />
+		</div>
 	</DrawerContent>
 </Drawer>

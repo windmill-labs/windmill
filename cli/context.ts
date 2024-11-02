@@ -1,5 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, GlobalUserInfo, log, setClient, UserService } from "./deps.ts";
+import { colors, log, setClient } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+import { GlobalUserInfo } from "./gen/types.gen.ts";
+
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
 import { getHeaders } from "./utils.ts";
@@ -52,6 +55,23 @@ async function tryResolveWorkspace(
 export async function resolveWorkspace(
   opts: GlobalOptions
 ): Promise<Workspace> {
+  if (opts.baseUrl) {
+    if (opts.workspace && opts.token) {
+      return {
+        remote: new URL(opts.baseUrl).toString(), // add trailing slash if not present
+        workspaceId: opts.workspace,
+        name: opts.workspace,
+        token: opts.token,
+      };
+    } else {
+      log.info(
+        colors.red(
+          "If you specify a base URL with --base-url, you must also specify a workspace (--workspace) and token (--token)."
+        )
+      );
+      return Deno.exit(-1);
+    }
+  }
   const res = await tryResolveWorkspace(opts);
   if (res.isError) {
     log.info(colors.red.bold(res.error));
@@ -74,7 +94,7 @@ export async function requireLogin(
   setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
 
   try {
-    return await UserService.globalWhoami();
+    return await wmill.globalWhoami();
   } catch {
     log.info(
       "! Could not reach API given existing credentials. Attempting to reauth..."
@@ -91,12 +111,12 @@ export async function requireLogin(
       token,
       workspace.remote.substring(0, workspace.remote.length - 1)
     );
-    return await UserService.globalWhoami();
+    return await wmill.globalWhoami();
   }
 }
 
 export async function fetchVersion(baseUrl: string): Promise<string> {
-  const requestHeaders: HeadersInit = new Headers();
+  const requestHeaders = new Headers();
 
   const extraHeaders = getHeaders();
   if (extraHeaders) {

@@ -31,6 +31,7 @@
 	export let isGoogleSignin = false
 	export let disabled = false
 	export let manual = true
+	export let express = false
 
 	let isValid = true
 
@@ -53,17 +54,23 @@
 	let args: any = {}
 	let renderDescription = true
 
-	$: linkedSecretCandidates = apiTokenApps[resourceType]?.linkedSecret
-		? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
-		: args != undefined
-		? Object.keys(args).filter((x) =>
-				['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
-		  )
-		: undefined
+	function computeCandidates(resourceType: string, argsKeys: string[]) {
+		return apiTokenApps[resourceType]?.linkedSecret
+			? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
+			: argsKeys.filter((x) =>
+					['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
+			  )
+	}
 
-	$: linkedSecret =
-		forceSecretValue(resourceType) ??
-		linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
+	let linkedSecret: string | undefined = undefined
+	let linkedSecretCandidates: string[] | undefined = undefined
+	function computeLinkedSecret(resourceType: string, argsKeys: string[]) {
+		linkedSecretCandidates = computeCandidates(resourceType, argsKeys)
+		return (
+			forceSecretValue(resourceType) ??
+			linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
+		)
+	}
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
@@ -75,10 +82,7 @@
 
 	let pathError = ''
 
-	let expressOAuthSetup = false
-
-	export async function open(rt?: string, express?: boolean) {
-		expressOAuthSetup = express ?? false
+	export async function open(rt?: string) {
 		if (!rt) {
 			loadResourceTypes()
 		}
@@ -89,12 +93,12 @@
 		valueToken = undefined
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
-		if (manual && expressOAuthSetup) {
+		if (manual && express) {
 			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
 			return
 		}
 		if (rt) {
-			if (!manual && expressOAuthSetup) {
+			if (!manual && express) {
 				await getScopesAndParams()
 				step = 2
 			}
@@ -165,7 +169,6 @@
 	}
 
 	function popupListener(event) {
-		console.log('popupListener', event.data, event.origin, window.location.origin)
 		let data = event.data
 		if (event.origin == null || event.origin !== window.location.origin) {
 			return
@@ -181,7 +184,7 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			step = 4
-			if (expressOAuthSetup) {
+			if (express) {
 				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
 				next()
 			}
@@ -199,9 +202,14 @@
 			workspace: $workspaceStore!,
 			path: resourceType
 		})
+		const newArgsKeys = Object.keys(resourceTypeInfo?.schema?.['properties'] ?? {}) ?? []
+		if (!linkedSecret) {
+			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys)
+		}
 	}
 	export async function next() {
 		if (step == 1) {
+			linkedSecret = undefined
 			if (manual) {
 				getResourceTypeInfo()
 				args = {}
@@ -318,253 +326,254 @@
 	let editScopes = false
 </script>
 
-<SearchItems
-	{filter}
-	items={connects
-		? connects
-				.sort((a, b) => a.localeCompare(b))
-				.map((key) => ({
-					key
-				}))
-		: undefined}
-	bind:filteredItems={filteredConnects}
-	f={(x) => x.key}
-/>
-<SearchItems
-	{filter}
-	items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
-	bind:filteredItems={filteredConnectsManual}
-	f={(x) => x[0]}
-/>
-
-{#if step == 1}
-	<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
-		<input
-			type="text"
-			placeholder="Search resource type"
-			bind:value={filter}
-			class="text-2xl grow"
-		/>
-	</div>
-
-	<h2 class="mb-4">OAuth APIs</h2>
-	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-		{#if filteredConnects}
-			{#each filteredConnects as { key }}
-				<Button
-					size="sm"
-					variant="border"
-					color={key === resourceType ? 'blue' : 'light'}
-					btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-					on:click={() => {
-						manual = false
-						resourceType = key
-						next()
-					}}
-				>
-					<IconedResourceType name={key} after={true} width="20px" height="20px" />
-				</Button>
-			{/each}
-		{:else}
-			{#each new Array(3) as _}
-				<Skeleton layout={[[2]]} />
-			{/each}
-		{/if}
-	</div>
-	{#if connects && connects.length == 0}
-		<div class="text-secondary text-sm w-full"
-			>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
-			types with the hub, then add oauth configuration. See <a
-				href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
-			>
-		</div>
-	{/if}
-
-	<h2 class="mt-8 mb-4">Others</h2>
-
-	{#if connectsManual && connectsManual?.length < 10}
-		<div class="text-secondary p-2">
-			Resource Types have not been synced with the hub. Go to the admins workspace to sync them (and
-			add a schedule to do daily):
-			<p class="mt-4"
-				>1. Go to the "admins" workspaces:
-				<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
-			</p>
-			<p class="mt-4">
-				2: Run the synchronization script:
-				<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
-			</p>
-		</div>
-	{/if}
-
-	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-		{#if filteredConnectsManual}
-			{#each filteredConnectsManual as [key, _]}
-				{#if nativeLanguagesCategory.includes(key)}
-					<Button
-						size="sm"
-						variant="border"
-						color={key === resourceType ? 'blue' : 'light'}
-						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-						on:click={() => {
-							manual = true
-							resourceType = key
-							next()
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/if}
-			{/each}
-		{/if}
-	</div>
-
-	<div class="mt-8 mb-4" />
-	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-		{#if filteredConnectsManual}
-			{#each filteredConnectsManual as [key, _]}
-				{#if !nativeLanguagesCategory.includes(key)}
-					<!-- Exclude specific items -->
-					<Button
-						size="sm"
-						variant="border"
-						color={key === resourceType ? 'blue' : 'light'}
-						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-						on:click={() => {
-							manual = true
-							resourceType = key
-							next()
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/if}
-			{/each}
-		{:else}
-			{#each new Array(9) as _}
-				<Skeleton layout={[[2]]} />
-			{/each}
-		{/if}
-	</div>
-{:else if step == 2 && manual}
-	<Path
-		bind:error={pathError}
-		bind:path
-		initialPath=""
-		namePlaceholder={resourceType}
-		kind="resource"
+{#if !express}
+	<SearchItems
+		{filter}
+		items={connects
+			? connects
+					.sort((a, b) => a.localeCompare(b))
+					.map((key) => ({
+						key
+					}))
+			: undefined}
+		bind:filteredItems={filteredConnects}
+		f={(x) => x.key}
 	/>
-
-	{#if apiTokenApps[resourceType]}
-		<h2 class="mt-4 mb-2">Instructions</h2>
-		<div class="pl-10">
-			<ol class="list-decimal">
-				{#each apiTokenApps[resourceType].instructions as step}
-					<li>
-						{@html step}
-					</li>
-				{/each}
-			</ol>
-		</div>
-		{#if apiTokenApps[resourceType].img}
-			<div class="mt-4 w-full overflow-hidden">
-				<img class="m-auto max-h-60" alt="connect" src={base + apiTokenApps[resourceType].img} />
-			</div>
-		{/if}
-	{:else if !emptyString(resourceTypeInfo?.description)}
-		<h4 class="mt-8 mb-2">{resourceTypeInfo?.name} description</h4>
-		<div class="text-sm">
-			<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-		</div>
-	{/if}
-	{#if resourceType == 'postgresql' || resourceType == 'mysql' || resourceType == 'mongodb'}
-		<WhitelistIp />
-	{/if}
-
-	<h4 class="mt-8 inline-flex items-center gap-4"
-		>Resource description <Required required={false} />
-		<div class="flex gap-1 items-center">
-			<Toggle size="xs" bind:checked={renderDescription} />
-			<Pen size={14} />
-		</div>
-	</h4>
-	{#if renderDescription}
-		<div>
-			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
-			<textarea use:autosize bind:value={description} placeholder={'Resource description'} />
-		</div>
-	{:else if description == undefined || description == ''}
-		<div class="text-sm text-tertiary">No description provided</div>
-	{:else}
-		<div class="mt-2" />
-		<GfmMarkdown md={description} />
-	{/if}
-	<div class="mt-12">
-		{#key resourceTypeInfo}
-			<ApiConnectForm
-				{linkedSecret}
-				{linkedSecretCandidates}
-				{resourceType}
-				{resourceTypeInfo}
-				bind:args
-				bind:isValid
+	<SearchItems
+		{filter}
+		items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
+		bind:filteredItems={filteredConnectsManual}
+		f={(x) => x[0]}
+	/>
+	{#if step == 1}
+		<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
+			<input
+				type="text"
+				placeholder="Search resource type"
+				bind:value={filter}
+				class="text-2xl grow"
 			/>
-		{/key}
-	</div>
-{:else if step == 2 && !manual}
-	{#if manual == false && resourceType != ''}
-		<h1 class="mb-4">{resourceType}</h1>
-		<div class="my-4 text-secondary"
-			>Click connect to create a resource backed by an oauth connection, whose token is fetched from
-			the external services and refreshed automatically if needed before expiration (using its
-			refresh token)</div
-		>
-		<h4 class="mb-2">Description</h4>
-		<div class="text-sm mb-8">
-			<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 		</div>
-		<h3 class="mb-4 flex gap-4"
-			>Scopes <button
-				on:click={() => {
-					editScopes = !editScopes
-				}}><Pen size={14} /></button
-			></h3
-		>
 
-		{#if editScopes}
-			<OauthScopes bind:scopes />
-		{:else}
-			<div class="flex flex-col gap-1">
-				{#each scopes as scope}
-					<div class="py-0.5 pl-2 text-xs">- {scope}</div>
+		<h2 class="mb-4">OAuth APIs</h2>
+		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+			{#if filteredConnects}
+				{#each filteredConnects as { key }}
+					<Button
+						size="sm"
+						variant="border"
+						color={key === resourceType ? 'blue' : 'light'}
+						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+						on:click={() => {
+							manual = false
+							resourceType = key
+							next()
+						}}
+					>
+						<IconedResourceType name={key} after={true} width="20px" height="20px" />
+					</Button>
 				{/each}
+			{:else}
+				{#each new Array(3) as _}
+					<Skeleton layout={[[2]]} />
+				{/each}
+			{/if}
+		</div>
+		{#if connects && connects.length == 0}
+			<div class="text-secondary text-sm w-full"
+				>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
+				types with the hub, then add oauth configuration. See <a
+					href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
+				>
 			</div>
 		{/if}
-	{/if}
-{:else if step == 3 && !manual}
-	Finish connection in popup window
-{:else}
-	<Path
-		initialPath=""
-		namePlaceholder={resourceType}
-		bind:error={pathError}
-		bind:path
-		kind="resource"
-	/>
-	{#if apiTokenApps[resourceType] || !manual}
-		<ul class="mt-10">
-			<li>
-				1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
-				<span class="font-bold">{truncateRev(value, 5, '*****')}</span>
-				will be stored a
-				<span class="font-mono whitespace-nowrap">{path}</span>.
-			</li>
-			<li class="mt-4">
-				2. The resource containing that token will be stored at the same path <span
-					class="font-mono whitespace-nowrap">{path}</span
-				>. The Variable and Resource will be "linked together", they will be deleted and renamed
-				together.
-			</li></ul
-		>
+
+		<h2 class="mt-8 mb-4">Others</h2>
+
+		{#if connectsManual && connectsManual?.length < 10}
+			<div class="text-secondary p-2">
+				Resource Types have not been synced with the hub. Go to the admins workspace to sync them
+				(and add a schedule to do daily):
+				<p class="mt-4"
+					>1. Go to the "admins" workspaces:
+					<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
+				</p>
+				<p class="mt-4">
+					2: Run the synchronization script:
+					<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
+				</p>
+			</div>
+		{/if}
+
+		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+			{#if filteredConnectsManual}
+				{#each filteredConnectsManual as [key, _]}
+					{#if nativeLanguagesCategory.includes(key)}
+						<Button
+							size="sm"
+							variant="border"
+							color={key === resourceType ? 'blue' : 'light'}
+							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+							on:click={() => {
+								manual = true
+								resourceType = key
+								next()
+							}}
+						>
+							<IconedResourceType name={key} after={true} width="20px" height="20px" />
+						</Button>
+					{/if}
+				{/each}
+			{/if}
+		</div>
+
+		<div class="mt-8 mb-4" />
+		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+			{#if filteredConnectsManual}
+				{#each filteredConnectsManual as [key, _]}
+					{#if !nativeLanguagesCategory.includes(key)}
+						<!-- Exclude specific items -->
+						<Button
+							size="sm"
+							variant="border"
+							color={key === resourceType ? 'blue' : 'light'}
+							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+							on:click={() => {
+								manual = true
+								resourceType = key
+								next()
+							}}
+						>
+							<IconedResourceType name={key} after={true} width="20px" height="20px" />
+						</Button>
+					{/if}
+				{/each}
+			{:else}
+				{#each new Array(9) as _}
+					<Skeleton layout={[[2]]} />
+				{/each}
+			{/if}
+		</div>
+	{:else if step == 2 && manual}
+		<Path
+			bind:error={pathError}
+			bind:path
+			initialPath=""
+			namePlaceholder={resourceType}
+			kind="resource"
+		/>
+
+		{#if apiTokenApps[resourceType]}
+			<h2 class="mt-4 mb-2">Instructions</h2>
+			<div class="pl-10">
+				<ol class="list-decimal">
+					{#each apiTokenApps[resourceType].instructions as step}
+						<li>
+							{@html step}
+						</li>
+					{/each}
+				</ol>
+			</div>
+			{#if apiTokenApps[resourceType].img}
+				<div class="mt-4 w-full overflow-hidden">
+					<img class="m-auto max-h-60" alt="connect" src={base + apiTokenApps[resourceType].img} />
+				</div>
+			{/if}
+		{:else if !emptyString(resourceTypeInfo?.description)}
+			<h4 class="mt-8 mb-2">{resourceTypeInfo?.name} description</h4>
+			<div class="text-sm">
+				<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
+			</div>
+		{/if}
+		{#if resourceType == 'postgresql' || resourceType == 'mysql' || resourceType == 'mongodb'}
+			<WhitelistIp />
+		{/if}
+
+		<h4 class="mt-8 inline-flex items-center gap-4"
+			>Resource description <Required required={false} />
+			<div class="flex gap-1 items-center">
+				<Toggle size="xs" bind:checked={renderDescription} />
+				<Pen size={14} />
+			</div>
+		</h4>
+		{#if renderDescription}
+			<div>
+				<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
+				<textarea use:autosize bind:value={description} placeholder={'Resource description'} />
+			</div>
+		{:else if description == undefined || description == ''}
+			<div class="text-sm text-tertiary">No description provided</div>
+		{:else}
+			<div class="mt-2" />
+			<GfmMarkdown md={description} />
+		{/if}
+		<div class="mt-12">
+			{#key resourceTypeInfo}
+				<ApiConnectForm
+					bind:linkedSecret
+					{linkedSecretCandidates}
+					{resourceType}
+					{resourceTypeInfo}
+					bind:args
+					bind:isValid
+				/>
+			{/key}
+		</div>
+	{:else if step == 2 && !manual}
+		{#if manual == false && resourceType != ''}
+			<h1 class="mb-4">{resourceType}</h1>
+			<div class="my-4 text-secondary"
+				>Click connect to create a resource backed by an oauth connection, whose token is fetched
+				from the external services and refreshed automatically if needed before expiration (using
+				its refresh token)</div
+			>
+			<h4 class="mb-2">Description</h4>
+			<div class="text-sm mb-8">
+				<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
+			</div>
+			<h3 class="mb-4 flex gap-4"
+				>Scopes <button
+					on:click={() => {
+						editScopes = !editScopes
+					}}><Pen size={14} /></button
+				></h3
+			>
+
+			{#if editScopes}
+				<OauthScopes bind:scopes />
+			{:else}
+				<div class="flex flex-col gap-1">
+					{#each scopes as scope}
+						<div class="py-0.5 pl-2 text-xs">- {scope}</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+	{:else if step == 3 && !manual && !express}
+		Finish connection in popup window
+	{:else}
+		<Path
+			initialPath=""
+			namePlaceholder={resourceType}
+			bind:error={pathError}
+			bind:path
+			kind="resource"
+		/>
+		{#if apiTokenApps[resourceType] || !manual}
+			<ul class="mt-10">
+				<li>
+					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
+					<span class="font-bold">{truncateRev(value, 5, '*****')}</span>
+					will be stored a
+					<span class="font-mono whitespace-nowrap">{path}</span>.
+				</li>
+				<li class="mt-4">
+					2. The resource containing that token will be stored at the same path <span
+						class="font-mono whitespace-nowrap">{path}</span
+					>. The Variable and Resource will be "linked together", they will be deleted and renamed
+					together.
+				</li></ul
+			>
+		{/if}
 	{/if}
 {/if}

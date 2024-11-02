@@ -3,6 +3,7 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  MetricsService,
   OidcService,
   UserService,
 } from "./index";
@@ -134,7 +135,7 @@ export async function runFlow(
     console.info(`running \`${path}\` synchronously with args:`, args);
   }
 
-  const jobId = await runFlowAsync(path, args);
+  const jobId = await runFlowAsync(path, args, null, false);
   return await waitJob(jobId, verbose);
 }
 
@@ -272,7 +273,11 @@ export async function runScriptAsync(
 export async function runFlowAsync(
   path: string | null,
   args: Record<string, any> | null,
-  scheduledInSeconds: number | null = null
+  scheduledInSeconds: number | null = null,
+  // can only be set to false if this the job will be fully await and not concurrent with any other job
+  // as otherwise the child flow and its own child will store their state in the parent job which will
+  // lead to incorrectness and failures
+  doNotTrackInParent: boolean = true
 ): Promise<string> {
   // Create a script job and return its job id.
 
@@ -283,14 +288,15 @@ export async function runFlowAsync(
     params["scheduled_in_secs"] = scheduledInSeconds;
   }
 
-  let parentJobId = getEnv("WM_JOB_ID");
-  if (parentJobId !== undefined) {
-    params["parent_job"] = parentJobId;
-  }
-
-  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
-  if (rootJobId != undefined && rootJobId != "") {
-    params["root_job"] = rootJobId;
+  if (!doNotTrackInParent) {
+    let parentJobId = getEnv("WM_JOB_ID");
+    if (parentJobId !== undefined) {
+      params["parent_job"] = parentJobId;
+    }
+    let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+    if (rootJobId != undefined && rootJobId != "") {
+      params["root_job"] = rootJobId;
+    }
   }
 
   let endpoint: string;
@@ -379,6 +385,52 @@ export async function setInternalState(state: any): Promise<void> {
  */
 export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
+}
+
+/**
+ * Set the progress
+ * Progress cannot go back and limited to 0% to 99% range
+ * @param percent Progress to set in %
+ * @param jobId? Job to set progress for
+ */
+export async function setProgress(percent: number, jobId?: any): Promise<void> {
+  const workspace = getWorkspace();
+  let flowId = getEnv("WM_FLOW_JOB_ID"); 
+
+  // If jobId specified we need to find if there is a parent/flow
+  if (jobId) {
+    const job = await JobService.getJob({
+      id: jobId ?? "NO_JOB_ID",
+      workspace,
+      noLogs: true
+    });    
+
+    // Could be actual flowId or undefined
+    flowId = job.parent_job;
+  }
+
+  await MetricsService.setJobProgress({
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace,
+    requestBody: {
+      // In case user inputs float, it should be converted to int
+      percent: Math.floor(percent),
+      flow_job_id: (flowId == "") ? undefined : flowId,
+    }
+  });
+}
+
+/**
+ * Get the progress
+ * @param jobId? Job to get progress from
+ * @returns Optional clamped between 0 and 100 progress value 
+ */
+export async function getProgress(jobId?: any): Promise<number | null> {
+  // TODO: Delete or set to 100 completed job metrics
+  return await MetricsService.getJobProgress({
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace: getWorkspace(),
+  }); 
 }
 
 /**

@@ -11,10 +11,14 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Script } from './gen'
+import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
+
+export function isJobCancelable(j: Job): boolean {
+	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
@@ -468,7 +472,7 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 }
 
 export function pluralize(quantity: number, word: string, customPlural?: string) {
-	if (quantity <= 1) {
+	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
 		return `${quantity} ${customPlural}}`
@@ -720,7 +724,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -939,4 +943,10 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 		type: 'object',
 		order: Object.keys(properties).filter((k) => k !== 'label')
 	}
+}
+
+export function validateFileExtension(ext: string) {
+	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
+	return validExtensionRegex.test(ext)
+
 }

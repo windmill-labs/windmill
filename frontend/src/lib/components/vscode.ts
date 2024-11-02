@@ -1,20 +1,32 @@
-import { initServices } from 'monaco-languageclient'
-import { LogLevel } from 'vscode/services'
+import { initServices } from 'monaco-languageclient/vscode/services'
+// import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override'
+// import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
+import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
+import '@codingame/monaco-vscode-standalone-typescript-language-features'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+
 export let isInitialized = false
 export let isInitializing = false
 
-export async function initializeVscode() {
-	if (!isInitialized) {
+export async function initializeVscode(caller?: string) {
+	if (!isInitialized && !isInitializing) {
+		console.log(`Initializing vscode-api from ${caller ?? 'unknown'}`)
 		isInitializing = true
 
-		isInitialized = true
 		try {
 			// init vscode-api
 			await initServices({
-				debugLogging: true,
-				logLevel: LogLevel.Info
+				serviceConfig: {
+					userServices: {
+						// ...getThemeServiceOverride(),
+						// ...getTextmateServiceOverride()
+						...getMonarchServiceOverride()
+					},
+					debugLogging: true,
+					enableExtHostWorker: false
+				}
 			})
+			isInitialized = true
 			meditor.defineTheme('nord', {
 				base: 'vs-dark',
 				inherit: true,
@@ -125,11 +137,13 @@ export async function initializeVscode() {
 				meditor.setTheme('myTheme')
 			}
 		} catch (e) {
+			console.error('Failed to initialize monaco services', e)
 		} finally {
+			isInitialized = true
 			isInitializing = false
 		}
 	} else {
-		while (isInitializing) {
+		while (isInitializing && !isInitialized) {
 			console.log('Waiting for initialization of monaco services')
 			await new Promise((resolve) => setTimeout(resolve, 100))
 		}

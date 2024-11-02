@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
+	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { push } from '$lib/history'
-	import { dfs, expandGriditem, findGridItem } from './appUtils'
+	import {
+		dfs,
+		expandGriditem,
+		findGridItem,
+		findGridItemParentGrid,
+		insertNewGridItem,
+		isContainer,
+		subGridIndexKey
+	} from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
@@ -26,14 +34,14 @@
 	const {
 		selectedComponent,
 		app,
-		mode,
 		connectingInput,
 		summary,
 		focusedGrid,
 		parentWidth,
 		breakpoint,
 		allIdsInPath,
-		bgRuns
+		bgRuns,
+		worldStore
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, scale, componentActive } = getContext<AppEditorContext>('AppEditorContext')
@@ -61,6 +69,53 @@
 			gridItem[b].fullHeight = !gridItem[b].fullHeight
 		}
 		$app = $app
+	}
+
+	export function moveComponentBetweenSubgrids(
+		componentId: string,
+		parentComponentId: string,
+		subGridIndex: number,
+		position?: { x: number; y: number }
+	) {
+		// Find the component in the source subgrid
+		const component = findGridItem($app, componentId)
+
+		if (!component) {
+			return
+		}
+
+		let parentGrid = findGridItemParentGrid($app, component.id)
+		if (parentGrid) {
+			$app.subgrids &&
+				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+					(item) => item.id !== component?.id
+				))
+		} else {
+			$app.grid = $app.grid.filter((item) => item.id !== component?.id)
+		}
+
+		const gridItem = component
+		insertNewGridItem(
+			$app,
+			(id) => ({ ...gridItem.data, id }),
+			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
+			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
+			component.id,
+			position,
+			undefined,
+			undefined,
+			undefined,
+			true
+		)
+
+		// Update the app state
+		$app = { ...$app }
+
+		$selectedComponent = [parentComponentId]
+		$focusedGrid = {
+			parentComponentId,
+			subGridIndex
+		}
 	}
 </script>
 
@@ -126,14 +181,7 @@
 		}}
 		bind:clientWidth={$parentWidth}
 	>
-		<div
-			class={twMerge(
-				!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
-				'subgrid  overflow-visible  z-100',
-				'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1 '
-			)}
-			style={`transform: scale(${$scale / 100});`}
-		>
+		<div class="subgrid overflow-visible z-100" style={`transform: scale(${$scale / 100});`}>
 			<Grid
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
@@ -142,9 +190,37 @@
 					push(history, $app)
 					$app.grid = e.detail
 				}}
+				root
 				let:dataItem
 				let:hidden
+				let:overlapped
+				let:moveMode
+				let:componentDraggedId
 				cols={columnConfiguration}
+				on:dropped={(e) => {
+					const { id, overlapped, x, y } = e.detail
+
+					const overlappedComponent = findGridItem($app, overlapped)
+
+					if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
+						return
+					}
+
+					if (!overlapped) {
+						return
+					}
+
+					if (id === overlapped) {
+						return
+					}
+
+					moveComponentBetweenSubgrids(
+						id,
+						overlapped,
+						subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+						{ x, y }
+					)
+				}}
 			>
 				<ComponentWrapper
 					id={dataItem.id}
@@ -184,6 +260,9 @@
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
+							{overlapped}
+							{moveMode}
+							{componentDraggedId}
 						/>
 					</GridEditorMenu>
 				</ComponentWrapper>
@@ -201,10 +280,6 @@
 {/if}
 
 <style global>
-	.svlt-grid-shadow {
-		/* Back shadow */
-		background: #93c4fdd0 !important;
-	}
 	.svlt-grid-active {
 		opacity: 1 !important;
 	}

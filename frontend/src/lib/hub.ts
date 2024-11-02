@@ -62,6 +62,7 @@ type HubPaths = {
 	gitSyncTest: string
 	slackErrorHandler: string
 	slackRecoveryHandler: string
+	slackSuccessHandler: string
 	slackReport: string
 	discordReport: string
 	smtpReport: string

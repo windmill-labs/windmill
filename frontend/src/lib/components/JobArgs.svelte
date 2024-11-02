@@ -12,6 +12,7 @@
 	import Row from './table/Row.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { isWindmillTooBigObject } from './job_args'
 
 	export let id: string | undefined = undefined
 	export let args: any
@@ -52,7 +53,9 @@ ${Object.entries(args)
 	}
 </script>
 
-{#if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
+{#if args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'PREPROCESSOR_ARGS_ARE_DISCARDED'}
+	Preprocessor args are discarded
+{:else if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
 	The args are too big in size to be able to fetch alongside job. Please <a
 		href="/api/w/{workspace}/jobs_u/get_args/{id}"
 		target="_blank">download the JSON file to view them</a
@@ -61,7 +64,7 @@ ${Object.entries(args)
 	<div class="relative">
 		<DataTable size="sm">
 			<Head>
-				<tr>
+				<tr class="w-full">
 					<Cell head first>{argLabel ?? 'Arg'}</Cell>
 					<Cell head last>Value</Cell>
 				</tr>
@@ -77,7 +80,7 @@ ${Object.entries(args)
 				</svelte:fragment>
 			</Head>
 
-			<tbody class="divide-y">
+			<tbody class="divide-y w-full">
 				{#if args && Object.keys(args).length > 0}
 					{#each Object.entries(args).sort((a, b) => a[0].localeCompare(b[0])) as [arg, value]}
 						<Row>
@@ -135,7 +138,7 @@ ${Object.entries(args)
 				Copy to clipboard
 			</Button>
 		</svelte:fragment>
-		{#if jsonStr.length > 100000 || (id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG')}
+		{#if jsonStr.length > 100000 || (id && workspace && args && isWindmillTooBigObject(args))}
 			<div class="text-sm mb-2 text-tertiary">
 				<a
 					download="windmill-args.json"

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 
 	import { writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
@@ -32,20 +32,28 @@
 	import { encodeState } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
-
+	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
+	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
+	import { Alert, Drawer } from '../common'
+	import Button from '../common/button/Button.svelte'
+	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
+	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
+	export let preprocessorModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let maxHeight: number | undefined = undefined
 	export let notSelectable = false
 	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
+	export let path: string | undefined = undefined
+	export let newFlow: boolean = false
 
 	export let insertable = false
-	export let moving: string | undefined = undefined
 	export let scroll = false
+	export let moving: string | undefined = undefined
 
 	// Download: display a top level button to open the graph in a new tab
 	export let download = false
@@ -54,6 +62,7 @@
 	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
 		undefined
 	)
+	export let triggerNode = false
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -126,9 +135,12 @@
 			disableAi,
 			insertable,
 			flowModuleStates,
-			selectedId: $selectedId
+			selectedId: $selectedId,
+			path,
+			newFlow
 		},
 		failureModule,
+		preprocessorModule,
 		{
 			deleteBranch: (detail, label) => {
 				$selectedId = label
@@ -145,6 +157,9 @@
 					}
 					dispatch('select', modId)
 				}
+			},
+			changeId: (detail) => {
+				dispatch('changeId', detail)
 			},
 			delete: (detail, label) => {
 				$selectedId = label
@@ -164,7 +179,12 @@
 		success,
 		$useDataflow,
 		$selectedId,
-		moving
+		moving,
+		triggerNode
+			? {
+					path
+			  }
+			: undefined
 	)
 
 	const nodes = writable<Node[]>([])
@@ -173,6 +193,10 @@
 	let height = 0
 
 	function updateStores() {
+		if (graph.error) {
+			return
+		}
+
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
 
@@ -192,14 +216,16 @@
 		whileLoopStart: ForLoopStartNode,
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
-		branchOneEnd: BranchAllEndNode,
-		noBranch: NoBranchNode
+		branchOneEnd: BranchOneEndNode,
+		noBranch: NoBranchNode,
+		trigger: TriggersNode
 	} as any
 
 	const edgeTypes = {
 		edge: BaseEdge,
 		empty: EmptyEdge,
-		dataflowedge: DataflowEdge
+		dataflowedge: DataflowEdge,
+		hiddenedge: HiddenBaseEdge
 	} as any
 
 	const proOptions = { hideAttribution: true }
@@ -209,11 +235,13 @@
 		!$selectedId.startsWith('constants') &&
 		!$selectedId.startsWith('settings') &&
 		$selectedId !== 'failure' &&
-		$selectedId !== 'Result'
+		$selectedId !== 'preprocessor' &&
+		$selectedId !== 'Result' &&
+		$selectedId !== 'triggers'
 
 	const viewport = writable<Viewport>({
 		x: 0,
-		y: 5,
+		y: 35,
 		zoom: 1
 	})
 
@@ -226,68 +254,100 @@
 	}
 
 	$: width && centerViewport(width)
+
+	onMount(() => {
+		centerViewport(width)
+	})
+	let yamlEditorDrawer: Drawer | undefined = undefined
 </script>
 
-<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
-	<SvelteFlow
-		{nodes}
-		{edges}
-		{edgeTypes}
-		{nodeTypes}
-		{viewport}
-		{height}
-		minZoom={0.5}
-		connectionLineType={ConnectionLineType.SmoothStep}
-		defaultEdgeOptions={{ type: 'smoothstep' }}
-		preventScrolling={scroll}
-		zoomOnDoubleClick={false}
-		elementsSelectable={false}
-		{proOptions}
-		nodesDraggable={false}
-	>
-		<div class="absolute inset-0 !bg-surface-secondary" />
-		<Controls position="top-right" orientation="horizontal" showLock={false}>
-			{#if download}
-				<ControlButton
-					on:click={() => {
-						try {
-							localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
-						} catch (e) {
-							console.error('error interacting with local storage', e)
-						}
-						window.open('/view_graph', '_blank')
-					}}
-					class="!bg-surface"
-				>
-					<Expand size="14" />
-				</ControlButton>
-			{/if}
-		</Controls>
+{#if insertable}
+	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+{/if}
 
-		<Controls
-			position="top-left"
-			orientation="horizontal"
-			showLock={false}
-			showZoom={false}
-			showFitView={false}
-		>
-			{#if showDataflow}
-				<Toggle
-					value={$useDataflow}
-					on:change={() => {
-						$useDataflow = !$useDataflow
-					}}
+<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
+	{#if graph?.error}
+		<div class="center-center p-2">
+			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
+				{graph.error}
+
+				<Button
+					color="red"
 					size="xs"
-					options={{
-						right: 'Dataflow'
-					}}
-				/>
-			{/if}
-		</Controls>
-	</SvelteFlow>
+					btnClasses="mt-2 w-min"
+					on:click={() => yamlEditorDrawer?.openDrawer()}>Open YAML editor</Button
+				>
+			</Alert>
+		</div>
+	{:else}
+		<SvelteFlow
+			on:paneclick={(e) => {
+				document.dispatchEvent(new Event('focus'))
+			}}
+			{nodes}
+			{edges}
+			{edgeTypes}
+			{nodeTypes}
+			{viewport}
+			{height}
+			minZoom={0.5}
+			connectionLineType={ConnectionLineType.SmoothStep}
+			defaultEdgeOptions={{ type: 'smoothstep' }}
+			preventScrolling={scroll}
+			zoomOnDoubleClick={false}
+			elementsSelectable={false}
+			{proOptions}
+			nodesDraggable={false}
+			--background-color={false}
+		>
+			<div class="absolute inset-0 !bg-surface-secondary" />
+			<Controls position="top-right" orientation="horizontal" showLock={false}>
+				{#if download}
+					<ControlButton
+						on:click={() => {
+							try {
+								localStorage.setItem(
+									'svelvet',
+									encodeState({ modules, failureModule, preprocessorModule })
+								)
+							} catch (e) {
+								console.error('error interacting with local storage', e)
+							}
+							window.open('/view_graph', '_blank')
+						}}
+						class="!bg-surface"
+					>
+						<Expand size="14" />
+					</ControlButton>
+				{/if}
+			</Controls>
+
+			<Controls
+				position="top-left"
+				orientation="horizontal"
+				showLock={false}
+				showZoom={false}
+				showFitView={false}
+				class="!shadow-none"
+			>
+				{#if showDataflow}
+					<Toggle
+						value={$useDataflow}
+						on:change={() => {
+							$useDataflow = !$useDataflow
+						}}
+						size="xs"
+						options={{
+							right: 'Dataflow'
+						}}
+					/>
+				{/if}
+			</Controls>
+		</SvelteFlow>
+	{/if}
 </div>
 
-<style>
+<style lang="postcss">
 	:global(.svelte-flow__handle) {
 		opacity: 0;
 	}

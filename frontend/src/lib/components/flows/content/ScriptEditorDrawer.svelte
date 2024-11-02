@@ -15,6 +15,7 @@
 	} from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
 	let scriptEditorDrawer: Drawer
 
@@ -41,12 +42,14 @@
 				language: Preview['language']
 				content: string
 				schema?: any
+				tag?: string
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				no_main_func?: boolean
+				has_preprocessor?: boolean
 		  }
 		| undefined = undefined
 
@@ -59,12 +62,14 @@
 				language: Preview['language']
 				content: string
 				schema?: any
+				tag?: string
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				no_main_func?: boolean
+				has_preprocessor?: boolean
 		  }
 		| undefined = undefined
 
@@ -73,8 +78,9 @@
 			try {
 				script.schema = script.schema ?? emptySchema()
 				try {
-					const noMainFunc = await inferArgs(script.language, script.content, script.schema)
-					script.no_main_func = noMainFunc || undefined
+					const result = await inferArgs(script.language, script.content, script.schema)
+					script.no_main_func = result?.no_main_func || undefined
+					script.has_preprocessor = result?.has_preprocessor || undefined
 				} catch (error) {
 					sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 				}
@@ -87,6 +93,7 @@
 						description: script.description ?? '',
 						parent_hash: script.hash != '' ? script.hash : undefined,
 						is_template: false,
+						tag: script.tag,
 						kind: script.kind as Script['kind'] | undefined,
 						lock: undefined
 					}
@@ -190,14 +197,21 @@
 		{#if script}
 			{#key script.hash}
 				<ScriptEditor
+					on:saveDraft={() => {
+						saveScript()
+					}}
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
+					tag={script.tag}
 					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
-					tag={undefined}
-				/>
+				>
+					<div slot="editor-bar-right">
+						<WorkerTagSelect bind:tag={script.tag} />
+					</div>
+				</ScriptEditor>
 			{/key}
 		{:else}
 			<div

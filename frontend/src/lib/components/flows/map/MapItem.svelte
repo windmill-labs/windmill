@@ -45,7 +45,8 @@
 	$: itemProps = {
 		selected: $selectedId === mod.id,
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
-		earlyStop: mod.stop_after_if != undefined,
+		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
+		skip: Boolean(mod.skip_if),
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),
@@ -102,6 +103,7 @@
 						mod.value.skip_failures ? '(skip failures)' : ''
 					}`}
 					id={mod.id}
+					on:changeId
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
 					on:click={() => dispatch('select', mod.id)}
@@ -120,6 +122,7 @@
 			{:else if mod.value.type === 'branchone'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
 					on:click={() => dispatch('select', mod.id)}
@@ -135,6 +138,7 @@
 			{:else if mod.value.type === 'branchall'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
 					on:click={() => dispatch('select', mod.id)}
@@ -150,6 +154,7 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					on:changeId
 					on:click={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
@@ -159,6 +164,11 @@
 					modType={mod.value.type}
 					{bgColor}
 					label={mod.summary ||
+						(mod.id === 'preprocessor'
+							? 'Preprocessor'
+							: mod.id.startsWith('failure')
+							? 'Error Handler'
+							: undefined) ||
 						(`path` in mod.value ? mod.value.path : undefined) ||
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`

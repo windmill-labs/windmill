@@ -80,6 +80,8 @@
 	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
 	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
 	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
+	import { Anchor } from 'lucide-svelte'
+	import { findGridItemParentGrid, isContainer } from '../appUtils'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -87,11 +89,15 @@
 	export let render: boolean
 	export let hidden: boolean
 	export let fullHeight: boolean
-
+	export let overlapped: string | undefined = undefined
+	export let moveMode: string | undefined = undefined
+	export let componentDraggedId: string | undefined = undefined
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const componentActive = editorContext?.componentActive
+
 	const movingcomponents = editorContext?.movingcomponents
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
@@ -117,6 +123,36 @@
 			}
 		}, 50)
 	}
+
+	function componentDraggedIsNotChild(componentDraggedId: string, componentId: string) {
+		let parentGrid = findGridItemParentGrid($app, componentDraggedId)
+
+		return !parentGrid?.startsWith(`${componentId}-`)
+	}
+
+	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
+		return (
+			findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+		)
+	}
+
+	let cachedComponentDraggedIsNotChild: boolean | undefined
+	let cachedAreOnTheSameSubgrid: boolean | undefined
+
+	function updateCache(componentDraggedId: string | undefined) {
+		if (componentDraggedId) {
+			cachedComponentDraggedIsNotChild = componentDraggedIsNotChild(
+				componentDraggedId,
+				component.id
+			)
+			cachedAreOnTheSameSubgrid = areOnTheSameSubgrid(componentDraggedId, component.id)
+		} else {
+			cachedComponentDraggedIsNotChild = undefined
+			cachedAreOnTheSameSubgrid = undefined
+		}
+	}
+
+	$: updateCache(componentDraggedId)
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -129,10 +165,30 @@
 		}
 	}}
 	on:mouseout|stopPropagation={mouseOut}
-	class="h-full flex flex-col w-full component {initializing
-		? 'overflow-hidden h-0'
-		: ''} {hidden && $mode === 'preview' ? 'hidden' : ''} "
+	class={twMerge(
+		'h-full flex flex-col w-full component relative',
+		initializing ? 'overflow-hidden h-0' : '',
+		hidden && $mode === 'preview' ? 'hidden' : ''
+	)}
 >
+	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
+		<div
+			class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
+		>
+			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
+				<Anchor size={24} class="text-primary " />
+				<div class="text-xs"> Anchored: The component cannot be moved. </div>
+			</div>
+		</div>
+	{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && cachedComponentDraggedIsNotChild}
+		<div
+			class={twMerge(
+				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
+				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
+				overlapped === component?.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
+			)}
+		/>
+	{/if}
 	{#if $mode !== 'preview'}
 		<ComponentHeader
 			on:mouseover={() => {
@@ -361,6 +417,7 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
+				actionsOrder={component.actionsOrder ?? undefined}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponentee'}
@@ -372,6 +429,7 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
+				actionsOrder={component.actionsOrder ?? undefined}
 				{render}
 			/>
 		{:else if component.type === 'aggridinfinitecomponent'}

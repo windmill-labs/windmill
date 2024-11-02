@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, setContext } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { get, writable, type Writable } from 'svelte/store'
 	import { buildWorld } from '../rx'
 	import type {
 		App,
@@ -85,11 +85,8 @@
 	function onContextChange(context: any) {
 		Object.assign(ncontext, context)
 		ncontext = ncontext
-		worldStore.update((x) => {
-			Object.entries(context).forEach(([key, value]) => {
-				x.outputsById?.['ctx']?.[key].set(value, true)
-			})
-			return x
+		Object.entries(context).forEach(([key, value]) => {
+			get(worldStore).outputsById?.['ctx']?.[key].set(value, true)
 		})
 	}
 
@@ -153,7 +150,10 @@
 			.filter((x) => x != undefined) as string[]
 	}
 
-	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full min-w-[768px]'
+	$: width =
+		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
+			? 'max-w-[640px]'
+			: 'w-full min-w-[768px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
@@ -210,11 +210,15 @@
 	$: maxRow = maxHeight($appStore.grid, appHeight, $breakpoint)
 </script>
 
+<svelte:head>
+	<link rel="stylesheet" href="/tailwind_full.css" />
+</svelte:head>
+
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative h-full grow" bind:clientHeight={appHeight}>
+<div class="relative min-h-full grow" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 

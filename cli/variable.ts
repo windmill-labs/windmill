@@ -6,22 +6,16 @@ import {
   parseFromFile,
   removeType,
 } from "./types.ts";
-import {
-  colors,
-  Command,
-  Confirm,
-  ListableVariable,
-  log,
-  SEP,
-  Table,
-  VariableService,
-} from "./deps.ts";
+import { colors, Command, Confirm, log, SEP, Table } from "./deps.ts";
+
+import * as wmill from "./gen/services.gen.ts";
+import { ListableVariable } from "./gen/types.gen.ts";
 
 async function list(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const variables = await VariableService.listVariable({
+  const variables = await wmill.listVariable({
     workspace: workspace.workspaceId,
   });
 
@@ -59,7 +53,7 @@ export async function pushVariable(
   log.debug(`Processing local variable ${remotePath}`);
 
   try {
-    variable = await VariableService.getVariable({
+    variable = await wmill.getVariable({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
       decryptSecret: plainSecrets,
@@ -78,7 +72,7 @@ export async function pushVariable(
 
     log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
-    await VariableService.updateVariable({
+    await wmill.updateVariable({
       workspace,
       path: remotePath.replaceAll(SEP, "/"),
       alreadyEncrypted: !plainSecrets,
@@ -90,7 +84,7 @@ export async function pushVariable(
     });
   } else {
     log.info(colors.yellow.bold(`Creating new variable ${remotePath}...`));
-    await VariableService.createVariable({
+    await wmill.createVariable({
       workspace,
       alreadyEncrypted: !plainSecrets,
       requestBody: {
@@ -143,7 +137,7 @@ async function add(
   }
 
   if (
-    await VariableService.existsVariable({
+    await wmill.existsVariable({
       workspace: workspace.workspaceId,
       path: remotePath,
     })

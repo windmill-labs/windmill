@@ -1,3 +1,4 @@
+import { isTypescriptRelativePath } from '$lib/relative_imports'
 import {
 	getDTSFileForModuleWithVersion,
 	getFiletreeForModuleWithVersion,
@@ -8,7 +9,7 @@ import {
 	type NPMTreeMeta,
 	type ResLimit
 } from './apis'
-import { isRelativePath, mapModuleNameToModule } from './edgeCases'
+import { mapModuleNameToModule } from './edgeCases'
 
 export interface ATABootstrapConfig {
 	root: string
@@ -113,23 +114,28 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 			.filter((f) => !moduleMap.has(f.raw))
 
 		if (depth == 0) {
-			const relativeDeps = depsToGet.filter((f) => isRelativePath(f.raw))
+			const relativeDeps = depsToGet.filter((f) => isTypescriptRelativePath(f.raw))
 			relativeDeps.forEach(async (f) => {
 				let path = f.raw.startsWith('/')
 					? f.raw
 					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
-				// console.log('FOO', config.scriptPath, path, f.raw)
-				console.log('fetching local file', url, f.raw)
+				let localPath = f.raw
+				if (f.raw.startsWith('.') && !f.raw.endsWith('.ts')) {
+					url += '.ts'
+					localPath += '.ts'
+				}
+
+				console.log('fetching local file', url, f.raw, localPath)
 				const res = await fetch(url)
 				if (res.ok) {
-					config.delegate.localFile?.(await res.text(), f.raw)
+					config.delegate.localFile?.(await res.text(), localPath)
 				}
 			})
 		}
 		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
-		depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
+		depsToGet = depsToGet.filter((f) => !isTypescriptRelativePath(f.raw))
 		if (depsToGet.length === 0) {
 			return []
 		}

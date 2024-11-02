@@ -16,6 +16,8 @@
 	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
 	import type { Script } from '$lib/gen'
 	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
+	import RustIcon from '$lib/components/icons/RustIcon.svelte'
+	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -46,7 +48,9 @@
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',
 		bun: 'TypeScript',
-		php: 'PHP'
+		php: 'PHP',
+		rust: 'Rust',
+		ansible: 'Ansible Playbook'
 	}
 
 	const langToComponent: Record<
@@ -72,7 +76,9 @@
 		postgresql: PostgresIcon,
 		nativets: RestIcon,
 		graphql: GraphqlIcon,
-		php: PHPIcon
+		php: PHPIcon,
+		rust: RustIcon,
+		ansible: AnsibleIcon
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

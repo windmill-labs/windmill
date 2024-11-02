@@ -22,6 +22,7 @@
 	export let password: string | undefined = undefined
 	export let error: string | undefined = undefined
 	export let popup: boolean = false
+	export let firstTime: boolean = false
 
 	const providers = [
 		{
@@ -54,8 +55,13 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = false
-	let logins: string[] | undefined = undefined
+	let logins: OAuthLogin[] | undefined = undefined
 	let saml: string | undefined = undefined
+
+	type OAuthLogin = {
+		type: string
+		displayName: string
+	}
 
 	async function login(): Promise<void> {
 		if (!email || !password) {
@@ -75,6 +81,11 @@
 			return
 		}
 
+		if (firstTime) {
+			goto('/user/first-time')
+			return
+		}
+
 		// Once logged in, we can fetch the workspaces
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 		// trigger a reload of the user
@@ -88,13 +99,6 @@
 	}
 
 	async function redirectUser() {
-		const firstTimeCookie =
-			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
-		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
-			goto('/user/first-time')
-			return
-		}
-
 		if (rd?.startsWith('http')) {
 			window.location.href = rd
 			return
@@ -145,7 +149,10 @@
 
 	async function loadLogins() {
 		const allLogins = await OauthService.listOauthLogins()
-		logins = allLogins.oauth
+		logins = allLogins.oauth.map(login => ({
+			type: login.type,
+			displayName: login.display_name || login.type
+		}))
 		saml = allLogins.saml
 
 		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
@@ -177,6 +184,7 @@
 			dispatch('login')
 		}
 	}
+
 	function storeRedirect(provider: string) {
 		if (rd) {
 			try {
@@ -205,26 +213,26 @@
 				<Skeleton layout={[0.5, [2.375]]} />
 			{/each}
 		{:else}
-			{#each providers as { type, icon, name }}
-				{#if logins?.includes(type)}
+			{#each providers as { type, icon }}
+				{#if logins?.some(login => login.type === type)}
 					<Button
 						color="light"
 						variant="border"
 						startIcon={{ icon, classes: 'h-4' }}
 						on:click={() => storeRedirect(type)}
 					>
-						{name}
+						{logins.find(login => login.type === type)?.displayName}
 					</Button>
 				{/if}
 			{/each}
-			{#each logins.filter((x) => !providersType?.includes(x)) as login}
+			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
 				<Button
 					color="dark"
 					variant="border"
 					btnClasses="mt-2 w-full !border-gray-300"
-					on:click={() => storeRedirect(login)}
+					on:click={() => storeRedirect(login.type)}
 				>
-					{login}
+					{login.displayName}
 				</Button>
 			{/each}
 		{/if}
@@ -263,6 +271,11 @@
 
 	{#if showPassword}
 		<div>
+			{#if firstTime}
+				<div class="text-lg text-center w-full pb-6"
+					>First time login: admin@windmill.dev / changeme</div
+				>
+			{/if}
 			<div class="space-y-6">
 				{#if isCloudHosted()}
 					<p class="text-xs text-tertiary italic pb-6">

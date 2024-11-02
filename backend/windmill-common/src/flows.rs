@@ -46,6 +46,15 @@ pub struct Flow {
     pub visible_to_runner_only: Option<bool>,
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FlowWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub flow: Flow,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
+}
+
 fn is_none_or_false(b: &Option<bool>) -> bool {
     b.is_none() || !b.unwrap()
 }
@@ -92,6 +101,9 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub failure_module: Option<Box<FlowModule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub preprocessor_module: Option<Box<FlowModule>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub same_worker: bool,
@@ -236,6 +248,8 @@ pub struct FlowModule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_after_all_iters_if: Option<StopAfterIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<Suspend>,
@@ -256,6 +270,13 @@ pub struct FlowModule {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continue_on_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_if: Option<SkipIf>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct SkipIf {
+    pub expr: String,
 }
 
 #[derive(Deserialize)]
@@ -272,12 +293,39 @@ pub struct FlowModuleValueWithParallel {
     pub parallelism: Option<u16>,
 }
 
+#[derive(Deserialize)]
+pub struct FlowModuleValueWithSkipFailures {
+    pub skip_failures: Option<bool>,
+    pub parallel: Option<bool>,
+    pub parallelism: Option<u16>,
+}
+
+#[derive(Deserialize)]
+pub struct BranchWithSkipFailures {
+    pub skip_failure: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct FlowModuleWithBranches {
+    pub branches: Vec<BranchWithSkipFailures>,
+}
+
 impl FlowModule {
     pub fn id_append(&mut self, s: &str) {
         self.id = format!("{}-{}", self.id, s);
     }
     pub fn get_value(&self) -> anyhow::Result<FlowModuleValue> {
         serde_json::from_str::<FlowModuleValue>(self.value.get()).map_err(crate::error::to_anyhow)
+    }
+
+    pub fn get_value_with_skip_failures(&self) -> anyhow::Result<FlowModuleValueWithSkipFailures> {
+        serde_json::from_str::<FlowModuleValueWithSkipFailures>(self.value.get())
+            .map_err(crate::error::to_anyhow)
+    }
+
+    pub fn get_branches_skip_failures(&self) -> anyhow::Result<FlowModuleWithBranches> {
+        serde_json::from_str::<FlowModuleWithBranches>(self.value.get())
+            .map_err(crate::error::to_anyhow)
     }
 
     pub fn is_flow(&self) -> bool {
@@ -376,6 +424,7 @@ pub enum FlowModuleValue {
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<ScriptHash>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tag_override: Option<String>,
     },
     Flow {
@@ -580,6 +629,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             id: format!("{}-v", modules[modules.len() - 1].id),
             value: crate::worker::to_raw_value(&FlowModuleValue::Identity),
             stop_after_if: None,
+            stop_after_all_iters_if: None,
             summary: Some("Virtual module needed for suspend/sleep when last module".to_string()),
             mock: None,
             retry: None,
@@ -590,6 +640,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             priority: None,
             delete_after_use: None,
             continue_on_error: None,
+            skip_if: None,
         });
     }
 }

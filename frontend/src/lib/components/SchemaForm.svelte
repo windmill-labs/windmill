@@ -15,7 +15,6 @@
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
-	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -121,6 +120,7 @@
 				schema.properties = n
 			}
 			let nkeys = Object.keys(schema.properties ?? {})
+
 			if (!deepEqual(keys, nkeys)) {
 				keys = nkeys
 				dispatch('change')
@@ -152,7 +152,7 @@
 	{#if keys.length > 0}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
-			<div animate:flip={{ duration: 200 }}>
+			<div>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -185,6 +185,9 @@
 										extra={schema.properties[argName]}
 										title={schema.properties[argName].title}
 										placeholder={schema.properties[argName].placeholder}
+										disabled={disabledArgs.includes(argName) ||
+											disabled ||
+											schema.properties[argName].disabled}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
@@ -241,7 +244,9 @@
 										bind:order={schema.properties[argName].order}
 										nestedRequired={schema.properties[argName]?.required}
 										itemsType={schema.properties[argName].items}
-										disabled={disabledArgs.includes(argName) || disabled}
+										disabled={disabledArgs.includes(argName) ||
+											disabled ||
+											schema.properties[argName].disabled}
 										{compact}
 										{variableEditor}
 										{itemPicker}

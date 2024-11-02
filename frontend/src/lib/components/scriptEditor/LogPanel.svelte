@@ -118,6 +118,7 @@
 						/>
 					</Pane>
 					<Pane>
+						<slot></slot>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2">
 								<div class="relative">

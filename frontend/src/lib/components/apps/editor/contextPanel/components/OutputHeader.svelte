@@ -258,7 +258,7 @@
 					<IdEditor
 						{id}
 						on:selected={() => ($selectedComponent = [id])}
-						on:change={({ detail }) => renameId(detail)}
+						on:save={({ detail }) => renameId(detail)}
 					/></div
 				>
 			{/if}

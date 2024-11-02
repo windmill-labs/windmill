@@ -4,6 +4,7 @@
 	import { workerTags } from '$lib/stores'
 	import AssignableTags from './AssignableTags.svelte'
 	import { WorkerService } from '$lib/gen'
+	import WorkerTagSelect from './WorkerTagSelect.svelte'
 
 	export let tag: string | undefined
 	export let popupPlacement: 'bottom-end' | 'top-end' = 'bottom-end'
@@ -18,27 +19,9 @@
 
 <div class="flex gap-2 items-center">
 	<div class="max-w-sm grow">
-		{#if workerTags}
+		{#if $workerTags}
 			{#if $workerTags?.length ?? 0 > 0}
-				<select
-					value={tag}
-					on:change={(e) => {
-						if (e.target?.['value'] == '') {
-							tag = undefined
-						} else if (e?.target?.['value']) {
-							tag = e.target?.['value']
-						}
-					}}
-				>
-					{#if tag}
-						<option value="">reset to default</option>
-					{:else}
-						<option value="" disabled selected>Worker Group Tag</option>
-					{/if}
-					{#each $workerTags ?? [] as tag (tag)}
-						<option value={tag}>{tag}</option>
-					{/each}
-				</select>
+				<WorkerTagSelect noLabel bind:tag />
 			{:else}
 				<div class="text-sm text-secondary flex flex-row gap-2">
 					No custom worker group tag defined on this instance in "Workers {'->'} Custom Tags"
@@ -68,5 +51,5 @@
 		}}
 		startIcon={{ icon: RotateCw }}
 	/>
-	<AssignableTags placement={popupPlacement} />
+	<AssignableTags placement={popupPlacement} color="nord" />
 </div>

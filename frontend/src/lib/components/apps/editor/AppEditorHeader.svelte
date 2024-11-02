@@ -33,14 +33,15 @@
 		Smartphone,
 		FileClock
 	} from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
 		cleanValueProperties,
 		copyToClipboard,
 		truncateRev,
-		orderedJsonStringify
+		orderedJsonStringify,
+		type Value
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -83,6 +84,9 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
+	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
+	import HideButton from './settingsPanel/HideButton.svelte'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	async function hash(message) {
 		try {
@@ -115,6 +119,14 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let leftPanelHidden: boolean = false
+	export let rightPanelHidden: boolean = false
+	export let bottomPanelHidden: boolean = false
+
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	const {
 		app,
@@ -125,7 +137,8 @@
 		jobsById,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen, refreshComponents } =
@@ -230,6 +243,11 @@
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
+								console.log(
+									x.id,
+									getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									columnDefs
+								)
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
@@ -346,6 +364,49 @@
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
+		}
+	}
+
+	async function handleUpdateApp(npath: string) {
+		// We have to make sure there is no updates when we clicked the button
+		await compareVersions()
+
+		if (onLatest) {
+			// Handle directly
+			await updateApp(npath)
+		} else {
+			// There is onLatest, but we need more information while deploying
+			// We need it to show diff
+			// Handle through confirmation modal
+			await syncWithDeployed()
+
+			confirmCallback = async () => {
+				open = false
+				await updateApp(npath)
+			}
+			// Open confirmation modal
+			open = true
+		}
+	}
+
+	async function syncWithDeployed() {
+		const deployedApp = await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path: appPath,
+			withStarredInfo: true
+		})
+
+		deployedBy = deployedApp.created_by
+
+		// Strip off extra information
+		deployedValue = {
+			...deployedApp,
+			starred: undefined,
+			id: undefined,
+			created_at: undefined,
+			created_by: undefined,
+			versions: undefined,
+			extra_perms: undefined //
 		}
 	}
 
@@ -566,12 +627,18 @@
 		if (version === undefined) {
 			return
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
-			workspace: $workspaceStore!,
-			path: appPath
-		})
-		onLatest = version === appHistory[0]?.version
+		try {
+			const appVersion = await AppService.getAppLatestVersion({
+				workspace: $workspaceStore!,
+				path: appPath
+			})
+			onLatest = version === appVersion?.version
+		} catch (e) {
+			console.error('Error comparing versions', e)
+			onLatest = true
+		}
 	}
+
 	$: saveDrawerOpen && compareVersions()
 
 	let selectedJobId: string | undefined = undefined
@@ -695,14 +762,18 @@
 		{
 			displayName: 'Diff',
 			icon: DiffIcon,
-			action: () => {
+			action: async () => {
 				if (!savedApp) {
 					return
 				}
+
+				// deployedValue should be syncronized when we open Diff
+				await syncWithDeployed()
+
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					mode: 'normal',
-					deployed: savedApp,
+					deployed: deployedValue ?? savedApp,
 					draft: savedApp.draft,
 					current: {
 						summary: $summary,
@@ -737,6 +808,8 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -746,6 +819,20 @@
 	{diffDrawer}
 	savedValue={savedApp}
 	modifiedValue={{
+		summary: $summary,
+		value: $app,
+		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		policy
+	}}
+/>
+
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={{
 		summary: $summary,
 		value: $app,
 		path: newPath || savedApp?.draft?.path || savedApp?.path,
@@ -810,8 +897,8 @@
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#if !onLatest}
-			<Alert title="You're not on the latest app version" type="warning">
-				By deploying, you may overwrite changes made by other users.
+			<Alert title="You're not on the latest app version. " type="warning">
+				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
 			<div class="py-2" />
 		{/if}
@@ -867,15 +954,18 @@
 				variant="border"
 				color="light"
 				disabled={!savedApp || savedApp.draft_only}
-				on:click={() => {
+				on:click={async () => {
 					if (!savedApp) {
 						return
 					}
+					// deployedValue should be syncronized when we open Diff
+					await syncWithDeployed()
+
 					saveDrawerOpen = false
 					diffDrawer?.openDrawer()
 					diffDrawer?.setDiff({
 						mode: 'normal',
-						deployed: savedApp,
+						deployed: deployedValue ?? savedApp,
 						draft: savedApp.draft,
 						current: {
 							summary: $summary,
@@ -889,7 +979,7 @@
 								if (appPath == '') {
 									createApp(newPath)
 								} else {
-									updateApp(newPath)
+									handleUpdateApp(newPath)
 								}
 							}
 						}
@@ -908,7 +998,7 @@
 					if (appPath == '') {
 						createApp(newPath)
 					} else {
-						updateApp(newPath)
+						handleUpdateApp(newPath)
 					}
 				}}
 			>
@@ -1288,25 +1378,71 @@
 					/>
 				</ToggleButtonGroup>
 			{/if}
-			<div>
+			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value="sm"
-						iconProps={{ size: 16 }}
-					/>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
-						value="lg"
+						value={'lg'}
 						iconProps={{ size: 16 }}
 					/>
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						value={'sm'}
+						iconProps={{ size: 16 }}
+					/>
+					{#if $breakpoint === 'sm'}
+						<ToggleEnable
+							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
+							label="Enable mobile view for smaller screens"
+							bind:checked={$app.mobileViewOnSmallerScreens}
+							iconProps={{ size: 16 }}
+							iconOnly={false}
+						/>
+					{/if}
 				</ToggleButtonGroup>
 			</div>
 		</div>
 	</div>
 
+	{#if $mode !== 'preview'}
+		<div class="flex gap-1">
+			<HideButton
+				direction="left"
+				hidden={leftPanelHidden}
+				on:click={() => {
+					if (leftPanelHidden) {
+						dispatch('showLeftPanel')
+					} else {
+						dispatch('hideLeftPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={bottomPanelHidden}
+				direction="bottom"
+				on:click={() => {
+					if (bottomPanelHidden) {
+						dispatch('showBottomPanel')
+					} else {
+						dispatch('hideBottomPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={rightPanelHidden}
+				direction="right"
+				on:click={() => {
+					if (rightPanelHidden) {
+						dispatch('showRightPanel')
+					} else {
+						dispatch('hideRightPanel')
+					}
+				}}
+			/>
+		</div>
+	{/if}
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

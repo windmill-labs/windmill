@@ -2,6 +2,7 @@
 	import { Scatter } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
+	import Tooltip2 from '$lib/components/Tooltip.svelte'
 	import {
 		Chart as ChartJS,
 		Title,
@@ -17,6 +18,7 @@
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
+	import Button from './common/button/Button.svelte'
 
 	export let jobs: CompletedJob[] | undefined = []
 	export let maxIsNow: boolean = false
@@ -24,6 +26,7 @@
 	export let maxTimeSet: string | undefined = undefined
 	export let selectedIds: string[] = []
 	export let canSelect: boolean = true
+	export let lastFetchWentToEnd: boolean = false
 
 	const dispatch = createEventDispatcher()
 	const SUCCESS_COLOR = '#4ade80'
@@ -246,6 +249,7 @@
 			if (canSelect) {
 				const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
 				selectedIds = ids
+				dispatch('pointClicked', ids)
 			}
 		},
 
@@ -283,5 +287,18 @@
 {maxTime} -->
 <!-- {JSON.stringify(jobs?.map((x) => x.started_at))} -->
 <div class="relative max-h-40">
+	{#if !lastFetchWentToEnd}
+		<div class="absolute top-[-10px] left-[60px]"
+			><Button
+				size="xs"
+				color="transparent"
+				variant="contained"
+				on:click={() => dispatch('loadExtra')}
+				>Load more <Tooltip2
+					>There are more jobs to load but only the first 1000 were fetched</Tooltip2
+				></Button
+			></div
+		>
+	{/if}
 	<Scatter {data} options={scatterOptions} />
 </div>

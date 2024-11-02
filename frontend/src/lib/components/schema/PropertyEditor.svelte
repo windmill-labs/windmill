@@ -228,9 +228,4 @@
 		-webkit-appearance: none !important;
 		margin: 0;
 	}
-
-	/* Firefox */
-	input[type='number'] {
-		-moz-appearance: textfield !important;
-	}
 </style>

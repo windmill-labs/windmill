@@ -1,5 +1,3 @@
-use convert_case::{Case, Casing};
-use regex::Regex;
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2022
@@ -11,18 +9,21 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ};
+use windmill_parser::{
+    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ,
+};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
-    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
-    MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Str,
-    TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
-    TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement, TsTypeLit,
-    TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident,
+    IdentName, Lit, MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat,
+    Param, Pat, Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
+    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
+    TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
-use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsConfig};
+use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 
+use regex::Regex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -47,9 +48,9 @@ impl Visit for ImportsFinder {
 
 pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
     let lexer = Lexer::new(
-        Syntax::Typescript(TsConfig::default()),
+        Syntax::Typescript(TsSyntax::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -68,7 +69,7 @@ pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     })?;
 
     let mut visitor = ImportsFinder { imports: HashSet::new() };
-    swc_ecma_visit::visit_module(&mut visitor, &expr);
+    visitor.visit_module(&expr);
 
     Ok(visitor.imports.into_iter().collect())
 }
@@ -86,7 +87,7 @@ impl Visit for OutputFinder {
             c.visit_with(self);
         }
         match m {
-            MemberExpr { obj, prop: MemberProp::Ident(Ident { sym, .. }), .. } => {
+            MemberExpr { obj, prop: MemberProp::Ident(IdentName { sym, .. }), .. } => {
                 match *obj.to_owned() {
                     Expr::Ident(Ident { sym: sym_i, .. }) => {
                         self.idents.insert((sym_i.to_string(), sym.to_string()));
@@ -101,10 +102,10 @@ impl Visit for OutputFinder {
 
 pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
         // We want to parse ecmascript
-        Syntax::Es(EsConfig { jsx: false, ..Default::default() }),
+        Syntax::Es(EsSyntax { jsx: false, ..Default::default() }),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -123,7 +124,7 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     })?;
 
     let mut visitor = OutputFinder { idents: HashSet::new() };
-    swc_ecma_visit::visit_module(&mut visitor, &expr);
+    visitor.visit_module(&expr);
 
     Ok(visitor.idents.into_iter().collect())
 }
@@ -134,10 +135,10 @@ pub fn parse_deno_signature(
     main_override: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
     let lexer = Lexer::new(
         // We want to parse ecmascript
-        Syntax::Typescript(TsConfig::default()),
+        Syntax::Typescript(TsSyntax::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -158,6 +159,14 @@ pub fn parse_deno_signature(
         })?
         .body;
 
+    let has_preprocessor = ast.iter().any(|x| match x {
+        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+            decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, .. }),
+            ..
+        })) => &sym.to_string() == "preprocessor",
+        _ => false,
+    });
+
     let main_name = main_override.unwrap_or("main".to_string());
     let params = ast.into_iter().find_map(|x| match x {
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
@@ -177,6 +186,7 @@ pub fn parse_deno_signature(
                 .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
                 .collect::<anyhow::Result<Vec<Arg>>>()?,
             no_main_func: Some(false),
+            has_preprocessor: Some(has_preprocessor),
         };
         Ok(r)
     } else {
@@ -185,6 +195,7 @@ pub fn parse_deno_signature(
             star_kwargs: false,
             args: vec![],
             no_main_func: Some(true),
+            has_preprocessor: Some(has_preprocessor),
         })
     }
 }
@@ -294,7 +305,6 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
 }
 
 lazy_static::lazy_static! {
-    static ref RE_SNK_CASE: Regex = Regex::new(r"_(\d)").unwrap();
      static ref IMPORTS_VERSION: Regex = Regex::new(r"^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@(?:[^\/]+))?(.*)$").unwrap();
 
 }
@@ -318,13 +328,6 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
         }
     }
     Ok(content)
-}
-
-fn to_snake_case(s: &str) -> String {
-    let r = s.to_case(Case::Snake);
-
-    // s_3 => s3
-    RE_SNK_CASE.replace_all(&r, "$1").to_string()
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {

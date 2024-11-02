@@ -9,7 +9,6 @@
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
@@ -18,7 +17,6 @@
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
-	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
@@ -146,7 +144,11 @@
 		</svelte:fragment>
 
 		{#if flowViewerFlow?.flow}
-			<FlowViewer flow={flowViewerFlow.flow} />
+			{#await import('$lib/components/FlowViewer.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default flow={flowViewerFlow.flow} />
+			{/await}
 		{:else}
 			<div class="p-2">
 				<Loader2 class="animate-spin" />
@@ -185,23 +187,27 @@
 
 		{#if appViewerApp?.app}
 			<div class="p-4">
-				<AppPreview
-					app={appViewerApp?.app?.value}
-					appPath="''"
-					{breakpoint}
-					policy={{}}
-					workspace="hub"
-					isEditor={false}
-					context={{
-						username: $userStore?.username ?? 'anonymous',
-						email: $userStore?.email ?? 'anonymous',
-						groups: $userStore?.groups ?? []
-					}}
-					summary={appViewerApp?.app.summary ?? ''}
-					noBackend
-					replaceStateFn={(path) => replaceState(path, $page.state)}
-					gotoFn={(path, opt) => goto(path, opt)}
-				/>
+				{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default
+						app={appViewerApp?.app?.value}
+						appPath="''"
+						{breakpoint}
+						policy={{}}
+						workspace="hub"
+						isEditor={false}
+						context={{
+							username: $userStore?.username ?? 'anonymous',
+							email: $userStore?.email ?? 'anonymous',
+							groups: $userStore?.groups ?? []
+						}}
+						summary={appViewerApp?.app.summary ?? ''}
+						noBackend
+						replaceStateFn={(path) => replaceState(path, $page.state)}
+						gotoFn={(path, opt) => goto(path, opt)}
+					/>
+				{/await}
 			</div>
 		{/if}
 	</DrawerContent>

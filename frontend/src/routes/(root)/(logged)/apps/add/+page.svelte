@@ -143,6 +143,7 @@
 			setUpTopBarComponentContent(id, value)
 
 			value.hideLegacyTopBar = true
+			value.mobileViewOnSmallerScreens = false
 
 			value = value
 		}

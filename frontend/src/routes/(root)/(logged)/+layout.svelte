@@ -25,7 +25,8 @@
 		workspaceStore,
 		type UserExt,
 		defaultScripts,
-		hubBaseUrlStore
+		hubBaseUrlStore,
+		usedTriggerKinds
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -124,6 +125,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadUsedTriggerKinds()
 	}
 
 	async function loadUsage() {
@@ -137,7 +139,8 @@
 
 	async function loadHubBaseUrl() {
 		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ??
+			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			'https://hub.windmill.dev'
 	}
 
@@ -181,6 +184,20 @@
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]
+	}
+
+	async function loadUsedTriggerKinds() {
+		let usedKinds: string[] = []
+		const { http_routes_used, websocket_used } = await WorkspaceService.getUsedTriggers({
+			workspace: $workspaceStore ?? ''
+		})
+		if (http_routes_used) {
+			usedKinds.push('http')
+		}
+		if (websocket_used) {
+			usedKinds.push('ws')
+		}
+		$usedTriggerKinds = usedKinds
 	}
 
 	function pathInAppMode(pathname: string | undefined): boolean {

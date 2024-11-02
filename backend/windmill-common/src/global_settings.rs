@@ -14,6 +14,8 @@ pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
+pub const SMTP_SETTING: &str = "smtp_settings";
+pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
@@ -25,6 +27,7 @@ pub const OBJECT_STORE_CACHE_CONFIG_SETTING: &str = "object_store_cache_config";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
+pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";

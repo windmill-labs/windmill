@@ -1,3 +1,5 @@
+#[cfg(feature = "enterprise")]
+use crate::db::DB;
 use crate::ee::LicensePlan::Community;
 #[cfg(feature = "enterprise")]
 use crate::error;
@@ -24,13 +26,42 @@ pub async fn get_license_plan() -> LicensePlan {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub enum CriticalErrorChannel {}
+pub enum CriticalErrorChannel {
+    Email { email: String },
+    Slack { slack_channel: String },
+}
 
-pub async fn trigger_critical_error_channels(_error_message: String) {}
+pub enum CriticalAlertKind {
+    #[cfg(feature = "enterprise")]
+    CriticalError,
+    #[cfg(feature = "enterprise")]
+    RecoveredCriticalError,
+}
 
 #[cfg(feature = "enterprise")]
-pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
+pub async fn send_critical_alert(
+    _error_message: String,
+    _db: &DB,
+    _kind: CriticalAlertKind,
+    _channels: Option<Vec<CriticalErrorChannel>>,
+) {
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn maybe_renew_license_key_on_start(
+    _http_client: &reqwest::Client,
+    _db: &crate::db::DB,
+    force_renew_now: bool,
+) -> bool {
     // Implementation is not open source
+    force_renew_now
+}
+
+#[cfg(feature = "enterprise")]
+pub enum RenewReason {
+    Manual,
+    Schedule,
+    OnStart,
 }
 
 #[cfg(feature = "enterprise")]
@@ -38,6 +69,7 @@ pub async fn renew_license_key(
     _http_client: &reqwest::Client,
     _db: &crate::db::DB,
     _key: Option<String>,
+    _reason: RenewReason,
 ) -> String {
     // Implementation is not open source
     "".to_string()
@@ -51,3 +83,9 @@ pub async fn create_customer_portal_session(
     // Implementation is not open source
     Ok("".to_string())
 }
+
+#[cfg(feature = "enterprise")]
+pub async fn worker_groups_alerts(_db: &DB) {}
+
+#[cfg(feature = "enterprise")]
+pub async fn jobs_waiting_alerts(_db: &DB) {}

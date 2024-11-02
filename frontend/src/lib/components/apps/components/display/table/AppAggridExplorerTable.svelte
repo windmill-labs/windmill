@@ -40,7 +40,7 @@
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
-	const { app, selectedComponent, componentControl, darkMode } = context
+	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
 
@@ -267,10 +267,24 @@
 
 		// Validate each column definition
 		columnDefs.forEach((colDef, index) => {
+			let noField = !colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === ''
+
 			// Check if 'field' property exists and is a non-empty string
-			if (!colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === '') {
+			if (noField && !(colDef.children && Array.isArray(colDef.children))) {
 				isValid = false
-				errors.push(`Column at index ${index} is missing a valid 'field' property.`)
+				errors.push(
+					`Column at index ${index} is missing a valid 'field' property nor having any children.`
+				)
+			}
+
+			if (colDef.children && Array.isArray(colDef.children)) {
+				const { isValid: isChildrenValid, errors: childrenErrors } = validateColumnDefs(
+					colDef.children
+				)
+				if (!isChildrenValid) {
+					isValid = false
+					errors.push(...childrenErrors.map((err) => `Error in children at index ${index}: ${err}`))
+				}
 			}
 		})
 
@@ -310,6 +324,7 @@
 						: false,
 					initialState: state,
 					suppressRowDeselection: true,
+					enableCellTextSelection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
 					onViewportChanged: (e) => {
 						firstRow = e.firstRow
@@ -442,7 +457,24 @@
 			class="ag-theme-alpine"
 			class:ag-theme-alpine-dark={$darkMode}
 		>
-			<div bind:this={eGui} style:height="100%" />
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div
+				bind:this={eGui}
+				style:height="100%"
+				on:keydown={(e) => {
+					if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
+						const selectedCell = api?.getFocusedCell()
+						if (selectedCell) {
+							const rowIndex = selectedCell.rowIndex
+							const colId = selectedCell.column?.getId()
+							const rowNode = api?.getDisplayedRowAtIndex(rowIndex)
+							const selectedValue = rowNode?.data?.[colId]
+							navigator.clipboard.writeText(selectedValue)
+							sendUserToast('Copied cell value to clipboard', false)
+						}
+					}
+				}}
+			/>
 		</div>
 		{#if resolvedConfig && 'footer' in resolvedConfig && resolvedConfig.footer}
 			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">

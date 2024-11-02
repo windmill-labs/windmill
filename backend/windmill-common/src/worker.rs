@@ -1,3 +1,4 @@
+use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -5,13 +6,16 @@ use serde_json::value::RawValue;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    path::Path,
+    fs::File,
+    io::Write,
+    path::{Component, Path, PathBuf},
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
+use windmill_macros::annotations;
 
-use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
+use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::Smtp, DB};
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
@@ -37,6 +41,8 @@ lazy_static::lazy_static! {
         "mssql".to_string(),
         "graphql".to_string(),
         "php".to_string(),
+        "rust".to_string(),
+        "ansible".to_string(),
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
@@ -61,8 +67,7 @@ lazy_static::lazy_static! {
     pub static ref WORKER_SUSPENDED_PULL_QUERY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
 
 
-    pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default(), timeout_wait_result: 20 }));
-
+    pub static ref SMTP_CONFIG: Arc<RwLock<Option<Smtp>>> = Arc::new(RwLock::new(None));
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
@@ -86,6 +91,10 @@ lazy_static::lazy_static! {
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
+    if wc.worker_tags.len() == 0 {
+        tracing::error!("Empty tags in worker tags, skipping");
+        return;
+    }
     let query = format!(
         "UPDATE queue
             SET running = true
@@ -114,6 +123,10 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
 pub async fn make_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
+        if tags.tags.len() == 0 {
+            tracing::error!("Empty tags in priority tags, skipping");
+            continue;
+        }
         let query = format!("UPDATE queue
         SET running = true
         , started_at = coalesce(started_at, now())
@@ -143,6 +156,78 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";
+pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+
+pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
+
+pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path)?;
+    file.write_all(content.as_bytes())?;
+    file.flush()?;
+    Ok(file)
+}
+
+/// from : https://github.com/rust-lang/cargo/blob/fede83ccf973457de319ba6fa0e36ead454d2e20/src/cargo/util/paths.rs#L61
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut components = path.components().peekable();
+    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+        components.next();
+        PathBuf::from(c.as_os_str())
+    } else {
+        PathBuf::new()
+    };
+
+    for component in components {
+        match component {
+            Component::Prefix(..) => unreachable!(),
+            Component::RootDir => {
+                ret.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                ret.pop();
+            }
+            Component::Normal(c) => {
+                ret.push(c);
+            }
+        }
+    }
+    ret
+}
+pub fn write_file_at_user_defined_location(
+    job_dir: &str,
+    user_defined_path: &str,
+    content: &str,
+) -> error::Result<PathBuf> {
+    let job_dir = Path::new(job_dir);
+    let user_path = PathBuf::from(user_defined_path);
+
+    let full_path = job_dir.join(&user_path);
+
+    // let normalized_job_dir = std::fs::canonicalize(job_dir)?;
+    // let normalized_full_path = std::fs::canonicalize(&full_path)?;
+    let normalized_job_dir = normalize_path(job_dir);
+    let normalized_full_path = normalize_path(&full_path);
+
+    if !normalized_full_path.starts_with(&normalized_job_dir) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Path is outside the allowed job directory.",
+        )
+        .into());
+    }
+
+    let full_path = normalized_full_path.as_path();
+    if let Some(parent_dir) = full_path.parent() {
+        std::fs::create_dir_all(parent_dir)?;
+    }
+
+    let mut file = File::create(full_path)?;
+    file.write_all(content.as_bytes())?;
+    file.flush()?;
+    Ok(normalized_full_path)
+}
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     let q = sqlx::query!(
@@ -219,28 +304,23 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-pub struct Annotations {
-    pub npm_mode: bool,
-    pub nodejs_mode: bool,
-    pub native_mode: bool,
+#[annotations("#")]
+pub struct PythonAnnotations {
+    pub no_cache: bool,
+    pub no_uv: bool,
+}
+
+#[annotations("//")]
+pub struct TypeScriptAnnotations {
+    pub npm: bool,
+    pub nodejs: bool,
+    pub native: bool,
     pub nobundling: bool,
 }
 
-pub fn get_annotation(inner_content: &str) -> Annotations {
-    let annotations = inner_content
-        .lines()
-        .take_while(|x| x.starts_with("//"))
-        .map(|x| x.to_string().replace("//", "").trim().to_string())
-        .collect_vec();
-    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
-    let npm_mode: bool = annotations.contains(&"npm".to_string());
-    let native_mode: bool = annotations.contains(&"native".to_string());
-
-    //TODO: remove || npm_mode when bun build is more powerful
-    let nobundling: bool =
-        annotations.contains(&"nobundling".to_string()) || nodejs_mode || *DISABLE_BUNDLING;
-
-    Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
+#[annotations("--")]
+pub struct SqlAnnotations {
+    pub return_last_result: bool,
 }
 
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
@@ -349,10 +429,13 @@ pub async fn save_cache(
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::{File, Permissions};
     use std::io::Write;
+
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     let mut file = File::create(main_path)?;
     file.write_all(byts)?;
+    #[cfg(unix)]
     file.set_permissions(Permissions::from_mode(0o755))?;
     file.flush()?;
     Ok(())
@@ -561,6 +644,18 @@ pub async fn load_worker_config(
             .collect_vec();
         all_tags.dedup();
         config.worker_tags = Some(all_tags);
+    }
+
+    if let Some(force_worker_tags) = std::env::var("FORCE_WORKER_TAGS")
+        .ok()
+        .filter(|x| !x.is_empty())
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<String>>())
+    {
+        tracing::info!(
+            "Detected FORCE_WORKER_TAGS, forcing worker tags to: {:#?}",
+            force_worker_tags
+        );
+        config.worker_tags = Some(force_worker_tags);
     }
 
     // set worker_tags using default if none. If priority tags is set, compute the sorted priority tags as well

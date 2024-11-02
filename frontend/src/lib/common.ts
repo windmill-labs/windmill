@@ -143,7 +143,7 @@ export type IntRange<F extends number, T extends number> =
 	| Exclude<Enumerate<T>, Enumerate<F>>
 	| T
 
-export function pathToMeta(path: string): Meta {
+export function pathToMeta(path: string, hideUser: boolean): Meta {
 	const splitted = path.split('/')
 	let ownerKind: OwnerKind
 	if (splitted[0] == 'g') {
@@ -155,7 +155,7 @@ export function pathToMeta(path: string): Meta {
 	} else {
 		console.error('Not recognized owner:' + splitted[0])
 		return {
-			ownerKind: 'user',
+			ownerKind: hideUser ? 'folder' : 'user',
 			owner: '',
 			name: ''
 		}

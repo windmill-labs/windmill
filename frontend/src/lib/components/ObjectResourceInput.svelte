@@ -11,15 +11,14 @@
 	export let selectFirst = false
 	export let defaultValue: any
 	export let editor: SimpleEditor | undefined = undefined
-
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
 	}
 
-	let path: string = ''
+	export let path: string = ''
 
 	function resourceToValue() {
-		if (path) {
+		if (path && path != '') {
 			value = `$res:${path}`
 		} else {
 			value = undefined
@@ -50,8 +49,11 @@
 				path = e.detail
 				resourceToValue()
 			}}
+			on:clear
 			bind:value={path}
-			initialValue={defaultValue}
+			initialValue={typeof defaultValue == 'string' && defaultValue.startsWith('$res:')
+				? defaultValue.substr('$res:'.length)
+				: defaultValue}
 			resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
 			{showSchemaExplorer}
 		/>

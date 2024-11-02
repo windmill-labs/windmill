@@ -9,6 +9,7 @@
 		ContextPanelContext,
 		ListContext,
 		ListInputs,
+		RichConfiguration,
 		RichConfigurations
 	} from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -39,6 +40,7 @@
 	import { cellRendererFactory, defaultCellRenderer } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
+	import InputValue from '../../helpers/InputValue.svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -49,13 +51,14 @@
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let actions: TableAction[] | undefined = undefined
+	export let actionsOrder: RichConfiguration | undefined = undefined
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	const { app, worldStore, selectedComponent, componentControl, darkMode } = context
+	const { app, worldStore, selectedComponent, componentControl, darkMode, mode } = context
 
 	const rowHeights = {
 		normal: 40,
@@ -191,6 +194,25 @@
 	let lastActions: TableAction[] | undefined = undefined
 	$: actions && refreshActions(actions)
 
+	let lastActionsOrder: string[] | undefined = undefined
+
+	$: computedOrder && refreshActionsOrder(computedOrder)
+
+	function clearActionOrder() {
+		computedOrder = undefined
+		updateOptions()
+	}
+
+	$: computedOrder && computedOrder.length > 0 && actionsOrder === undefined && clearActionOrder()
+
+	function refreshActionsOrder(actionsOrder: string[] | undefined) {
+		if (Array.isArray(actionsOrder) && !deepEqual(actionsOrder, lastActionsOrder)) {
+			lastActionsOrder = [...actionsOrder]
+
+			updateOptions()
+		}
+	}
+
 	let inputs = {}
 
 	const tableActionsFactory = cellRendererFactory((c, p) => {
@@ -202,12 +224,18 @@
 			['ContextPanel', contextPanel]
 		])
 
+		const sortedActions: TableAction[] | undefined = computedOrder
+			? (computedOrder
+					.map((key) => actions?.find((a) => a.id === key))
+					.filter(Boolean) as TableAction[])
+			: actions
+
 		let ta = new AppAggridTableActions({
 			target: c.eGui,
 			props: {
 				p,
 				id: id,
-				actions,
+				actions: sortedActions,
 				rowIndex,
 				row,
 				render,
@@ -287,7 +315,6 @@
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
-
 						defaultColDef: {
 							flex: resolvedConfig.flex ? 1 : 0,
 							editable: resolvedConfig?.allEditable,
@@ -307,6 +334,7 @@
 						initialState: state,
 						suppressRowDeselection: true,
 						suppressDragLeaveHidesColumns: true,
+						enableCellTextSelection: true,
 						...(resolvedConfig?.extraConfig ?? {}),
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
@@ -455,7 +483,14 @@
 	let loading = false
 	let refreshCount: number = 0
 	let footerRenderCount: number = 0
+	let computedOrder: string[] | undefined = undefined
+
+	let footerHeight: number = 0
 </script>
+
+{#if actionsOrder}
+	<InputValue key="actionsOrder" {id} input={actionsOrder} bind:value={computedOrder} />
+{/if}
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -507,14 +542,31 @@
 				on:pointerdown|stopPropagation={() => {
 					$selectedComponent = [id]
 				}}
-				style:height="{clientHeight}px"
+				style:height="{clientHeight - (resolvedConfig.footer ? footerHeight : 0)}px"
 				style:width="{clientWidth}px"
 				class="ag-theme-alpine relative"
 				class:ag-theme-alpine-dark={$darkMode}
 			>
 				{#key resolvedConfig?.pagination}
 					{#if loaded}
-						<div bind:this={eGui} style:height="100%" />
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<div
+							bind:this={eGui}
+							style:height="100%"
+							on:keydown={(e) => {
+								if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
+									const selectedCell = api?.getFocusedCell()
+									if (selectedCell) {
+										const rowIndex = selectedCell.rowIndex
+										const colId = selectedCell.column?.getId()
+										const rowNode = api?.getDisplayedRowAtIndex(rowIndex)
+										const selectedValue = rowNode?.data?.[colId]
+										navigator.clipboard.writeText(selectedValue)
+										sendUserToast('Copied cell value to clipboard', false)
+									}
+								}
+							}}
+						/>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}
@@ -522,7 +574,10 @@
 			</div>
 			{#if resolvedConfig.footer}
 				{#key footerRenderCount}
-					<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
+					<div
+						class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2"
+						bind:clientHeight={footerHeight}
+					>
 						<div>
 							<Popover>
 								<svelte:fragment slot="text">Download</svelte:fragment>

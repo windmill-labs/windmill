@@ -47,6 +47,7 @@
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
 	import { debounce } from '$lib/utils'
 	import { dfs } from '../dfs'
+	import FlowModuleSkip from './FlowModuleSkip.svelte'
 
 	const {
 		selectedId,
@@ -55,17 +56,21 @@
 		flowStore,
 		pathStore,
 		saveDraft,
-		flowInputsStore
+		flowInputsStore,
+		customUi
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
+	export let preprocessorModule: boolean = false
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
 	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let noEditor: boolean
 	export let enableAi: boolean
+
+	let tag: string | undefined = undefined
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -77,7 +82,7 @@
 		ruff: false,
 		shellcheck: false
 	}
-	let selected = 'inputs'
+	let selected = preprocessorModule ? 'test' : 'inputs'
 	let advancedSelected = 'retries'
 	let advancedRuntimeSelected = 'concurrency'
 	let s3Kind = 's3_client'
@@ -196,7 +201,7 @@
 				argName,
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
-				$flowStateStore[$selectedId]?.schema ?? {},
+				$flowStateStore[$selectedId]?.schema,
 				dfs($flowStore?.value?.modules ?? [], (fm) => fm.id) ?? []
 			).then((flowStepWarnings) => {
 				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
@@ -226,6 +231,7 @@
 		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
+					{tag}
 					bind:module={flowModule}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
@@ -253,7 +259,6 @@
 							flowModule,
 							$selectedId,
 							$flowStateStore[flowModule.id].schema,
-							$flowStore,
 							$pathStore
 						)
 						flowModule = module
@@ -265,6 +270,7 @@
 			{#if flowModule.value.type === 'rawscript' && !noEditor}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
+						customUi={customUi?.editorBar}
 						{validCode}
 						{editor}
 						{diffEditor}
@@ -332,10 +338,12 @@
 										)}
 									/>
 									<DiffEditor
+										open={false}
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
-										class="hidden h-full"
+										defaultLang={scriptLangToEditorLang(flowModule.value.language)}
+										class="h-full"
 									/>
 								{/key}
 							{/if}
@@ -344,6 +352,7 @@
 								<div class="border-t">
 									{#key forceReload}
 										<FlowModuleScript
+											bind:tag
 											showAllCode={false}
 											path={flowModule.value.path}
 											hash={flowModule.value.hash}
@@ -357,15 +366,19 @@
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs">Step Input</Tab>
+							{#if !preprocessorModule}
+								<Tab value="inputs">Step Input</Tab>
+							{/if}
 							<Tab value="test">Test this step</Tab>
-							<Tab value="advanced">Advanced</Tab>
+							{#if !preprocessorModule}
+								<Tab value="advanced">Advanced</Tab>
+							{/if}
 						</Tabs>
 						<div
 							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
-								<div class="h-full overflow-auto" id="flow-editor-step-input">
+								<div class="h-full overflow-auto px-2" id="flow-editor-step-input">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
@@ -402,9 +415,15 @@
 									{#if !$selectedId.includes('failure')}
 										<Tab value="runtime">Runtime</Tab>
 										<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
-										<Tab value="early-stop" active={Boolean(flowModule.stop_after_if)}>
+										<Tab
+											value="early-stop"
+											active={Boolean(
+												flowModule.stop_after_if || flowModule.stop_after_all_iters_if
+											)}
+										>
 											Early Stop
 										</Tab>
+										<Tab value="skip" active={Boolean(flowModule.skip_if)}>Skip</Tab>
 										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
 										<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
 										<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
@@ -491,6 +510,7 @@
 															using `$args[name_of_arg]`</Tooltip
 														>
 													</svelte:fragment>
+													<!-- svelte-ignore a11y-autofocus -->
 													<input
 														type="text"
 														autofocus
@@ -567,6 +587,8 @@
 										</div>
 									{:else if advancedSelected === 'early-stop'}
 										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'skip'}
+										<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
 									{:else if advancedSelected === 'suspend'}
 										<div>
 											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />

@@ -20,13 +20,16 @@
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
+	import type { TriggerContext } from '$lib/components/triggers'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
 	export let enableAi = false
 
-	const { selectedId, schedule, flowStateStore, flowInputsStore, flowStore } =
+	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
@@ -37,6 +40,26 @@
 	// Pointer to previous module, for easy access to testing results
 	export let previousModule: FlowModule | undefined = undefined
 
+	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
+		if (!$primarySchedule) {
+			$primarySchedule = {
+				summary: 'Scheduled poll of flow',
+				args: {},
+				cron: '0 */15 * * *',
+				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+				enabled: true
+			}
+		}
+		if (!$primarySchedule.cron) {
+			$primarySchedule.cron = '0 */15 * * *'
+		}
+		$primarySchedule.enabled = true
+
+		module.stop_after_if = {
+			expr: 'result == undefined || Array.isArray(result) && result.length == 0',
+			skip_if_stopped: true
+		}
+	}
 	async function createModuleFromScript(
 		path: string,
 		summary: string,
@@ -50,15 +73,7 @@
 		}
 
 		if (kind == 'trigger') {
-			if (!$schedule.cron) {
-				$schedule.cron = '0 */15 * * *'
-			}
-			$schedule.enabled = true
-
-			module.stop_after_if = {
-				expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-				skip_if_stopped: true
-			}
+			initializePrimaryScheduleForTriggerScript(module)
 		}
 
 		flowModule = module
@@ -80,16 +95,26 @@
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}
-		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} />
+		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesOneWrapper {noEditor} {previousModule} bind:flowModule {enableAi} />
+		<FlowBranchesOneWrapper {noEditor} {previousModule} {parentModule} bind:flowModule {enableAi} />
 	{:else if flowModule.value.type === 'branchall'}
-		<FlowBranchesAllWrapper {noEditor} {previousModule} bind:flowModule />
+		<FlowBranchesAllWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<div class="p-4">
 				<Alert type="info" title="Error handlers are triggered upon non recovered errors">
 					If defined, the error handler will take the error as input.
+				</Alert>
+			</div>
+		{:else if $selectedId == 'preprocessor'}
+			<div class="p-4">
+				<Alert
+					type="info"
+					title="Preprocessor is called when the flow is triggered by API or email"
+				>
+					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
+					`wm_trigger` argument with trigger details.
 				</Alert>
 			</div>
 		{/if}
@@ -110,7 +135,8 @@
 				summary={flowModule.summary}
 				shouldDisableTriggerScripts={parentModule !== undefined ||
 					previousModule !== undefined ||
-					$selectedId == 'failure'}
+					$selectedId == 'failure' ||
+					$selectedId == 'preprocessor'}
 				on:pick={async ({ detail }) => {
 					const { path, summary, kind, hash } = detail
 					createModuleFromScript(path, summary, kind, hash)
@@ -129,15 +155,7 @@
 					scriptTemplate = subkind
 
 					if (kind == 'trigger') {
-						if (!$schedule.cron) {
-							$schedule.cron = '0 */15 * * *'
-						}
-						$schedule.enabled = true
-
-						module.stop_after_if = {
-							expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-							skip_if_stopped: true
-						}
+						initializePrimaryScheduleForTriggerScript(module)
 					}
 
 					if (kind == 'approval') {
@@ -158,6 +176,7 @@
 					}
 				}}
 				failureModule={$selectedId === 'failure'}
+				preprocessorModule={$selectedId === 'preprocessor'}
 			/>
 		{/if}
 	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
@@ -167,6 +186,7 @@
 			{parentModule}
 			{previousModule}
 			failureModule={$selectedId === 'failure'}
+			preprocessorModule={$selectedId === 'preprocessor'}
 			{scriptKind}
 			{scriptTemplate}
 			{enableAi}

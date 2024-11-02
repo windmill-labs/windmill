@@ -24,7 +24,7 @@
 	}
 </script>
 
-<Portal target="#app-editor-top-level-drawer">
+<Portal name="always-mounted" target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
 			`${
@@ -61,6 +61,7 @@
 				</div>
 
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div class="relative bg-surface rounded-md" on:click|stopPropagation={() => {}}>
 					<div
 						class={twMerge(
