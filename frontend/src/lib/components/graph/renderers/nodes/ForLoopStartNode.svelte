@@ -18,7 +18,7 @@
 
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
-		label={data.simplifiedTriggerView ? 'For each event' : 'Do one iteration'}
+		label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
 		selectable={false}
 		selected={false}
 		id={data.id}
