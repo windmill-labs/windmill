@@ -42,21 +42,17 @@
 		}
 	}
 
-	$: triggerTypeConfig = {
+	const triggerTypeConfig = {
 		webhooks: { icon: Webhook, countKey: 'webhook_count' },
 		schedules: { icon: Calendar, countKey: 'schedule_count' },
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
 		emails: { icon: Mail, countKey: 'email_count' }
 	}
-
-	$: filteredTriggerTypes = triggersToDisplay.map((type) => ({
-		type,
-		...triggerTypeConfig[type]
-	}))
 </script>
 
-{#each filteredTriggerTypes as { type, icon, countKey }}
+{#each triggersToDisplay as type}
+	{@const { icon, countKey } = triggerTypeConfig[type]}
 	{#if !showOnlyWithCount || ($triggersCount?.[countKey] ?? 0) > 0}
 		<Popover>
 			<svelte:fragment slot="text">{type.charAt(0).toUpperCase() + type.slice(1)}</svelte:fragment>

@@ -17,7 +17,7 @@ export type GraphEventHandlers = {
 	simplifyFlow: (detail: boolean) => void
 }
 
-export type SimplifiableFlow = { path?: string }
+export type SimplifiableFlow = boolean
 
 export function graphBuilder(
 	modules: FlowModule[] | undefined,

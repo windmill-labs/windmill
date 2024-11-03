@@ -78,7 +78,7 @@
 	let fullWidth = 0
 	let width = 0
 
-	export let simplifyFlow: boolean = false
+	export let simplifiedFlow: boolean = false
 
 	let simplifiableFlow: SimplifiableFlow | undefined = undefined
 
@@ -183,7 +183,7 @@
 				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
 			},
 			simplifyFlow: (detail) => {
-				simplifyFlow = detail
+				simplifiedFlow = detail
 			}
 		},
 		success,
@@ -199,70 +199,79 @@
 
 	let height = 0
 
-	function removeInputNode(nodes, edges, id) {
-		const inputNode = nodes.find((node) => node.id === id)
-		if (!inputNode) return { nodes, edges }
+	// function removeInputNode(nodes, edges, id) {
+	// 	const inputNode = nodes.find((node) => node.id === id)
+	// 	if (!inputNode) return { nodes, edges }
 
-		// Find edges connected to the input node
-		const connectedEdges = edges.filter((edge) => edge.source === id || edge.target === id)
+	// 	// Find edges connected to the input node
+	// 	const connectedEdges = edges.filter((edge) => edge.source === id || edge.target === id)
 
-		// Remove the input node
-		let updatedNodes = nodes.filter((node) => node.id !== id)
+	// 	// Remove the input node
+	// 	let updatedNodes = nodes.filter((node) => node.id !== id)
 
-		// Remove edges connected to the input node
-		let updatedEdges = edges.filter((edge) => edge.source !== id && edge.target !== id)
+	// 	// Remove edges connected to the input node
+	// 	let updatedEdges = edges.filter((edge) => edge.source !== id && edge.target !== id)
 
-		// Create new edges from the input node's parent to its children
-		const inputEdges = connectedEdges.filter((edge) => edge.target === id)
-		const outputEdges = connectedEdges.filter((edge) => edge.source === id)
+	// 	// Create new edges from the input node's parent to its children
+	// 	const inputEdges = connectedEdges.filter((edge) => edge.target === id)
+	// 	const outputEdges = connectedEdges.filter((edge) => edge.source === id)
 
-		inputEdges.forEach((inputEdge) => {
-			outputEdges.forEach((outputEdge) => {
-				const newEdge = {
-					id: `edge:${inputEdge.source}->${outputEdge.target}`,
-					source: inputEdge.source,
-					target: outputEdge.target,
-					type: 'empty',
-					data: {
-						...outputEdge.data,
-						sourceId: inputEdge.source,
-						targetId: outputEdge.target
-					}
-				}
-				updatedEdges.push(newEdge)
-			})
-		})
+	// 	inputEdges.forEach((inputEdge) => {
+	// 		outputEdges.forEach((outputEdge) => {
+	// 			const newEdge = {
+	// 				id: `edge:${inputEdge.source}->${outputEdge.target}`,
+	// 				source: inputEdge.source,
+	// 				target: outputEdge.target,
+	// 				type: 'empty',
+	// 				data: {
+	// 					...outputEdge.data,
+	// 					sourceId: inputEdge.source,
+	// 					targetId: outputEdge.target
+	// 				}
+	// 			}
+	// 			updatedEdges.push(newEdge)
+	// 		})
+	// 	})
 
-		// Update parent ids of the nodes
-		updatedNodes = updatedNodes.map((node) => {
-			if (node.data && node.data.parentIds && node.data.parentIds.includes(id)) {
-				const updatedParentIds = node.data.parentIds.filter((parentId) => parentId !== id)
-				if (inputNode.data && inputNode.data.parentIds) {
-					updatedParentIds.push(...inputNode.data.parentIds)
-				}
-				return {
-					...node,
-					data: {
-						...node.data,
-						parentIds: [...new Set(updatedParentIds)] // Remove duplicates
-					}
-				}
+	// 	// Update parent ids of the nodes
+	// 	updatedNodes = updatedNodes.map((node) => {
+	// 		if (node.data && node.data.parentIds && node.data.parentIds.includes(id)) {
+	// 			const updatedParentIds = node.data.parentIds.filter((parentId) => parentId !== id)
+	// 			if (inputNode.data && inputNode.data.parentIds) {
+	// 				updatedParentIds.push(...inputNode.data.parentIds)
+	// 			}
+	// 			return {
+	// 				...node,
+	// 				data: {
+	// 					...node.data,
+	// 					parentIds: [...new Set(updatedParentIds)] // Remove duplicates
+	// 				}
+	// 			}
+	// 		}
+	// 		return node
+	// 	})
+
+	// 	return { nodes: updatedNodes, edges: updatedEdges }
+	// }
+
+	// function processGraph(graph, simplifiable) {
+	// 	let newGraph = { nodes: graph.nodes, edges: graph.edges }
+	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
+	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
+	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
+	// 	return newGraph
+	// }
+
+	function isSimplifiable(modules: FlowModule[]): SimplifiableFlow | undefined {
+		let firstValue = modules?.[0]?.value
+		if (firstValue?.type == 'script' || firstValue?.type == 'rawscript') {
+			if (firstValue.is_trigger) {
+				let secondValue = modules?.[1].value
+				return secondValue.type == 'forloopflow'
 			}
-			return node
-		})
-
-		return { nodes: updatedNodes, edges: updatedEdges }
+		}
+		return false
 	}
-
-	function processGraph(graph, simplifiable) {
-		let newGraph = { nodes: graph.nodes, edges: graph.edges }
-		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
-		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
-		newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
-		return newGraph
-	}
-
-	function isSimplifiable(modules: FlowModule[]): SimplifiableFlow | undefined {}
 
 	function updateStores() {
 		if (graph.error) {
@@ -270,17 +279,13 @@
 		}
 		let newGraph = graph
 
-		if (simplifiableFlow && simplifyFlow) {
-			newGraph = processGraph(graph, simplifiableFlow)
-		}
-
 		$nodes = layoutNodes(newGraph.nodes)
 		$edges = newGraph.edges
 
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
-	$: (graph || simplifyFlow) && updateStores()
+	$: (graph || simplifiedFlow) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
