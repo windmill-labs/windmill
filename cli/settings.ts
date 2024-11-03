@@ -3,8 +3,8 @@ import { Confirm } from "./deps.ts";
 import { colors } from "./deps.ts";
 import { yamlParseFile } from "./deps.ts";
 import { log } from "./deps.ts";
-import { compareInstanceObjects } from "./instance.ts";
-import { isSuperset } from "./types.ts";
+import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
+import { isSuperset, GlobalOptions } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 import * as wmill from "./gen/services.gen.ts";
 import { Config, GlobalSetting } from "./gen/types.gen.ts";
@@ -113,10 +113,10 @@ export async function pushWorkspaceSettings(
         workspace,
         requestBody: localSettings.auto_invite_enabled
           ? {
-            operator: localSettings.auto_invite_as === "operator",
-            invite_all: true,
-            auto_add: localSettings.auto_invite_mode === "add",
-          }
+              operator: localSettings.auto_invite_as === "operator",
+              invite_all: true,
+              auto_add: localSettings.auto_invite_mode === "add",
+            }
           : {},
       });
     } catch (_) {
@@ -128,10 +128,10 @@ export async function pushWorkspaceSettings(
         workspace,
         requestBody: localSettings.auto_invite_enabled
           ? {
-            operator: localSettings.auto_invite_as === "operator",
-            invite_all: false,
-            auto_add: localSettings.auto_invite_mode === "add",
-          }
+              operator: localSettings.auto_invite_as === "operator",
+              invite_all: false,
+              auto_add: localSettings.auto_invite_mode === "add",
+            }
           : {},
       });
     }
@@ -156,7 +156,7 @@ export async function pushWorkspaceSettings(
       settings.error_handler_extra_args
     ) ||
     localSettings.error_handler_muted_on_cancel !==
-    settings.error_handler_muted_on_cancel
+      settings.error_handler_muted_on_cancel
   ) {
     log.debug(`Updating error handler...`);
     await wmill.editErrorHandler({
@@ -262,30 +262,41 @@ export async function pushWorkspaceKey(
 
 const INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
 
-export async function readInstanceSettings() {
+export async function readInstanceSettings(
+  opts: GlobalOptions & InstanceSyncOptions
+) {
   let localSettings: GlobalSetting[] = [];
 
+  let path = INSTANCE_SETTINGS_PATH;
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    path = `${opts.prefix}/${INSTANCE_SETTINGS_PATH}`;
+  }
+
   try {
-    localSettings = (await yamlParseFile(INSTANCE_SETTINGS_PATH)) as GlobalSetting[];
+    localSettings = (await yamlParseFile(path)) as GlobalSetting[];
   } catch {
-    log.warn(`No ${INSTANCE_SETTINGS_PATH} found`);
+    log.warn(`No ${path} found`);
   }
   return localSettings;
 }
 
-
 import { decrypt, encrypt } from "./local_encryption.ts";
 
-const SENSITIVE_FIELD: string[] = ["license_key", "jwt_secret"]
+const SENSITIVE_FIELD: string[] = ["license_key", "jwt_secret"];
 
-async function processInstanceSettings(settings: GlobalSetting[], mode: "encode" | "decode"): Promise<GlobalSetting[]> {
+async function processInstanceSettings(
+  settings: GlobalSetting[],
+  mode: "encode" | "decode"
+): Promise<GlobalSetting[]> {
   const encKey = process.env.WMILL_INSTANCE_LOCAL_ENCRYPTION_KEY;
   if (encKey) {
-    const res: GlobalSetting[] = []
+    const res: GlobalSetting[] = [];
 
     for (const s of settings) {
       if (SENSITIVE_FIELD.includes(s.name) && typeof s.value === "string") {
-        res.push(await processField(s, "value", encKey, mode) as GlobalSetting);
+        res.push(
+          (await processField(s, "value", encKey, mode)) as GlobalSetting
+        );
       } else if (s.name == "oauths") {
         if (typeof s.value === "object") {
           const oauths = s.value as { [key: string]: any };
@@ -303,24 +314,40 @@ async function processInstanceSettings(settings: GlobalSetting[], mode: "encode"
     }
     return res;
   } else {
-    log.warn("No encryption key found, skipping encryption. Recommend setting WMILL_INSTANCE_LOCAL_ENCRYPTION_KEY");
+    log.warn(
+      "No encryption key found, skipping encryption. Recommend setting WMILL_INSTANCE_LOCAL_ENCRYPTION_KEY"
+    );
   }
   return settings;
 }
 
-async function processField(obj: { [key: string]: any }, field: string, encKey: string, mode: "encode" | "decode"): Promise<{ [key: string]: any }> {
+async function processField(
+  obj: { [key: string]: any },
+  field: string,
+  encKey: string,
+  mode: "encode" | "decode"
+): Promise<{ [key: string]: any }> {
   return {
     ...obj,
-    [field]: mode === "encode" ? await encrypt(obj[field], encKey) : await decrypt(obj[field], encKey) as any,
-  }
+    [field]:
+      mode === "encode"
+        ? await encrypt(obj[field], encKey)
+        : ((await decrypt(obj[field], encKey)) as any),
+  };
 }
 
-export async function pullInstanceSettings(preview = false) {
+export async function pullInstanceSettings(
+  opts: GlobalOptions & InstanceSyncOptions,
+  preview = false
+) {
   const remoteSettings = await wmill.listGlobalSettings();
 
   if (preview) {
-    const localSettings: GlobalSetting[] = await readInstanceSettings();
-    const processedSettings = await processInstanceSettings(remoteSettings, "encode");
+    const localSettings: GlobalSetting[] = await readInstanceSettings(opts);
+    const processedSettings = await processInstanceSettings(
+      remoteSettings,
+      "encode"
+    );
     return compareInstanceObjects(
       processedSettings,
       localSettings,
@@ -330,7 +357,10 @@ export async function pullInstanceSettings(preview = false) {
   } else {
     log.info("Pulling settings from instance");
 
-    const processedSettings = await processInstanceSettings(remoteSettings, "encode");
+    const processedSettings = await processInstanceSettings(
+      remoteSettings,
+      "encode"
+    );
     await Deno.writeTextFile(
       INSTANCE_SETTINGS_PATH,
       yamlStringify(processedSettings)
@@ -341,19 +371,19 @@ export async function pullInstanceSettings(preview = false) {
 }
 
 export async function pushInstanceSettings(
-  preview: boolean = false,
-  baseUrl?: string
+  opts: GlobalOptions & InstanceSyncOptions,
+  preview: boolean = false
 ) {
   const remoteSettings = await wmill.listGlobalSettings();
-  let localSettings: GlobalSetting[] = await readInstanceSettings();
+  let localSettings: GlobalSetting[] = await readInstanceSettings(opts);
   localSettings = await processInstanceSettings(localSettings, "decode");
 
-  if (baseUrl) {
+  if (opts.baseUrl) {
     localSettings = localSettings.filter((s) => s.name !== "base_url");
     localSettings.push({
       name: "base_url",
       //@ts-ignore
-      value: baseUrl,
+      value: opts.baseUrl,
     });
   }
 
@@ -404,18 +434,30 @@ export async function pushInstanceSettings(
   }
 }
 
-export async function readLocalConfigs() {
+const INSTANCE_CONFIGS_PATH = "instance_configs.yaml";
+
+export async function readLocalConfigs(
+  opts: GlobalOptions & InstanceSyncOptions
+) {
   let localConfigs: Config[] = [];
 
+  let path = INSTANCE_CONFIGS_PATH;
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    path = `${opts.prefix}/${INSTANCE_CONFIGS_PATH}`;
+  }
+
   try {
-    localConfigs = (await yamlParseFile("instance_configs.yaml")) as Config[];
+    localConfigs = (await yamlParseFile(path)) as Config[];
   } catch {
-    log.warn("No instance_configs.yaml found");
+    log.warn(`No ${path} found`);
   }
   return localConfigs;
 }
 
-export async function pullInstanceConfigs(preview = false) {
+export async function pullInstanceConfigs(
+  opts: GlobalOptions & InstanceSyncOptions,
+  preview = false
+) {
   const remoteConfigs = (await wmill.listConfigs()).map((x) => {
     return {
       ...x,
@@ -424,7 +466,7 @@ export async function pullInstanceConfigs(preview = false) {
   });
 
   if (preview) {
-    const localConfigs: Config[] = await readLocalConfigs();
+    const localConfigs: Config[] = await readLocalConfigs(opts);
 
     return compareInstanceObjects(
       remoteConfigs,
@@ -436,22 +478,25 @@ export async function pullInstanceConfigs(preview = false) {
     log.info("Pulling configs from instance");
 
     await Deno.writeTextFile(
-      "instance_configs.yaml",
+      INSTANCE_CONFIGS_PATH,
       yamlStringify(remoteConfigs as any)
     );
 
-    log.info(colors.green("Configs written to instance_configs.yaml"));
+    log.info(colors.green(`Configs written to ${INSTANCE_CONFIGS_PATH}`));
   }
 }
 
-export async function pushInstanceConfigs(preview: boolean = false) {
+export async function pushInstanceConfigs(
+  opts: GlobalOptions & InstanceSyncOptions,
+  preview: boolean = false
+) {
   const remoteConfigs = (await wmill.listConfigs()).map((x) => {
     return {
       ...x,
       name: removeWorkerPrefix(x.name),
     };
   });
-  const localConfigs = await readLocalConfigs();
+  const localConfigs = await readLocalConfigs(opts);
 
   if (preview) {
     return compareInstanceObjects(
