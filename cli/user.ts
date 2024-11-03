@@ -6,10 +6,7 @@ import {
   removeType,
   removePathPrefix,
 } from "./types.ts";
-import { 
-  compareInstanceObjects,
-  InstanceSyncOptions
-} from "./instance.ts";
+import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import {
   colors,
   Command,
@@ -389,7 +386,7 @@ export async function pushGroup(
   }
 }
 
-let INSTANCE_USERS_PATH = "instance_users.yaml";
+const INSTANCE_USERS_PATH = "instance_users.yaml";
 
 export async function pullInstanceUsers(
   opts: GlobalOptions & InstanceSyncOptions,
@@ -410,36 +407,40 @@ export async function pullInstanceUsers(
   }
 }
 
-export async function readInstanceUsers(opts: GlobalOptions & InstanceSyncOptions) {
+export async function readInstanceUsers(
+  opts: GlobalOptions & InstanceSyncOptions
+) {
   let localUsers: ExportedUser[] = [];
 
-  if(opts.prefix && opts.folderPerInstance && opts.prefixSettings){
-    INSTANCE_USERS_PATH = `${opts.prefix}/${INSTANCE_USERS_PATH}`;
+  let path = INSTANCE_USERS_PATH;
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    path = `${opts.prefix}/${INSTANCE_USERS_PATH}`;
   }
 
   try {
-    localUsers = (await yamlParseFile(INSTANCE_USERS_PATH)) as ExportedUser[];
+    localUsers = (await yamlParseFile(path)) as ExportedUser[];
   } catch {
-    log.warn(`No ${INSTANCE_USERS_PATH} file found`);
+    log.warn(`No ${path} file found`);
   }
   return localUsers;
 }
 
-let INSTANCE_GROUPS_PATH = "instance_groups.yaml";
+const INSTANCE_GROUPS_PATH = "instance_groups.yaml";
 
-export async function readInstanceGroups(opts: GlobalOptions & InstanceSyncOptions) {
+export async function readInstanceGroups(
+  opts: GlobalOptions & InstanceSyncOptions
+) {
   let localGroups: InstanceGroup[] = [];
 
-  if(opts.prefix && opts.folderPerInstance && opts.prefixSettings){
-    INSTANCE_GROUPS_PATH = `${opts.prefix}/${INSTANCE_GROUPS_PATH}`;
+  let path = INSTANCE_GROUPS_PATH;
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    path = `${opts.prefix}/${INSTANCE_GROUPS_PATH}`;
   }
 
   try {
-    localGroups = (await yamlParseFile(
-      INSTANCE_GROUPS_PATH
-    )) as ExportedInstanceGroup[];
+    localGroups = (await yamlParseFile(path)) as ExportedInstanceGroup[];
   } catch {
-    log.warn(`No ${INSTANCE_GROUPS_PATH} file found`);
+    log.warn(`No ${path} file found`);
   }
   return localGroups;
 }
