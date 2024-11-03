@@ -11,6 +11,7 @@
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
+	import { isTriggerStep } from '$lib/components/graph/graphBuilder'
 
 	export let mod: FlowModule
 	export let insertable: boolean
@@ -174,7 +175,7 @@
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
-					{isTrigger}
+					isTrigger={isTriggerStep(mod)}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

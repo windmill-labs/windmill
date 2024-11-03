@@ -1,11 +1,13 @@
 <script lang="ts">
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
-	import { type GraphEventHandlers } from '../../graphBuilder'
+	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder'
 	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
-	import ScheduledPollTriggersWrapper from '../triggers/ScheduledPollTriggersWrapper.svelte'
+	import { Maximize2, Minimize2 } from 'lucide-svelte'
+	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
+	import { getStateColor } from '../../util'
 
 	export let data: {
 		path: string
@@ -16,8 +18,7 @@
 		modules: FlowModule[]
 		index: number
 		disableAi: boolean
-		flowIsSimplifiable: boolean
-		simplified: { module?: FlowModule } | undefined
+		simplifiableFlow: SimplifiableFlow
 	}
 
 	const { selectedId } = getContext<{
@@ -26,8 +27,10 @@
 </script>
 
 <NodeWrapper wrapperClass="shadow-none" let:darkMode>
-	{#if data.simplified == undefined}
+	{#if data.simplifiableFlow?.simplifiedFlow != true}
 		<TriggersWrapper
+			disableAi={data.disableAi}
+			isEditor={data.isEditor}
 			path={data.path}
 			on:new={(e) => {
 				data?.eventHandlers.insert({
@@ -53,15 +56,35 @@
 			}}
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}
+			modules={data.modules}
 		/>
 	{:else}
-		<ScheduledPollTriggersWrapper
-			path={data.path}
-			newItem={data.newFlow}
-			selected={$selectedId == 'triggers'}
-			{darkMode}
-			{data}
-			simplifiedTrigger={data.simplified}
+		<VirtualItem
+			label="Run on schedule"
+			selectable={false}
+			selected={false}
+			hideId
+			bgColor={getStateColor(undefined, darkMode)}
+			on:select={(e) => {
+				data?.eventHandlers?.select(e.detail)
+			}}
 		/>
+	{/if}
+	{#if data.simplifiableFlow != undefined}
+		<button
+			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-nord-950 hover:text-white"
+			on:click|preventDefault|stopPropagation={() =>
+				data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)}
+			title={data.simplifiableFlow?.simplifiedFlow
+				? 'Expand to full flow view'
+				: 'Simplify flow view for scheduled poll'}
+		>
+			{#if data.simplifiableFlow?.simplifiedFlow}
+				<Maximize2 size={12} strokeWidth={2} />
+			{:else}
+				<Minimize2 size={12} strokeWidth={2} />
+			{/if}
+		</button>
 	{/if}
 </NodeWrapper>

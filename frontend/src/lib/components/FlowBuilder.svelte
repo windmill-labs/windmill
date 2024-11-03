@@ -884,7 +884,6 @@
 			await tick()
 			select(module.id)
 			await tick()
-			await tick()
 			focusCopilot()
 
 			let isFirstInLoop = false

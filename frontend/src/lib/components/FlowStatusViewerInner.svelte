@@ -1008,6 +1008,7 @@
 							modules={job.raw_flow?.modules ?? []}
 							failureModule={job.raw_flow?.failure_module}
 							preprocessorModule={job.raw_flow?.preprocessor_module}
+							simplified={false}
 						/>
 					</div>
 					<div

@@ -5,8 +5,6 @@
 	import { getStateColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
 	import type { GraphEventHandlers } from '../../graphBuilder'
-	import type { TriggerContext } from '$lib/components/triggers'
-	import { getContext } from 'svelte'
 
 	export let data: {
 		offset: number
@@ -14,17 +12,13 @@
 		modules: FlowModule[]
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		eventHandlers: GraphEventHandlers
+		simplifiedTriggerView: boolean
 	}
-
-	const { viewSimplifiedTriggers } = getContext<TriggerContext>('TriggerContext')
-	const currentModuleIndex = data.modules.findIndex((module) => module.id === data.id)
-	const previousModule = currentModuleIndex > 0 ? data.modules[currentModuleIndex - 1] : undefined
-	$: isLoopTrigger = previousModule?.isTrigger && $viewSimplifiedTriggers
 </script>
 
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
-		label={isLoopTrigger ? 'For each event, do one iteration' : 'Do one iteration'}
+		label={data.simplifiedTriggerView ? 'For each event' : 'Do one iteration'}
 		selectable={false}
 		selected={false}
 		id={data.id}

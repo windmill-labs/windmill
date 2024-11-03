@@ -23,7 +23,7 @@
 	export let disableAi = false
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
 	export let allowTrigger = true
-	export let buttonClasses = ''
+	export let iconSize = 12
 
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
@@ -72,10 +72,8 @@ shouldUsePortal={true} -->
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
-				'w-5 h-5 flex items-center justify-center',
-				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
-				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover rounded'
+				'w-5 h-5 flex items-center justify-center outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
+				$$props.class
 			)}
 			on:pointerdown|preventDefault|stopPropagation={pointerdown}
 			on:pointerup={pointerup}
@@ -83,11 +81,10 @@ shouldUsePortal={true} -->
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />
 			{:else}
-				<Cross size={12} />
+				<Cross size={iconSize} />
 			{/if}
 		</button>
 	</svelte:fragment>
-	<!-- FOO -->
 	<div
 		id="flow-editor-insert-module"
 		class="flex flex-col h-[400px] {small ? 'w-[450px]' : 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"

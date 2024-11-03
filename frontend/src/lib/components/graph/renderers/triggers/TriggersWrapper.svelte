@@ -4,10 +4,16 @@
 	import { createEventDispatcher } from 'svelte'
 
 	import TriggersBadge from './TriggersBadge.svelte'
+	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import type { FlowModule } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	export let path: string
 	export let newItem: boolean
 	export let selected: boolean
+	export let isEditor: boolean = false
+	export let disableAi: boolean = false
+	export let modules: FlowModule[] = []
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -26,6 +32,20 @@
 				<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
 			</div>
 			<TriggersBadge showOnlyWithCount={false} {path} {newItem} isFlow {selected} on:select />
+			{#if isEditor}
+				<InsertModuleButton
+					{disableAi}
+					on:new
+					on:pickScript
+					on:select
+					kind="trigger"
+					index={0}
+					{modules}
+					class={twMerge(
+						'hover:bg-surface-hover rounded-md border text-xs w-6 h-6 relative center-center cursor-pointer bg-surface outline-0'
+					)}
+				/>
+			{/if}
 		</button>
 	</div>
 </div>

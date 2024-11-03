@@ -15,7 +15,7 @@
 		ControlButton,
 		type Viewport
 	} from '@xyflow/svelte'
-	import { graphBuilder, type SimplifiableFlow } from './graphBuilder'
+	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
@@ -78,11 +78,12 @@
 	let fullWidth = 0
 	let width = 0
 
-	export let simplifiedFlow: boolean = false
+	export let simplified: boolean = true
 
 	let simplifiableFlow: SimplifiableFlow | undefined = undefined
 
-	$: simplifiableFlow = modules ? isSimplifiable(modules) : undefined
+	$: simplifiableFlow =
+		modules && isSimplifiable(modules) ? { simplifiedFlow: simplified } : undefined
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -136,6 +137,44 @@
 		return newNodes
 	}
 
+	let eventHandler = {
+		deleteBranch: (detail, label) => {
+			$selectedId = label
+			dispatch('deleteBranch', detail)
+		},
+		insert: (detail) => {
+			dispatch('insert', detail)
+		},
+		select: (modId) => {
+			if (!notSelectable) {
+				if ($selectedId != modId) {
+					$selectedId = modId
+				}
+				dispatch('select', modId)
+			}
+		},
+		changeId: (detail) => {
+			dispatch('changeId', detail)
+		},
+		delete: (detail, label) => {
+			$selectedId = label
+
+			dispatch('delete', detail)
+		},
+		newBranch: (module) => {
+			dispatch('newBranch', { module })
+		},
+		move: (module, modules) => {
+			dispatch('move', { module, modules })
+		},
+		selectedIteration: (detail, moduleId) => {
+			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+		},
+		simplifyFlow: (detail) => {
+			simplified = detail
+		}
+	}
+
 	$: graph = graphBuilder(
 		modules,
 		{
@@ -148,44 +187,7 @@
 		},
 		failureModule,
 		preprocessorModule,
-		{
-			deleteBranch: (detail, label) => {
-				$selectedId = label
-
-				dispatch('deleteBranch', detail)
-			},
-			insert: (detail) => {
-				dispatch('insert', detail)
-			},
-			select: (modId) => {
-				if (!notSelectable) {
-					if ($selectedId != modId) {
-						$selectedId = modId
-					}
-					dispatch('select', modId)
-				}
-			},
-			changeId: (detail) => {
-				dispatch('changeId', detail)
-			},
-			delete: (detail, label) => {
-				$selectedId = label
-
-				dispatch('delete', detail)
-			},
-			newBranch: (module) => {
-				dispatch('newBranch', { module })
-			},
-			move: (module, modules) => {
-				dispatch('move', { module, modules })
-			},
-			selectedIteration: (detail, moduleId) => {
-				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
-			},
-			simplifyFlow: (detail) => {
-				simplifiedFlow = detail
-			}
-		},
+		eventHandler,
 		success,
 		$useDataflow,
 		$selectedId,
@@ -262,14 +264,12 @@
 	// 	return newGraph
 	// }
 
-	function isSimplifiable(modules: FlowModule[]): SimplifiableFlow | undefined {
-		let firstValue = modules?.[0]?.value
-		if (firstValue?.type == 'script' || firstValue?.type == 'rawscript') {
-			if (firstValue.is_trigger) {
-				let secondValue = modules?.[1].value
-				return secondValue.type == 'forloopflow'
-			}
+	function isSimplifiable(modules: FlowModule[]): boolean {
+		if (isTriggerStep(modules?.[0])) {
+			let secondValue = modules?.[1].value
+			return secondValue.type == 'forloopflow'
 		}
+
 		return false
 	}
 
@@ -279,13 +279,14 @@
 		}
 		let newGraph = graph
 
+		console.log(newGraph.nodes)
 		$nodes = layoutNodes(newGraph.nodes)
 		$edges = newGraph.edges
 
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
-	$: (graph || simplifiedFlow) && updateStores()
+	$: (graph || simplified) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
