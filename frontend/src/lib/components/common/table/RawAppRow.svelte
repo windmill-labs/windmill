@@ -14,7 +14,7 @@
 	import FileInput from '../fileInput/FileInput.svelte'
 	import { goto } from '$lib/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
+	import { FolderOpen, Globe, Pen, Share, Trash } from 'lucide-svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
@@ -94,7 +94,7 @@
 				return [
 					{
 						displayName: 'Move/Rename',
-						icon: FileUp,
+						icon: FolderOpen,
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'raw_app')
 						},
