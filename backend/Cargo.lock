@@ -262,7 +262,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.9.0",
  "half",
  "hashbrown 0.14.5",
  "num",
@@ -1657,7 +1657,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
 dependencies = [
  "chrono",
- "chrono-tz-build",
+ "chrono-tz-build 0.3.0",
+ "phf",
+]
+
+[[package]]
+name = "chrono-tz"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd6dd8046d00723a59a2f8c5f295c515b9bb9a331ee4f8f3d4dd49e428acd3b6"
+dependencies = [
+ "chrono",
+ "chrono-tz-build 0.4.0",
  "phf",
 ]
 
@@ -1669,6 +1680,16 @@ checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
+ "phf_codegen",
+]
+
+[[package]]
+name = "chrono-tz-build"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
+dependencies = [
+ "parse-zoneinfo",
  "phf_codegen",
 ]
 
@@ -9408,7 +9429,6 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -10379,7 +10399,7 @@ version = "1.417.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.13.1",
+ "base64 0.22.1",
  "chrono",
  "deno_core",
  "dotenv",
@@ -10391,7 +10411,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "quote",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reqwest 0.12.9",
  "rsmq_async",
  "serde",
@@ -10428,13 +10448,13 @@ dependencies = [
  "async_zip",
  "axum",
  "base32",
- "base64 0.13.1",
+ "base64 0.22.1",
  "bytes",
  "candle-core",
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.0",
  "cookie 0.17.0",
  "cron",
  "datafusion",
@@ -10445,7 +10465,7 @@ dependencies = [
  "hmac",
  "http 1.1.0",
  "hyper 1.5.0",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
@@ -10459,7 +10479,7 @@ dependencies = [
  "pin-project",
  "prometheus",
  "quick_cache",
- "rand 0.7.3",
+ "rand 0.8.5",
  "regex",
  "reqwest 0.12.9",
  "rsa 0.7.2",
@@ -10481,7 +10501,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
- "tower 0.4.13",
+ "tower 0.5.1",
  "tower-cookies",
  "tower-http 0.5.2",
  "tracing",
@@ -10504,13 +10524,13 @@ dependencies = [
 name = "windmill-api-client"
 version = "1.417.0"
 dependencies = [
- "base64 0.13.1",
+ "base64 0.22.1",
  "chrono",
  "openapiv3",
  "prettyplease 0.1.25",
  "progenitor",
  "progenitor-client",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -10567,13 +10587,13 @@ dependencies = [
  "hmac",
  "hyper 1.5.0",
  "indexmap 2.6.0",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "magic-crypt",
  "mail-send",
  "object_store",
  "prometheus",
- "rand 0.7.3",
+ "rand 0.8.5",
  "regex",
  "reqwest 0.12.9",
  "serde",
@@ -10633,7 +10653,7 @@ dependencies = [
 name = "windmill-macros"
 version = "1.417.0"
 dependencies = [
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "proc-macro2",
  "quote",
@@ -10668,7 +10688,7 @@ version = "1.417.0"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -10691,7 +10711,7 @@ name = "windmill-parser-php"
 version = "1.417.0"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "php-parser-rs",
  "serde_json",
  "windmill-parser",
@@ -10702,7 +10722,7 @@ name = "windmill-parser-py"
 version = "1.417.0"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -10714,7 +10734,7 @@ version = "1.417.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "phf",
  "regex",
@@ -10732,7 +10752,7 @@ version = "1.417.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "pulldown-cmark",
  "quote",
@@ -10813,12 +10833,12 @@ dependencies = [
  "axum",
  "bigdecimal",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.0",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "prometheus",
  "regex",
@@ -10853,7 +10873,7 @@ version = "1.417.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "base64 0.13.1",
+ "base64 0.22.1",
  "bit-vec",
  "bytes",
  "chrono",
@@ -10874,7 +10894,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "jsonwebtoken",
  "lazy_static",
  "mappable-rc",
@@ -10887,7 +10907,7 @@ dependencies = [
  "pem 3.0.4",
  "postgres-native-tls",
  "prometheus",
- "rand 0.7.3",
+ "rand 0.8.5",
  "regex",
  "reqwest 0.12.9",
  "rsmq_async",
