@@ -27,7 +27,8 @@
 		Code,
 		Copy,
 		Eye,
-		FileUp,
+		FolderOpen,
+		ChevronUpSquare,
 		GitFork,
 		List,
 		Pen,
@@ -207,7 +208,7 @@
 					},
 					{
 						displayName: 'Move/Rename',
-						icon: FileUp,
+						icon: FolderOpen,
 						action: () => {
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
@@ -218,7 +219,7 @@
 						? [
 								{
 									displayName: 'Deploy to staging/prod',
-									icon: FileUp,
+									icon: ChevronUpSquare,
 									action: () => {
 										deploymentDrawer.openDrawer(script.path, 'script')
 									},
