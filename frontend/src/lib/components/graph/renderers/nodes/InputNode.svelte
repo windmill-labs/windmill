@@ -15,7 +15,6 @@
 		moving: string | undefined
 		eventHandlers: GraphEventHandlers
 		index: number
-		enableTrigger: boolean
 		disableAi: boolean
 		disableMoveIds: string[]
 	}

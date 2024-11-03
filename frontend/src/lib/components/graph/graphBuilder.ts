@@ -115,6 +115,7 @@ export function graphBuilder(
 			sourceId: string,
 			targetId: string,
 			options?: {
+				disableInsert?: boolean
 				customId?: string
 				type?: string
 				subModules?: FlowModule[]
@@ -142,17 +143,18 @@ export function graphBuilder(
 				target: targetId,
 				type: options?.type ?? 'edge',
 				data: {
-					insertable: extra.insertable,
 					modules: options?.subModules ?? modules,
 					sourceId,
 					targetId,
 					moving,
 					eventHandlers,
+					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
 					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 					index: index >= 0 ? index : mods?.length ?? 0,
-					...extra
+					...extra,
+					insertable: extra.insertable && !options?.disableInsert
 				}
 			})
 		}
@@ -522,7 +524,8 @@ export function graphBuilder(
 					if (index === 0) {
 						addEdge(beforeNode.id, module.id, {
 							subModules: modules,
-							disableMoveIds
+							disableMoveIds,
+							disableInsert: simplifiedTriggerView
 						})
 					}
 

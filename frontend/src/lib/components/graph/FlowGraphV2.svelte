@@ -282,10 +282,8 @@
 		}
 		let newGraph = graph
 
-		console.log(newGraph.nodes)
 		$nodes = layoutNodes(newGraph.nodes)
 		$edges = newGraph.edges
-
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
