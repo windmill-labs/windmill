@@ -2,6 +2,7 @@
 
 ## 1.417.0 (2024-11-03)
 
+*  feat(cli): instance yaml files inside the instance prefix folders (#4627)
 
 ## [1.416.2](https://github.com/windmill-labs/windmill/compare/v1.416.1...v1.416.2) (2024-11-02)
 
