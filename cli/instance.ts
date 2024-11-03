@@ -266,6 +266,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   log.info("Pulling instance-level changes");
   log.info(`remote (${instance.name}) -> local`);
 
+  opts.prefix = opts.prefix ?? instance.prefix;
   let uChanges = 0;
   if (!opts.skipUsers) {
     uChanges = (await pullInstanceUsers(opts, true)) as number;
