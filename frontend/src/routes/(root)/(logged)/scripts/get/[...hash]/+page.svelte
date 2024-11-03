@@ -57,7 +57,7 @@
 		History,
 		Loader2,
 		Pen,
-		Server,
+		ChevronUpSquare,
 		Share,
 		Table2,
 		Trash,
@@ -407,7 +407,7 @@
 		if (isDeployable('script', script?.path ?? '', deployUiSettings)) {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
-				Icon: Server,
+				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer.openDrawer(script?.path ?? '', 'script')
 				}
