@@ -60,9 +60,10 @@
 		/>
 	{:else}
 		<VirtualItem
-			label="Run on schedule"
-			selectable={false}
-			selected={false}
+			label="Run every 5 minutes"
+			selectable={true}
+			selected={$selectedId == 'triggers'}
+			id={'triggers'}
 			hideId
 			bgColor={getStateColor(undefined, darkMode)}
 			on:select={(e) => {

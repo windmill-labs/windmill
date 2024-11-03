@@ -265,6 +265,9 @@
 	// }
 
 	function isSimplifiable(modules: FlowModule[]): boolean {
+		if (modules?.length !== 2) {
+			return false
+		}
 		if (isTriggerStep(modules?.[0])) {
 			let secondValue = modules?.[1].value
 			return secondValue.type == 'forloopflow'
