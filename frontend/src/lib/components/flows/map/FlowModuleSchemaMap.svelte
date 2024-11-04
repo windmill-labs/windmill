@@ -71,7 +71,6 @@
 			summary?: string
 		}
 	): Promise<FlowModule[]> {
-		console.log('Modules', modules)
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()

@@ -75,7 +75,10 @@ shouldUsePortal={true} -->
 				'w-5 h-5 flex items-center justify-center outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
 				$$props.class
 			)}
-			on:pointerdown|preventDefault|stopPropagation={pointerdown}
+			on:pointerdown|preventDefault|stopPropagation={() => {
+				dispatch('open')
+				pointerdown()
+			}}
 			on:pointerup={pointerup}
 		>
 			{#if kind === 'trigger'}

@@ -5,7 +5,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
-	import { Maximize2, Minimize2 } from 'lucide-svelte'
+	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
 	import { getStateColor } from '../../util'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
@@ -26,7 +26,8 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { primarySchedule, triggersCount, selectedTrigger } =
+		getContext<TriggerContext>('TriggerContext')
 </script>
 
 <NodeWrapper wrapperClass="shadow-none" let:darkMode>
@@ -42,6 +43,7 @@
 					kind: 'trigger',
 					inlineScript: e.detail.inlineScript
 				})
+				data?.eventHandlers?.simplifyFlow(true)
 			}}
 			on:pickScript={(e) => {
 				data?.eventHandlers.insert({
@@ -50,9 +52,13 @@
 					kind: 'trigger',
 					script: e.detail
 				})
+				data?.eventHandlers?.simplifyFlow(true)
+			}}
+			on:openScheduledPoll={(e) => {
+				$selectedTrigger = 'scheduledPoll'
 			}}
 			on:select={(e) => {
-				data?.eventHandlers?.select(e.detail)
+				data?.eventHandlers?.select('triggers')
 			}}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
@@ -74,6 +80,7 @@
 		>
 			{#if $primarySchedule}
 				<div class="text-2xs text-primary p-2">
+					<Calendar />
 					Schedule every {$primarySchedule.cron}
 					{$primarySchedule?.enabled ? '' : ' (disabled)'}
 				</div>

@@ -38,6 +38,9 @@
 					on:new
 					on:pickScript
 					on:select
+					on:open={() => {
+						dispatch('openScheduledPoll')
+					}}
 					kind="trigger"
 					index={0}
 					{modules}
