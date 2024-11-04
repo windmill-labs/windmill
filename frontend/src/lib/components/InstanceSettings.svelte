@@ -121,7 +121,7 @@
 		if (
 			oauths?.snowflake_oauth &&
 			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
-			snowflakeAccountIdentifier
+				snowflakeAccountIdentifier
 		) {
 			setupSnowflakeUrls()
 		}
@@ -549,7 +549,10 @@
 													{#if k == 'snowflake_oauth'}
 														<label class="block pb-2">
 															<span class="text-primary font-semibold text-sm"
-																>Account Identifier</span
+																><a
+																	href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
+																	target="_blank">Snowflake Account Identifier</a
+																></span
 															>
 															<input
 																type="text"
