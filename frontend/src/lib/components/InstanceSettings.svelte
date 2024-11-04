@@ -109,7 +109,7 @@
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 
-		// pre-populate snowflake account identifier
+		// populate snowflake account identifier from db
 		const account_identifier =
 			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
 		if (account_identifier) {
@@ -118,6 +118,14 @@
 	}
 
 	export async function saveSettings() {
+		if (
+			oauths?.snowflake_oauth &&
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
+			snowflakeAccountIdentifier
+		) {
+			setupSnowflakeUrls()
+		}
+
 		let shouldReloadPage = false
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
@@ -279,8 +287,6 @@
 	}
 
 	let snowflakeAccountIdentifier = ''
-
-	$: snowflakeAccountIdentifier && setupSnowflakeUrls()
 
 	function setupSnowflakeUrls() {
 		// strip all whitespaces from account identifier
@@ -548,6 +554,7 @@
 															<input
 																type="text"
 																placeholder="<orgname>-<account_name>"
+																required={true}
 																bind:value={snowflakeAccountIdentifier}
 															/>
 														</label>
