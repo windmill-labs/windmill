@@ -262,7 +262,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.9.0",
  "half",
  "hashbrown 0.14.5",
  "num",
@@ -512,7 +512,7 @@ dependencies = [
  "async-task",
  "concurrent-queue",
  "fastrand 2.1.1",
- "futures-lite 2.3.0",
+ "futures-lite 2.4.0",
  "slab",
 ]
 
@@ -527,7 +527,7 @@ dependencies = [
  "async-io",
  "async-lock",
  "blocking",
- "futures-lite 2.3.0",
+ "futures-lite 2.4.0",
  "once_cell",
 ]
 
@@ -541,7 +541,7 @@ dependencies = [
  "cfg-if",
  "concurrent-queue",
  "futures-io",
- "futures-lite 2.3.0",
+ "futures-lite 2.4.0",
  "parking",
  "polling",
  "rustix",
@@ -605,7 +605,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-io",
- "futures-lite 2.3.0",
+ "futures-lite 2.4.0",
  "gloo-timers",
  "kv-log-macro",
  "log",
@@ -799,9 +799,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.47.0"
+version = "1.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8776850becacbd3a82a4737a9375ddb5c6832a51379f24443a98e61513f852c"
+checksum = "ded855583fa1d22e88fe39fd6062b062376e50a8211989e07cf5e38d52eb3453"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -821,9 +821,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.48.0"
+version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0007b5b8004547133319b6c4e87193eee2a0bcb3e4c18c75d09febe9dab7b383"
+checksum = "9177ea1192e6601ae16c7273385690d88a7ed386a00b74a6bc894d12103cd933"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -843,9 +843,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.47.0"
+version = "1.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fffaa356e7f1c725908b75136d53207fa714e348f365671df14e95a60530ad3"
+checksum = "823ef553cf36713c97453e2ddff1eb8f62be7f4523544e2a5db64caf80100f0a"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1357,7 +1357,7 @@ dependencies = [
  "async-channel 2.3.1",
  "async-task",
  "futures-io",
- "futures-lite 2.3.0",
+ "futures-lite 2.4.0",
  "piper",
 ]
 
@@ -1657,7 +1657,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
 dependencies = [
  "chrono",
- "chrono-tz-build",
+ "chrono-tz-build 0.3.0",
+ "phf",
+]
+
+[[package]]
+name = "chrono-tz"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd6dd8046d00723a59a2f8c5f295c515b9bb9a331ee4f8f3d4dd49e428acd3b6"
+dependencies = [
+ "chrono",
+ "chrono-tz-build 0.4.0",
  "phf",
 ]
 
@@ -1669,6 +1680,16 @@ checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
+ "phf_codegen",
+]
+
+[[package]]
+name = "chrono-tz-build"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
+dependencies = [
+ "parse-zoneinfo",
  "phf_codegen",
 ]
 
@@ -3546,9 +3567,9 @@ dependencies = [
 
 [[package]]
 name = "futures-lite"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52527eb5074e35e9339c6b4e8d12600c7128b68fb25dcb9fa9dec18f7c25f3a5"
+checksum = "3f1fa2f9765705486b33fd2acf1577f8ec449c2ba1f318ae5447697b7c08d210"
 dependencies = [
  "fastrand 2.1.1",
  "futures-core",
@@ -9564,7 +9585,6 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -10602,7 +10622,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.0",
  "cookie 0.17.0",
  "cron",
  "datafusion",
@@ -10613,7 +10633,7 @@ dependencies = [
  "hmac",
  "http 1.1.0",
  "hyper 1.5.0",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
@@ -10649,7 +10669,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
- "tower 0.4.13",
+ "tower 0.5.1",
  "tower-cookies",
  "tower-http 0.5.2",
  "tracing",
@@ -10735,7 +10755,7 @@ dependencies = [
  "hmac",
  "hyper 1.5.0",
  "indexmap 2.6.0",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -10801,7 +10821,7 @@ dependencies = [
 name = "windmill-macros"
 version = "1.417.2"
 dependencies = [
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "proc-macro2",
  "quote",
@@ -10836,7 +10856,7 @@ version = "1.417.2"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -10859,7 +10879,7 @@ name = "windmill-parser-php"
 version = "1.417.2"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "php-parser-rs",
  "serde_json",
  "windmill-parser",
@@ -10870,7 +10890,7 @@ name = "windmill-parser-py"
 version = "1.417.2"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -10882,7 +10902,7 @@ version = "1.417.2"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "phf",
  "regex",
@@ -10900,7 +10920,7 @@ version = "1.417.2"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "pulldown-cmark",
  "quote",
@@ -10981,12 +11001,12 @@ dependencies = [
  "axum",
  "bigdecimal",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.0",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "lazy_static",
  "prometheus",
  "regex",
@@ -11042,7 +11062,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "jsonwebtoken",
  "lazy_static",
  "mappable-rc",
