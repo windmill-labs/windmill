@@ -54,7 +54,6 @@
 	)
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	const flowStateStore = flowEditorContext?.flowStateStore
 
 	const dispatch = createEventDispatcher()
 
@@ -276,26 +275,16 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 		</div>
 	</div>
 
-	{#if id}
-		{#if $propPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
-			<div class="absolute -top-[14px] right-[200px]">
-				<FlowPropPicker
-					json={{
-						[id]: pickableIds[id]
-					}}
-					prefix={'results'}
-					viewOnly={false}
-				/>
-			</div>
-		{:else if (selected || hover) && !$propPickerConfig}
-			<div class="absolute -top-[14px] right-[200px]">
-				<FlowPropPicker
-					json={{ [id]: $flowStateStore[id]?.previewResult }}
-					prefix={'results'}
-					viewOnly={true}
-				/>
-			</div>
-		{/if}
+	{#if id && $propPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
+		<div class="absolute -top-[14px] right-[200px]">
+			<FlowPropPicker
+				json={{
+					[id]: pickableIds[id]
+				}}
+				prefix={'results'}
+				viewOnly={false}
+			/>
+		</div>
 	{/if}
 
 	{#if deletable}
