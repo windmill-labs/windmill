@@ -23,11 +23,12 @@
 		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
+	const simplifiedPoll = writable(false)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		viewSimplifiedTriggers: writable(false)
+		simplifiedPoll
 	})
 </script>
 
@@ -42,6 +43,7 @@
 					</Pane>
 					<Pane size={35} minSize={15}>
 						<DetailPageDetailPanel
+							simplfiedPoll={$simplifiedPoll}
 							bind:triggerSelected={$selectedTriggerStore}
 							bind:selected
 							{isOperator}
@@ -84,7 +86,10 @@
 							<slot name="save_inputs" />
 						</TabContent>
 						<TabContent value="triggers" class="flex flex-col flex-1 h-full">
-							<DetailPageTriggerPanel bind:triggerSelected={$selectedTriggerStore}>
+							<DetailPageTriggerPanel
+								simplfiedPoll={$simplifiedPoll}
+								bind:triggerSelected={$selectedTriggerStore}
+							>
 								<slot slot="webhooks" name="webhooks" />
 								<slot slot="routes" name="routes" />
 								<slot slot="script" name="script" />

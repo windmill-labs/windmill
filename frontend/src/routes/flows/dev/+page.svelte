@@ -80,7 +80,7 @@
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
-		viewSimplifiedTriggers: writable(false)
+		simplifiedPoll: writable(false)
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {

@@ -91,7 +91,6 @@ export async function createInlineScriptModule(
 			is_trigger: kind === 'trigger'
 		}
 	}
-	console.log('flowModule', flowModule)
 
 	return [flowModule, await loadFlowModuleState(flowModule)]
 }

@@ -6,8 +6,9 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2 } from 'lucide-svelte'
-	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import { getStateColor } from '../../util'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 
 	export let data: {
 		path: string
@@ -24,6 +25,8 @@
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
+
+	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 </script>
 
 <NodeWrapper wrapperClass="shadow-none" let:darkMode>
@@ -59,17 +62,44 @@
 			modules={data.modules}
 		/>
 	{:else}
-		<VirtualItem
-			label="Run every 5 minutes"
+		<VirtualItemWrapper
+			label="Check for new events"
 			selectable={true}
 			selected={$selectedId == 'triggers'}
 			id={'triggers'}
-			hideId
 			bgColor={getStateColor(undefined, darkMode)}
 			on:select={(e) => {
 				data?.eventHandlers?.select(e.detail)
 			}}
-		/>
+		>
+			{#if $primarySchedule}
+				<div class="text-2xs text-primary p-2">
+					Schedule every {$primarySchedule.cron}
+				</div>
+			{:else}
+				<button
+					class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
+					on:click={() => {
+						$primarySchedule = {
+							enabled: true,
+							summary: 'Check for new events every 5 minutes',
+							cron: '0 */5 * * * *',
+							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+							args: {}
+						}
+						if ($triggersCount) {
+							$triggersCount = {
+								...($triggersCount ?? {}),
+								schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
+								primary_schedule: { schedule: $primarySchedule.cron }
+							}
+						}
+					}}
+				>
+					Set primary schedule
+				</button>
+			{/if}
+		</VirtualItemWrapper>
 	{/if}
 	{#if data.simplifiableFlow != undefined}
 		<button

@@ -145,28 +145,30 @@
 		{/if}
 	{:else}
 		<div class="flex flex-row gap-4 mt-2">
-			<Button
-				on:click={() => {
-					$primarySchedule = {
-						summary: '',
-						args: {},
-						cron: '0 0 */1 * * *',
-						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-						enabled: true
-					}
-					$triggersCount = {
-						...($triggersCount ?? {}),
-						schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
-						primary_schedule: { schedule: $primarySchedule.cron }
-					}
-				}}
-				variant="contained"
-				color="dark"
-				size="md"
-				startIcon={{ icon: Calendar }}
-			>
-				Set Primary Schedule
-			</Button>
+			<div class="flex items-center">
+				<Button
+					on:click={() => {
+						$primarySchedule = {
+							summary: '',
+							args: {},
+							cron: '0 0 */1 * * *',
+							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+							enabled: true
+						}
+						$triggersCount = {
+							...($triggersCount ?? {}),
+							schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
+							primary_schedule: { schedule: $primarySchedule.cron }
+						}
+					}}
+					variant="contained"
+					color="dark"
+					size="md"
+					startIcon={{ icon: Calendar }}
+				>
+					Set Primary Schedule
+				</Button>
+			</div>
 			{#if $initialPrimarySchedule != undefined && $initialPrimarySchedule != false && !newItem}
 				<Button on:click={save} color="dark" size="md" startIcon={{ icon: Save }}>
 					Apply changes now

@@ -15,5 +15,5 @@ export type TriggerContext = {
 	>
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>
-	viewSimplifiedTriggers: Writable<boolean>
+	simplifiedPoll: Writable<boolean | undefined>
 }

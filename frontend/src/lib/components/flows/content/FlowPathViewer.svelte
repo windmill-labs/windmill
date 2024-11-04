@@ -21,7 +21,7 @@
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
-		viewSimplifiedTriggers: writable(false)
+		simplifiedPoll: writable(false)
 	})
 
 	async function loadFlow(path: string) {

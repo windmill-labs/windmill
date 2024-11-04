@@ -144,7 +144,7 @@
 			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
 			: undefined
 	)
-	const viewSimplifiedTriggers = writable(false)
+	const simplifiedPoll = writable(false)
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -525,7 +525,7 @@
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		viewSimplifiedTriggers
+		simplifiedPoll
 	})
 
 	async function loadTriggers() {

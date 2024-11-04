@@ -14,6 +14,7 @@
 		| 'websockets'
 		| 'scheduledPoll' = 'webhooks'
 	export let flow_json: any | undefined = undefined
+	export let simplfiedPoll: boolean = false
 
 	export let isOperator: boolean = false
 
@@ -46,7 +47,7 @@
 					<slot name="script" />
 				</TabContent>
 				<TabContent value="triggers" class="h-full pt-2">
-					<DetailPageTriggerPanel bind:triggerSelected>
+					<DetailPageTriggerPanel {simplfiedPoll} bind:triggerSelected>
 						<slot slot="webhooks" name="webhooks" />
 						<slot slot="routes" name="routes" />
 						<slot slot="websockets" name="websockets" />

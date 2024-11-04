@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, onMount, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, setContext } from 'svelte'
 
-	import { writable, type Writable } from 'svelte/store'
+	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
 	import type { FlowInput } from '../flows/types'
 	import {
@@ -38,6 +38,7 @@
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
+	import type { TriggerContext } from '../triggers'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -73,17 +74,45 @@
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
 
+	const triggerContext = getContext<TriggerContext>('TriggerContext')
+
 	const dispatch = createEventDispatcher()
 
 	let fullWidth = 0
 	let width = 0
 
-	export let simplified: boolean = true
+	export let allowSimplifiedPoll: boolean = true
 
 	let simplifiableFlow: SimplifiableFlow | undefined = undefined
 
-	$: simplifiableFlow =
-		modules && isSimplifiable(modules) ? { simplifiedFlow: simplified } : undefined
+	if (triggerContext && allowSimplifiedPoll) {
+		if (isSimplifiable(modules)) {
+			triggerContext?.simplifiedPoll?.set(true)
+		}
+		triggerContext?.simplifiedPoll.subscribe((value) => {
+			computeSimplifiableFlow(modules ?? [], value ?? false)
+		})
+	}
+
+	function computeSimplifiableFlow(modules: FlowModule[], simplifiedFlow: boolean) {
+		const isSimplif = isSimplifiable(modules)
+		simplifiableFlow = isSimplif ? { simplifiedFlow } : undefined
+	}
+
+	onDestroy(() => {
+		if (isSimplifiable(modules)) {
+			triggerContext?.simplifiedPoll?.set(undefined)
+		}
+	})
+
+	function onModulesChange(modules: FlowModule[]) {
+		computeSimplifiableFlow(
+			modules,
+			triggerContext?.simplifiedPoll ? get(triggerContext.simplifiedPoll) ?? false : false
+		)
+	}
+
+	$: allowSimplifiedPoll && onModulesChange(modules ?? [])
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -171,7 +200,7 @@
 			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
 		},
 		simplifyFlow: (detail) => {
-			simplified = detail
+			triggerContext?.simplifiedPoll.set(detail)
 		}
 	}
 
@@ -264,8 +293,8 @@
 	// 	return newGraph
 	// }
 
-	function isSimplifiable(modules: FlowModule[]): boolean {
-		if (modules?.length !== 2) {
+	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
+		if (!modules || modules?.length !== 2) {
 			return false
 		}
 		if (isTriggerStep(modules?.[0])) {
@@ -287,7 +316,7 @@
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
-	$: (graph || simplified) && updateStores()
+	$: (graph || allowSimplifiedPoll) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
