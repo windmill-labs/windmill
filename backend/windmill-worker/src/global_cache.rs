@@ -1,6 +1,3 @@
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-use crate::PIP_CACHE_DIR;
-
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
 
@@ -20,13 +17,17 @@ use std::sync::Arc;
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
+    // /tmp/windmill/cache/python_311
+    cache_dir: String,
+    // python_311
+    prefix: String,
 ) -> error::Result<()> {
     use object_store::path::Path;
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
-    let tar_path = format!("{PIP_CACHE_DIR}/{folder_name}_tar.tar",);
+    let tar_path = format!("{cache_dir}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
@@ -46,7 +47,7 @@ pub async fn build_tar_and_push(
     // })?;
     if let Err(e) = s3_client
         .put(
-            &Path::from(format!("/tar/pip/{folder_name}.tar")),
+            &Path::from(format!("/tar/{prefix}/{folder_name}.tar")),
             std::fs::read(&tar_path)?.into(),
         )
         .await
@@ -71,7 +72,11 @@ pub async fn build_tar_and_push(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
+pub async fn pull_from_tar(
+    client: Arc<dyn ObjectStore>,
+    folder: String,
+    prefix: String,
+) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
 
     let folder_name = folder.split("/").last().unwrap();
@@ -79,7 +84,7 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
     tracing::info!("Attempting to pull piptar {folder_name} from bucket");
 
     let start = Instant::now();
-    let tar_path = format!("tar/pip/{folder_name}.tar");
+    let tar_path = format!("tar/{prefix}/{folder_name}.tar");
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
     // tracing::info!("B: {target} {folder}");

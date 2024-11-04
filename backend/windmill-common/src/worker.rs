@@ -87,7 +87,6 @@ lazy_static::lazy_static! {
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
-
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -304,10 +303,16 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
+#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_uv: bool,
+
+    pub py310: bool,
+    pub py311: bool,
+    pub py312: bool,
+    pub py313: bool,
 }
 
 #[annotations("//")]

@@ -62,6 +62,8 @@ pub enum Error {
     OpenAIError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
+    #[error("Find python error: {0}")]
+    FindPythonError(String),
 }
 
 impl Error {

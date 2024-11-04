@@ -1,3 +1,4 @@
+# trigger CI #2 | Dont forget to remove
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.80-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
@@ -95,6 +96,13 @@ ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 ARG WITH_GIT=true
 
+# NOTE: It differs from instance version.
+# `Instance` version is controllable by instance superadmins
+# Where `Default` is set by default for fresh instances 
+ARG DEFAULT_PYTHON_V=3.11.10
+ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_install
+ENV UV_PYTHON_PREFERENCE=only-managed
+
 RUN pip install --upgrade pip==24.2
 
 RUN apt-get update \
@@ -160,6 +168,9 @@ ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
+
+# Preinstall default python version
+RUN uv python install $DEFAULT_PYTHON_V
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \

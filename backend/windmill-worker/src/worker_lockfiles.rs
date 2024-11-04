@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, PythonAnnotations};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -26,8 +26,11 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
+};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
+use crate::INSTANCE_PYTHON_VERSION;
 use crate::{
     bun_executor::gen_bun_lockfile,
     deno_executor::generate_deno_lock,
@@ -1280,8 +1283,27 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
+
+    let instance_version =
+        (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
+
+    // Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
+    // This one used specifically for deploying scripts
+    // So we can get final_version straight away and include in lockfile
+    // It will be written to db as a "lock" field for script
+    let final_version = PyVersion::from_py_annotations(annotations).unwrap_or(
+        PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
+            tracing::error!(
+                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
+                *INSTANCE_PYTHON_VERSION
+            );
+            PyVersion::Py311
+        }),
+    );
+
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
@@ -1292,8 +1314,9 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        false,
-        false,
+        final_version,
+        annotations.no_uv,
+        annotations.no_cache,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1309,6 +1332,12 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
+            // In this case we calculate lockfile each time and it is guranteed
+            // that version in lockfile will be equal to final_version
+            // So we can skip parsing the lockfile returned from uv_pip_compile to get python version
+            // and instead just use final_version
+            final_version,
+            annotations.no_uv,
         )
         .await;
 
@@ -1358,6 +1387,8 @@ async fn capture_dependency_job(
                 .join("\n")
             };
 
+            let annotations = windmill_common::worker::PythonAnnotations::parse(job_raw_code);
+
             python_dep(
                 reqs,
                 job_id,
@@ -1369,6 +1400,7 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                annotations,
             )
             .await
         }
@@ -1392,6 +1424,7 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                PythonAnnotations::default(),
             )
             .await
         }

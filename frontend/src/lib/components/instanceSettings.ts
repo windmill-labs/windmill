@@ -212,6 +212,14 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Instance Python Version',
+			description: 'Default python version for newly deployed scripts',
+			key: 'instance_python_version',
+			fieldType: 'text',
+			placeholder: '3.10, 3.11 (Default), 3.12 or 3.13',
+			storage: 'setting',
+		},
+		{
 			label: 'Npm Config Registry',
 			description: 'Add private npm registry',
 			key: 'npm_config_registry',
