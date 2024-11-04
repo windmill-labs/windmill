@@ -147,10 +147,13 @@
 
 	function checkCodeInjection(rawValue: string) {
 		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
-			return []
+			return undefined
 		}
 		const matches = dynamicTemplateRegexPairs.filter(({ regex }) => regex.test(rawValue))
-		return matches.map((m) => ({ word: m.word, value: rawValue }))
+		if (matches.length > 0) {
+			return matches.map((m) => ({ word: m.word, value: rawValue }))
+		}
+		return undefined
 	}
 
 	async function setJavaScriptExpr(rawValue: string) {
@@ -228,7 +231,7 @@
 		}
 		if (propertyType == 'static') {
 			setPropertyType(arg?.value)
-			codeInjectionDetected = checkCodeInjection(arg?.value).length > 0
+			codeInjectionDetected = !!checkCodeInjection(arg?.value)
 		} else if (propertyType == 'javascript' && focused) {
 			setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
