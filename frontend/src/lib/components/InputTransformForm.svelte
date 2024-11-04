@@ -534,7 +534,7 @@
 					{/if}
 				</div>
 
-				{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'insert'}
+				{#if $propPickerConfig?.propName == argName && ($propPickerConfig?.insertionMode == 'insert' || $propPickerConfig?.insertionMode == 'append')}
 					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
