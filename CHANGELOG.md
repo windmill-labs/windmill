@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.417.3](https://github.com/windmill-labs/windmill/compare/v1.417.2...v1.417.3) (2024-11-04)
+
+
+### Bug Fixes
+
+* **cli:** improve pulling instance with folderPerInstance ([1e7909e](https://github.com/windmill-labs/windmill/commit/1e7909e95931e1e121cb3767bad093239254935d))
+
+## [1.417.2](https://github.com/windmill-labs/windmill/compare/v1.417.1...v1.417.2) (2024-11-04)
+
+
+### Bug Fixes
+
+* **cli:** improve pulling instance with folderPerInstance ([00748f4](https://github.com/windmill-labs/windmill/commit/00748f43feab4f28f0dd2682e3dc8ccc15a5f49f))
+
+## [1.417.1](https://github.com/windmill-labs/windmill/compare/v1.417.0...v1.417.1) (2024-11-04)
+
+
+### Bug Fixes
+
+* missing opts for pull and push instance configs ([#4630](https://github.com/windmill-labs/windmill/issues/4630)) ([e92a338](https://github.com/windmill-labs/windmill/commit/e92a338432d2732e6be74c3604b9fa95239e1ca3))
+
+## 1.417.0 (2024-11-03)
+
+*  feat(cli): instance yaml files inside the instance prefix folders (#4627)
+
 ## [1.416.2](https://github.com/windmill-labs/windmill/compare/v1.416.1...v1.416.2) (2024-11-02)
 
 
