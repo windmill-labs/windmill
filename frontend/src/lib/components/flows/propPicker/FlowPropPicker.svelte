@@ -12,13 +12,7 @@
 	export let prefix = ''
 	export let viewOnly = false
 
-	let popupOpen = false
-
 	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
-
-	$: console.log('dbg view only', viewOnly)
-	$: console.log('dbg popupOpen', popupOpen)
-	$: console.log('dbg json', json)
 </script>
 
 <button
