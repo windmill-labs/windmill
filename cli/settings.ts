@@ -33,6 +33,22 @@ export interface SimplifiedSettings {
   name: string;
 }
 
+const INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
+let instanceSettingsPath = INSTANCE_SETTINGS_PATH;
+async function checkInstanceSettingsPath(opts: InstanceSyncOptions) {
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    instanceSettingsPath = `${opts.prefix}/${INSTANCE_SETTINGS_PATH}`;
+  }
+}
+
+const INSTANCE_CONFIGS_PATH = "instance_configs.yaml";
+let instanceConfigsPath = INSTANCE_CONFIGS_PATH;
+async function checkInstanceConfigPath(opts: InstanceSyncOptions) {
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    instanceConfigsPath = `${opts.prefix}/${INSTANCE_CONFIGS_PATH}`;
+  }
+}
+
 export async function pushWorkspaceSettings(
   workspace: string,
   _path: string,
@@ -260,22 +276,15 @@ export async function pushWorkspaceKey(
   }
 }
 
-const INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
-
-export async function readInstanceSettings(
-  opts: GlobalOptions & InstanceSyncOptions
-) {
+export async function readInstanceSettings(opts: InstanceSyncOptions) {
   let localSettings: GlobalSetting[] = [];
 
-  let path = INSTANCE_SETTINGS_PATH;
-  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
-    path = `${opts.prefix}/${INSTANCE_SETTINGS_PATH}`;
-  }
+  await checkInstanceSettingsPath(opts);
 
   try {
-    localSettings = (await yamlParseFile(path)) as GlobalSetting[];
+    localSettings = (await yamlParseFile(instanceSettingsPath)) as GlobalSetting[];
   } catch {
-    log.warn(`No ${path} found`);
+    log.warn(`No ${instanceSettingsPath} found`);
   }
   return localSettings;
 }
@@ -337,10 +346,12 @@ async function processField(
 }
 
 export async function pullInstanceSettings(
-  opts: GlobalOptions & InstanceSyncOptions,
+  opts: InstanceSyncOptions,
   preview = false
 ) {
   const remoteSettings = await wmill.listGlobalSettings();
+
+  await checkInstanceSettingsPath(opts);
 
   if (preview) {
     const localSettings: GlobalSetting[] = await readInstanceSettings(opts);
@@ -362,16 +373,16 @@ export async function pullInstanceSettings(
       "encode"
     );
     await Deno.writeTextFile(
-      INSTANCE_SETTINGS_PATH,
+      instanceSettingsPath,
       yamlStringify(processedSettings)
     );
 
-    log.info(colors.green(`Settings written to ${INSTANCE_SETTINGS_PATH}`));
+    log.info(colors.green(`Settings written to ${instanceSettingsPath}`));
   }
 }
 
 export async function pushInstanceSettings(
-  opts: GlobalOptions & InstanceSyncOptions,
+  opts: InstanceSyncOptions,
   preview: boolean = false
 ) {
   const remoteSettings = await wmill.listGlobalSettings();
@@ -434,28 +445,23 @@ export async function pushInstanceSettings(
   }
 }
 
-const INSTANCE_CONFIGS_PATH = "instance_configs.yaml";
-
 export async function readLocalConfigs(
-  opts: GlobalOptions & InstanceSyncOptions
+  opts: InstanceSyncOptions
 ) {
   let localConfigs: Config[] = [];
 
-  let path = INSTANCE_CONFIGS_PATH;
-  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
-    path = `${opts.prefix}/${INSTANCE_CONFIGS_PATH}`;
-  }
+  await checkInstanceConfigPath(opts);
 
   try {
-    localConfigs = (await yamlParseFile(path)) as Config[];
+    localConfigs = (await yamlParseFile(instanceConfigsPath)) as Config[];
   } catch {
-    log.warn(`No ${path} found`);
+    log.warn(`No ${instanceConfigsPath} found`);
   }
   return localConfigs;
 }
 
 export async function pullInstanceConfigs(
-  opts: GlobalOptions & InstanceSyncOptions,
+  opts: InstanceSyncOptions,
   preview = false
 ) {
   const remoteConfigs = (await wmill.listConfigs()).map((x) => {
@@ -478,16 +484,16 @@ export async function pullInstanceConfigs(
     log.info("Pulling configs from instance");
 
     await Deno.writeTextFile(
-      INSTANCE_CONFIGS_PATH,
+      instanceConfigsPath,
       yamlStringify(remoteConfigs as any)
     );
 
-    log.info(colors.green(`Configs written to ${INSTANCE_CONFIGS_PATH}`));
+    log.info(colors.green(`Configs written to ${instanceConfigsPath}`));
   }
 }
 
 export async function pushInstanceConfigs(
-  opts: GlobalOptions & InstanceSyncOptions,
+  opts: InstanceSyncOptions,
   preview: boolean = false
 ) {
   const remoteConfigs = (await wmill.listConfigs()).map((x) => {
