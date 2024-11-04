@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.417.2](https://github.com/windmill-labs/windmill/compare/v1.417.1...v1.417.2) (2024-11-04)
+
+
+### Bug Fixes
+
+* **cli:** improve pulling instance with folderPerInstance ([00748f4](https://github.com/windmill-labs/windmill/commit/00748f43feab4f28f0dd2682e3dc8ccc15a5f49f))
+
 ## [1.417.1](https://github.com/windmill-labs/windmill/compare/v1.417.0...v1.417.1) (2024-11-04)
 
 
