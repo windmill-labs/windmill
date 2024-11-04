@@ -53,7 +53,7 @@
 	}
 
 	.gradient-button.animate::before {
-		background: conic-gradient(from 0deg, #63a9ff, #0c79fd, #033b80, #00142c, #63a9ff);
+		background: conic-gradient(from 0deg, #a4c7f2, #0c79fd, #104688, #a4c7f2);
 		animation: rotate var(--animation-duration, 2s) linear infinite;
 	}
 
