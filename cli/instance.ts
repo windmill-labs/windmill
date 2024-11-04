@@ -261,7 +261,7 @@ export async function pickInstance(
 
   return instance;
 }
-async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
+async function instancePull(opts: InstanceSyncOptions) {
   const instance = await pickInstance(opts, true);
   log.info("Pulling instance-level changes");
   log.info(`remote (${instance.name}) -> local`);
@@ -393,7 +393,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   }
 }
 
-async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
+async function instancePush(opts: InstanceSyncOptions) {
   let instances = await allInstances();
   const instance = await pickInstance(opts, true);
 
