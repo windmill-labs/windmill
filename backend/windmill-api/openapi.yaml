@@ -11522,6 +11522,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11535,6 +11541,8 @@ components:
         - workspace_id
         - enabled
         - filters
+        - initial_messages
+        - url_runnable_args
 
     NewWebsocketTrigger:
       type: object
@@ -11560,6 +11568,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11567,6 +11581,8 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
 
     EditWebsocketTrigger:
       type: object
@@ -11590,6 +11606,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
               
       required:
         - path
@@ -11597,6 +11619,34 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
+
+    WebsocketTriggerInitialMessage:
+      anyOf:
+        - type: object
+          properties:
+            raw_message: 
+              type: string
+          required:
+            - raw_message
+        - type: object
+          properties:
+            runnable_result:
+              type: object
+              properties:
+                path: 
+                  type: string
+                args:
+                  $ref: "#/components/schemas/ScriptArgs"
+                is_flow:
+                  type: boolean
+              required:
+                - path
+                - args
+                - is_flow
+          required: 
+            - runnable_result
 
     Group:
       type: object
