@@ -9,6 +9,7 @@
 	import { keepByKey } from './utils'
 	import type { PickableProperties } from '../flows/previousResults'
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
+	import { filterNestedObject } from '../flows/previousResults'
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
@@ -22,36 +23,29 @@
 	let displayVariable = false
 	let displayResources = false
 	let allResultsCollapsed = true
+	let flowInputsFiltered: Record<string, any> = {}
+	let resultByIdFiltered: Record<string, any> = {}
+	let collapsableInitialState:
+		| {
+				allResultsCollapsed: boolean
+				displayVariable: boolean
+				displayResources: boolean
+		  }
+		| undefined
 
 	const EMPTY_STRING = ''
 	let search = ''
 
-	const { propPickerConfig, filteredPickableProperties } =
+	const { propPickerConfig, filteredPickableProperties, inputMatches } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$filteredPickableProperties = { ...pickableProperties }
 
-	$: flowInputsFiltered =
-		search === EMPTY_STRING
-			? pickableProperties.flow_input
-			: keepByKey(pickableProperties.flow_input, search)
-
-	$: resultByIdFiltered =
-		search === EMPTY_STRING
-			? pickableProperties.priorIds
-			: keepByKey(pickableProperties.priorIds, search)
+	$: filterPickableProperties(), updateCollapsable(), search, $inputMatches
 
 	$: suggestedPropsFiltered = $propPickerConfig
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
 		: undefined
-
-	$: resultByIdFiltered &&
-		$filteredPickableProperties &&
-		($filteredPickableProperties.priorIds = resultByIdFiltered)
-
-	$: flowInputsFiltered &&
-		$filteredPickableProperties &&
-		($filteredPickableProperties.flow_input = flowInputsFiltered)
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
@@ -71,6 +65,75 @@
 				})
 			).map((resource) => [resource.path, resource.description ?? ''])
 		)
+	}
+
+	function filterPickableProperties() {
+		flowInputsFiltered = pickableProperties.flow_input
+		resultByIdFiltered = pickableProperties.priorIds
+
+		if ($inputMatches) {
+			if (!$inputMatches.some((match) => match.word === 'flow_input')) {
+				flowInputsFiltered = []
+			}
+			if (!$inputMatches.some((match) => match.word === 'results')) {
+				resultByIdFiltered = []
+			}
+			if ($inputMatches.length == 1) {
+				if ($inputMatches[0].word === 'flow_input') {
+					let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+					flowInputsFiltered = filterNestedObject(flowInputsFiltered, nestedKeys)
+				} else if ($inputMatches[0].word === 'results') {
+					let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+					resultByIdFiltered = filterNestedObject(resultByIdFiltered, nestedKeys)
+				}
+			}
+		}
+
+		if (flowInputsFiltered && search !== EMPTY_STRING) {
+			flowInputsFiltered = keepByKey(flowInputsFiltered, search)
+		}
+		if (resultByIdFiltered && search !== EMPTY_STRING) {
+			resultByIdFiltered = keepByKey(resultByIdFiltered, search)
+		}
+
+		if ($filteredPickableProperties) {
+			resultByIdFiltered && ($filteredPickableProperties.priorIds = resultByIdFiltered)
+			flowInputsFiltered && ($filteredPickableProperties.flow_input = flowInputsFiltered)
+		}
+	}
+
+	async function updateCollapsable() {
+		if (!$inputMatches || $inputMatches.length !== 1) {
+			resetCollapsable()
+			return
+		}
+
+		if (!collapsableInitialState) {
+			collapsableInitialState = { allResultsCollapsed, displayVariable, displayResources }
+		}
+
+		if ($inputMatches[0].word === 'variable') {
+			await loadVariables()
+			displayVariable = true
+			return
+		}
+		if ($inputMatches[0].word === 'resource') {
+			await loadResources()
+			displayResources = true
+			return
+		}
+		if ($inputMatches[0].word === 'results') {
+			allResultsCollapsed = false
+			return
+		}
+	}
+
+	function resetCollapsable() {
+		if (!collapsableInitialState) {
+			return
+		}
+		;({ allResultsCollapsed, displayVariable, displayResources } = collapsableInitialState)
+		collapsableInitialState = undefined
 	}
 </script>
 
@@ -94,19 +157,21 @@
 		class="overflow-y-auto px-2 pt-2 grow"
 		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
 	>
-		<div class="flex justify-between items-center space-x-1">
-			<span class="font-normal text-sm text-secondary">Flow Input</span>
-			<div class="flex space-x-2 items-center" />
-		</div>
-		<div class="overflow-y-auto mb-2">
-			<ObjectViewer
-				{allowCopy}
-				pureViewer={!$propPickerConfig}
-				json={flowInputsFiltered}
-				prefix="flow_input"
-				on:select
-			/>
-		</div>
+		{#if flowInputsFiltered && Object.keys(flowInputsFiltered).length > 0}
+			<div class="flex justify-between items-center space-x-1">
+				<span class="font-normal text-sm text-secondary">Flow Input</span>
+				<div class="flex space-x-2 items-center" />
+			</div>
+			<div class="overflow-y-auto mb-2">
+				<ObjectViewer
+					{allowCopy}
+					pureViewer={!$propPickerConfig}
+					json={flowInputsFiltered}
+					prefix="flow_input"
+					on:select
+				/>
+			</div>
+		{/if}
 		{#if error}
 			<span class="font-normal text-sm text-secondary">Error</span>
 			<div class="overflow-y-auto mb-2">
@@ -151,15 +216,16 @@
 				</div>
 			{/if}
 		{:else}
-			{#if previousId}
+			{@const json = Object.fromEntries(
+				Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
+			)}
+			{#if previousId && Object.keys(json).length > 0}
 				<span class="font-normal text-sm text-secondary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
-						json={Object.fromEntries(
-							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
-						)}
+						{json}
 						prefix="results"
 						on:select
 					/>
@@ -194,112 +260,117 @@
 						/>
 					</div>
 				{/if}
+				{#if Object.keys(resultByIdFiltered).length > 0}
+					<div class="overflow-y-auto mb-2">
+						<span class="font-normal text-sm text-tertiary">All Results :</span>
+						{#if !allResultsCollapsed}
+							<Button
+								color="light"
+								size="xs2"
+								variant="border"
+								on:click={() => {
+									allResultsCollapsed = true
+								}}
+								wrapperClasses="inline-flex w-fit h-4"
+								btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
+							>
+						{/if}
+
+						<ObjectViewer
+							{allowCopy}
+							pureViewer={!$propPickerConfig}
+							bind:collapsed={allResultsCollapsed}
+							json={resultByIdFiltered}
+							prefix="results"
+							on:select
+						/>
+					</div>
+				{/if}
+			{/if}
+		{/if}
+
+		{#if displayContext}
+			{#if !$inputMatches || $inputMatches.some((match) => match.word === 'variable')}
 				<div class="overflow-y-auto mb-2">
-					<span class="font-normal text-sm text-tertiary">All Results :</span>
-					{#if !allResultsCollapsed}
+					<span class="font-normal text-sm text-secondary">Variables :</span>
+
+					{#if displayVariable}
 						<Button
 							color="light"
 							size="xs2"
 							variant="border"
 							on:click={() => {
-								allResultsCollapsed = true
+								displayVariable = false
 							}}
 							wrapperClasses="inline-flex w-fit h-4"
 							btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
 						>
-					{/if}
 
-					<ObjectViewer
-						{allowCopy}
-						pureViewer={!$propPickerConfig}
-						bind:collapsed={allResultsCollapsed}
-						json={resultByIdFiltered}
-						prefix="results"
-						on:select
-					/>
+						<ObjectViewer
+							{allowCopy}
+							pureViewer={!$propPickerConfig}
+							rawKey={true}
+							json={variables}
+							prefix="variable"
+							on:select
+						/>
+					{:else}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={async () => {
+								await loadVariables()
+								displayVariable = true
+							}}
+							wrapperClasses="inline-flex w-fit h-5"
+							btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+						>
+							{'{...}'}
+						</Button>
+					{/if}
 				</div>
 			{/if}
-		{/if}
+			{#if !$inputMatches || $inputMatches.some((match) => match.word === 'resource')}
+				<div class="overflow-y-auto mb-2">
+					<span class="font-normal text-sm text-secondary">Resources :</span>
 
-		{#if displayContext}
-			<div class="overflow-y-auto mb-2">
-				<span class="font-normal text-sm text-secondary">Variables :</span>
-
-				{#if displayVariable}
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						on:click={() => {
-							displayVariable = false
-						}}
-						wrapperClasses="inline-flex w-fit h-4"
-						btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
-					>
-
-					<ObjectViewer
-						{allowCopy}
-						pureViewer={!$propPickerConfig}
-						rawKey={true}
-						json={variables}
-						prefix="variable"
-						on:select
-					/>
-				{:else}
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						on:click={async () => {
-							await loadVariables()
-							displayVariable = true
-						}}
-						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
-					>
-						{'{...}'}
-					</Button>
-				{/if}
-			</div>
-
-			<div class="overflow-y-auto mb-2">
-				<span class="font-normal text-sm text-secondary">Resources :</span>
-
-				{#if displayResources}
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						on:click={() => {
-							displayResources = false
-						}}
-						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
-					>
-					<ObjectViewer
-						{allowCopy}
-						pureViewer={!$propPickerConfig}
-						rawKey={true}
-						json={resources}
-						prefix="resource"
-						on:select
-					/>
-				{:else}
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						on:click={async () => {
-							await loadResources()
-							displayResources = true
-						}}
-						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
-					>
-						{'{...}'}
-					</Button>
-				{/if}
-			</div>
+					{#if displayResources}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayResources = false
+							}}
+							wrapperClasses="inline-flex w-fit h-5"
+							btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
+						>
+						<ObjectViewer
+							{allowCopy}
+							pureViewer={!$propPickerConfig}
+							rawKey={true}
+							json={resources}
+							prefix="resource"
+							on:select
+						/>
+					{:else}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={async () => {
+								await loadResources()
+								displayResources = true
+							}}
+							wrapperClasses="inline-flex w-fit h-5"
+							btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+						>
+							{'{...}'}
+						</Button>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>

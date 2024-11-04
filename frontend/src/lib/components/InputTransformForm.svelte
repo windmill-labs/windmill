@@ -25,6 +25,7 @@
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
+	import { buildPrefixRegex } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
@@ -58,6 +59,8 @@
 
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	const { inputMatches } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -135,16 +138,19 @@
 
 	let codeInjectionDetected = false
 
+	const dynamicTemplateRegexPairs = buildPrefixRegex([
+		'flow_input',
+		'results',
+		'resource',
+		'variable'
+	])
+
 	function checkCodeInjection(rawValue: string) {
-		if (!arg) {
-			return
+		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
+			return []
 		}
-
-		const dynamicTemplateRegex = new RegExp(
-			/^(flow_input\.|results\.|flo$|flow$|flow_$|flow_i$|flow_in$|flow_inp$|flow_inpu$|flow_input$|res$|resu$|resul$|result$|results$).*/
-		)
-
-		codeInjectionDetected = dynamicTemplateRegex.test(rawValue)
+		const matches = dynamicTemplateRegexPairs.filter(({ regex }) => regex.test(rawValue))
+		return matches.map((m) => ({ word: m.word, value: rawValue }))
 	}
 
 	async function setJavaScriptExpr(rawValue: string) {
@@ -210,9 +216,24 @@
 
 	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
+	$: updateStaticInput(inputCat, propertyType, arg)
 
-	$: isStaticTemplate(inputCat) && propertyType == 'static' && checkCodeInjection(arg?.value)
+	function updateStaticInput(
+		inputCat: InputCat,
+		propertyType: 'static' | 'javascript',
+		arg: InputTransform | any
+	) {
+		if (!isStaticTemplate(inputCat)) {
+			return
+		}
+		if (propertyType == 'static') {
+			setPropertyType(arg?.value)
+			codeInjectionDetected = checkCodeInjection(arg?.value).length > 0
+		} else if (propertyType == 'javascript' && focused) {
+			setPropertyType(arg?.expr)
+			$inputMatches = checkCodeInjection(arg?.expr)
+		}
+	}
 
 	function setDefaultCode() {
 		if (!arg?.value) {
@@ -446,8 +467,8 @@
 								on:click={() => setJavaScriptExpr(arg.value)}
 							>
 								<span class="font-normal"
-									>Javascript expression detected - press
-									<span class="font-bold">TAB</span> to switch
+									>JavaScript expression detected - press
+									<span class="font-bold">TAB</span> to exit static mode
 								</span>
 							</Button>
 						{/if}

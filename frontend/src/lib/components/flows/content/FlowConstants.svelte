@@ -79,6 +79,7 @@
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
+		inputMatches: writable(undefined),
 		clearFocus: () => {},
 		filteredPickableProperties: writable(undefined)
 	})

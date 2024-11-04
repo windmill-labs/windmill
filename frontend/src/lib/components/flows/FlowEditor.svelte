@@ -30,6 +30,7 @@
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
+		inputMatches: writable(undefined),
 		focusProp: (propName, insertionMode, onSelect) => {
 			propPickerConfig.set({
 				propName,
