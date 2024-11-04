@@ -287,7 +287,7 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 					viewOnly={false}
 				/>
 			</div>
-		{:else if selected && !$propPickerConfig}
+		{:else if (selected || hover) && !$propPickerConfig}
 			<div class="absolute -top-[14px] right-[200px]">
 				<FlowPropPicker
 					json={{ [id]: $flowStateStore[id]?.previewResult }}
