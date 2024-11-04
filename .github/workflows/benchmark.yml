@@ -31,7 +31,7 @@ jobs:
         ports:
           - 8000:8000
     steps:
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: v1.x
       - name: benchmark
@@ -72,7 +72,7 @@ jobs:
         ports:
           - 8000:8000
     steps:
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: v1.x
       - name: benchmark
@@ -146,7 +146,7 @@ jobs:
           --pull always
 
     steps:
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: v1.x
       - name: benchmark
@@ -264,7 +264,7 @@ jobs:
         options: >-
           --pull always
     steps:
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: v1.x
       - name: benchmark
@@ -289,7 +289,7 @@ jobs:
       - benchmark_4workers
       - benchmark_8workers
     steps:
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: v1.x
       - uses: actions/checkout@v4
