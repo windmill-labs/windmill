@@ -265,7 +265,7 @@ Generate a description for the flow below:
 	</div>
 	{#if elementType === 'textarea'}
 		<div>
-			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-4">GH Markdown</div>
+			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
 			<textarea
 				bind:this={el}
 				bind:value={content}

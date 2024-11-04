@@ -12,12 +12,13 @@
 		modules: FlowModule[]
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		eventHandlers: GraphEventHandlers
+		simplifiedTriggerView: boolean
 	}
 </script>
 
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
-		label={'Do one iteration'}
+		label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
 		selectable={false}
 		selected={false}
 		id={data.id}

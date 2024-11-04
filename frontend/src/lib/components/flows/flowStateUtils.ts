@@ -45,11 +45,12 @@ export async function pickScript(
 	path: string,
 	summary: string,
 	id: string,
-	hash?: string
+	hash?: string,
+	kind?: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const flowModule: FlowModule & { value: PathScript } = {
 		id,
-		value: { type: 'script', path, hash, input_transforms: {} },
+		value: { type: 'script', path, hash, input_transforms: {}, is_trigger: kind === 'trigger' },
 		summary
 	}
 
@@ -82,7 +83,13 @@ export async function createInlineScriptModule(
 	const flowModule: FlowModule = {
 		id,
 		summary,
-		value: { type: 'rawscript', content: code, language, input_transforms: {} }
+		value: {
+			type: 'rawscript',
+			content: code,
+			language,
+			input_transforms: {},
+			is_trigger: kind === 'trigger'
+		}
 	}
 
 	return [flowModule, await loadFlowModuleState(flowModule)]

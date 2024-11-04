@@ -735,6 +735,7 @@ async fn lock_modules<'c>(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            is_trigger,
         } = e.get_value()?
         else {
             match e.get_value()? {
@@ -970,6 +971,7 @@ async fn lock_modules<'c>(
                     custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
+                    is_trigger,
                 });
                 new_flow_modules.push(e);
                 continue;
@@ -992,6 +994,7 @@ async fn lock_modules<'c>(
                     custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
+                    is_trigger,
                 });
                 new_flow_modules.push(e);
                 continue;

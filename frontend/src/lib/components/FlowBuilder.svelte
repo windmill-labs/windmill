@@ -144,7 +144,7 @@
 			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
 			: undefined
 	)
-
+	const simplifiedPoll = writable(false)
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -468,7 +468,7 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
 	export function getSelectedId() {
@@ -490,7 +490,14 @@
 	}
 
 	function selectTrigger(
-		selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		selectedTrigger:
+			| 'webhooks'
+			| 'emails'
+			| 'schedules'
+			| 'cli'
+			| 'routes'
+			| 'websockets'
+			| 'scheduledPoll'
 	) {
 		selectedTriggerStore.set(selectedTrigger)
 	}
@@ -517,7 +524,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
-		triggersCount
+		triggersCount,
+		simplifiedPoll
 	})
 
 	async function loadTriggers() {
@@ -875,7 +883,6 @@
 			$copilotDrawerStore?.closeDrawer()
 			await tick()
 			select(module.id)
-			await tick()
 			await tick()
 			focusCopilot()
 

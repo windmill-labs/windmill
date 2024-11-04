@@ -182,6 +182,11 @@
 			"svelte": "./package/components/icons/WindmillIcon2.svelte",
 			"default": "./package/components/icons/WindmillIcon2.svelte"
 		},
+		"./components/icons/SchedulePollIcon.svelte": {
+			"types": "./package/components/icons/SchedulePollIcon.d.ts",
+			"svelte": "./package/components/icons/SchedulePollIcon.svelte",
+			"default": "./package/components/icons/SchedulePollIcon.svelte"
+		},
 		"./components/IconedResourceType.svelte": {
 			"types": "./package/components/IconedResourceType.svelte.d.ts",
 			"svelte": "./package/components/IconedResourceType.svelte",

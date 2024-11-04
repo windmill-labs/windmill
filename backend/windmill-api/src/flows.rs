@@ -1209,6 +1209,7 @@ mod tests {
                         .into(),
                         hash: None,
                         tag_override: None,
+                        is_trigger: None,
                     }),
                     stop_after_if: None,
                     stop_after_all_iters_if: None,
@@ -1236,6 +1237,7 @@ mod tests {
                         custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
+                        is_trigger: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1290,6 +1292,7 @@ mod tests {
                     input_transforms: HashMap::new(),
                     hash: None,
                     tag_override: None,
+                    is_trigger: None,
                 }
                 .into(),
                 stop_after_if: Some(StopAfterIf {
