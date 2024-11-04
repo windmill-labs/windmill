@@ -273,11 +273,17 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 			{/if}
 		</div>
 	</div>
-	{#if $propPickerConfig && pickableIds && id && Object.keys(pickableIds).includes(id)}
+
+	{#if id && (selected || $propPickerConfig)}
 		<div class="absolute -top-[14px] right-[200px]">
-			<FlowPropPicker json={{ [id]: pickableIds?.[id] }} prefix={'results'} />
+			<FlowPropPicker
+				json={{ [id]: pickableIds?.[id] }}
+				prefix={'results'}
+				viewOnly={!$propPickerConfig || !pickableIds || !Object.keys(pickableIds).includes(id)}
+			/>
 		</div>
 	{/if}
+
 	{#if deletable}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
