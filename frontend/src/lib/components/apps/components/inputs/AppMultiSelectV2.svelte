@@ -81,19 +81,12 @@
 		if (!Array.isArray(resolvedConfig.defaultItems)) {
 			nvalue = []
 		} else {
-			nvalue = resolvedConfig.defaultItems?.map((item) => {
-				if (!item || typeof item !== 'object') {
-					console.error('Select component items should be an array of objects')
-					return {
-						label: 'not object',
-						value: 'not object'
-					}
-				}
-				return {
-					label: item?.label ?? 'undefined',
-					value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
-				}
-			})
+			let rawNvalue = new Set(
+				resolvedConfig.defaultItems?.map((value) => {
+					return typeof value === 'string' ? value : `NOT_STRING`
+				})
+			)
+			nvalue = items?.filter((item) => rawNvalue.has(item.value))
 		}
 		value = [...new Set(nvalue)]
 		outputs?.result.set([...(value ?? [])])
