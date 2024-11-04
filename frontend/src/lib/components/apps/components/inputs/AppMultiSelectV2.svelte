@@ -30,21 +30,23 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let items: string[]
+	let items: { label: string; value: string; created?: boolean }[]
 
 	const resolvedConfig = initConfig(
-		components['multiselectcomponent'].initialData.configuration,
+		components['multiselectcomponentv2'].initialData.configuration,
 		configuration
 	)
 
 	const outputs = initOutput($worldStore, id, {
-		result: [] as string[]
+		result: [] as { label: string; value: string; created?: boolean }[]
 	})
 
-	let value: string[] | undefined = [...new Set(outputs?.result.peak())] as string[]
+	let value: { label: string; value: string; created?: boolean }[] | undefined = [
+		...new Set(outputs?.result.peak())
+	] as { label: string; value: string; created?: boolean }[]
 
 	$componentControl[id] = {
-		setValue(nvalue: string[]) {
+		setValue(nvalue: { label: string; value: string; created?: boolean }[]) {
 			value = [...new Set(nvalue)]
 			outputs?.result.set([...(value ?? [])])
 		}
@@ -53,9 +55,21 @@
 	$: resolvedConfig.items && handleItems()
 
 	function handleItems() {
-		if (Array.isArray(resolvedConfig.items)) {
-			items = resolvedConfig.items?.map((label) => {
-				return typeof label === 'string' ? label : `NOT_STRING`
+		if (!Array.isArray(resolvedConfig.items)) {
+			items = []
+		} else {
+			items = resolvedConfig.items?.map((item) => {
+				if (!item || typeof item !== 'object') {
+					console.error('Select component items should be an array of objects')
+					return {
+						label: 'not object',
+						value: 'not object'
+					}
+				}
+				return {
+					label: item?.label ?? 'undefined',
+					value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
+				}
 			})
 		}
 	}
@@ -63,13 +77,26 @@
 	$: resolvedConfig.defaultItems && handleDefaultItems()
 
 	function handleDefaultItems() {
-		if (Array.isArray(resolvedConfig.defaultItems)) {
-			const nvalue = resolvedConfig.defaultItems?.map((label) => {
-				return typeof label === 'string' ? label : `NOT_STRING`
+		let nvalue: { label: string; value: string; created?: boolean }[]
+		if (!Array.isArray(resolvedConfig.defaultItems)) {
+			nvalue = []
+		} else {
+			nvalue = resolvedConfig.defaultItems?.map((item) => {
+				if (!item || typeof item !== 'object') {
+					console.error('Select component items should be an array of objects')
+					return {
+						label: 'not object',
+						value: 'not object'
+					}
+				}
+				return {
+					label: item?.label ?? 'undefined',
+					value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
+				}
 			})
-			value = [...new Set(nvalue)]
-			outputs?.result.set([...(value ?? [])])
 		}
+		value = [...new Set(nvalue)]
+		outputs?.result.set([...(value ?? [])])
 	}
 
 	let css = initCss($app.css?.multiselectcomponent, customCss)
@@ -181,7 +208,7 @@
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
 				>
-					{option}
+					{option.label}
 				</div>
 			</MultiSelect>
 			<Portal name="app-multiselect-v2">
