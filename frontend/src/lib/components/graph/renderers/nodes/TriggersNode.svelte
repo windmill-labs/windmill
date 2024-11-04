@@ -78,12 +78,15 @@
 				data?.eventHandlers?.select(e.detail)
 			}}
 		>
-			{#if $primarySchedule}
+			{#if $primarySchedule || ($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)}
 				<div class="text-2xs text-primary p-2 flex gap-2 items-center">
-					<Calendar size={14} />
+					<Calendar size={12} />
 					<div>
-						Schedule every {$primarySchedule.cron}
-						{$primarySchedule?.enabled ? '' : ' (disabled)'}
+						Schedule every {$primarySchedule?.cron ?? $triggersCount?.primary_schedule?.schedule}
+						{$primarySchedule?.enabled ||
+						($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)
+							? ''
+							: ' (disabled)'}
 					</div>
 				</div>
 			{:else}

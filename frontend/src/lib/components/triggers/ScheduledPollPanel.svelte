@@ -17,8 +17,8 @@
 		by a schedule, and returning a list of the changed states so we can iterate over them.
 	</Alert>
 
-	<Label label="Setting a scheduled poll">
-		<ul class="pt-4 space-y-2">
+	<Label label="Setting a scheduled poll" primary>
+		<ul class="pt-4 space-y-2 text-sm">
 			<li>
 				1. Chose a trigger script using the script picker that will poll for new events regularly <img
 					class="shadow-lg border rounded"
@@ -28,7 +28,7 @@
 			</li>
 
 			<li>
-				2. Do something with the returned states. <img
+				2. Add logic to process each new event <img
 					class="shadow-lg rounded"
 					alt="create action"
 					src="{base}/create_action.png"
