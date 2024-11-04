@@ -286,6 +286,8 @@ async function instancePull(opts: InstanceSyncOptions) {
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
+  const rootDir = Deno.cwd();
+
   if (totalChanges > 0) {
     let confirm = true;
     if (opts.yes !== true) {
@@ -296,6 +298,13 @@ async function instancePull(opts: InstanceSyncOptions) {
     }
 
     if (confirm) {
+      if (uChanges > 0) {
+        if (opts.folderPerInstance && opts.prefixSettings) {
+          await Deno.mkdir(path.join(rootDir, opts.prefix), {
+            recursive: true,
+          });
+        }
+      }
       if (!opts.skipUsers && uChanges > 0) {
         await pullInstanceUsers(opts);
       }
@@ -315,7 +324,6 @@ async function instancePull(opts: InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
-    const rootDir = Deno.cwd();
     const localWorkspaces = await getLocalWorkspaces(
       rootDir,
       instance.prefix,
