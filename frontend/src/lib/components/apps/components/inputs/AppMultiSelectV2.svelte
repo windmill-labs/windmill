@@ -68,7 +68,10 @@
 				}
 				return {
 					label: item?.label ?? 'undefined',
-					value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
+					value:
+						typeof item?.value === 'object'
+							? JSON.stringify(item.value)
+							: item?.value ?? 'undefined'
 				}
 			})
 		}
@@ -82,9 +85,7 @@
 			nvalue = []
 		} else {
 			let rawNvalue = new Set(
-				resolvedConfig.defaultItems?.map((value) => {
-					return typeof value === 'string' ? value : `NOT_STRING`
-				})
+				resolvedConfig.defaultItems?.filter((value) => typeof value === 'string')
 			)
 			nvalue = items?.filter((item) => rawNvalue.has(item.value))
 		}
