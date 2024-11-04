@@ -171,5 +171,6 @@
       "user-library-modify",
       "user-library-read"
     ]
-  }
+  },
+  "snowflake_oauth": {}
 }

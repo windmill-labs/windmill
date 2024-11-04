@@ -250,6 +250,14 @@
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
+
+			if (resourceType == 'snowflake_oauth') {
+				const account_identifier = extra_params.find(([key, _]) => key == 'account_identifier')
+				if (account_identifier) {
+					args['account_identifier'] = account_identifier[1]
+				}
+			}
+			
 			let account: number | undefined = undefined
 			if (valueToken?.expires_in != undefined) {
 				account = Number(
