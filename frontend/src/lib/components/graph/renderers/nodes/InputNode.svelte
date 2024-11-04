@@ -15,7 +15,6 @@
 		moving: string | undefined
 		eventHandlers: GraphEventHandlers
 		index: number
-		enableTrigger: boolean
 		disableAi: boolean
 		disableMoveIds: string[]
 	}
@@ -50,6 +49,8 @@
 						detail: 'preprocessor'
 					})
 				}}
+				class="w-[14px] h-[14px]"
+				iconSize={10}
 			/>
 		</div>
 	{/if}
