@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE websocket_trigger SET enabled = FALSE, error = $1 WHERE workspace_id = $2 AND path = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dd8bf7ef38d0acf84f0e6d3f8fed8cb53fbe1507dc38282381435f518b026b05"
+}

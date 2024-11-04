@@ -11,6 +11,7 @@
 		WebsocketTriggerService,
 		type Flow,
 		type Script,
+		type ScriptArgs,
 		type WebsocketTriggerInitialMessage
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
@@ -142,8 +143,8 @@
 		}
 	}
 	$: initialMessageRunnables = initial_messages
-		.filter((v) => 'runnable_result' in v)
-		.map((v) => v.runnable_result)
+		.map((v) => ('runnable_result' in v ? v.runnable_result : undefined))
+		.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
 	$: loadInitialMessageRunnableSchemas(initialMessageRunnables)
 
 	let urlRunnableSchema: Schema | undefined = emptySchema()

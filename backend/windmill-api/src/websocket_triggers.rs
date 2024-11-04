@@ -960,7 +960,7 @@ async fn run_job(
         args: HashMap::from([("msg".to_string(), to_raw_value(&msg))]),
         extra: Some(HashMap::from([(
             "wm_trigger".to_string(),
-            to_raw_value(&serde_json::json!({"kind": "websocket"})),
+            to_raw_value(&serde_json::json!({"kind": "websocket", "websocket": { "url": trigger.url }})),
         )])),
     };
     let label_prefix = Some(format!("ws-{}-", trigger.path));
