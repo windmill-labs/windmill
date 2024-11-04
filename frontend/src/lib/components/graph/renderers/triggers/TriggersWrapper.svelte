@@ -19,16 +19,16 @@
 </script>
 
 <div style={`width: ${NODE.width}px;`}>
-	<div class="flex flex-row mx-auto w-min">
+	<div class="flex flex-row w-full">
 		<button
-			class="flex flex-row gap-2 px-2 border p-1 rounded-md bg-surface shadow-md items-center {selected
-				? 'outline outline-offset-1 outline-1  outline-slate-900 dark:bg-white/5 dark:outline-slate-800/60 dark:border-gray-400'
+			class="flex w-full flex-row gap-2 px-2 p-1 bg-surface items-center {selected
+				? 'outline  outline-2  outline-gray-600 rounded-sm dark:bg-white/5 dark:outline-gray-400'
 				: ''}"
 			on:click={() => {
 				dispatch('select')
 			}}
 		>
-			<div class="flex flex-col">
+			<div class="flex flex-col mr-1 ml-1">
 				<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
 			</div>
 			<TriggersBadge showOnlyWithCount={false} {path} {newItem} isFlow {selected} on:select />
