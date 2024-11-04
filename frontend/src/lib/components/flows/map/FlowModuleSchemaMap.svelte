@@ -33,6 +33,7 @@
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore'
+	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -47,7 +48,7 @@
 
 	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
-
+	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -411,6 +412,7 @@
 										undefined
 									)
 									setExpr(detail.modules[index + 1], `results.${id}`)
+									setScheduledPollSchedule(primarySchedule, triggersCount)
 								}
 							}
 						}

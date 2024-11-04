@@ -20,7 +20,7 @@
 	<Label label="Setting a scheduled poll">
 		<ul class="pt-4 space-y-2">
 			<li>
-				1. Chose a trigger script using the script picker. <img
+				1. Chose a trigger script using the script picker that will poll for new events regularly <img
 					class="shadow-lg border rounded"
 					alt="script picker"
 					src="{base}/script-picker.png"
@@ -28,15 +28,7 @@
 			</li>
 
 			<li>
-				2. Modify the primary schedule to your needs. <img
-					class="shadow-lg rounded"
-					alt="set schedule"
-					src="{base}/set-primary-schedule.png"
-				/></li
-			>
-
-			<li>
-				3. Do something with the returned states. <img
+				2. Do something with the returned states. <img
 					class="shadow-lg rounded"
 					alt="create action"
 					src="{base}/create_action.png"
