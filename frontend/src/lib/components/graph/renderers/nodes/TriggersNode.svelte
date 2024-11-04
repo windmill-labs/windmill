@@ -103,7 +103,9 @@
 	{/if}
 	{#if data.simplifiableFlow != undefined}
 		<button
-			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+			class="absolute -top-[10px] -right-[{data.simplifiableFlow?.simplifiedFlow
+				? 10
+				: 20}px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-nord-950 hover:text-white"
 			on:click|preventDefault|stopPropagation={() =>
 				data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)}

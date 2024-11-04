@@ -21,9 +21,10 @@
 		<ul class="pt-4 space-y-2 text-sm">
 			<li>
 				1. Chose a trigger script using the script picker that will poll for new events regularly <img
-					class="shadow-lg border rounded"
+					class="shadow-lg rounded"
 					alt="script picker"
 					src="{base}/script-picker.png"
+					width="400"
 				/>
 			</li>
 
@@ -32,6 +33,7 @@
 					class="shadow-lg rounded"
 					alt="create action"
 					src="{base}/create_action.png"
+					width="500"
 				/>
 			</li>
 		</ul>
