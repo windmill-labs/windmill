@@ -18,6 +18,7 @@
 
 	$: console.log('dbg view only', viewOnly)
 	$: console.log('dbg popupOpen', popupOpen)
+	$: console.log('dbg json', json)
 </script>
 
 <button
