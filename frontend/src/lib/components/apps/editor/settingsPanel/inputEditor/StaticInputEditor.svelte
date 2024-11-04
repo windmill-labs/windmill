@@ -161,6 +161,14 @@
 					/>
 				</div>
 			{/if}
+		{:else if fieldType === 'selectvalue'}
+			<div class="flex w-full flex-col">
+				<JsonEditor
+					small
+					bind:value={componentInput.value}
+					code={JSON.stringify(componentInput.value, null, 2)}
+				/>
+			</div>
 		{:else if fieldType === 'array'}
 			<ArrayStaticInputEditor {id} {subFieldType} bind:componentInput on:deleteArrayItem />
 		{:else if fieldType === 'schema'}

@@ -2208,8 +2208,8 @@ This is a paragraph.
 				defaultItems: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'text',
-					value: []
+					subFieldType: 'selectvalue',
+					value: undefined
 				} as StaticAppInput,
 				placeholder: {
 					type: 'static',
