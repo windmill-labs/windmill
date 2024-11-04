@@ -75,6 +75,7 @@
 			{#if $primarySchedule}
 				<div class="text-2xs text-primary p-2">
 					Schedule every {$primarySchedule.cron}
+					{$primarySchedule?.enabled ? '' : ' (disabled)'}
 				</div>
 			{:else}
 				<button

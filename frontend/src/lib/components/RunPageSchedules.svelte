@@ -43,7 +43,7 @@
 	$: updateSchedules(false) || path
 
 	async function save() {
-		saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
+		await saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
 		updateSchedules(true)
 	}
 </script>

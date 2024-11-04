@@ -39,12 +39,14 @@ export async function loadSchedules(
 	workspace: string,
 	triggersCount: Writable<TriggersCount | undefined>
 ) {
+	console.log('loading schedules for path', path)
 	if (!path || path == '') {
 		schedules.set([])
 		primarySchedule.update((ps) => (ps === undefined ? false : ps))
 		initialPrimarySchedule.set(structuredClone(get(primarySchedule)))
 		return
 	}
+	console.log('loading schedules for path', path)
 	try {
 		const allSchedules = await ScheduleService.listSchedules({
 			workspace,
