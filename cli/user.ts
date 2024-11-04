@@ -25,7 +25,7 @@ import {
 
 const INSTANCE_USERS_PATH = "instance_users.yaml";
 let instanceUsersPath = INSTANCE_USERS_PATH;
-async function checkInstanceUsersPath(opts: InstanceSyncOptions) {
+function checkInstanceUsersPath(opts: InstanceSyncOptions) {
   if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
     instanceUsersPath = `${opts.prefix}/${INSTANCE_USERS_PATH}`;
   }
@@ -33,7 +33,7 @@ async function checkInstanceUsersPath(opts: InstanceSyncOptions) {
 
 const INSTANCE_GROUPS_PATH = "instance_groups.yaml";
 let instanceGroupsPath = INSTANCE_GROUPS_PATH;
-async function checkInstanceGroupsPath(opts: InstanceSyncOptions) {
+function checkInstanceGroupsPath(opts: InstanceSyncOptions) {
   if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
     instanceGroupsPath = `${opts.prefix}/${INSTANCE_GROUPS_PATH}`;
   }
@@ -408,7 +408,7 @@ export async function pullInstanceUsers(
 ) {
   const remoteUsers = await wmill.globalUsersExport();
 
-  await checkInstanceUsersPath(opts);
+  checkInstanceUsersPath(opts);
 
   if (preview) {
     const localUsers: ExportedUser[] = await readInstanceUsers(opts);
@@ -423,9 +423,7 @@ export async function pullInstanceUsers(
   }
 }
 
-export async function readInstanceUsers(
-  opts: InstanceSyncOptions
-) {
+export async function readInstanceUsers(opts: InstanceSyncOptions) {
   let localUsers: ExportedUser[] = [];
 
   await checkInstanceUsersPath(opts);
@@ -438,15 +436,15 @@ export async function readInstanceUsers(
   return localUsers;
 }
 
-export async function readInstanceGroups(
-  opts: InstanceSyncOptions
-) {
+export async function readInstanceGroups(opts: InstanceSyncOptions) {
   let localGroups: InstanceGroup[] = [];
 
-  await checkInstanceGroupsPath(opts);
+  checkInstanceGroupsPath(opts);
 
   try {
-    localGroups = (await yamlParseFile(instanceGroupsPath)) as ExportedInstanceGroup[];
+    localGroups = (await yamlParseFile(
+      instanceGroupsPath
+    )) as ExportedInstanceGroup[];
   } catch {
     log.warn(`No ${instanceGroupsPath} file found`);
   }
@@ -478,7 +476,7 @@ export async function pullInstanceGroups(
 ) {
   const remoteGroups = await wmill.exportInstanceGroups();
 
-  await checkInstanceGroupsPath(opts);
+  checkInstanceGroupsPath(opts);
 
   if (preview) {
     const localGroups = await readInstanceGroups(opts);
