@@ -36,6 +36,7 @@
 			disableAi={data.disableAi}
 			isEditor={data.isEditor}
 			path={data.path}
+			bgColor={getStateColor(undefined, darkMode)}
 			on:new={(e) => {
 				data?.eventHandlers.insert({
 					modules: data.modules,
