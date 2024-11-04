@@ -49,8 +49,8 @@
 						detail: 'preprocessor'
 					})
 				}}
-				class="w-4 h-4"
-				iconSize={11}
+				class="w-[14px] h-[14px]"
+				iconSize={10}
 			/>
 		</div>
 	{/if}
