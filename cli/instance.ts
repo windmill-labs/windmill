@@ -261,7 +261,7 @@ export async function pickInstance(
 
   return instance;
 }
-async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
+async function instancePull(opts: InstanceSyncOptions) {
   const instance = await pickInstance(opts, true);
   log.info("Pulling instance-level changes");
   log.info(`remote (${instance.name}) -> local`);
@@ -286,6 +286,8 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
 
+  const rootDir = Deno.cwd();
+
   if (totalChanges > 0) {
     let confirm = true;
     if (opts.yes !== true) {
@@ -296,6 +298,13 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     }
 
     if (confirm) {
+      if (uChanges > 0) {
+        if (opts.folderPerInstance && opts.prefixSettings) {
+          await Deno.mkdir(path.join(rootDir, opts.prefix), {
+            recursive: true,
+          });
+        }
+      }
       if (!opts.skipUsers && uChanges > 0) {
         await pullInstanceUsers(opts);
       }
@@ -315,7 +324,6 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
-    const rootDir = Deno.cwd();
     const localWorkspaces = await getLocalWorkspaces(
       rootDir,
       instance.prefix,
@@ -393,7 +401,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   }
 }
 
-async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
+async function instancePush(opts: InstanceSyncOptions) {
   let instances = await allInstances();
   const instance = await pickInstance(opts, true);
 
