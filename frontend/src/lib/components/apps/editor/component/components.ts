@@ -2199,8 +2199,11 @@ This is a paragraph.
 				items: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'text',
-					value: ['Foo', 'Bar']
+					subFieldType: 'labeledselect',
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
 				} as StaticAppInput,
 				defaultItems: {
 					type: 'static',
