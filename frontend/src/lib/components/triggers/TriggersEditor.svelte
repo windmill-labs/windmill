@@ -27,8 +27,8 @@
 	<div class="pt-4">
 		{#if !$simplifiedPoll}
 			<Tabs bind:selected={$selectedTrigger}>
-				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
+				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
 				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
