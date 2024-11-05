@@ -455,9 +455,9 @@
 									</div>
 									{#if 'raw_message' in v}
 										<div class="flex flex-col w-full">
-											<div class="text-secondary text-sm"
-												>Raw message (if a string, wrapping quotes will be discarded)</div
-											>
+											<div class="text-secondary text-sm">
+												Raw JSON message (if a string, wrapping quotes will be discarded)
+											</div>
 											<JsonEditor
 												on:change={(ev) => {
 													const { code } = ev.detail
