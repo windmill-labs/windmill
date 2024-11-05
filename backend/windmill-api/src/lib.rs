@@ -63,6 +63,8 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
+mod ai;
+
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;

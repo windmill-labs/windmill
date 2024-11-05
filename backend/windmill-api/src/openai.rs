@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::db::{ApiAuthed, DB};
+use crate::{
+    db::{ApiAuthed, DB},
+    workspaces::AiRessource,
+};
 
 use axum::{
     body::Bytes,
@@ -164,33 +167,36 @@ async fn proxy(
         || workspace_cache.is_none()
         || workspace_cache.clone().unwrap().is_expired()
     {
-        let openai_resource_path = sqlx::query_scalar!(
-            "SELECT openai_resource_path FROM workspace_settings WHERE workspace_id = $1",
+        let ai_resource = sqlx::query_scalar!(
+            "SELECT ai_resource FROM workspace_settings WHERE workspace_id = $1",
             &w_id
         )
         .fetch_one(&db)
         .await?;
 
-        if openai_resource_path.is_none() {
+        if ai_resource.is_none() {
             return Err(Error::InternalErr(
                 "OpenAI resource not configured".to_string(),
             ));
         }
 
-        let openai_resource_path = openai_resource_path.unwrap();
+        let ai_resource_path =
+            serde_json::from_value::<AiRessource>(ai_resource.unwrap())
+                .unwrap()
+                .path;
 
         let resource = sqlx::query_scalar!(
             "SELECT value
             FROM resource
             WHERE path = $1 AND workspace_id = $2",
-            &openai_resource_path,
+            &ai_resource_path,
             &w_id
         )
         .fetch_optional(&db)
         .await?
         .ok_or_else(|| {
             Error::InternalErr(format!(
-                "Could not find the OpenAI resource at path {openai_resource_path}, update the resource path in the workspace settings"
+                "Could not find the OpenAI resource at path {ai_resource_path}, update the resource path in the workspace settings"
             ))
         })?;
 

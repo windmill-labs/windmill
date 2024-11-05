@@ -154,6 +154,14 @@ struct Workspace {
     premium: bool,
 }
 
+
+
+#[derive(Deserialize)]
+pub struct AiRessource {
+    pub path: String,
+    pub provider: String,
+}
+
 #[derive(FromRow, Serialize, Debug)]
 pub struct WorkspaceSettings {
     pub workspace_id: String,
@@ -168,7 +176,7 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
-    pub openai_resource_path: Option<String>,
+    pub ai_resource: Option<serde_json::Value>,
     pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
@@ -234,7 +242,7 @@ struct EditWebhook {
 
 #[derive(Deserialize)]
 struct EditCopilotConfig {
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
 }
 
@@ -645,10 +653,10 @@ async fn edit_copilot_config(
 
     let mut tx = db.begin().await?;
 
-    if let Some(openai_resource_path) = &eo.openai_resource_path {
+    if let Some(ai_resource) = &eo.ai_resource {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
-            openai_resource_path,
+            "UPDATE workspace_settings SET ai_resource = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
+            ai_resource,
             eo.code_completion_enabled,
             &w_id
         )
@@ -656,7 +664,7 @@ async fn edit_copilot_config(
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
             eo.code_completion_enabled,
             &w_id,
         )
@@ -673,8 +681,8 @@ async fn edit_copilot_config(
         Some(
             [
                 (
-                    "openai_resource_path",
-                    &format!("{:?}", eo.openai_resource_path)[..],
+                    "ai_resource",
+                    &format!("{:?}", eo.ai_resource)[..],
                 ),
                 (
                     "code_completion_enabled",
@@ -692,7 +700,7 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
-    pub exists_openai_resource_path: bool,
+    pub exists_ai_resource: bool,
     pub code_completion_enabled: bool,
 }
 async fn get_copilot_info(
@@ -701,16 +709,16 @@ async fn get_copilot_info(
 ) -> JsonResult<CopilotInfo> {
     let mut tx = db.begin().await?;
     let record = sqlx::query!(
-        "SELECT openai_resource_path, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT ai_resource, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e:#}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
     Ok(Json(CopilotInfo {
-        exists_openai_resource_path: record.openai_resource_path.is_some(),
+        exists_ai_resource: record.ai_resource.is_some(),
         code_completion_enabled: record.code_completion_enabled,
     }))
 }
@@ -2223,7 +2231,7 @@ struct SimplifiedSettings {
     error_handler: Option<String>,
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -2588,7 +2596,7 @@ async fn tarball_workspace(
                 webhook, 
                 deploy_to, 
                 error_handler, 
-                openai_resource_path, 
+                ai_resource, 
                 code_completion_enabled, 
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
