@@ -1,31 +1,21 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
 	import ObjectViewer from './ObjectViewer.svelte'
 
+	export let allowCopy = false
 	export let result: any
 	export let extraResults: any = undefined
 	export let flow_input: any = undefined
-
-	const dispatch = createEventDispatcher()
 </script>
 
 <div class="w-full px-2">
-	<span class="font-bold text-sm">Result</span>
+	<span class="font-normal text-sm text-secondary">Result</span>
 	<div class="overflow-y-auto mb-2 w-full">
-		<ObjectViewer
-			allowCopy={false}
-			json={{ result, ...(extraResults ? extraResults : {}) }}
-			on:select
-		/>
+		<ObjectViewer {allowCopy} json={{ result, ...(extraResults ? extraResults : {}) }} on:select />
 	</div>
 	{#if flow_input}
-		<span class="font-bold text-sm">Flow Input</span>
+		<span class="font-normal text-sm text-secondary">Flow Input</span>
 		<div class="overflow-y-auto w-full">
-			<ObjectViewer
-				allowCopy={false}
-				json={flow_input}
-				on:select={(e) => dispatch('select', `flow_input.${e.detail}`)}
-			/>
+			<ObjectViewer {allowCopy} json={flow_input} prefix="flow_input" on:select />
 		</div>
 	{/if}
 </div>

@@ -2,9 +2,8 @@
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
-	import { Badge, Button } from '../common'
+	import { Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
-	import { createEventDispatcher } from 'svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
@@ -15,33 +14,45 @@
 	export let displayContext = true
 	export let notSelectable: boolean
 	export let error: boolean = false
+	export let allowCopy = false
 
 	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
 	let displayResources = false
-
-	const dispatch = createEventDispatcher()
+	let allResultsCollapsed = true
 
 	const EMPTY_STRING = ''
 	let search = ''
 
 	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$: flowInputsFiltered =
-		search === EMPTY_STRING
-			? pickableProperties.flow_input
-			: keepByKey(pickableProperties.flow_input, search)
+	let flowInputsFiltered = pickableProperties.flow_input
+	let resultByIdFiltered = pickableProperties.priorIds
 
-	$: resultByIdFiltered =
-		search === EMPTY_STRING
-			? pickableProperties.priorIds
-			: keepByKey(pickableProperties.priorIds, search)
+	let timeout: NodeJS.Timeout
+	function onSearch(search: string) {
+		clearTimeout(timeout)
+		setTimeout(() => {
+			flowInputsFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.flow_input
+					: keepByKey(pickableProperties.flow_input, search)
+
+			resultByIdFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.priorIds
+					: keepByKey(pickableProperties.priorIds, search)
+
+			console.log(resultByIdFiltered, search)
+		}, 50)
+	}
 
 	$: suggestedPropsFiltered = $propPickerConfig
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
 		: undefined
+	$: search != undefined && onSearch(search)
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
@@ -64,50 +75,29 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
-	<div class="px-2">
-		{#if !notSelectable}
-			<div class="flex flex-row space-x-1">
-				{#if $propPickerConfig}
-					<Badge large color="blue">
-						{`Selected: ${$propPickerConfig?.propName}`}
-					</Badge>
-					<Badge large color="blue">
-						{`Mode: ${$propPickerConfig?.insertionMode}`}
-					</Badge>
-				{:else}
-					<Badge large color="blue">&leftarrow; Edit or connect an input</Badge>
-				{/if}
-			</div>
-		{/if}
-		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
+<div class="flex flex-col h-full rounded overflow-hidden">
+	<div class="px-2 py-2">
+		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
-	<div
-		class="overflow-y-auto px-2 pt-2 grow"
-		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
-	>
+	<div class="overflow-y-auto px-2 pt-2 grow">
 		<div class="flex justify-between items-center space-x-1">
-			<span class="font-bold text-sm">Flow Input</span>
+			<span class="font-normal text-sm text-secondary">Flow Input</span>
 			<div class="flex space-x-2 items-center" />
 		</div>
 		<div class="overflow-y-auto mb-2">
 			<ObjectViewer
-				allowCopy={false}
+				{allowCopy}
 				pureViewer={!$propPickerConfig}
 				json={flowInputsFiltered}
-				on:select={(e) => {
-					dispatch(
-						'select',
-						e.detail?.startsWith('[') ? `flow_input${e.detail}` : `flow_input.${e.detail}`
-					)
-				}}
+				prefix="flow_input"
+				on:select
 			/>
 		</div>
 		{#if error}
-			<span class="font-bold text-sm">Error</span>
+			<span class="font-normal text-sm text-secondary">Error</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
-					allowCopy={false}
+					{allowCopy}
 					pureViewer={!$propPickerConfig}
 					json={{
 						error: {
@@ -122,158 +112,178 @@
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-bold text-sm">Suggested Results</span>
+					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
-							allowCopy={false}
-							topLevelNode
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
-				<span class="font-bold text-sm">All Results</span>
+				<span class="font-normal text-sm text-secondary">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						collapsed={true}
 						json={resultByIdFiltered}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
 		{:else}
 			{#if previousId}
-				<span class="font-bold text-sm">Previous Result</span>
+				<span class="font-normal text-sm text-secondary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						json={Object.fromEntries(
 							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
 						)}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
 			{#if pickableProperties.hasResume}
-				<span class="font-bold text-sm">Resume payloads</span>
+				<span class="font-normal text-sm text-secondary">Resume payloads</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						json={{
 							resume: 'The resume payload',
 							resumes: 'All resume payloads from all approvers',
 							approvers: 'The list of approvers'
 						}}
-						on:select={(e) => {
-							dispatch('select', `${e.detail}`)
-						}}
+						on:select
 					/>
 				</div>
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-bold text-sm">Suggested Results</span>
+					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
-							allowCopy={false}
-							topLevelNode
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
-				<span class="font-bold text-sm">All Results</span>
 				<div class="overflow-y-auto mb-2">
+					<span class="font-normal text-sm text-secondary">All Results</span>
+					{#if !allResultsCollapsed}
+						<Button
+							color="light"
+							size="xs2"
+							variant="contained"
+							on:click={() => {
+								allResultsCollapsed = true
+							}}
+							wrapperClasses="inline-flex w-fit h-4"
+							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+						>
+					{/if}
+
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
-						collapsed={true}
+						bind:collapsed={allResultsCollapsed}
 						json={resultByIdFiltered}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
 		{/if}
 
 		{#if displayContext}
-			<span class="font-bold text-sm">Variables </span>
 			<div class="overflow-y-auto mb-2">
+				<span class="font-normal text-sm text-secondary">Variables:</span>
+
 				{#if displayVariable}
-					<div class="flex">
-						<Button
-							color="light"
-							size="xs"
-							variant="border"
-							on:click={() => {
-								displayVariable = false
-							}}>-</Button
-						>
-					</div>
+					<Button
+						color="light"
+						size="xs2"
+						variant="border"
+						on:click={() => {
+							displayVariable = false
+						}}
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+					>
+
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={variables}
-						on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
+						prefix="variable"
+						on:select
 					/>
 				{:else}
-					<button
-						class="border border-blue-600 key font-normal rounded hover:bg-blue-100 px-1"
+					<Button
+						color="light"
+						size="xs2"
+						variant="border"
 						on:click={async () => {
 							await loadVariables()
 							displayVariable = true
-						}}>{'{...}'}</button
+						}}
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal rounded-[0.275rem] p-1"
 					>
+						{'{...}'}
+					</Button>
 				{/if}
 			</div>
-			<span class="font-bold text-sm">Resources</span>
+
 			<div class="overflow-y-auto mb-2">
+				<span class="font-normal text-sm text-secondary">Resources:</span>
+
 				{#if displayResources}
 					<Button
 						color="light"
+						size="xs2"
 						variant="border"
-						size="xs"
 						on:click={() => {
 							displayResources = false
-						}}>-</Button
+						}}
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 					>
 					<ObjectViewer
-						allowCopy={false}
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={resources}
-						on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
+						prefix="resource"
+						on:select
 					/>
 				{:else}
-					<button
-						class="border border-blue-600 px-1 key font-normal rounded hover:bg-blue-100"
+					<Button
+						color="light"
+						size="xs2"
+						variant="border"
 						on:click={async () => {
 							await loadResources()
 							displayResources = true
-						}}>{'{...}'}</button
+						}}
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal rounded-[0.275rem] p-1"
 					>
+						{'{...}'}
+					</Button>
 				{/if}
 			</div>
 		{/if}

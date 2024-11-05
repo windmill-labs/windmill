@@ -60,8 +60,8 @@
 	{#if value && isHovered}
 		<button
 			transition:fade|local={{ duration: 80 }}
-			class="absolute z-10 top-[9.5px] right-2 rounded-full p-0.5 text-white bg-gray-300
-			duration-200 hover:bg-gray-600 focus:bg-gray-600 {buttonClass}"
+			class="absolute z-10 top-[9.5px] right-2 rounded-full p-0.5 text-primary bg-surface-secondary
+			duration-200 hover:bg-surface-hovr focus:bg-surface-hover {buttonClass}"
 			aria-label="Clear"
 			on:click|preventDefault|stopPropagation={clear}
 		>

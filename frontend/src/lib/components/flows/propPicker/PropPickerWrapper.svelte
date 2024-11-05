@@ -19,12 +19,13 @@
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
-	import { clickOutside, sendUserToast } from '$lib/utils'
+	import { clickOutside } from '$lib/utils'
 	import { createEventDispatcher, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
@@ -58,51 +59,70 @@
 	use:clickOutside
 	on:click_outside={() => propPickerConfig.set(undefined)}
 >
-	<Splitpanes>
+	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
 		<Pane
 			minSize={20}
 			size={60}
-			class={twMerge('relative !transition-none', noPadding ? '' : 'p-2')}
+			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
 		>
 			<slot />
 		</Pane>
 		<Pane
 			minSize={20}
 			size={40}
-			class="pt-2 relative !transition-none {$propPickerConfig ? 'border-2 border-blue-500' : ''}"
+			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''}"
 		>
-			{#if result}
-				<PropPickerResult
-					{result}
-					{extraResults}
-					{flow_input}
-					on:select={({ detail }) => {
-						if (!notSelectable && !$propPickerConfig) {
-							sendUserToast('Set cursor within an input or click on the plug first', true)
-						}
-						dispatch('select', detail)
-						if ($propPickerConfig?.onSelect(detail)) {
-							propPickerConfig.set(undefined)
-						}
-					}}
-				/>
-			{:else if pickableProperties}
-				<PropPicker
-					{displayContext}
-					{error}
-					{pickableProperties}
-					{notSelectable}
-					on:select={({ detail }) => {
-						if (!notSelectable && !$propPickerConfig) {
-							sendUserToast('Set cursor within an input or click on the plug first', true)
-						}
-						dispatch('select', detail)
-						if ($propPickerConfig?.onSelect(detail)) {
-							propPickerConfig.set(undefined)
-						}
-					}}
-				/>
-			{/if}
+			<AnimatedButton
+				animate={$propPickerConfig?.insertionMode == 'connect'}
+				baseRadius="4px"
+				wrapperClasses="h-full w-full pt-2 !bg-surface"
+				marginWidth="3px"
+				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
+				$propPickerConfig?.insertionMode == 'append'
+					? '#3b82f6'
+					: 'transparent'}
+				animationDuration="4s"
+			>
+				{#if result}
+					<PropPickerResult
+						{result}
+						{extraResults}
+						{flow_input}
+						allowCopy={!notSelectable && !$propPickerConfig}
+						on:select={({ detail }) => {
+							dispatch('select', detail)
+							if ($propPickerConfig?.onSelect(detail)) {
+								propPickerConfig.set(undefined)
+							}
+						}}
+					/>
+				{:else if pickableProperties}
+					<PropPicker
+						{displayContext}
+						{error}
+						{pickableProperties}
+						{notSelectable}
+						allowCopy={!notSelectable && !$propPickerConfig}
+						on:select={({ detail }) => {
+							dispatch('select', detail)
+							if ($propPickerConfig?.onSelect(detail)) {
+								propPickerConfig.set(undefined)
+							}
+						}}
+					/>
+				{/if}
+			</AnimatedButton>
 		</Pane>
 	</Splitpanes>
 </div>
+
+<style>
+	:global(.splitpanes-remove-splitter > .splitpanes__pane) {
+		background-color: inherit !important;
+	}
+	:global(.splitpanes-remove-splitter > .splitpanes__splitter) {
+		background-color: transparent !important;
+		width: 0 !important;
+		border: none !important;
+	}
+</style>
