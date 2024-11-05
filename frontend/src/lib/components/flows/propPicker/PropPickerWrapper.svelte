@@ -125,13 +125,4 @@
 		width: 0 !important;
 		border: none !important;
 	}
-
-	:global(.splitpanes__pane) {
-		overflow-y: auto;
-		scrollbar-width: none;
-	}
-
-	:global(.splitpanes__pane:hover) {
-		scrollbar-width: thin;
-	}
 </style>
