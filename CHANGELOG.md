@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.418.0](https://github.com/windmill-labs/windmill/compare/v1.417.3...v1.418.0) (2024-11-04)
+
+
+### Features
+
+* **frontend:** improve and simplify scheduled poll flows ([#4560](https://github.com/windmill-labs/windmill/issues/4560)) ([22ab51e](https://github.com/windmill-labs/windmill/commit/22ab51e9914376b47827f0be66708deef3a37767))
+* **oauth:** add snowflake oauth support ([#4622](https://github.com/windmill-labs/windmill/issues/4622)) ([693b7a4](https://github.com/windmill-labs/windmill/commit/693b7a4fd4da0e2b14cb6c8ea19537aa600225be))
+
+
+### Bug Fixes
+
+* **prometheus:** improve queue_count when tags have no more jobs ([09156b6](https://github.com/windmill-labs/windmill/commit/09156b65c2a0f0ac59fce1dede2b68b790323c49))
+
 ## [1.417.3](https://github.com/windmill-labs/windmill/compare/v1.417.2...v1.417.3) (2024-11-04)
 
 
