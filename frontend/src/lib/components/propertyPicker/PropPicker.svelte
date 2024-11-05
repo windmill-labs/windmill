@@ -35,6 +35,8 @@
 		  }
 		| undefined
 
+	let filterActive = false
+
 	const EMPTY_STRING = ''
 	let search = ''
 
@@ -42,8 +44,6 @@
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$filteredPickableProperties = { ...pickableProperties }
-
-	$: filterPickableProperties(), updateCollapsable(), search, $inputMatches
 
 	$: suggestedPropsFiltered = $propPickerConfig
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
@@ -69,24 +69,30 @@
 		)
 	}
 
-	function filterPickableProperties() {
+	async function filterPickableProperties() {
 		flowInputsFiltered = pickableProperties.flow_input
 		resultByIdFiltered = pickableProperties.priorIds
 
-		if ($inputMatches) {
-			if (!$inputMatches.some((match) => match.word === 'flow_input')) {
+		if (filterActive) {
+			if (!$inputMatches?.some((match) => match.word === 'flow_input')) {
 				flowInputsFiltered = []
 			}
-			if (!$inputMatches.some((match) => match.word === 'results')) {
+			if (!$inputMatches?.some((match) => match.word === 'results')) {
 				resultByIdFiltered = []
 			}
-			if ($inputMatches.length == 1) {
+			if ($inputMatches?.length == 1) {
 				if ($inputMatches[0].word === 'flow_input') {
 					let [, ...nestedKeys] = $inputMatches[0].value.split('.')
-					flowInputsFiltered = filterNestedObject(flowInputsFiltered, nestedKeys)
+					let filtered = filterNestedObject(flowInputsFiltered, nestedKeys)
+					if (Object.keys(filtered).length > 0) {
+						flowInputsFiltered = filtered
+					}
 				} else if ($inputMatches[0].word === 'results') {
 					let [, ...nestedKeys] = $inputMatches[0].value.split('.')
-					resultByIdFiltered = filterNestedObject(resultByIdFiltered, nestedKeys)
+					let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
+					if (Object.keys(filtered).length > 0) {
+						resultByIdFiltered = filtered
+					}
 				}
 			}
 		}
@@ -137,6 +143,21 @@
 		;({ allResultsCollapsed, displayVariable, displayResources } = collapsableInitialState)
 		collapsableInitialState = undefined
 	}
+
+	async function updateFilterActive() {
+		filterActive = false
+		if (!$inputMatches || $inputMatches.length === 0) return
+		if (!$propPickerConfig || $propPickerConfig.insertionMode !== 'insert') return
+		filterActive = true
+	}
+
+	async function updateState() {
+		await updateFilterActive()
+		await filterPickableProperties()
+		await updateCollapsable()
+	}
+
+	$: search, $inputMatches, $propPickerConfig, updateState()
 </script>
 
 <div class="flex flex-col h-full">
@@ -266,7 +287,7 @@
 				</div>
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
-				{#if !$inputMatches && suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
+				{#if !filterActive && suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
@@ -312,7 +333,7 @@
 		{/if}
 
 		{#if displayContext}
-			{#if !$inputMatches || $inputMatches.some((match) => match.word === 'variable')}
+			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
 				<div class="overflow-y-auto mb-2">
 					<span class="font-normal text-sm text-secondary">Variables :</span>
 
@@ -352,7 +373,7 @@
 					{/if}
 				</div>
 			{/if}
-			{#if !$inputMatches || $inputMatches.some((match) => match.word === 'resource')}
+			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
 				<div class="overflow-y-auto mb-2">
 					<span class="font-normal text-sm text-secondary">Resources :</span>
 

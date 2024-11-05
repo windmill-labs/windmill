@@ -146,6 +146,9 @@
 		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
 			return undefined
 		}
+		if (rawValue.trim() !== rawValue) {
+			return undefined
+		}
 		const matches = dynamicTemplateRegexPairs.filter(({ regex }) => regex.test(rawValue))
 		if (matches.length > 0) {
 			return matches.map((m) => ({ word: m.word, value: rawValue }))

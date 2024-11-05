@@ -278,10 +278,10 @@ export function buildPrefixRegex(words: string[]): Array<{ regex: RegExp; word: 
 }
 
 export function filterNestedObject(obj: any, nestedKeys: string[]) {
-	if (nestedKeys.length === 0) return obj
+	if (nestedKeys.length === 0) return {}
 	if (nestedKeys.length === 1) {
 		if (nestedKeys[0] === '') {
-			return obj
+			return {}
 		}
 		const regexes = buildPrefixRegex(Object.keys(obj))
 		const matches = regexes.filter(({ regex }) => regex.test(nestedKeys[0]))
@@ -297,5 +297,5 @@ export function filterNestedObject(obj: any, nestedKeys: string[]) {
 	if (obj && typeof obj === 'object' && key in obj) {
 		return filterNestedObject(obj[key], rest)
 	}
-	return undefined
+	return {}
 }
