@@ -203,8 +203,8 @@
 	}
 
 	$: !isListJson &&
-		value != lastValue &&
 		inputCat === 'list' &&
+		value != lastValue &&
 		itemsType?.type &&
 		!hasIsListJsonChanged &&
 		checkArrayValueType()
