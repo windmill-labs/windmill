@@ -247,7 +247,7 @@
 				</div>
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
-				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
+				{#if !$inputMatches && suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
