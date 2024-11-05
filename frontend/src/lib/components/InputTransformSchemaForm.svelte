@@ -67,19 +67,21 @@
 
 <div class="w-full {clazz}">
 	{#if enableAi}
-		<StepInputsGen
-			{pickableProperties}
-			argNames={keys
-				? keys.filter(
-						(argName) =>
-							Object.keys(schema.properties ?? {}).includes(argName) &&
-							Object.keys(args ?? {}).includes(argName) &&
-							((args[argName].type === 'static' && !args[argName].value) ||
-								(args[argName].type === 'javascript' && !args[argName].expr))
-				  )
-				: []}
-			{schema}
-		/>
+		<div class="px-0.5 pt-0.5">
+			<StepInputsGen
+				{pickableProperties}
+				argNames={keys
+					? keys.filter(
+							(argName) =>
+								Object.keys(schema.properties ?? {}).includes(argName) &&
+								Object.keys(args ?? {}).includes(argName) &&
+								((args[argName].type === 'static' && !args[argName].value) ||
+									(args[argName].type === 'javascript' && !args[argName].expr))
+					  )
+					: []}
+				{schema}
+			/>
+		</div>
 	{/if}
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}

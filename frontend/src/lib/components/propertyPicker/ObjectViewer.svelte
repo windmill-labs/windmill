@@ -93,20 +93,22 @@
 			<ul class={`w-full pl-2 ${level === 0 ? 'border-none' : 'border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<Popover>
-							<svelte:fragment slot="text">{computeFullKey(key, rawKey)}</svelte:fragment>
-							<Button
-								on:click={() => selectProp(key)}
-								size="xs2"
-								color="light"
-								variant="contained"
-								wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
-								btnClasses="font-normal px-1 rounded-[0.275rem]"
-							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
-							</Button>
-						</Popover>
-						<span class="text-2xs text-tertiary -ml-1">:</span>
+						<span class="whitespace-nowrap">
+							<Popover>
+								<svelte:fragment slot="text">{computeFullKey(key, rawKey)}</svelte:fragment>
+								<Button
+									on:click={() => selectProp(key)}
+									size="xs2"
+									color="light"
+									variant="border"
+									wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
+									btnClasses="font-normal px-1 rounded-[0.275rem]"
+								>
+									<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+								</Button>
+							</Popover>
+							<span class="text-2xs text-tertiary -ml-0.5">:</span>
+						</span>
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
 								json={json[key]}

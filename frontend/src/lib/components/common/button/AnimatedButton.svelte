@@ -39,7 +39,6 @@
 <style>
 	.gradient-button {
 		position: relative;
-		padding: var(--margin-width, 2px);
 		font-size: inherit;
 		border: none;
 		border-radius: calc(var(--base-radius) + var(--margin-width, 2px));
@@ -47,6 +46,7 @@
 		background: inherit;
 		z-index: 1;
 		overflow: hidden;
+		padding: var(--margin-width, 2px);
 	}
 
 	/* Circular gradient */

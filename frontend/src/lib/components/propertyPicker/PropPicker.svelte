@@ -63,14 +63,11 @@
 	}
 </script>
 
-<div class="flex flex-col h-full !bg-surface rounded overflow-hidden">
+<div class="flex flex-col h-full rounded overflow-hidden">
 	<div class="px-2">
 		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
 	</div>
-	<div
-		class="overflow-y-auto px-2 pt-2 grow"
-		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
-	>
+	<div class="overflow-y-auto px-2 pt-2 grow">
 		<div class="flex justify-between items-center space-x-1">
 			<span class="font-normal text-sm text-primary">Flow Input</span>
 			<div class="flex space-x-2 items-center" />
