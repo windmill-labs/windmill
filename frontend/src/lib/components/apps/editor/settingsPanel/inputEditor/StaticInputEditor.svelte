@@ -31,6 +31,7 @@
 	export let placeholder: string | undefined = undefined
 	export let format: string | undefined = undefined
 	export let id: string | undefined
+	export let hasLabeledMode: boolean = false
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -133,7 +134,7 @@
 			{/if}
 		{:else if fieldType === 'color'}
 			<ColorInput bind:value={componentInput.value} />
-		{:else if fieldType === 'object' || fieldType == 'labeledselect'}
+		{:else if fieldType === 'object' || fieldType == 'labeledselect' || fieldType === 'simplestringselect'}
 			{#if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 				<ResourcePicker
 					initialValue={componentInput.value?.split('$res:')?.[1] || ''}
@@ -161,16 +162,14 @@
 					/>
 				</div>
 			{/if}
-		{:else if fieldType === 'selectvalue'}
-			<div class="flex w-full flex-col">
-				<JsonEditor
-					small
-					bind:value={componentInput.value}
-					code={JSON.stringify(componentInput.value, null, 2)}
-				/>
-			</div>
 		{:else if fieldType === 'array'}
-			<ArrayStaticInputEditor {id} {subFieldType} bind:componentInput on:deleteArrayItem />
+			<ArrayStaticInputEditor
+				{id}
+				{subFieldType}
+				bind:componentInput
+				on:deleteArrayItem
+				{hasLabeledMode}
+			/>
 		{:else if fieldType === 'schema'}
 			<div class="w-full">
 				<EditableSchemaDrawer bind:schema={componentInput.value} />

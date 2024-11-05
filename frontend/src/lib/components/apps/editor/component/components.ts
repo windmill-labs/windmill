@@ -2203,12 +2203,13 @@ This is a paragraph.
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
-					]
+					],
+					hasLabeledMode: true
 				} as StaticAppInput,
 				defaultItems: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'selectvalue',
+					subFieldType: 'simplestringselect',
 					value: undefined
 				} as StaticAppInput,
 				placeholder: {

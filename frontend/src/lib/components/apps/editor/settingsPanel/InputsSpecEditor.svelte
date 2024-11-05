@@ -43,6 +43,7 @@
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
 	export let securedContext = false
+	export let hasLabeledMode = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -171,6 +172,7 @@
 					{selectOptions}
 					{format}
 					{placeholder}
+					{hasLabeledMode}
 					bind:componentInput
 				/>
 			</div>
