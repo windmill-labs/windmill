@@ -116,7 +116,7 @@
 		"graphql": "^16.7.1",
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
-		"lucide-svelte": "^0.293.0",
+		"lucide-svelte": "^0.399.0",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~8.0.2",
 		"monaco-editor-wrapper": "^5.5.2",

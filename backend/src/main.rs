@@ -531,7 +531,7 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::indexer_ee::init_index(&db).await?;
+            let (r, w) = windmill_indexer::completed_runs_ee::init_index(&db).await?;
             (Some(r), Some(w))
         } else {
             (None, None)
@@ -543,18 +543,53 @@ Windmill Community Edition {GIT_VERSION}
             let index_writer2 = index_writer.clone();
             async {
                 if let Some(index_writer) = index_writer2 {
-                    windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
-                        .await;
+                    windmill_indexer::completed_runs_ee::run_indexer(
+                        db.clone(),
+                        index_writer,
+                        indexer_rx,
+                    )
+                    .await;
+                }
+                Ok(())
+            }
+        };
+
+        #[cfg(all(feature = "tantivy", feature = "parquet"))]
+        let (log_index_reader, log_index_writer) = if should_index_jobs {
+            let (r, w) = windmill_indexer::service_logs_ee::init_index(&db).await?;
+            (Some(r), Some(w))
+        } else {
+            (None, None)
+        };
+
+        #[cfg(all(feature = "tantivy", feature = "parquet"))]
+        let log_indexer_f = {
+            let log_indexer_rx = killpill_rx.resubscribe();
+            let log_index_writer2 = log_index_writer.clone();
+            async {
+                if let Some(log_index_writer) = log_index_writer2 {
+                    windmill_indexer::service_logs_ee::run_indexer(
+                        db.clone(),
+                        log_index_writer,
+                        log_indexer_rx,
+                    )
+                    .await;
                 }
                 Ok(())
             }
         };
 
         #[cfg(not(feature = "tantivy"))]
-        let (index_reader, index_writer) = (None, None);
+        let index_reader = None;
 
         #[cfg(not(feature = "tantivy"))]
         let indexer_f = async { Ok(()) as anyhow::Result<()> };
+
+        #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
+        let log_index_reader = None;
+
+        #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
+        let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
         let server_f = async {
             if !is_agent {
@@ -562,7 +597,7 @@ Windmill Community Edition {GIT_VERSION}
                     db.clone(),
                     rsmq2,
                     index_reader,
-                    index_writer,
+                    log_index_reader,
                     addr,
                     server_killpill_rx,
                     base_internal_tx,
@@ -842,7 +877,8 @@ Windmill Community Edition {GIT_VERSION}
             monitor_f,
             server_f,
             metrics_f,
-            indexer_f
+            indexer_f,
+            log_indexer_f
         )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
