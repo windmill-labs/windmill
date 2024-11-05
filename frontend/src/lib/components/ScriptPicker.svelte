@@ -95,11 +95,11 @@
 			value={items?.find((x) => x.value == initialPath)}
 			class="grow shrink max-w-full"
 			on:change={() => {
-				dispatch('select', { path: scriptPath })
+				dispatch('select', { path: scriptPath, itemKind })
 			}}
 			on:input={(ev) => {
 				if (!ev.detail) {
-					dispatch('select', { path: undefined })
+					dispatch('select', { path: undefined, itemKind })
 				}
 			}}
 			bind:justValue={scriptPath}

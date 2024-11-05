@@ -129,7 +129,8 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         Some(label)
             if label.starts_with("webhook-")
                 || label.starts_with("http-")
-                || label.starts_with("email-") =>
+                || label.starts_with("email-")
+                || label.starts_with("ws-") =>
         {
             Some(label)
         }
