@@ -100,7 +100,7 @@
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-secondary">Suggested Results</span>
+					<span class="font-normal text-sm text-primary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
 							{allowCopy}
@@ -156,7 +156,7 @@
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-secondary">Suggested Results</span>
+					<span class="font-normal text-sm text-primary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
 							{allowCopy}
