@@ -57,10 +57,14 @@
 		return prefix + separator + keyToSelect
 	}
 
-	function selectProp(key: string, value: any | undefined = undefined) {
+	function selectProp(key: string, value: any | undefined, clickedValue: boolean) {
 		const fullKey = computeFullKey(key, rawKey)
-		if (pureViewer && allowCopy) {
-			copyToClipboard(fullKey)
+		if (allowCopy) {
+			if (pureViewer && clickedValue) {
+				copyToClipboard(typeof value == 'string' ? value : JSON.stringify(value))
+			} else {
+				copyToClipboard(fullKey)
+			}
 		}
 		dispatch('select', fullKey)
 	}
@@ -94,7 +98,7 @@
 					<li>
 						<div class="inline-flex items-baseline">
 							<Button
-								on:click={() => selectProp(key)}
+								on:click={() => selectProp(key, undefined, false)}
 								size="xs2"
 								color="light"
 								variant="border"
@@ -123,9 +127,9 @@
 									? 'cursor-auto'
 									: ''} rounded px-1 {getTypeAsString(json[key])}"
 								on:click={() => {
-									selectProp(key, json[key])
+									selectProp(key, json[key], true)
 								}}
-								title={computeFullKey(key, rawKey)}
+								title={JSON.stringify(json[key])}
 								disabled={false}
 							>
 								{#if json[key] === NEVER_TESTED_THIS_FAR}
