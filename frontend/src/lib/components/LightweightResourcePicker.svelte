@@ -10,7 +10,6 @@
 	import { Plus, Loader2, Link2Off } from 'lucide-svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
-	import path from 'path'
 
 	const dispatch = createEventDispatcher()
 

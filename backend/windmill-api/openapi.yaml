@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.415.1
+  version: 1.418.0
   title: Windmill API
 
   contact:
@@ -9561,6 +9561,109 @@ paths:
                     items:
                       $ref: "#/components/schemas/JobSearchHit"
 
+  /srch/index/search/service_logs:
+    get:
+      summary: Search through service logs with a string query
+      operationId: searchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: mode
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: worker_group
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: hostname
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: string
+                  hits:
+                    description: log files that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogSearchHit"
+
+  /srch/index/search/count_service_logs:
+    get:
+      summary: Search and count the log line hits on every provided host
+      operationId: countSearchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: hosts
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: string
+                  count_per_host:
+                    description: count of log lines that matched the query per hostname
+                    type: object
 
 components:
   securitySchemes:
@@ -11537,6 +11640,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11550,6 +11659,8 @@ components:
         - workspace_id
         - enabled
         - filters
+        - initial_messages
+        - url_runnable_args
 
     NewWebsocketTrigger:
       type: object
@@ -11575,6 +11686,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11582,6 +11699,8 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
 
     EditWebsocketTrigger:
       type: object
@@ -11605,6 +11724,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
               
       required:
         - path
@@ -11612,6 +11737,34 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
+
+    WebsocketTriggerInitialMessage:
+      anyOf:
+        - type: object
+          properties:
+            raw_message: 
+              type: string
+          required:
+            - raw_message
+        - type: object
+          properties:
+            runnable_result:
+              type: object
+              properties:
+                path: 
+                  type: string
+                args:
+                  $ref: "#/components/schemas/ScriptArgs"
+                is_flow:
+                  type: boolean
+              required:
+                - path
+                - args
+                - is_flow
+          required: 
+            - runnable_result
 
     Group:
       type: object
@@ -12510,6 +12663,12 @@ components:
         - name
 
     JobSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string
+
+    LogSearchHit:
       type: object
       properties:
         dancer:

@@ -184,6 +184,7 @@ export type InstanceSyncOptions = {
   folderPerInstance?: boolean;
   yes?: boolean;
   prefix?: string;
+  prefixSettings?: boolean;
 };
 
 export async function pickInstance(
@@ -260,29 +261,32 @@ export async function pickInstance(
 
   return instance;
 }
-async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
+async function instancePull(opts: InstanceSyncOptions) {
   const instance = await pickInstance(opts, true);
   log.info("Pulling instance-level changes");
   log.info(`remote (${instance.name}) -> local`);
 
+  opts.prefix = opts.prefix ?? instance.prefix;
   let uChanges = 0;
   if (!opts.skipUsers) {
-    uChanges = (await pullInstanceUsers(true)) as number;
+    uChanges = (await pullInstanceUsers(opts, true)) as number;
   }
   let sChanges = 0;
   if (!opts.skipSettings) {
-    sChanges = (await pullInstanceSettings(true)) as number;
+    sChanges = (await pullInstanceSettings(opts, true)) as number;
   }
   let cChanges = 0;
   if (!opts.skipConfigs) {
-    cChanges = (await pullInstanceConfigs(true)) as number;
+    cChanges = (await pullInstanceConfigs(opts, true)) as number;
   }
   let gChanges = 0;
   if (!opts.skipGroups) {
-    gChanges = (await pullInstanceGroups(true)) as number;
+    gChanges = (await pullInstanceGroups(opts, true)) as number;
   }
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
+
+  const rootDir = Deno.cwd();
 
   if (totalChanges > 0) {
     let confirm = true;
@@ -294,17 +298,24 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
     }
 
     if (confirm) {
+      if (uChanges > 0) {
+        if (opts.folderPerInstance && opts.prefixSettings) {
+          await Deno.mkdir(path.join(rootDir, opts.prefix), {
+            recursive: true,
+          });
+        }
+      }
       if (!opts.skipUsers && uChanges > 0) {
-        await pullInstanceUsers();
+        await pullInstanceUsers(opts);
       }
       if (!opts.skipSettings && sChanges > 0) {
-        await pullInstanceSettings();
+        await pullInstanceSettings(opts);
       }
       if (!opts.skipConfigs && cChanges > 0) {
-        await pullInstanceConfigs();
+        await pullInstanceConfigs(opts);
       }
       if (!opts.skipGroups && gChanges > 0) {
-        await pullInstanceGroups();
+        await pullInstanceGroups(opts);
       }
     }
   } else {
@@ -313,7 +324,6 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
 
   if (opts.includeWorkspaces) {
     log.info("\nPulling all workspaces");
-    const rootDir = Deno.cwd();
     const localWorkspaces = await getLocalWorkspaces(
       rootDir,
       instance.prefix,
@@ -391,7 +401,7 @@ async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
   }
 }
 
-async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
+async function instancePush(opts: InstanceSyncOptions) {
   let instances = await allInstances();
   const instance = await pickInstance(opts, true);
 
@@ -400,19 +410,19 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
   let uChanges = 0;
   if (!opts.skipUsers) {
-    uChanges = (await pushInstanceUsers(true)) as number;
+    uChanges = (await pushInstanceUsers(opts, true)) as number;
   }
   let sChanges = 0;
   if (!opts.skipSettings) {
-    sChanges = (await pushInstanceSettings(true, opts.baseUrl)) as number;
+    sChanges = (await pushInstanceSettings(opts, true)) as number;
   }
   let cChanges = 0;
   if (!opts.skipConfigs) {
-    cChanges = (await pushInstanceConfigs(true)) as number;
+    cChanges = (await pushInstanceConfigs(opts, true)) as number;
   }
   let gChanges = 0;
   if (!opts.skipGroups) {
-    gChanges = (await pushInstanceGroups(true)) as number;
+    gChanges = (await pushInstanceGroups(opts, true)) as number;
   }
 
   const totalChanges = uChanges + sChanges + cChanges + gChanges;
@@ -428,16 +438,16 @@ async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
 
     if (confirm) {
       if (!opts.skipUsers && uChanges > 0) {
-        await pushInstanceUsers();
+        await pushInstanceUsers(opts);
       }
       if (!opts.skipSettings && sChanges > 0) {
-        await pushInstanceSettings(false, opts.baseUrl);
+        await pushInstanceSettings(opts);
       }
       if (!opts.skipConfigs && cChanges > 0) {
-        await pushInstanceConfigs();
+        await pushInstanceConfigs(opts);
       }
       if (!opts.skipGroups && gChanges > 0) {
-        await pushInstanceGroups();
+        await pushInstanceGroups(opts);
       }
     }
   } else {
@@ -565,13 +575,14 @@ async function getLocalWorkspaces(
   }
   if (folderPerInstance) {
     for await (const dir of Deno.readDir(rootDir + "/" + localPrefix)) {
-      const dirName = dir.name;
-      localWorkspaces.push({
-        dir: localPrefix + "/" + dirName,
-        id: dirName,
-      });
+      if (dir.isDirectory) {
+        const dirName = dir.name;
+        localWorkspaces.push({
+          dir: localPrefix + "/" + dirName,
+          id: dirName,
+        });
+      }
     }
-    log.info(localWorkspaces);
   } else {
     for await (const dir of Deno.readDir(rootDir)) {
       const dirName = dir.name;
@@ -583,6 +594,9 @@ async function getLocalWorkspaces(
       }
     }
   }
+  log.info(
+    "Local workspaces found: " + localWorkspaces.map((x) => x.id).join(", ")
+  );
   return localWorkspaces;
 }
 
@@ -709,7 +723,10 @@ const command = new Command()
     "--prefix <prefix:string>",
     "Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces"
   )
-
+  .option(
+    "--prefix-settings",
+    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance"
+  )
   .action(instancePull as any)
   .command("push")
   .description(
@@ -729,6 +746,10 @@ const command = new Command()
   .option(
     "--prefix <prefix:string>",
     "Prefix of the local workspaces folders to push"
+  )
+  .option(
+    "--prefix-settings",
+    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance"
   )
   .action(instancePush as any)
   .command("whoami")

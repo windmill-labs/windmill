@@ -6,7 +6,7 @@ import {
   removeType,
   removePathPrefix,
 } from "./types.ts";
-import { compareInstanceObjects } from "./instance.ts";
+import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import {
   colors,
   Command,
@@ -22,6 +22,22 @@ import {
   GlobalUserInfo,
   InstanceGroup,
 } from "./gen/types.gen.ts";
+
+const INSTANCE_USERS_PATH = "instance_users.yaml";
+let instanceUsersPath = INSTANCE_USERS_PATH;
+function checkInstanceUsersPath(opts: InstanceSyncOptions) {
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    instanceUsersPath = `${opts.prefix}/${INSTANCE_USERS_PATH}`;
+  }
+}
+
+const INSTANCE_GROUPS_PATH = "instance_groups.yaml";
+let instanceGroupsPath = INSTANCE_GROUPS_PATH;
+function checkInstanceGroupsPath(opts: InstanceSyncOptions) {
+  if (opts.prefix && opts.folderPerInstance && opts.prefixSettings) {
+    instanceGroupsPath = `${opts.prefix}/${INSTANCE_GROUPS_PATH}`;
+  }
+}
 
 async function list(opts: GlobalOptions) {
   await requireLogin(opts);
@@ -386,47 +402,61 @@ export async function pushGroup(
   }
 }
 
-export async function pullInstanceUsers(preview: boolean = false) {
+export async function pullInstanceUsers(
+  opts: InstanceSyncOptions,
+  preview: boolean = false
+) {
   const remoteUsers = await wmill.globalUsersExport();
 
+  checkInstanceUsersPath(opts);
+
   if (preview) {
-    const localUsers: ExportedUser[] = await readInstanceUsers();
+    const localUsers: ExportedUser[] = await readInstanceUsers(opts);
     return compareInstanceObjects(remoteUsers, localUsers, "email", "user");
   } else {
     log.info("Pulling users from instance...");
     await Deno.writeTextFile(
-      "instance_users.yaml",
+      instanceUsersPath,
       yamlStringify(remoteUsers as any)
     );
-    log.info(colors.green("Users written to instance_users.yaml"));
+    log.info(colors.green(`Users written to ${instanceUsersPath}`));
   }
 }
 
-export async function readInstanceUsers() {
+export async function readInstanceUsers(opts: InstanceSyncOptions) {
   let localUsers: ExportedUser[] = [];
+
+  await checkInstanceUsersPath(opts);
+
   try {
-    localUsers = (await yamlParseFile("instance_users.yaml")) as ExportedUser[];
+    localUsers = (await yamlParseFile(instanceUsersPath)) as ExportedUser[];
   } catch {
-    log.warn("No instance_users.yaml file found");
+    log.warn(`No ${instanceUsersPath} file found`);
   }
   return localUsers;
 }
 
-export async function readInstanceGroups() {
+export async function readInstanceGroups(opts: InstanceSyncOptions) {
   let localGroups: InstanceGroup[] = [];
+
+  checkInstanceGroupsPath(opts);
+
   try {
     localGroups = (await yamlParseFile(
-      "instance_groups.yaml"
+      instanceGroupsPath
     )) as ExportedInstanceGroup[];
   } catch {
-    log.warn("No instance_groups.yaml file found");
+    log.warn(`No ${instanceGroupsPath} file found`);
   }
   return localGroups;
 }
 
-export async function pushInstanceUsers(preview: boolean = false) {
+export async function pushInstanceUsers(
+  opts: InstanceSyncOptions,
+  preview: boolean = false
+) {
   const remoteUsers = await wmill.globalUsersExport();
-  const localUsers: ExportedUser[] = await readInstanceUsers();
+  const localUsers: ExportedUser[] = await readInstanceUsers(opts);
 
   if (preview) {
     return compareInstanceObjects(localUsers, remoteUsers, "email", "user");
@@ -440,27 +470,35 @@ export async function pushInstanceUsers(preview: boolean = false) {
   }
 }
 
-export async function pullInstanceGroups(preview = false) {
+export async function pullInstanceGroups(
+  opts: InstanceSyncOptions,
+  preview = false
+) {
   const remoteGroups = await wmill.exportInstanceGroups();
 
+  checkInstanceGroupsPath(opts);
+
   if (preview) {
-    const localGroups = await readInstanceGroups();
+    const localGroups = await readInstanceGroups(opts);
     return compareInstanceObjects(remoteGroups, localGroups, "name", "group");
   } else {
     log.info("Pulling groups from instance...");
 
     await Deno.writeTextFile(
-      "instance_groups.yaml",
+      instanceGroupsPath,
       yamlStringify(remoteGroups as any)
     );
 
-    log.info(colors.green("Groups written to instance_groups.yaml"));
+    log.info(colors.green(`Groups written to ${instanceGroupsPath}`));
   }
 }
 
-export async function pushInstanceGroups(preview: boolean = false) {
+export async function pushInstanceGroups(
+  opts: InstanceSyncOptions,
+  preview: boolean = false
+) {
   const remoteGroups = await wmill.exportInstanceGroups();
-  const localGroups = await readInstanceGroups();
+  const localGroups = await readInstanceGroups(opts);
 
   if (preview) {
     return compareInstanceObjects(localGroups, remoteGroups, "name", "group");

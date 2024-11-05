@@ -13,7 +13,7 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { capitalize, classNames } from '$lib/utils'
+	import { capitalize, classNames, sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
 	import {
@@ -108,9 +108,25 @@
 		loading = false
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
+
+		// populate snowflake account identifier from db
+		const account_identifier =
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
+		if (account_identifier) {
+			snowflakeAccountIdentifier = account_identifier
+		}
 	}
 
 	export async function saveSettings() {
+		if (
+			oauths?.snowflake_oauth &&
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
+				snowflakeAccountIdentifier
+		) {
+			setupSnowflakeUrls()
+		}
+
+		let shouldReloadPage = false
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			let licenseKeySet = false
@@ -128,6 +144,9 @@
 					.map(async ([_, x]) => {
 						if (x.key == 'license_key') {
 							licenseKeySet = true
+						}
+						if (x.requiresReloadOnChange) {
+							shouldReloadPage = true
 						}
 						return await SettingService.setGlobal({
 							key: x.key,
@@ -158,8 +177,14 @@
 		} else {
 			console.error('Values not loaded')
 		}
-		sendUserToast('Settings updated')
-		dispatch('saved')
+		if (shouldReloadPage) {
+			sendUserToast('Settings updated, reloading page...')
+			await sleep(1000)
+			window.location.reload()
+		} else {
+			sendUserToast('Settings updated')
+			dispatch('saved')
+		}
 	}
 
 	let oauths: Record<string, any> = {}
@@ -207,7 +232,8 @@
 		'linkedin',
 		'quickbooks',
 		'visma',
-		'spotify'
+		'spotify',
+		'snowflake_oauth'
 	]
 
 	let oauth_name = undefined
@@ -258,6 +284,23 @@
 			}
 		}
 		return true
+	}
+
+	let snowflakeAccountIdentifier = ''
+
+	function setupSnowflakeUrls() {
+		// strip all whitespaces from account identifier
+		snowflakeAccountIdentifier = snowflakeAccountIdentifier.replace(/\s/g, '')
+
+		const connect_config = {
+			scopes: [],
+			auth_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/authorize`,
+			token_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/token-request`,
+			req_body_auth: false,
+			extra_params: { account_identifier: snowflakeAccountIdentifier },
+			extra_params_callback: {}
+		}
+		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 </script>
 
@@ -503,6 +546,22 @@
 													{#if !windmillBuiltins.includes(k) && k != 'slack'}
 														<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
 													{/if}
+													{#if k == 'snowflake_oauth'}
+														<label class="block pb-2">
+															<span class="text-primary font-semibold text-sm"
+																><a
+																	href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
+																	target="_blank">Snowflake Account Identifier</a
+																></span
+															>
+															<input
+																type="text"
+																placeholder="<orgname>-<account_name>"
+																required={true}
+																bind:value={snowflakeAccountIdentifier}
+															/>
+														</label>
+													{/if}
 												</div>
 											</div>
 										{/if}
@@ -548,7 +607,7 @@
 					<div>
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
-								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values)}
+								{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, values) && !(setting.hiddenIfNull && values[setting.key] == null)}
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 											<AlertTriangle size={16} />
@@ -579,6 +638,20 @@
 														: ''}
 													bind:value={values[setting.key]}
 												/>
+												{#if setting.advancedToggle}
+													<div class="mt-1">
+														<Toggle
+															size="xs"
+															options={{ right: setting.advancedToggle.label }}
+															checked={setting.advancedToggle.checked(values)}
+															on:change={() => {
+																if (setting.advancedToggle) {
+																	values = setting.advancedToggle.onChange(values)
+																}
+															}}
+														/>
+													</div>
+												{/if}
 											{:else if setting.fieldType == 'textarea'}
 												<textarea
 													rows="2"

@@ -14,9 +14,19 @@ export type GraphEventHandlers = {
 	move: (module: FlowModule, modules: FlowModule[]) => void
 	selectedIteration: (detail, moduleId: string) => void
 	changeId: (newId: string) => void
+	simplifyFlow: (detail: boolean) => void
 }
 
-export default function graphBuilder(
+export type SimplifiableFlow = { simplifiedFlow: boolean }
+
+export function isTriggerStep(module: FlowModule | undefined): boolean {
+	return (
+		module?.value != undefined &&
+		(module.value.type === 'script' || module.value.type === 'rawscript') &&
+		module.value.is_trigger === true
+	)
+}
+export function graphBuilder(
 	modules: FlowModule[] | undefined,
 	extra: Record<string, any>,
 	failureModule: FlowModule | undefined,
@@ -26,9 +36,12 @@ export default function graphBuilder(
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
 	moving: string | undefined,
-	triggerProps?: {
-		path?: string
-	}
+	simplifiableFlow: SimplifiableFlow | undefined,
+	flowPathForTriggerNode: string | undefined
+	// triggerProps?: {
+	// 	path?: string
+	// 	flowIsSimplifiable?: boolean
+	// }
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -102,6 +115,7 @@ export default function graphBuilder(
 			sourceId: string,
 			targetId: string,
 			options?: {
+				disableInsert?: boolean
 				customId?: string
 				type?: string
 				subModules?: FlowModule[]
@@ -129,17 +143,18 @@ export default function graphBuilder(
 				target: targetId,
 				type: options?.type ?? 'edge',
 				data: {
-					insertable: extra.insertable,
 					modules: options?.subModules ?? modules,
 					sourceId,
 					targetId,
 					moving,
 					eventHandlers,
+					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
 					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 					index: index >= 0 ? index : mods?.length ?? 0,
-					...extra
+					...extra,
+					insertable: extra.insertable && !options?.disableInsert
 				}
 			})
 		}
@@ -156,15 +171,19 @@ export default function graphBuilder(
 			}
 		}
 
-		if (extra.path && triggerProps != undefined) {
-			const triggerNode: Node = {
+		let triggerNode: Node | undefined = undefined
+		if (flowPathForTriggerNode) {
+			triggerNode = {
 				id: 'Trigger',
 				position: { x: -1, y: -1 },
 				type: 'trigger',
 				data: {
-					path: triggerProps?.path,
+					simplifiableFlow: simplifiableFlow,
+					path: flowPathForTriggerNode,
 					newFlow: extra.newFlow,
-					eventHandlers: eventHandlers
+					eventHandlers: eventHandlers,
+					modules: modules,
+					isEditor: extra.insertable
 				}
 			}
 			nodes.push(triggerNode)
@@ -191,13 +210,16 @@ export default function graphBuilder(
 			type: 'result'
 		}
 
-		nodes.push(inputNode)
-		nodes.push(resultNode)
+		if (simplifiableFlow?.simplifiedFlow !== true) {
+			nodes.push(inputNode)
+			nodes.push(resultNode)
+		}
 
 		function processModules(
 			modules: FlowModule[],
 			beforeNode: Node,
-			nextNode: Node,
+			nextNode: Node | undefined,
+			simplifiedTriggerView: boolean,
 			currentOffset = 0,
 			disableMoveIds: string[] = [],
 			parentIndex?: string,
@@ -206,10 +228,12 @@ export default function graphBuilder(
 			let previousId: string | undefined = undefined
 
 			if (modules.length === 0) {
-				addEdge(beforeNode.id, nextNode.id, {
-					subModules: modules,
-					disableMoveIds
-				})
+				if (nextNode) {
+					addEdge(beforeNode.id, nextNode.id, {
+						subModules: modules,
+						disableMoveIds
+					})
+				}
 			} else {
 				modules.forEach((module, index) => {
 					const localDisableMoveIds = [...disableMoveIds, module.id]
@@ -295,6 +319,7 @@ export default function graphBuilder(
 									branch.modules,
 									startNode,
 									endNode,
+									false,
 									currentOffset,
 									localDisableMoveIds,
 									parentIndex ? `${parentIndex}-${index}-${branchIndex}` : `${index}-${branchIndex}`
@@ -304,7 +329,9 @@ export default function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
-						addNode(module, currentOffset, 'module', modules)
+						if (!simplifiedTriggerView) {
+							addNode(module, currentOffset, 'module', modules)
+						}
 
 						const startNode = {
 							id: `${module.id}-start`,
@@ -313,6 +340,7 @@ export default function graphBuilder(
 								id: module.id,
 								module: module,
 								modules: modules,
+								simplifiedTriggerView,
 								eventHandlers: eventHandlers,
 								...extra
 							},
@@ -320,9 +348,15 @@ export default function graphBuilder(
 							type: 'forLoopStart'
 						}
 
-						addEdge(module.id, startNode.id, {
-							type: 'empty'
-						})
+						if (!simplifiedTriggerView) {
+							addEdge(module.id, startNode.id, {
+								type: 'empty'
+							})
+						} else if (previousId) {
+							addEdge(previousId, startNode.id, {
+								type: 'empty'
+							})
+						}
 
 						const endNode = {
 							id: `${module.id}-end`,
@@ -332,6 +366,7 @@ export default function graphBuilder(
 								module: module,
 								modules: modules,
 								eventHandlers: eventHandlers,
+								simplifiedTriggerView,
 								...extra
 							},
 							position: { x: -1, y: -1 },
@@ -347,6 +382,7 @@ export default function graphBuilder(
 							module.value.modules,
 							startNode,
 							endNode,
+							false,
 							currentOffset + 25,
 							localDisableMoveIds,
 							parentIndex
@@ -390,6 +426,7 @@ export default function graphBuilder(
 							module.value.modules,
 							startNode,
 							endNode,
+							false,
 							currentOffset + 25,
 							localDisableMoveIds,
 							parentIndex
@@ -435,6 +472,7 @@ export default function graphBuilder(
 							module.value.default,
 							defaultBranch,
 							endNode,
+							false,
 							currentOffset,
 							localDisableMoveIds,
 							parentIndex ? `${parentIndex}-${index}` : index.toString(),
@@ -468,6 +506,7 @@ export default function graphBuilder(
 								branch.modules,
 								startNode,
 								endNode,
+								false,
 								currentOffset,
 								localDisableMoveIds,
 								parentIndex ? `${parentIndex}-${index}` : index.toString(),
@@ -480,30 +519,31 @@ export default function graphBuilder(
 						addNode(module, currentOffset, 'module', modules)
 
 						previousId = module.id
-
-
 					}
 
 					if (index === 0) {
 						addEdge(beforeNode.id, module.id, {
 							subModules: modules,
-							disableMoveIds
+							disableMoveIds,
+							disableInsert: simplifiedTriggerView
 						})
 					}
 
-					if (index === modules.length - 1 && previousId) {
+					if (index === modules.length - 1 && previousId && nextNode) {
 						addEdge(previousId, nextNode.id, {
 							subModules: modules,
 							disableMoveIds
 						})
 					}
 				})
-
-
 			}
 		}
 
-		processModules(modules, inputNode, resultNode)
+		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
+			processModules(modules, triggerNode, undefined, true)
+		} else {
+			processModules(modules, inputNode, resultNode, false)
+		}
 
 		if (failureModule) {
 			let toAdd: Record<string, string> = {}

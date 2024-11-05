@@ -28,13 +28,13 @@ use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 use windmill_common::{
+    email_ee::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        HUB_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
-    utils::send_email,
 };
 
 #[cfg(feature = "parquet")]
@@ -263,6 +263,7 @@ pub async fn get_global_setting(
         && !key.starts_with("default_success_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
         && key != HUB_BASE_URL_SETTING
+        && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
     {
         require_super_admin(&db, &authed.email).await?;

@@ -41,11 +41,13 @@
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
+	export let path: string = ''
 	export let modType: string | undefined = undefined
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
+	export let isTrigger: boolean = false
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
@@ -131,7 +133,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer',
+		'w-full module flex rounded-sm cursor-pointer max-w-full',
 		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
@@ -139,7 +141,7 @@
 	style="width: 275px; height: 34px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:click
+	on:click|preventDefault|stopPropagation
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
@@ -185,7 +187,11 @@
 				>
 					<Square size={12} />
 				</div>
-				<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+				<svelte:fragment slot="text"
+					>{isTrigger
+						? 'Stop early if there are no new events'
+						: 'Early stop/break'}</svelte:fragment
+				>
 			</Popover>
 		{/if}
 		{#if skip}
@@ -243,11 +249,22 @@
 				<slot name="icon" />
 			</div>
 		{/if}
-		<div
-			class="absolute left-1/2 transform -translate-x-1/2 text-center truncate"
-			class:font-bold={bold}
-			style="max-width: calc(100% - {marginLeft}px)">{label}</div
+
+		<Popover
+			class="absolute left-1/2 transform -translate-x-1/2 center-center"
+			style="max-width: calc(100% - {marginLeft}px)"
 		>
+			<div class="text-center truncate {bold ? '!font-bold' : 'font-normal'}">
+				{label}
+			</div>
+			<svelte:fragment slot="text">
+				<div>
+					<div>{label}</div>
+					{#if path != ''}<div>{path}</div>{/if}
+				</div>
+			</svelte:fragment>
+		</Popover>
+
 		<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
 			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
 				<Badge color="indigo" wrapperClass="max-w-full" baseClass="max-w-full truncate" title={id}>
