@@ -6,7 +6,6 @@
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import Popover from '$lib/components/Popover.svelte'
 	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -85,7 +84,7 @@
 					size="xs2"
 					variant="border"
 					on:click={collapse}
-					wrapperClasses="inline-flex w-fit h-5"
+					wrapperClasses="inline-flex w-fit h-4"
 					btnClasses="font-semibold text-primary rounded-[0.275rem]">-</Button
 				>
 			{/if}
@@ -93,27 +92,25 @@
 			<ul class={`w-full pl-2 ${level === 0 ? 'border-none' : 'border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<span class="whitespace-nowrap">
-							<Popover>
-								<svelte:fragment slot="text">{computeFullKey(key, rawKey)}</svelte:fragment>
-								<Button
-									on:click={() => selectProp(key)}
-									size="xs2"
-									color="light"
-									variant="border"
-									wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
-									btnClasses="font-mono text-2xs font-thin px-1 rounded-[0.275rem]"
-								>
-									<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
-								</Button>
-							</Popover>
-							<span class="text-2xs text-tertiary -ml-0.5">:</span>
-						</span>
+						<div class="inline-flex items-baseline">
+							<Button
+								on:click={() => selectProp(key)}
+								size="xs2"
+								color="light"
+								variant="border"
+								wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit"
+								btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]"
+								title={computeFullKey(key, rawKey)}
+							>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+							</Button>
+							<span class="text-2xs text-tertiary">:</span>
+						</div>
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
 								json={json[key]}
 								level={level + 1}
-								currentPath={computeFullKey(key, isArray)}
+								currentPath={computeFullKey(key, rawKey)}
 								{pureViewer}
 								{allowCopy}
 								on:select
@@ -121,38 +118,32 @@
 								collapsed={collapseLevel !== undefined ? level + 1 >= collapseLevel : undefined}
 							/>
 						{:else}
-							<Popover disablePopup={!json[key]}>
-								<svelte:fragment slot="text">
-									{JSON.stringify(json[key])}
-								</svelte:fragment>
-								<button
-									class="val text-left {pureViewer
-										? 'cursor-auto'
-										: ''} rounded px-1 {getTypeAsString(json[key])}"
-									on:click={() => {
-										if (json[key]) {
-											copyToClipboard(json[key])
-										}
-									}}
-									disabled={false}
-								>
-									{#if json[key] === NEVER_TESTED_THIS_FAR}
-										<span class="text-2xs text-tertiary font-normal">
-											Test the flow to see a value
-										</span>
-									{:else if json[key] == undefined}
-										<span class="text-2xs">undefined</span>
-									{:else if json[key] == null}
-										<span class="text-2xs">null</span>
-									{:else if typeof json[key] == 'string'}
-										<span class="text-2xs">"{truncate(json[key], 200)}"</span>
-									{:else}
-										<span class="text-2xs">
-											{truncate(JSON.stringify(json[key]), 200)}
-										</span>
-									{/if}
-								</button>
-							</Popover>
+							<button
+								class="val text-left {pureViewer
+									? 'cursor-auto'
+									: ''} rounded px-1 {getTypeAsString(json[key])}"
+								on:click={() => {
+									selectProp(key, json[key])
+								}}
+								title={computeFullKey(key, rawKey)}
+								disabled={false}
+							>
+								{#if json[key] === NEVER_TESTED_THIS_FAR}
+									<span class="text-2xs text-tertiary font-normal">
+										Test the flow to see a value
+									</span>
+								{:else if json[key] == undefined}
+									<span class="text-2xs">undefined</span>
+								{:else if json[key] == null}
+									<span class="text-2xs">null</span>
+								{:else if typeof json[key] == 'string'}
+									<span class="text-2xs">"{truncate(json[key], 200)}"</span>
+								{:else}
+									<span class="text-2xs">
+										{truncate(JSON.stringify(json[key]), 200)}
+									</span>
+								{/if}
+							</button>
 						{/if}
 					</li>
 				{/each}
@@ -193,23 +184,25 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 
 	{#if fullyCollapsed}
-		<Button
-			color="light"
-			size="xs2"
-			variant="border"
-			on:click={collapse}
-			wrapperClasses="inline-flex w-fit h-5"
-			btnClasses="font-semibold  rounded-[0.275rem] p-1"
-		>
-			{openBracket}{collapsedSymbol}{closeBracket}
-		</Button>
+		<div class="inline-flex relative">
+			<Button
+				color="light"
+				size="xs2"
+				variant="border"
+				on:click={collapse}
+				wrapperClasses="inline-flex w-fit h-4"
+				btnClasses="font-normal  rounded-[0.275rem] h-4 p-1"
+			>
+				{openBracket}{collapsedSymbol}{closeBracket}
+			</Button>
+		</div>
 	{/if}
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>
 {:else if json == undefined}
 	<span class="text-tertiary text-2xs ml-2">undefined</span>
 {:else}
-	<span class="text-tertiary text-2xs ml-2">No items ([])</span>
+	<span class="text-tertiary text-2xs ml-2">No items</span>
 {/if}
 
 <style lang="postcss">

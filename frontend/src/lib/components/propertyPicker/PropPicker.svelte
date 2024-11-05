@@ -28,19 +28,31 @@
 
 	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$: flowInputsFiltered =
-		search === EMPTY_STRING
-			? pickableProperties.flow_input
-			: keepByKey(pickableProperties.flow_input, search)
+	let flowInputsFiltered = pickableProperties.flow_input
+	let resultByIdFiltered = pickableProperties.priorIds
 
-	$: resultByIdFiltered =
-		search === EMPTY_STRING
-			? pickableProperties.priorIds
-			: keepByKey(pickableProperties.priorIds, search)
+	let timeout: NodeJS.Timeout
+	function onSearch(search: string) {
+		clearTimeout(timeout)
+		setTimeout(() => {
+			flowInputsFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.flow_input
+					: keepByKey(pickableProperties.flow_input, search)
+
+			resultByIdFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.priorIds
+					: keepByKey(pickableProperties.priorIds, search)
+
+			console.log(resultByIdFiltered, search)
+		}, 50)
+	}
 
 	$: suggestedPropsFiltered = $propPickerConfig
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
 		: undefined
+	$: search != undefined && onSearch(search)
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
@@ -64,8 +76,8 @@
 </script>
 
 <div class="flex flex-col h-full rounded overflow-hidden">
-	<div class="px-2">
-		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
+	<div class="px-2 py-2">
+		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<div class="overflow-y-auto px-2 pt-2 grow">
 		<div class="flex justify-between items-center space-x-1">
@@ -228,8 +240,8 @@
 							await loadVariables()
 							displayVariable = true
 						}}
-						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold rounded-[0.275rem] p-1"
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal rounded-[0.275rem] p-1"
 					>
 						{'{...}'}
 					</Button>
@@ -247,8 +259,8 @@
 						on:click={() => {
 							displayResources = false
 						}}
-						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold text-primary rounded-[0.275rem]">-</Button
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 					>
 					<ObjectViewer
 						{allowCopy}
@@ -267,8 +279,8 @@
 							await loadResources()
 							displayResources = true
 						}}
-						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold rounded-[0.275rem] p-1"
+						wrapperClasses="inline-flex w-fit h-4"
+						btnClasses="font-normal rounded-[0.275rem] p-1"
 					>
 						{'{...}'}
 					</Button>
