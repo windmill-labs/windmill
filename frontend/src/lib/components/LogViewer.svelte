@@ -245,7 +245,7 @@
 					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}
-		<pre class="whitespace-pre-wrap break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
+		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
 			>{#if content}{@const len =
 					(content?.length ?? 0) +
 					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
