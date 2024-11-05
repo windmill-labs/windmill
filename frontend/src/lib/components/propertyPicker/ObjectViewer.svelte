@@ -102,7 +102,7 @@
 									color="light"
 									variant="border"
 									wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
-									btnClasses="font-normal px-1 rounded-[0.275rem]"
+									btnClasses="font-mono text-2xs font-thin px-1 rounded-[0.275rem]"
 								>
 									<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
 								</Button>
