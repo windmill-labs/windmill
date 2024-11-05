@@ -46,6 +46,11 @@
 	let small = false
 	let open = false
 
+	let width = 0
+	let height = 0
+
+	$: displayPath = width > 650 || height > 400
+
 	$: small = kind === 'preprocessor' || kind === 'failure'
 </script>
 
@@ -90,11 +95,17 @@ shouldUsePortal={true} -->
 	</svelte:fragment>
 	<div
 		id="flow-editor-insert-module"
-		class="flex flex-col h-[400px] {small ? 'w-[450px]' : 'w-[650px]'}  pt-1 pr-1 pl-1 gap-1.5"
+		class="flex flex-col h-[400px] {small
+			? 'w-[450px]'
+			: 'w-[650px]'} pt-1 pr-1 pl-1 gap-1.5 resize overflow-auto {small
+			? 'min-w-[450px]'
+			: 'min-w-[650px]'} min-h-[400px]"
 		on:wheel={(e) => {
 			e.stopPropagation()
 		}}
 		role="none"
+		bind:clientWidth={width}
+		bind:clientHeight={height}
 	>
 		<div class="flex flex-row items-center gap-2">
 			<StepGenQuick
@@ -203,6 +214,7 @@ shouldUsePortal={true} -->
 				on:pickFlow
 				{preFilter}
 				{small}
+				{displayPath}
 			/>
 		</div>
 	</div>
