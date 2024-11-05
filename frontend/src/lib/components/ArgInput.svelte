@@ -128,8 +128,10 @@
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
 	let isListJson = false
+	let hasIsListJsonChanged = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
+
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
@@ -169,6 +171,43 @@
 	computeDefaultValue()
 
 	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
+
+	let lastValue: any = undefined
+
+	// By setting isListJson to true, we can render inputs even if the value is not an array of the correct type
+	// This avoids the issue of the input being rendered as a string with value: [object Object], or as a number with value: NaN
+	function checkArrayValueType() {
+		try {
+			if (Array.isArray(value) && value.length > 0) {
+				const firstItem = value?.[0]
+				const type = itemsType?.type
+
+				switch (type) {
+					case 'string':
+						if (typeof firstItem !== 'string') {
+							isListJson = true
+						}
+						break
+					case 'number':
+						if (typeof firstItem !== 'number') {
+							isListJson = true
+						}
+						break
+				}
+			}
+		} catch (e) {
+			console.error(e)
+		}
+
+		lastValue = value
+	}
+
+	$: !isListJson &&
+		inputCat === 'list' &&
+		value != lastValue &&
+		itemsType?.type &&
+		!hasIsListJsonChanged &&
+		checkArrayValueType()
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
@@ -518,6 +557,11 @@
 					<div class="mt-2 mr-4">
 						<Toggle
 							on:change={(e) => {
+								// Once the user has changed the input type, we should not change it back automatically
+								if (!hasIsListJsonChanged) {
+									hasIsListJsonChanged = true
+								}
+
 								evalValueToRaw()
 								isListJson = !isListJson
 							}}
