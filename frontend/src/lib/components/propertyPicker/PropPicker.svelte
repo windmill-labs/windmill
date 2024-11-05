@@ -169,7 +169,7 @@
 					</div>
 				{/if}
 				<div class="overflow-y-auto mb-2">
-					<span class="font-normal text-sm text-secondary">All Results:</span>
+					<span class="font-normal text-sm text-primary">All Results</span>
 					{#if !allResultsCollapsed}
 						<Button
 							color="light"
