@@ -76,12 +76,12 @@
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
 				wrapperClasses="h-full w-full pt-2"
-				marginWidth="4px"
+				marginWidth="3px"
 				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
 				$propPickerConfig?.insertionMode == 'append'
 					? '#3b82f6'
 					: 'transparent'}
-				animationDuration="1s"
+				animationDuration="4s"
 			>
 				{#if result}
 					<PropPickerResult

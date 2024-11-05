@@ -335,7 +335,12 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<AnimatedButton animate={connecting} baseRadius="6px" animationDuration="1s">
+					<AnimatedButton
+						animate={connecting}
+						baseRadius="6px"
+						animationDuration="2s"
+						marginWidth="2px"
+					>
 						<Button
 							variant="border"
 							color="light"
@@ -476,12 +481,12 @@
 					{/if}
 				</div>
 
-				{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'insert'}
+				{#if $propPickerConfig?.propName == argName}
 					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
-							width="20"
-							height="20"
+							width="14"
+							height="24"
 							viewBox="0 0 24 24"
 							fill="currentColor"
 							stroke="currentColor"
