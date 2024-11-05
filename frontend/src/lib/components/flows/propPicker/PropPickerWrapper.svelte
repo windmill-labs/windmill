@@ -52,12 +52,27 @@
 			propPickerConfig.set(undefined)
 		}
 	})
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		console.log(
+			'dbg getPropPickerElements',
+			Array.from(
+				document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
+			) as HTMLElement[]
+		)
+		return Array.from(
+			document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
+		) as HTMLElement[]
+	}
 </script>
 
 <div
 	class="h-full w-full"
-	use:clickOutside
-	on:click_outside={() => propPickerConfig.set(undefined)}
+	data-prop-picker-root
+	use:clickOutside={{ capture: true, exclude: getPropPickerElements }}
+	on:click_outside={() => {
+		propPickerConfig.set(undefined)
+	}}
 >
 	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
 		<Pane
@@ -101,7 +116,6 @@
 						{displayContext}
 						{error}
 						{pickableProperties}
-						{notSelectable}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
 							dispatch('select', detail)

@@ -4,6 +4,7 @@
 	import { getContext } from 'svelte'
 	import { Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
+	import type { PropPickerContext } from '../prop_picker'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
@@ -12,7 +13,6 @@
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
-	export let notSelectable: boolean
 	export let error: boolean = false
 	export let allowCopy = false
 
@@ -22,14 +22,21 @@
 	let displayVariable = false
 	let displayResources = false
 	let allResultsCollapsed = true
+	let flowInputsFiltered: Object | undefined
+	let resultByIdFiltered: Record<string, any> | undefined
 
 	const EMPTY_STRING = ''
 	let search = ''
 
 	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	let flowInputsFiltered = pickableProperties.flow_input
-	let resultByIdFiltered = pickableProperties.priorIds
+	const { flowPropPickerConfig, pickablePropertiesFiltered } =
+		getContext<PropPickerContext>('PropPickerContext')
+
+	$: $flowPropPickerConfig &&
+		($flowPropPickerConfig.clearFocus = () => {
+			$propPickerConfig = undefined
+		})
 
 	let timeout: NodeJS.Timeout
 	function onSearch(search: string) {
@@ -73,6 +80,38 @@
 			).map((resource) => [resource.path, resource.description ?? ''])
 		)
 	}
+
+	function updateFlowPropPickerConfig() {
+		if (!$propPickerConfig) {
+			$flowPropPickerConfig = undefined
+			return
+		}
+
+		if (!$flowPropPickerConfig) {
+			$flowPropPickerConfig = {
+				insertionMode: $propPickerConfig.insertionMode,
+				onSelect: $propPickerConfig.onSelect,
+				clearFocus: () => {
+					$propPickerConfig = undefined
+				}
+			}
+		} else {
+			$flowPropPickerConfig.insertionMode = $propPickerConfig.insertionMode
+			$flowPropPickerConfig.onSelect = $propPickerConfig.onSelect
+		}
+
+		if (!resultByIdFiltered || !flowInputsFiltered) {
+			return
+		}
+		$pickablePropertiesFiltered = {
+			priorIds: resultByIdFiltered,
+			flow_input: flowInputsFiltered,
+			previousId: undefined,
+			hasResume: false
+		}
+	}
+
+	$: resultByIdFiltered, flowInputsFiltered, $propPickerConfig, updateFlowPropPickerConfig()
 </script>
 
 <div class="flex flex-col h-full rounded overflow-hidden">
@@ -137,7 +176,7 @@
 				</div>
 			{/if}
 		{:else}
-			{#if previousId}
+			{#if previousId && resultByIdFiltered}
 				<span class="font-normal text-sm text-secondary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer

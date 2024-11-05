@@ -4,6 +4,8 @@
 	import { getContext } from 'svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
@@ -14,9 +16,13 @@
 	export let borderColor: string | undefined = undefined
 	export let hideId: boolean = false
 	export let preLabel: string | undefined = undefined
+	export let inputJson = {}
+	export let prefix = ''
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 </script>
 
 <VirtualItemWrapper
@@ -54,4 +60,9 @@
 			</div>
 		{/if}
 	</div>
+	{#if $flowPropPickerConfig && Object.keys(inputJson).length > 0}
+		<div class="absolute -bottom-[18px] right-[50%] translate-x-[50%]">
+			<FlowPropPicker json={inputJson} {prefix} />
+		</div>
+	{/if}
 </VirtualItemWrapper>
