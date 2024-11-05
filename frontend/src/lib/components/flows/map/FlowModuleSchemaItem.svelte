@@ -276,7 +276,7 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 	</div>
 
 	{#if id && $propPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
-		<div class="absolute -top-[14px] right-[200px]">
+		<div class="absolute -bottom-[18px] right-[50%] translate-x-[50%]">
 			<FlowPropPicker
 				json={{
 					[id]: pickableIds[id]

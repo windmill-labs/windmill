@@ -11,7 +11,9 @@
 	let clientWidth = 0
 	let clientHeight = 0
 
-	$: circleRadius = Math.sqrt(clientWidth * clientWidth + clientHeight * clientHeight) / 2
+	$: circleRadius = Math.ceil(
+		Math.sqrt(clientWidth * clientWidth + clientHeight * clientHeight) / 2
+	)
 </script>
 
 <div

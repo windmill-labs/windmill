@@ -25,8 +25,9 @@
 >
 	<AnimatedButton
 		animate={$propPickerConfig?.insertionMode === 'connect' && !viewOnly}
-		wrapperClasses=" h-fit w-fit center-center"
+		wrapperClasses="h-[20px] w-[20px] "
 		baseRadius="9999px"
+		marginWidth="1px"
 	>
 		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button" let:open>
@@ -34,7 +35,7 @@
 					<svelte:fragment slot="text">node outputs</svelte:fragment>
 					<button
 						class={twMerge(
-							'rounded-full trash center-center h-[20px] w-[20px]',
+							'rounded-full trash center-center h-[18px] w-[18px]',
 							viewOnly
 								? 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-surface hover:bg-surface-hover text-secondary'
 								: $propPickerConfig?.insertionMode == 'connect'
@@ -42,7 +43,7 @@
 								: 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 hover:bg-blue-700 text-white'
 						)}
 					>
-						<Plug class="mx-[3px]" size={12} strokeWidth={2} />
+						<Plug size={12} strokeWidth={2} />
 					</button>
 				</Popover>
 			</svelte:fragment>

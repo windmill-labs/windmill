@@ -82,7 +82,7 @@
 		</div>
 	</div>
 	{#if propPickerConfig && Object.keys(inputJson).length > 0}
-		<div class="absolute -top-[14px] right-[200px]">
+		<div class="absolute -bottom-[18px] right-[50%] translate-x-[50%]">
 			<FlowPropPicker json={inputJson} {prefix} />
 		</div>
 	{/if}
