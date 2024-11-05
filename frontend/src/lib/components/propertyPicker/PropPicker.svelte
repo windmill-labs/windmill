@@ -2,7 +2,7 @@
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
-	import { Badge, Button } from '../common'
+	import { Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
@@ -65,18 +65,6 @@
 
 <div class="flex flex-col h-full !bg-surface rounded overflow-hidden">
 	<div class="px-2">
-		{#if !notSelectable}
-			{#if $propPickerConfig}
-				<!-- <Badge large color="blue">
-					{`Selected: ${$propPickerConfig?.propName}`}
-				</Badge> -->
-				<Badge large color="blue">
-					{`Mode: ${$propPickerConfig?.insertionMode}`}
-				</Badge>
-			{:else}
-				<Badge large color="blue">&leftarrow; Edit or connect an input</Badge>
-			{/if}
-		{/if}
 		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
 	</div>
 	<div
