@@ -203,7 +203,7 @@
 					<Button
 						color="light"
 						size="xs2"
-						variant="contained"
+						variant="border"
 						on:click={() => {
 							displayVariable = false
 						}}
@@ -223,7 +223,7 @@
 					<Button
 						color="light"
 						size="xs2"
-						variant="contained"
+						variant="border"
 						on:click={async () => {
 							await loadVariables()
 							displayVariable = true
@@ -243,7 +243,7 @@
 					<Button
 						color="light"
 						size="xs2"
-						variant="contained"
+						variant="border"
 						on:click={() => {
 							displayResources = false
 						}}
@@ -262,7 +262,7 @@
 					<Button
 						color="light"
 						size="xs2"
-						variant="contained"
+						variant="border"
 						on:click={async () => {
 							await loadResources()
 							displayResources = true

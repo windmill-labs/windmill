@@ -83,7 +83,7 @@
 				<Button
 					color="light"
 					size="xs2"
-					variant="contained"
+					variant="border"
 					on:click={collapse}
 					wrapperClasses="inline-flex w-fit h-5"
 					btnClasses="font-semibold text-primary rounded-[0.275rem]">-</Button
@@ -196,10 +196,10 @@
 		<Button
 			color="light"
 			size="xs2"
-			variant="contained"
+			variant="border"
 			on:click={collapse}
 			wrapperClasses="inline-flex w-fit h-5"
-			btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+			btnClasses="font-semibold  rounded-[0.275rem] p-1"
 		>
 			{openBracket}{collapsedSymbol}{closeBracket}
 		</Button>
