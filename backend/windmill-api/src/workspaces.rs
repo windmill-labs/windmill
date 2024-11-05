@@ -154,8 +154,6 @@ struct Workspace {
     premium: bool,
 }
 
-
-
 #[derive(Deserialize)]
 pub struct AiRessource {
     pub path: String,
@@ -680,10 +678,7 @@ async fn edit_copilot_config(
         Some(&authed.email),
         Some(
             [
-                (
-                    "ai_resource",
-                    &format!("{:?}", eo.ai_resource)[..],
-                ),
+                ("ai_resource", &format!("{:?}", eo.ai_resource)[..]),
                 (
                     "code_completion_enabled",
                     &format!("{:?}", eo.code_completion_enabled)[..],
@@ -700,6 +695,7 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
+    pub ai_resource_type: String,
     pub exists_ai_resource: bool,
     pub code_completion_enabled: bool,
 }
@@ -717,8 +713,20 @@ async fn get_copilot_info(
     .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
+    let ai_resource_type = if let Some(ai_resource) = record.ai_resource {
+        if let Ok(ai_resource) = serde_json::from_value::<AiRessource>(ai_resource) {
+            ai_resource.provider
+        } else {
+            "".to_string()
+        }
+    } else {
+        "".to_string()
+    };
+
+    let exists_ai_resource = !ai_resource_type.is_empty();
     Ok(Json(CopilotInfo {
-        exists_ai_resource: record.ai_resource.is_some(),
+        ai_resource_type,
+        exists_ai_resource,
         code_completion_enabled: record.code_completion_enabled,
     }))
 }

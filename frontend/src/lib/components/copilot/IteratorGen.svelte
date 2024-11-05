@@ -82,7 +82,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_openai_resource_path || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.exists_ai_resource_path || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -117,7 +117,7 @@ Only output the expression, do not explain or discuss.`
 		cancelOnOutOfFocus()
 	}
 
-	$: if ($copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled && focused) {
+	$: if ($copilotInfo.exists_ai_resource_path && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
 	}
 
@@ -131,7 +131,7 @@ Only output the expression, do not explain or discuss.`
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
-{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+{#if $copilotInfo.exists_ai_resource_path && $stepInputCompletionEnabled}
 	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
 		<Button
 			size="xs"

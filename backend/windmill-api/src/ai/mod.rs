@@ -9,7 +9,6 @@ use axum::{
     response::IntoResponse,
     Extension,
 };
-use http::StatusCode;
 use lazy_static::lazy_static;
 use openai::OpenaiKeyCache;
 use quick_cache::sync::Cache;
@@ -90,62 +89,59 @@ async fn proxy(
     Extension(db): Extension<DB>,
     Path((w_id, ai_path)): Path<(String, String)>,
     Query(query_params): Query<ProxyQueryParams>,
-    mut body: Bytes,
+    body: Bytes,
 ) -> impl IntoResponse {
     let workspace_cache = AI_KEY_CACHE.get(&w_id);
-    let ai_cache = if query_params.no_cache.unwrap_or(false)
-        || workspace_cache.is_none()
-        || workspace_cache.unwrap().is_expired()
-    {
-        let ai_resource = sqlx::query_scalar!(
-            "SELECT ai_resource FROM workspace_settings WHERE workspace_id = $1",
-            &w_id
-        )
-        .fetch_one(&db)
-        .await?;
+    let ai_cache = match workspace_cache {
+        Some(cache) if !cache.is_expired() || !query_params.no_cache.unwrap_or(false) => cache.cached_key,
+        _ => {
+            let ai_resource = sqlx::query_scalar!(
+                "SELECT ai_resource FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_one(&db)
+            .await?;
 
-        if ai_resource.is_none() {
-            return Err(Error::InternalErr(
-                "OpenAI resource not configured".to_string(),
-            ));
+            if ai_resource.is_none() {
+                return Err(Error::InternalErr(
+                    "OpenAI resource not configured".to_string(),
+                ));
+            }
+
+            let ai_resource = serde_json::from_value::<AiRessource>(ai_resource.unwrap()).unwrap();
+
+            let ai_resource_path = ai_resource.path;
+
+            let resource = sqlx::query_scalar!(
+                "SELECT value
+                FROM resource
+                WHERE path = $1 AND workspace_id = $2",
+                &ai_resource_path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| {
+                Error::InternalErr(format!(
+                    "Could not find the OpenAI resource at path {ai_resource_path}, update the resource path in the workspace settings"
+                ))
+            })?;
+
+            if resource.is_none() {
+                return Err(Error::InternalErr(format!(
+                    "{} resource missing value",
+                    ai_resource.provider
+                )));
+            }
+
+            let resource = resource.unwrap();
+
+            let ai_cache = match ai_resource.provider.as_str() {
+                _ => openai::update_and_retrieve_cached_value(&db, &w_id, resource),
+            }
+            .await;
+            ai_cache?
         }
-
-        let ai_resource = serde_json::from_value::<AiRessource>(ai_resource.unwrap()).unwrap();
-
-        let ai_resource_path = ai_resource.path;
-
-        let resource = sqlx::query_scalar!(
-            "SELECT value
-            FROM resource
-            WHERE path = $1 AND workspace_id = $2",
-            &ai_resource_path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .ok_or_else(|| {
-            Err(Error::InternalErr(format!(
-                "Could not find the OpenAI resource at path {ai_resource_path}, update the resource path in the workspace settings"
-            )))
-        })?;
-
-        if resource.is_none() {
-            return Err(Error::InternalErr(format!(
-                "{} resource missing value",
-                ai_resource.provider
-            )));
-        }
-
-        let resource = resource.unwrap();
-
-        let ai_cache = match ai_resource.provider.as_str() {
-            "openai" => openai::update_and_retrieve_cached_value(&db, &w_id, resource),
-        }
-        .await;
-        ai_cache?
-    } else {
-        tracing::debug!("Using cached OpenAI key");
-        workspace_cache.unwrap().cached_key
     };
 
     let result_proxy = match ai_cache {

@@ -388,7 +388,7 @@
 						<LoadingIcon />
 					{/if}
 				</div>
-			{:else if $copilotInfo.exists_openai_resource_path}
+			{:else if $copilotInfo.exists_ai_resource_path}
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>

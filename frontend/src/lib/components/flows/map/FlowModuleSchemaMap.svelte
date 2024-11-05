@@ -81,7 +81,7 @@
 		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(
 				module.id,
-				!disableAi && $copilotInfo.exists_openai_resource_path
+				!disableAi && $copilotInfo.exists_ai_resource_path
 			)
 		} else if (kind == 'whileloop') {
 			;[module, state] = await createWhileLoop(module.id)

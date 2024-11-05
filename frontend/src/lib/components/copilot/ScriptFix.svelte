@@ -186,12 +186,12 @@
 					</Button>
 				</svelte:fragment>
 				{@const fixAction = (_) => {
-					if ($copilotInfo.exists_openai_resource_path) {
+					if ($copilotInfo.exists_ai_resource_path) {
 						onFix(() => close(null))
 					}
 				}}
 				<div use:fixAction>
-					{#if $copilotInfo.exists_openai_resource_path}
+					{#if $copilotInfo.exists_ai_resource_path}
 						<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
 							{#if $generatedCode.length > 0}
 								<div class="overflow-x-scroll">

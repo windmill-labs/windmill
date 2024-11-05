@@ -231,8 +231,10 @@
 		try {
 			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 		} catch (err) {
+			console.log(err)
 			copilotInfo.set({
-				exists_openai_resource_path: false,
+				ai_resource_type: '',
+				exists_ai_resource_path: false,
 				code_completion_enabled: false
 			})
 			console.error('Could not get copilot info')

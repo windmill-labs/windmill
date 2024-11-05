@@ -114,7 +114,7 @@
 		/>
 	</svelte:fragment>
 	<div class="block text-primary z-[2000]">
-		{#if $copilotInfo.exists_openai_resource_path}
+		{#if $copilotInfo.exists_ai_resource_path}
 			<div class="flex flex-col gap-4">
 				<div class="flex w-96">
 					<input

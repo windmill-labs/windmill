@@ -82,7 +82,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+{#if $copilotInfo.exists_ai_resource_path && $stepInputCompletionEnabled}
 	<Popup
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"

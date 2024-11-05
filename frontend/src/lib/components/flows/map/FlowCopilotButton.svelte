@@ -20,7 +20,7 @@
 			<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
 				<button
 					title="AI Flow Builder"
-					on:pointerdown={$copilotInfo.exists_openai_resource_path
+					on:pointerdown={$copilotInfo.exists_ai_resource_path
 						? (ev) => {
 								ev.preventDefault()
 								ev.stopPropagation()
@@ -33,7 +33,7 @@
 				>
 					<Wand2 size={12} />
 				</button>
-				{#if !$copilotInfo.exists_openai_resource_path}
+				{#if !$copilotInfo.exists_ai_resource_path}
 					<div class="text-primary p-4">
 						<p class="text-sm w-80">
 							Enable Windmill AI in the

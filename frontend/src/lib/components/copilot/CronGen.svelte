@@ -69,7 +69,7 @@
 			on:click={genLoading ? () => abortController?.abort() : undefined}
 		/>
 	</svelte:fragment>
-	{#if $copilotInfo.exists_openai_resource_path}
+	{#if $copilotInfo.exists_ai_resource_path}
 		<div class="flex w-96">
 			<input
 				bind:this={instructionsField}

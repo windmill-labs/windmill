@@ -2,13 +2,7 @@ use std::collections::HashMap;
 
 use crate::db::{ApiAuthed, DB};
 
-use axum::{
-    body::Bytes,
-    extract::{Extension, Path, Query},
-    response::IntoResponse,
-    routing::post,
-    Router,
-};
+use axum::{body::Bytes, response::IntoResponse};
 use reqwest::Client;
 use serde_json::value::{RawValue, Value};
 use windmill_audit::audit_ee::audit_log;
@@ -43,12 +37,6 @@ impl OpenaiKeyCache {
     ) -> Self {
         Self { api_key, organization_id, azure_base_path, user }
     }
-}
-
-pub fn workspaced_service() -> Router {
-    let router = Router::new().route("/proxy/*openai_path", post(proxy));
-
-    router
 }
 
 #[derive(Deserialize)]
@@ -115,7 +103,7 @@ pub async fn update_and_retrieve_cached_value(
     db: &DB,
     w_id: &str,
     resource: Value,
-) -> Result<KeyCache, impl IntoResponse> {
+) -> Result<KeyCache, Error> {
     let config = serde_json::from_value(resource)
         .map_err(|e| Error::InternalErr(format!("validating openai resource {e:#}")))?;
 
