@@ -16,12 +16,18 @@
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import type { ObjectOption } from '../../../multiselect/types'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+
+	// every option is labeled, or no one is.
+	type Options = ObjectOption[] | string[]
+
+	$: resolvedConfig.items && handleItems()
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
@@ -30,7 +36,7 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let items: { label: string; value: string; created?: boolean }[]
+	let items: Options = []
 
 	const resolvedConfig = initConfig(
 		components['multiselectcomponentv2'].initialData.configuration,
@@ -38,59 +44,110 @@
 	)
 
 	const outputs = initOutput($worldStore, id, {
-		result: [] as { label: string; value: string; created?: boolean }[]
+		result: [] as Options
 	})
 
-	let value: { label: string; value: string; created?: boolean }[] | undefined = [
-		...new Set(outputs?.result.peak())
-	] as { label: string; value: string; created?: boolean }[]
+	let value: Options | undefined = isLabeledArray(outputs?.result.peak())
+		? ([...new Set(outputs?.result.peak())] as ObjectOption[])
+		: ([...new Set(outputs?.result.peak())] as string[])
 
 	$componentControl[id] = {
-		setValue(nvalue: { label: string; value: string; created?: boolean }[]) {
-			value = [...new Set(nvalue)]
-			outputs?.result.set([...(value ?? [])])
+		setValue(nvalue: Options) {
+			if (isLabeledArray(nvalue)) {
+				value = [...new Set(nvalue)] as ObjectOption[]
+				outputs?.result.set([...(value ?? [])])
+			}
 		}
 	}
 
-	$: resolvedConfig.items && handleItems()
+	function isObjectOption(item: Options[number]): item is ObjectOption {
+		if (typeof item === 'string') {
+			return false
+		}
+		if (item.label === undefined || item.label === null) {
+			return false
+		}
+		if (typeof item.label !== 'string' && typeof item.label !== 'number') {
+			return false
+		}
+		return true
+	}
 
-	function handleItems() {
+	function isLabeledArray(arr: Options): arr is ObjectOption[] {
+		return arr.every((item) => isObjectOption(item))
+	}
+
+	function isStringArray(arr: Options): arr is string[] {
+		return arr.every((item) => typeof item === 'string')
+	}
+
+	function handleLabeledItems() {
 		if (!Array.isArray(resolvedConfig.items)) {
 			items = []
-		} else {
-			items = resolvedConfig.items?.map((item) => {
-				if (!item || typeof item !== 'object') {
-					console.error('Select component items should be an array of objects')
-					return {
-						label: 'not object',
-						value: 'not object'
-					}
-				}
+			return
+		}
+		items = resolvedConfig.items?.map((item) => {
+			if (!item || typeof item !== 'object') {
+				console.error(
+					'When labeled, MultiSelect component items should be an array of { label: string, value: string }.'
+				)
 				return {
-					label: item?.label ?? 'undefined',
-					value:
-						typeof item?.value === 'object'
-							? JSON.stringify(item.value)
-							: item?.value ?? 'undefined'
+					label: 'not object',
+					value: 'not object'
 				}
-			})
+			}
+			return {
+				label: item?.label ?? 'undefined',
+				value:
+					typeof item?.value === 'object' ? JSON.stringify(item.value) : item?.value ?? 'undefined'
+			}
+		})
+	}
+
+	function handleStringItems() {
+		if (!Array.isArray(resolvedConfig.items)) {
+			items = []
+			return
+		}
+		items = resolvedConfig.items?.map((item) => {
+			if (!item || typeof item !== 'string') {
+				console.error(
+					'When not labeled, MultiSelect component items should be an array of strings.'
+				)
+				return 'not string'
+			}
+			return item
+		})
+	}
+
+	function handleItems() {
+		if (isLabeledArray(resolvedConfig.items)) {
+			handleLabeledItems()
+		} else if (isStringArray(resolvedConfig.items)) {
+			handleStringItems()
 		}
 	}
 
 	$: resolvedConfig.defaultItems && handleDefaultItems()
 
+	// todo
 	function handleDefaultItems() {
-		let nvalue: { label: string; value: string; created?: boolean }[]
+		let nvalue: typeof items
 		if (!Array.isArray(resolvedConfig.defaultItems)) {
 			nvalue = []
-		} else {
-			let rawNvalue = new Set(
-				resolvedConfig.defaultItems?.filter((value) => typeof value === 'string')
-			)
-			nvalue = items?.filter((item) => rawNvalue.has(item.value))
+			outputs?.result.set([])
+			return
 		}
-		value = [...new Set(nvalue)]
-		outputs?.result.set([...(value ?? [])])
+		let rawNvalue = new Set(resolvedConfig.defaultItems?.filter((v) => typeof v === 'string'))
+		if (isLabeledArray(items)) {
+			nvalue = items?.filter((item) => rawNvalue.has(item.value)) as ObjectOption[]
+			value = [...new Set(nvalue)]
+			outputs?.result.set([...(value ?? [])])
+		} else if (isStringArray(items)) {
+			nvalue = items?.filter((label) => rawNvalue.has(label)) as string[]
+			value = [...new Set(nvalue)]
+			outputs?.result.set([...(value ?? [])])
+		}
 	}
 
 	let css = initCss($app.css?.multiselectcomponent, customCss)

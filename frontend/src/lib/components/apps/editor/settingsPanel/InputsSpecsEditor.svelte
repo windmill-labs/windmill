@@ -81,6 +81,7 @@
 					{recomputeOnInputChanged}
 					{showOnDemandOnlyToggle}
 					{securedContext}
+					hasLabeledMode={meta?.['hasLabeledMode']}
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">

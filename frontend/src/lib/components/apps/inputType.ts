@@ -20,7 +20,7 @@ export type InputType =
 	| 'any'
 	| 'labeledresource'
 	| 'labeledselect'
-	| 'selectvalue'
+	| 'simplestringselect'
 	| 'tab-select'
 	| 'schema'
 	| 'ag-grid'
@@ -176,6 +176,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 	noStatic?: boolean
 	onDemandOnly?: boolean
 	hideRefreshButton?: boolean
+	isLabeled?: boolean
 }
 
 export type StaticOptions = {
@@ -208,7 +209,7 @@ export type AppInput =
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
 	| AppInputSpec<'array', object[], 'labeledselect'>
-	| AppInputSpec<'array', object[], 'selectvalue'>
+	| AppInputSpec<'array', object[], 'simplestringselect'>
 	| AppInputSpec<'labeledselect', object>
 	| AppInputSpec<'labeledresource', object>
 	| AppInputSpec<'array', object[], 'tab-select'>
