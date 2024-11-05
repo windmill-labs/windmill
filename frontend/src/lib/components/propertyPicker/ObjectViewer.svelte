@@ -74,7 +74,6 @@
 <Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
-
 {#if keys.length > 0}
 	{#if !fullyCollapsed}
 		<span>
@@ -84,10 +83,10 @@
 				<Button
 					color="light"
 					size="xs2"
-					variant="border"
+					variant="contained"
 					on:click={collapse}
 					wrapperClasses="inline-flex w-fit h-5"
-					btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
+					btnClasses="font-semibold text-primary rounded-[0.275rem]">-</Button
 				>
 			{/if}
 			{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
@@ -99,17 +98,15 @@
 							<Button
 								on:click={() => selectProp(key)}
 								size="xs2"
-								color="dark"
+								color="light"
 								variant="contained"
 								wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit h-4"
-								btnClasses="font-normal rounded-[0.275rem]"
+								btnClasses="font-normal px-1 rounded-[0.275rem]"
 							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>
-									{!isArray ? key : index}
-								</span>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
 							</Button>
 						</Popover>
-						:
+						<span class="text-2xs text-tertiary -ml-1">:</span>
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
 								json={json[key]}
@@ -159,7 +156,7 @@
 				{/each}
 				{#if keys.length > keyLimit}
 					{@const increment = Math.min(100, keys.length - keyLimit)}
-					<button on:click={() => (keyLimit += increment)} class="text-xs py-2 text-blue-600">
+					<button on:click={() => (keyLimit += increment)} class="text-2xs px-2 text-secondary">
 						{keyLimit}/{keys.length}: Load {increment} more...
 					</button>
 				{/if}
@@ -197,7 +194,7 @@
 		<Button
 			color="light"
 			size="xs2"
-			variant="border"
+			variant="contained"
 			on:click={collapse}
 			wrapperClasses="inline-flex w-fit h-5"
 			btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"

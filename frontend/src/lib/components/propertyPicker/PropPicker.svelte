@@ -72,7 +72,7 @@
 		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
 	>
 		<div class="flex justify-between items-center space-x-1">
-			<span class="font-normal text-sm text-secondary">Flow Input</span>
+			<span class="font-normal text-sm text-primary">Flow Input</span>
 			<div class="flex space-x-2 items-center" />
 		</div>
 		<div class="overflow-y-auto mb-2">
@@ -115,7 +115,7 @@
 						/>
 					</div>
 				{/if}
-				<span class="font-normal text-sm text-secondary">All Results</span>
+				<span class="font-normal text-sm text-primary">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -129,7 +129,7 @@
 			{/if}
 		{:else}
 			{#if previousId}
-				<span class="font-normal text-sm text-secondary">Previous Result</span>
+				<span class="font-normal text-sm text-primary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -143,7 +143,7 @@
 				</div>
 			{/if}
 			{#if pickableProperties.hasResume}
-				<span class="font-normal text-sm text-secondary">Resume payloads</span>
+				<span class="font-normal text-sm text-primary">Resume payloads</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -172,17 +172,17 @@
 					</div>
 				{/if}
 				<div class="overflow-y-auto mb-2">
-					<span class="font-normal text-sm text-tertiary">All Results :</span>
+					<span class="font-normal text-sm text-secondary">All Results:</span>
 					{#if !allResultsCollapsed}
 						<Button
 							color="light"
 							size="xs2"
-							variant="border"
+							variant="contained"
 							on:click={() => {
 								allResultsCollapsed = true
 							}}
 							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
+							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 						>
 					{/if}
 
@@ -200,18 +200,18 @@
 
 		{#if displayContext}
 			<div class="overflow-y-auto mb-2">
-				<span class="font-normal text-sm text-secondary">Variables :</span>
+				<span class="font-normal text-sm text-secondary">Variables:</span>
 
 				{#if displayVariable}
 					<Button
 						color="light"
 						size="xs2"
-						variant="border"
+						variant="contained"
 						on:click={() => {
 							displayVariable = false
 						}}
 						wrapperClasses="inline-flex w-fit h-4"
-						btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
+						btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 					>
 
 					<ObjectViewer
@@ -226,13 +226,13 @@
 					<Button
 						color="light"
 						size="xs2"
-						variant="border"
+						variant="contained"
 						on:click={async () => {
 							await loadVariables()
 							displayVariable = true
 						}}
 						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+						btnClasses="font-semibold rounded-[0.275rem] p-1"
 					>
 						{'{...}'}
 					</Button>
@@ -240,18 +240,18 @@
 			</div>
 
 			<div class="overflow-y-auto mb-2">
-				<span class="font-normal text-sm text-secondary">Resources :</span>
+				<span class="font-normal text-sm text-secondary">Resources:</span>
 
 				{#if displayResources}
 					<Button
 						color="light"
 						size="xs2"
-						variant="border"
+						variant="contained"
 						on:click={() => {
 							displayResources = false
 						}}
 						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
+						btnClasses="font-semibold text-primary rounded-[0.275rem]">-</Button
 					>
 					<ObjectViewer
 						{allowCopy}
@@ -265,13 +265,13 @@
 					<Button
 						color="light"
 						size="xs2"
-						variant="border"
+						variant="contained"
 						on:click={async () => {
 							await loadResources()
 							displayResources = true
 						}}
 						wrapperClasses="inline-flex w-fit h-5"
-						btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+						btnClasses="font-semibold rounded-[0.275rem] p-1"
 					>
 						{'{...}'}
 					</Button>
