@@ -69,7 +69,7 @@
 	</div>
 	<div class="overflow-y-auto px-2 pt-2 grow">
 		<div class="flex justify-between items-center space-x-1">
-			<span class="font-normal text-sm text-primary">Flow Input</span>
+			<span class="font-normal text-sm text-secondary">Flow Input</span>
 			<div class="flex space-x-2 items-center" />
 		</div>
 		<div class="overflow-y-auto mb-2">
@@ -100,7 +100,7 @@
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-primary">Suggested Results</span>
+					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
 							{allowCopy}
@@ -112,7 +112,7 @@
 						/>
 					</div>
 				{/if}
-				<span class="font-normal text-sm text-primary">All Results</span>
+				<span class="font-normal text-sm text-secondary">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -126,7 +126,7 @@
 			{/if}
 		{:else}
 			{#if previousId}
-				<span class="font-normal text-sm text-primary">Previous Result</span>
+				<span class="font-normal text-sm text-secondary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -140,7 +140,7 @@
 				</div>
 			{/if}
 			{#if pickableProperties.hasResume}
-				<span class="font-normal text-sm text-primary">Resume payloads</span>
+				<span class="font-normal text-sm text-secondary">Resume payloads</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -156,7 +156,7 @@
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-primary">Suggested Results</span>
+					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
 							{allowCopy}
@@ -169,7 +169,7 @@
 					</div>
 				{/if}
 				<div class="overflow-y-auto mb-2">
-					<span class="font-normal text-sm text-primary">All Results</span>
+					<span class="font-normal text-sm text-secondary">All Results</span>
 					{#if !allResultsCollapsed}
 						<Button
 							color="light"
