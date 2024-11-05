@@ -59,17 +59,28 @@
 	use:clickOutside
 	on:click_outside={() => propPickerConfig.set(undefined)}
 >
-	<Splitpanes class="splitpanes-remove-splitter">
-		<Pane class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}>
+	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
+		<Pane
+			minSize={20}
+			size={60}
+			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
+		>
 			<slot />
 		</Pane>
-		<Pane minSize={20} size={40} class="!transition-none z-1000 ml-[-1px]">
+		<Pane
+			minSize={20}
+			size={40}
+			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''}"
+		>
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
 				wrapperClasses="h-full w-full pt-2"
 				marginWidth="4px"
-				ringColor={$propPickerConfig?.insertionMode == 'insert' ? '#3b82f6' : 'transparent'}
+				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
+				$propPickerConfig?.insertionMode == 'append'
+					? '#3b82f6'
+					: 'transparent'}
 				animationDuration="1s"
 			>
 				{#if result}
