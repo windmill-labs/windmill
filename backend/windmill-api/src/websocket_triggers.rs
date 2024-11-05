@@ -33,10 +33,7 @@ use windmill_queue::PushArgsOwned;
 
 use crate::{
     db::{ApiAuthed, DB},
-    jobs::{
-        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
-        run_wait_result_script_by_path_internal, RunJobQuery,
-    },
+    jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     users::fetch_api_authed,
 };
 
@@ -750,7 +747,7 @@ async fn loop_ping(db: &DB, ws_trigger: &WebsocketTrigger, error: Option<&str>) 
 
 async fn disable_with_error(db: &DB, ws_trigger: &WebsocketTrigger, error: String) {
     match sqlx::query!(
-        "UPDATE websocket_trigger SET enabled = FALSE, error = $1 WHERE workspace_id = $2 AND path = $3",
+        "UPDATE websocket_trigger SET enabled = FALSE, error = $1, server_id = NULL, last_server_ping = NULL WHERE workspace_id = $2 AND path = $3",
         error,
         ws_trigger.workspace_id,
         ws_trigger.path,
@@ -898,9 +895,8 @@ async fn listen_to_websocket(
                                                                     }
                                                                 }
                                                                 if should_handle {
-                                                                    if let Err(err) = run_job(db.clone(), rsmq.clone(), &ws_trigger, text).await {
-                                                                        disable_with_error(&db, &ws_trigger, format!("Error triggering job: {:?}", err)).await;
-                                                                        return;
+                                                                    if let Err(err) = run_job(&db, rsmq.clone(), &ws_trigger, text).await {
+                                                                        report_critical_error(format!("Failed to trigger job from websocket {}: {:?}", ws_trigger.url, err), db.clone()).await;
                                                                     };
                                                                 }
                                                             },
@@ -951,7 +947,7 @@ async fn listen_to_websocket(
 }
 
 async fn run_job(
-    db: DB,
+    db: &DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     trigger: &WebsocketTrigger,
     msg: String,
@@ -960,7 +956,9 @@ async fn run_job(
         args: HashMap::from([("msg".to_string(), to_raw_value(&msg))]),
         extra: Some(HashMap::from([(
             "wm_trigger".to_string(),
-            to_raw_value(&serde_json::json!({"kind": "websocket", "websocket": { "url": trigger.url }})),
+            to_raw_value(
+                &serde_json::json!({"kind": "websocket", "websocket": { "url": trigger.url }}),
+            ),
         )])),
     };
     let label_prefix = Some(format!("ws-{}-", trigger.path));
@@ -969,7 +967,7 @@ async fn run_job(
         trigger.edited_by.clone(),
         trigger.email.clone(),
         &trigger.workspace_id,
-        &db,
+        db,
         "anonymous".to_string(),
     )
     .await?;
@@ -979,27 +977,27 @@ async fn run_job(
     let run_query = RunJobQuery::default();
 
     if trigger.is_flow {
-        run_wait_result_flow_by_path_internal(
-            db,
-            run_query,
-            StripPath(trigger.script_path.to_owned()),
+        run_flow_by_path_inner(
             authed,
-            rsmq,
+            db.clone(),
             user_db,
-            args,
+            rsmq,
             trigger.workspace_id.clone(),
+            StripPath(trigger.script_path.to_owned()),
+            run_query,
+            args,
             label_prefix,
         )
         .await?;
     } else {
-        run_wait_result_script_by_path_internal(
-            db,
-            run_query,
-            StripPath(trigger.script_path.to_owned()),
+        run_script_by_path_inner(
             authed,
-            rsmq,
+            db.clone(),
             user_db,
+            rsmq,
             trigger.workspace_id.clone(),
+            StripPath(trigger.script_path.to_owned()),
+            run_query,
             args,
             label_prefix,
         )
