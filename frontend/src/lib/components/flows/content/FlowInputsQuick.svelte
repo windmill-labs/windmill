@@ -41,6 +41,7 @@
 	export let kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
 	export let selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure' =
 		kind
+	export let displayPath = false
 
 	let lang: FlowCopilotModule['lang'] = undefined
 	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
@@ -424,6 +425,7 @@
 				selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
 				on:pickScript
 				on:pickFlow
+				{displayPath}
 			/>
 		{/if}
 
@@ -446,6 +448,7 @@
 						topLevelNodes.length}
 					on:pickScript
 					bind:loading
+					{displayPath}
 				/>
 			{/if}
 		{/if}
