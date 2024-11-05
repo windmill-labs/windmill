@@ -11,6 +11,7 @@
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
+	import { isTriggerStep } from '$lib/components/graph/graphBuilder'
 
 	export let mod: FlowModule
 	export let insertable: boolean
@@ -19,6 +20,7 @@
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
+	export let isTrigger: boolean = false
 
 	export let retries: number | undefined = undefined
 	export let flowJobs:
@@ -174,6 +176,7 @@
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
 					path={`path` in mod.value && mod.summary ? mod.value.path : ''}
+					isTrigger={isTriggerStep(mod)}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

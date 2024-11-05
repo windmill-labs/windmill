@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.418.0](https://github.com/windmill-labs/windmill/compare/v1.417.3...v1.418.0) (2024-11-04)
+
+
+### Features
+
+* **frontend:** improve and simplify scheduled poll flows ([#4560](https://github.com/windmill-labs/windmill/issues/4560)) ([22ab51e](https://github.com/windmill-labs/windmill/commit/22ab51e9914376b47827f0be66708deef3a37767))
+* **oauth:** add snowflake oauth support ([#4622](https://github.com/windmill-labs/windmill/issues/4622)) ([693b7a4](https://github.com/windmill-labs/windmill/commit/693b7a4fd4da0e2b14cb6c8ea19537aa600225be))
+
+
+### Bug Fixes
+
+* **prometheus:** improve queue_count when tags have no more jobs ([09156b6](https://github.com/windmill-labs/windmill/commit/09156b65c2a0f0ac59fce1dede2b68b790323c49))
+
+## [1.417.3](https://github.com/windmill-labs/windmill/compare/v1.417.2...v1.417.3) (2024-11-04)
+
+
+### Bug Fixes
+
+* **cli:** improve pulling instance with folderPerInstance ([1e7909e](https://github.com/windmill-labs/windmill/commit/1e7909e95931e1e121cb3767bad093239254935d))
+
+## [1.417.2](https://github.com/windmill-labs/windmill/compare/v1.417.1...v1.417.2) (2024-11-04)
+
+
+### Bug Fixes
+
+* **cli:** improve pulling instance with folderPerInstance ([00748f4](https://github.com/windmill-labs/windmill/commit/00748f43feab4f28f0dd2682e3dc8ccc15a5f49f))
+
+## [1.417.1](https://github.com/windmill-labs/windmill/compare/v1.417.0...v1.417.1) (2024-11-04)
+
+
+### Bug Fixes
+
+* missing opts for pull and push instance configs ([#4630](https://github.com/windmill-labs/windmill/issues/4630)) ([e92a338](https://github.com/windmill-labs/windmill/commit/e92a338432d2732e6be74c3604b9fa95239e1ca3))
+
+## 1.417.0 (2024-11-03)
+
+*  feat(cli): instance yaml files inside the instance prefix folders (#4627)
+
 ## [1.416.2](https://github.com/windmill-labs/windmill/compare/v1.416.1...v1.416.2) (2024-11-02)
 
 

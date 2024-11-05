@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, onMount, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, setContext } from 'svelte'
 
-	import { writable, type Writable } from 'svelte/store'
+	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
 	import type { FlowInput } from '../flows/types'
 	import {
@@ -15,7 +15,7 @@
 		ControlButton,
 		type Viewport
 	} from '@xyflow/svelte'
-	import graphBuilder from './graphBuilder'
+	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
@@ -38,6 +38,8 @@
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
+	import type { TriggerContext } from '../triggers'
+
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -72,10 +74,45 @@
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
 
+	const triggerContext = getContext<TriggerContext>('TriggerContext')
+
 	const dispatch = createEventDispatcher()
 
 	let fullWidth = 0
 	let width = 0
+
+	export let allowSimplifiedPoll: boolean = true
+
+	let simplifiableFlow: SimplifiableFlow | undefined = undefined
+
+	if (triggerContext && allowSimplifiedPoll) {
+		if (isSimplifiable(modules)) {
+			triggerContext?.simplifiedPoll?.set(true)
+		}
+		triggerContext?.simplifiedPoll.subscribe((value) => {
+			computeSimplifiableFlow(modules ?? [], value ?? false)
+		})
+	}
+
+	function computeSimplifiableFlow(modules: FlowModule[], simplifiedFlow: boolean) {
+		const isSimplif = isSimplifiable(modules)
+		simplifiableFlow = isSimplif ? { simplifiedFlow } : undefined
+	}
+
+	onDestroy(() => {
+		if (isSimplifiable(modules)) {
+			triggerContext?.simplifiedPoll?.set(undefined)
+		}
+	})
+
+	function onModulesChange(modules: FlowModule[]) {
+		computeSimplifiableFlow(
+			modules,
+			triggerContext?.simplifiedPoll ? get(triggerContext.simplifiedPoll) ?? false : false
+		)
+	}
+
+	$: allowSimplifiedPoll && onModulesChange(modules ?? [])
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -129,6 +166,44 @@
 		return newNodes
 	}
 
+	let eventHandler = {
+		deleteBranch: (detail, label) => {
+			$selectedId = label
+			dispatch('deleteBranch', detail)
+		},
+		insert: (detail) => {
+			dispatch('insert', detail)
+		},
+		select: (modId) => {
+			if (!notSelectable) {
+				if ($selectedId != modId) {
+					$selectedId = modId
+				}
+				dispatch('select', modId)
+			}
+		},
+		changeId: (detail) => {
+			dispatch('changeId', detail)
+		},
+		delete: (detail, label) => {
+			$selectedId = label
+
+			dispatch('delete', detail)
+		},
+		newBranch: (module) => {
+			dispatch('newBranch', { module })
+		},
+		move: (module, modules) => {
+			dispatch('move', { module, modules })
+		},
+		selectedIteration: (detail, moduleId) => {
+			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+		},
+		simplifyFlow: (detail) => {
+			triggerContext?.simplifiedPoll.set(detail)
+		}
+	}
+
 	$: graph = graphBuilder(
 		modules,
 		{
@@ -141,50 +216,13 @@
 		},
 		failureModule,
 		preprocessorModule,
-		{
-			deleteBranch: (detail, label) => {
-				$selectedId = label
-
-				dispatch('deleteBranch', detail)
-			},
-			insert: (detail) => {
-				dispatch('insert', detail)
-			},
-			select: (modId) => {
-				if (!notSelectable) {
-					if ($selectedId != modId) {
-						$selectedId = modId
-					}
-					dispatch('select', modId)
-				}
-			},
-			changeId: (detail) => {
-				dispatch('changeId', detail)
-			},
-			delete: (detail, label) => {
-				$selectedId = label
-
-				dispatch('delete', detail)
-			},
-			newBranch: (module) => {
-				dispatch('newBranch', { module })
-			},
-			move: (module, modules) => {
-				dispatch('move', { module, modules })
-			},
-			selectedIteration: (detail, moduleId) => {
-				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
-			}
-		},
+		eventHandler,
 		success,
 		$useDataflow,
 		$selectedId,
 		moving,
-		triggerNode
-			? {
-					path
-			  }
-			: undefined
+		simplifiableFlow,
+		triggerNode ? path : undefined
 	)
 
 	const nodes = writable<Node[]>([])
@@ -192,18 +230,93 @@
 
 	let height = 0
 
+	// function removeInputNode(nodes, edges, id) {
+	// 	const inputNode = nodes.find((node) => node.id === id)
+	// 	if (!inputNode) return { nodes, edges }
+
+	// 	// Find edges connected to the input node
+	// 	const connectedEdges = edges.filter((edge) => edge.source === id || edge.target === id)
+
+	// 	// Remove the input node
+	// 	let updatedNodes = nodes.filter((node) => node.id !== id)
+
+	// 	// Remove edges connected to the input node
+	// 	let updatedEdges = edges.filter((edge) => edge.source !== id && edge.target !== id)
+
+	// 	// Create new edges from the input node's parent to its children
+	// 	const inputEdges = connectedEdges.filter((edge) => edge.target === id)
+	// 	const outputEdges = connectedEdges.filter((edge) => edge.source === id)
+
+	// 	inputEdges.forEach((inputEdge) => {
+	// 		outputEdges.forEach((outputEdge) => {
+	// 			const newEdge = {
+	// 				id: `edge:${inputEdge.source}->${outputEdge.target}`,
+	// 				source: inputEdge.source,
+	// 				target: outputEdge.target,
+	// 				type: 'empty',
+	// 				data: {
+	// 					...outputEdge.data,
+	// 					sourceId: inputEdge.source,
+	// 					targetId: outputEdge.target
+	// 				}
+	// 			}
+	// 			updatedEdges.push(newEdge)
+	// 		})
+	// 	})
+
+	// 	// Update parent ids of the nodes
+	// 	updatedNodes = updatedNodes.map((node) => {
+	// 		if (node.data && node.data.parentIds && node.data.parentIds.includes(id)) {
+	// 			const updatedParentIds = node.data.parentIds.filter((parentId) => parentId !== id)
+	// 			if (inputNode.data && inputNode.data.parentIds) {
+	// 				updatedParentIds.push(...inputNode.data.parentIds)
+	// 			}
+	// 			return {
+	// 				...node,
+	// 				data: {
+	// 					...node.data,
+	// 					parentIds: [...new Set(updatedParentIds)] // Remove duplicates
+	// 				}
+	// 			}
+	// 		}
+	// 		return node
+	// 	})
+
+	// 	return { nodes: updatedNodes, edges: updatedEdges }
+	// }
+
+	// function processGraph(graph, simplifiable) {
+	// 	let newGraph = { nodes: graph.nodes, edges: graph.edges }
+	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
+	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
+	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
+	// 	return newGraph
+	// }
+
+	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
+		if (!modules || modules?.length !== 2) {
+			return false
+		}
+		if (isTriggerStep(modules?.[0])) {
+			let secondValue = modules?.[1].value
+			return secondValue.type == 'forloopflow'
+		}
+
+		return false
+	}
+
 	function updateStores() {
 		if (graph.error) {
 			return
 		}
+		let newGraph = graph
 
-		$nodes = layoutNodes(graph?.nodes)
-		$edges = graph.edges
-
+		$nodes = layoutNodes(newGraph.nodes)
+		$edges = newGraph.edges
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
-	$: graph && updateStores()
+	$: (graph || allowSimplifiedPoll) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,

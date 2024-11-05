@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Cross, Zap } from 'lucide-svelte'
+	import { Cross } from 'lucide-svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowModule } from '$lib/gen'
@@ -11,6 +11,7 @@
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
+	import { SchedulePollIcon } from '$lib/components/icons'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -22,6 +23,7 @@
 	export let disableAi = false
 	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
 	export let allowTrigger = true
+	export let iconSize = 12
 
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
@@ -75,22 +77,22 @@ shouldUsePortal={true} -->
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
-				'w-5 h-5 flex items-center justify-center',
-				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
-				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover rounded'
+				'w-[17.5px] h-[17.5px] flex items-center justify-center outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
+				$$props.class
 			)}
-			on:pointerdown|preventDefault|stopPropagation={pointerdown}
+			on:pointerdown|preventDefault|stopPropagation={() => {
+				dispatch('open')
+				pointerdown()
+			}}
 			on:pointerup={pointerup}
 		>
 			{#if kind === 'trigger'}
-				<Zap size={12} />
+				<SchedulePollIcon size={14} />
 			{:else}
-				<Cross size={12} />
+				<Cross size={iconSize} />
 			{/if}
 		</button>
 	</svelte:fragment>
-	<!-- FOO -->
 	<div
 		id="flow-editor-insert-module"
 		class="flex flex-col h-[400px] {small
@@ -120,7 +122,7 @@ shouldUsePortal={true} -->
 		</div>
 
 		<div class="flex flex-row grow min-h-0">
-			{#if kind === 'script' || kind == 'trigger'}
+			{#if kind === 'script'}
 				<div class="flex-none flex flex-col text-xs text-primary">
 					<TopLevelNode
 						label="Action"

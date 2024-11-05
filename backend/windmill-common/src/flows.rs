@@ -426,6 +426,8 @@ pub enum FlowModuleValue {
         hash: Option<ScriptHash>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tag_override: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
     },
     Flow {
         #[serde(default)]
@@ -474,6 +476,8 @@ pub enum FlowModuleValue {
         concurrent_limit: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
     },
     Identity,
 }
@@ -505,6 +509,7 @@ struct UntaggedFlowModuleValue {
     custom_concurrency_key: Option<String>,
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
+    is_trigger: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -522,6 +527,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
                 hash: untagged.hash,
                 tag_override: untagged.tag_override,
+                is_trigger: untagged.is_trigger,
             }),
             "flow" => Ok(FlowModuleValue::Flow {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -574,6 +580,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 custom_concurrency_key: untagged.custom_concurrency_key,
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
+                is_trigger: untagged.is_trigger,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
             other => Err(serde::de::Error::unknown_variant(

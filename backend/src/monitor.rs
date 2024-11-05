@@ -111,6 +111,9 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
+
+    static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+
 }
 
 pub async fn initial_load(
@@ -1089,12 +1092,23 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     if metrics_enabled || save_metrics {
         let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
+        if metrics_enabled {
+            for q in QUEUE_COUNT_TAGS.read().await.iter() {
+                if queue_counts.get(q).is_none() {
+                    (*QUEUE_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+        }
+
+        let mut tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
+
             if metrics_enabled {
                 let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);
+                tags_to_watch.push(tag.to_string());
             }
 
             // save queue_count and delay metrics per tag
@@ -1118,6 +1132,10 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                         ).execute(db).await.ok();
                 }
             }
+        }
+        if metrics_enabled {
+            let mut w = QUEUE_COUNT_TAGS.write().await;
+            *w = tags_to_watch;
         }
     }
 
