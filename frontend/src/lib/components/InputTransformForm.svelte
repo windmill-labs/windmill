@@ -9,10 +9,13 @@
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { Button } from './common'
+	import { Button } from '$lib/components/common'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { tick } from 'svelte'
+	import { fade } from 'svelte/transition'
+	import { buildPrefixRegex } from './flows/previousResults'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
@@ -23,7 +26,7 @@
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
-	import { buildPrefixRegex } from './flows/previousResults'
+	import { twMerge } from 'tailwind-merge'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
@@ -57,7 +60,8 @@
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { inputMatches, focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	const { inputMatches, focusProp, propPickerConfig } =
+		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -254,11 +258,22 @@
 	let stepInputGen: StepInputGen | undefined = undefined
 
 	loadResourceTypes()
+
+	$: connecting =
+		$propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'
 </script>
 
 {#if arg != undefined}
-	<div class={$$props.class}>
-		<div class="flex flex-row justify-between gap-1 pb-1">
+	<div
+		class={twMerge(
+			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
+			$propPickerConfig?.propName == argName
+				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-2000'
+				: 'hover:rounded-md',
+			$$props.class
+		)}
+	>
+		<div class="flex flex-row justify-between gap-1 pb-1 px-2">
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
@@ -390,22 +405,28 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<Button
-						title="Connect to another node's output"
-						variant="border"
-						color="light"
-						size="xs2"
-						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-								return true
-							})
-						}}
-						id="flow-editor-plug"
+					<AnimatedButton
+						animate={connecting}
+						baseRadius="6px"
+						animationDuration="2s"
+						marginWidth="2px"
 					>
-						<Plug size={16} /> &rightarrow;
-					</Button>
+						<Button
+							variant="border"
+							color="light"
+							size="xs2"
+							btnClasses={connecting ? 'text-blue-500' : 'text-primary'}
+							on:click={() => {
+								focusProp(argName, 'connect', (path) => {
+									connectProperty(path)
+									dispatch('change', { argName })
+									return true
+								})
+							}}
+						>
+							<Plug size={16} /> &rightarrow;
+						</Button>
+					</AnimatedButton>
 				</div>
 			{/if}
 		</div>
@@ -419,7 +440,7 @@
 				>
 					Connect input &rightarrow;
 				</span>
-			{/if}
+			{/if} -->
 			<!-- {inputCat}
 			{propertyType} -->
 			<div class="relative flex flex-row items-top gap-2 justify-between">
@@ -543,6 +564,26 @@
 						>
 					{/if}
 				</div>
+
+				{#if $propPickerConfig?.propName == argName}
+					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="14"
+							height="24"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<polyline points="24 24 12 12 24 0" />
+						</svg>
+					</div>
+				{:else}
+					<div class="w-0" />
+				{/if}
 			</div>
 		</div>
 	</div>

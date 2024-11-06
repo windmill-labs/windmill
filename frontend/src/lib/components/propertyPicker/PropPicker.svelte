@@ -2,9 +2,8 @@
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
-	import { Badge, Button } from '../common'
+	import { Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
-	import { createEventDispatcher } from 'svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
@@ -16,6 +15,7 @@
 	export let displayContext = true
 	export let notSelectable: boolean
 	export let error: boolean = false
+	export let allowCopy = false
 
 	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
@@ -23,10 +23,7 @@
 	let displayVariable = false
 	let displayResources = false
 
-	const dispatch = createEventDispatcher()
 	let allResultsCollapsed = true
-	let flowInputsFiltered: Record<string, any> = {}
-	let resultByIdFiltered: Record<string, any> = {}
 	let collapsableInitialState:
 		| {
 				allResultsCollapsed: boolean
@@ -44,10 +41,32 @@
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$filteredPickableProperties = { ...pickableProperties }
+	let flowInputsFiltered = pickableProperties.flow_input
+	let resultByIdFiltered = pickableProperties.priorIds
+
+	let timeout: NodeJS.Timeout
+	function onSearch(search: string) {
+		filterActive = false
+		clearTimeout(timeout)
+		setTimeout(() => {
+			flowInputsFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.flow_input
+					: keepByKey(pickableProperties.flow_input, search)
+
+			resultByIdFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.priorIds
+					: keepByKey(pickableProperties.priorIds, search)
+
+			console.log(resultByIdFiltered, search)
+		}, 50)
+	}
 
 	$: suggestedPropsFiltered = $propPickerConfig
 		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
 		: undefined
+	$: search != undefined && onSearch(search)
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
@@ -70,38 +89,30 @@
 	}
 
 	async function filterPickableProperties() {
-		flowInputsFiltered = pickableProperties.flow_input
-		resultByIdFiltered = pickableProperties.priorIds
+		if (!filterActive) {
+			return
+		}
 
-		if (filterActive) {
-			if (!$inputMatches?.some((match) => match.word === 'flow_input')) {
-				flowInputsFiltered = []
-			}
-			if (!$inputMatches?.some((match) => match.word === 'results')) {
-				resultByIdFiltered = []
-			}
-			if ($inputMatches?.length == 1) {
-				if ($inputMatches[0].word === 'flow_input') {
-					let [, ...nestedKeys] = $inputMatches[0].value.split('.')
-					let filtered = filterNestedObject(flowInputsFiltered, nestedKeys)
-					if (Object.keys(filtered).length > 0) {
-						flowInputsFiltered = filtered
-					}
-				} else if ($inputMatches[0].word === 'results') {
-					let [, ...nestedKeys] = $inputMatches[0].value.split('.')
-					let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
-					if (Object.keys(filtered).length > 0) {
-						resultByIdFiltered = filtered
-					}
+		if (!$inputMatches?.some((match) => match.word === 'flow_input')) {
+			flowInputsFiltered = []
+		}
+		if (!$inputMatches?.some((match) => match.word === 'results')) {
+			resultByIdFiltered = []
+		}
+		if ($inputMatches?.length == 1) {
+			if ($inputMatches[0].word === 'flow_input') {
+				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+				let filtered = filterNestedObject(flowInputsFiltered, nestedKeys)
+				if (Object.keys(filtered).length > 0) {
+					flowInputsFiltered = filtered
+				}
+			} else if ($inputMatches[0].word === 'results') {
+				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+				let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
+				if (Object.keys(filtered).length > 0) {
+					resultByIdFiltered = filtered
 				}
 			}
-		}
-
-		if (flowInputsFiltered && search !== EMPTY_STRING) {
-			flowInputsFiltered = keepByKey(flowInputsFiltered, search)
-		}
-		if (resultByIdFiltered && search !== EMPTY_STRING) {
-			resultByIdFiltered = keepByKey(resultByIdFiltered, search)
 		}
 
 		if ($filteredPickableProperties) {
@@ -160,23 +171,9 @@
 	$: search, $inputMatches, $propPickerConfig, updateState()
 </script>
 
-<div class="flex flex-col h-full">
-	<div class="px-2">
-		{#if !notSelectable}
-			<div class="flex flex-row space-x-1">
-				{#if $propPickerConfig}
-					<Badge large color="blue">
-						{`Selected: ${$propPickerConfig?.propName}`}
-					</Badge>
-					<Badge large color="blue">
-						{`Mode: ${$propPickerConfig?.insertionMode}`}
-					</Badge>
-				{:else}
-					<Badge large color="blue">&leftarrow; Edit or connect an input</Badge>
-				{/if}
-			</div>
-		{/if}
-		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
+<div class="flex flex-col h-full rounded overflow-hidden">
+	<div class="px-2 py-2">
+		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<div
 		class="overflow-y-auto px-2 pt-2 grow"
@@ -189,23 +186,19 @@
 			</div>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
-					allowCopy={false}
+					{allowCopy}
 					pureViewer={!$propPickerConfig}
 					json={flowInputsFiltered}
-					on:select={(e) => {
-						dispatch(
-							'select',
-							e.detail?.startsWith('[') ? `flow_input${e.detail}` : `flow_input.${e.detail}`
-						)
-					}}
+					prefix="flow_input"
+					on:select
 				/>
 			</div>
 		{/if}
 		{#if error}
-			<span class="font-bold text-sm">Error</span>
+			<span class="font-normal text-sm text-secondary">Error</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
-					allowCopy={false}
+					{allowCopy}
 					pureViewer={!$propPickerConfig}
 					json={{
 						error: {
@@ -220,31 +213,27 @@
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-bold text-sm">Suggested Results</span>
+					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
-							allowCopy={false}
-							topLevelNode
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
-				<span class="font-bold text-sm">All Results</span>
+				<span class="font-normal text-sm text-secondary">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						collapsed={true}
 						json={resultByIdFiltered}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
@@ -256,33 +245,28 @@
 				<span class="font-normal text-sm text-secondary">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						json={Object.fromEntries(
 							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
 						)}
-						on:select={(e) => {
-							dispatch('select', `results.${e.detail}`)
-						}}
+						prefix="results"
+						on:select
 					/>
 				</div>
 			{/if}
 			{#if pickableProperties.hasResume}
-				<span class="font-bold text-sm">Resume payloads</span>
+				<span class="font-normal text-sm text-secondary">Resume payloads</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
-						allowCopy={false}
-						topLevelNode
+						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						json={{
 							resume: 'The resume payload',
 							resumes: 'All resume payloads from all approvers',
 							approvers: 'The list of approvers'
 						}}
-						on:select={(e) => {
-							dispatch('select', `${e.detail}`)
-						}}
+						on:select
 					/>
 				</div>
 			{/if}
@@ -291,41 +275,38 @@
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
 					<div class="overflow-y-auto mb-2">
 						<ObjectViewer
-							allowCopy={false}
-							topLevelNode
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapsed={false}
 							json={suggestedPropsFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
 				{#if Object.keys(resultByIdFiltered).length > 0}
 					<div class="overflow-y-auto mb-2">
-						<span class="font-normal text-sm text-tertiary">All Results :</span>
+						<span class="font-normal text-sm text-secondary">All Results</span>
 						{#if !allResultsCollapsed}
 							<Button
 								color="light"
 								size="xs2"
-								variant="border"
+								variant="contained"
 								on:click={() => {
 									allResultsCollapsed = true
 								}}
 								wrapperClasses="inline-flex w-fit h-4"
-								btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
+								btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 							>
 						{/if}
 
 						<ObjectViewer
-							allowCopy={false}
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							bind:collapsed={allResultsCollapsed}
 							json={resultByIdFiltered}
-							on:select={(e) => {
-								dispatch('select', `results.${e.detail}`)
-							}}
+							prefix="results"
+							on:select
 						/>
 					</div>
 				{/if}
@@ -335,7 +316,7 @@
 		{#if displayContext}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
 				<div class="overflow-y-auto mb-2">
-					<span class="font-normal text-sm text-secondary">Variables :</span>
+					<span class="font-normal text-sm text-secondary">Variables:</span>
 
 					{#if displayVariable}
 						<Button
@@ -346,15 +327,16 @@
 								displayVariable = false
 							}}
 							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal text-primary border-nord-300 rounded-[0.275rem]">-</Button
+							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 						>
 
 						<ObjectViewer
-							allowCopy={false}
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							rawKey={true}
 							json={variables}
-							on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
+							prefix="variable"
+							on:select
 						/>
 					{:else}
 						<Button
@@ -365,8 +347,8 @@
 								await loadVariables()
 								displayVariable = true
 							}}
-							wrapperClasses="inline-flex w-fit h-5"
-							btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+							wrapperClasses="inline-flex w-fit h-4"
+							btnClasses="font-normal rounded-[0.275rem] p-1"
 						>
 							{'{...}'}
 						</Button>
@@ -375,7 +357,7 @@
 			{/if}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
 				<div class="overflow-y-auto mb-2">
-					<span class="font-normal text-sm text-secondary">Resources :</span>
+					<span class="font-normal text-sm text-secondary">Resources:</span>
 
 					{#if displayResources}
 						<Button
@@ -385,15 +367,16 @@
 							on:click={() => {
 								displayResources = false
 							}}
-							wrapperClasses="inline-flex w-fit h-5"
-							btnClasses="font-semibold text-primary border-nord-300 rounded-[0.275rem]">-</Button
+							wrapperClasses="inline-flex w-fit h-4"
+							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
 						>
 						<ObjectViewer
-							allowCopy={false}
+							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							rawKey={true}
 							json={resources}
-							on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
+							prefix="resource"
+							on:select
 						/>
 					{:else}
 						<Button
@@ -404,8 +387,8 @@
 								await loadResources()
 								displayResources = true
 							}}
-							wrapperClasses="inline-flex w-fit h-5"
-							btnClasses="font-semibold border-nord-300 rounded-[0.275rem] p-1"
+							wrapperClasses="inline-flex w-fit h-4"
+							btnClasses="font-normal rounded-[0.275rem] p-1"
 						>
 							{'{...}'}
 						</Button>
