@@ -83,13 +83,15 @@
 			{#if level != 0 && keys.length > 1}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
+
 				<Button
 					color="light"
 					size="xs2"
 					variant="border"
 					on:click={collapse}
-					wrapperClasses="inline-flex w-fit h-4"
-					btnClasses="font-semibold text-primary rounded-[0.275rem]">-</Button
+					wrapperClasses="inline-flex w-fit"
+					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
+					>-</Button
 				>
 			{/if}
 			{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
@@ -194,8 +196,8 @@
 				size="xs2"
 				variant="border"
 				on:click={collapse}
-				wrapperClasses="inline-flex w-fit h-4"
-				btnClasses="font-normal  rounded-[0.275rem] h-4 p-1"
+				wrapperClasses="inline-flex w-fit"
+				btnClasses="font-normal rounded-[0.275rem] h-4 px-1"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}
 			</Button>
