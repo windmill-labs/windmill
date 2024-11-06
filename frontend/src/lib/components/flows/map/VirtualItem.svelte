@@ -61,7 +61,7 @@
 		{/if}
 	</div>
 	{#if $flowPropPickerConfig && Object.keys(inputJson).length > 0}
-		<div class="absolute -bottom-[18px] right-[50%] translate-x-[50%]">
+		<div class="absolute -bottom-[12px] right-[50%] translate-x-[50%] center-center">
 			<FlowPropPicker json={inputJson} {prefix} />
 		</div>
 	{/if}

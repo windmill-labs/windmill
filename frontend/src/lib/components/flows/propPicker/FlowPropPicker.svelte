@@ -7,12 +7,21 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { tick } from 'svelte'
 
 	export let json = {}
 	export let prefix = ''
-	export let viewOnly = false
+
+	let isConnecting = false
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+
+	async function updateConnecting() {
+		await tick()
+		isConnecting = $flowPropPickerConfig?.insertionMode === 'connect'
+	}
+
+	$: $flowPropPickerConfig, updateConnecting()
 </script>
 
 <button
@@ -24,7 +33,7 @@
 	data-prop-picker
 >
 	<AnimatedButton
-		animate={$flowPropPickerConfig?.insertionMode === 'connect' && !viewOnly}
+		animate={isConnecting}
 		wrapperClasses="h-[20px] w-[20px] "
 		baseRadius="9999px"
 		marginWidth="1px"
@@ -35,10 +44,8 @@
 					<svelte:fragment slot="text">node outputs</svelte:fragment>
 					<button
 						class={twMerge(
-							'rounded-full trash center-center h-[18px] w-[18px]',
-							viewOnly
-								? 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-surface hover:bg-surface-hover text-secondary'
-								: $flowPropPickerConfig?.insertionMode == 'connect'
+							'rounded-full center-center h-[18px] w-[18px]',
+							isConnecting
 								? 'bg-surface text-blue-500'
 								: 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 hover:bg-blue-700 text-white'
 						)}
@@ -51,14 +58,14 @@
 				<ObjectViewer
 					{json}
 					topBrackets={false}
-					pureViewer={viewOnly}
+					pureViewer={false}
 					{prefix}
 					on:select={({ detail }) => {
 						if ($flowPropPickerConfig?.onSelect(detail)) {
 							$flowPropPickerConfig?.clearFocus()
 						}
 					}}
-					allowCopy={viewOnly || !$flowPropPickerConfig}
+					allowCopy={!$flowPropPickerConfig}
 				/>
 			</div>
 		</Popup>
