@@ -8,7 +8,7 @@
 	import { sendUserToast } from '$lib/toast'
 
 	export let open: boolean = false
-	export let hasUnaknowledgedCriticalAlerts: boolean = false
+	export let numUnaknowledgedCriticalAlerts: number = 0
 
 	let alerts: CriticalAlert[] = []
 
@@ -89,11 +89,11 @@
 			// check if there is at least one unaknowledged alert
 			const unaknowledged = await SettingService.getCriticalAlerts({
 				page: 1,
-				pageSize: 1,
+				pageSize: 10,
 				acknowledged: false
 			})
 
-			if (!hasUnaknowledgedCriticalAlerts && unaknowledged.length > 0 && sendToast) {
+			if (numUnaknowledgedCriticalAlerts === 0 && unaknowledged.length > 0 && sendToast) {
 				sendUserToast(
 					'Critical Alert:',
 					true,
@@ -116,7 +116,7 @@
 				)
 				if (open && checkingForNewAlerts) getAlerts(false)
 			}
-			hasUnaknowledgedCriticalAlerts = unaknowledged.length > 0
+			numUnaknowledgedCriticalAlerts = unaknowledged.length
 		} finally {
 			checkingForNewAlerts = false
 		}
@@ -158,16 +158,6 @@
 	}
 </script>
 
-{#if hasUnaknowledgedCriticalAlerts}
-	<button
-		on:click={() => (open = true)}
-		class="fixed top-4 right-4 rounded-full bg-red-600 p-1 z-50 shadow-lg hover:bg-red-700 active:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-500"
-		aria-label="Toggle Critical Alerts Modal"
-	>
-		<AlertCircle strokeWidth="3" class="animate-pulse" color="white" size="25" />
-	</button>
-{/if}
-
 <Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
 	<!-- Row of action buttons above the table -->
 	<div class="flex justify-between items-center mb-4">
@@ -200,23 +190,19 @@
 
 	<!-- Table of alerts with scrollable body -->
 	<div class="overflow-y-auto max-h-1/2">
-		<table class="min-w-full bg-white w-full">
+		<table class="min-w-full  w-full">
 			<thead class="bg-gray-600 text-white sticky top-0 z-10">
 				<tr>
 					<th class="w-[60px] px-4 py-2 text-center">Type</th>
-					<!-- Fixed width -->
 					<th class="px-4 py-2 text-center">Message</th>
-					<!-- Flexible width -->
 					<th class="w-[150px] px-4 py-2 text-center">Created At</th>
-					<!-- Fixed width -->
 					<th class="w-[180px] px-4 py-2 text-center">Acknowledge</th>
-					<!-- Fixed width -->
 				</tr>
 			</thead>
 			<tbody>
 				{#each alerts as { id, alert_type, message, created_at, acknowledged }}
 					{#if !hideAcknowledged || !acknowledged}
-						<tr class="bg-gray-100 text-center">
+						<tr class="bg-gray-100 dark:bg-gray-700 dark:text-white text-center">
 							<td class="border px-4 py-2 w-[100px]">
 								{#if alert_type === 'recovered_critical_error'}
 									<span title="Recovered Critical Alert">

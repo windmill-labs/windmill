@@ -49,6 +49,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
+	import CriticalAlertButton from '$lib/components/sidebar/CriticalAlertButton.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -276,6 +277,13 @@
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
+
+	let numUnaknowledgedCriticalAlerts = 0
+	let isCriticalAlertsModalOpen = false
+
+	function openCriticalAlertsModal(text?: string): void {
+		isCriticalAlertsModalOpen = true;
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -292,7 +300,10 @@
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
-		<CriticalAlertModal />
+		<CriticalAlertModal 
+			bind:open={isCriticalAlertsModalOpen} 
+			bind:numUnaknowledgedCriticalAlerts={numUnaknowledgedCriticalAlerts} 
+		/>
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	<div>
@@ -358,7 +369,12 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-
+									{#if numUnaknowledgedCriticalAlerts}
+									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
+										<WindmillIcon white={true} height="20px" width="20px" />
+										TODO
+									</div>
+									{/if}
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
@@ -407,6 +423,17 @@
 									{/if}
 								</div>
 							</button>
+							{#if $superadmin}
+							<CriticalAlertButton
+								stopPropagationOnClick={true}
+								on:click={() => openCriticalAlertsModal()}
+								{numUnaknowledgedCriticalAlerts}
+								{isCollapsed}
+								label="Critical Alerts"
+								class="!text-xs"
+								disabled={numUnaknowledgedCriticalAlerts === 0}
+							/>
+							{/if}
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
