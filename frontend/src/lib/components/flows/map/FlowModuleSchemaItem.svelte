@@ -63,10 +63,11 @@
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { flowPropPickerConfig, pickablePropertiesFiltered } =
-		getContext<PropPickerContext>('PropPickerContext')
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
+	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
 
-	$: $pickablePropertiesFiltered && (pickableIds = $pickablePropertiesFiltered?.priorIds)
+	$: pickableIds = $pickablePropertiesFiltered?.priorIds
 
 	let editId = false
 

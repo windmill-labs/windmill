@@ -22,7 +22,8 @@
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
 </script>
 
 <VirtualItemWrapper

@@ -24,7 +24,8 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
 
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
 		if (!inputJson || typeof inputJson !== 'object') return {}

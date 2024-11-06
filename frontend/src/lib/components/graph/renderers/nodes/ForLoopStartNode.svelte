@@ -17,7 +17,8 @@
 		simplifiedTriggerView: boolean
 	}
 
-	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
 
 	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
 
