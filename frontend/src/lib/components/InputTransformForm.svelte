@@ -44,6 +44,7 @@
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
+	let focusedPrev = false
 
 	const dispatch = createEventDispatcher()
 
@@ -245,6 +246,14 @@
 			monacoTemplate?.setCode(schema.properties?.[argName].default)
 		}
 	}
+
+	function updateFocused(newFocused: boolean) {
+		if (focusedPrev && !newFocused) {
+			$inputMatches = undefined
+		}
+		focusedPrev = focused
+	}
+	$: updateFocused(focused)
 
 	$: schema?.properties?.[argName].default && setDefaultCode()
 

@@ -156,10 +156,19 @@
 	}
 
 	async function updateFilterActive() {
-		filterActive = false
-		if (!$inputMatches || $inputMatches.length === 0) return
-		if (!$propPickerConfig || $propPickerConfig.insertionMode !== 'insert') return
-		filterActive = true
+		const prev = filterActive
+
+		filterActive = Boolean(
+			$inputMatches &&
+				$inputMatches?.length > 0 &&
+				$propPickerConfig?.insertionMode === 'insert' &&
+				search === EMPTY_STRING
+		)
+
+		if (prev && !filterActive) {
+			flowInputsFiltered = pickableProperties.flow_input
+			resultByIdFiltered = pickableProperties.priorIds
+		}
 	}
 
 	async function updateState() {
@@ -179,7 +188,7 @@
 		class="overflow-y-auto px-2 pt-2 grow"
 		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
 	>
-		{#if flowInputsFiltered && Object.keys(flowInputsFiltered).length > 0}
+		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered).length > 0 || !filterActive)}
 			<div class="flex justify-between items-center space-x-1">
 				<span class="font-normal text-sm text-secondary">Flow Input</span>
 				<div class="flex space-x-2 items-center" />
