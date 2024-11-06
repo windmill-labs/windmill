@@ -9,7 +9,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
-	import type { ObjectOption } from '$lib/components/multiselect/types'
+	import { isObjectOptionArray, isStringArray } from '$lib/components/multiselect/types'
 
 	export let componentInput: StaticInput<any[]> & { loading?: boolean }
 	export let subFieldType: InputType | undefined = undefined
@@ -226,34 +226,7 @@
 		dispatch('componentInputChange', { newComponentInput, newSubFieldType })
 	}
 
-	function isObjectOption(item: any): item is ObjectOption {
-		if (!item || item !== Object(item)) {
-			return false
-		}
-		if (item.label === undefined || item.label === null) {
-			return false
-		}
-		if (typeof item.label !== 'string' && typeof item.label !== 'number') {
-			return false
-		}
-		return true
-	}
-
-	function isObjectOptionArray(arr: any | undefined): arr is ObjectOption[] {
-		if (!arr || !Array.isArray(arr)) {
-			return false
-		}
-		return arr.every((item) => isObjectOption(item))
-	}
-
-	function isStringArray(arr: any | undefined): arr is string[] {
-		if (!arr || !Array.isArray(arr)) {
-			return false
-		}
-		return arr.every((item) => typeof item === 'string')
-	}
-
-	// transform string[] to ObjectOption[], or the opposite way
+	/** Transforms items string[] to ObjectOption[ and vice versa. Mutating items will fire handleItemsChange. */
 	function handleLabeledChange() {
 		if (labeled && isStringArray(items.map((item) => item.value))) {
 			for (let i = 0; i < items.length; i++) {

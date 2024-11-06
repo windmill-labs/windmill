@@ -45,3 +45,30 @@ export type MultiSelectEvents = {
 	touchmove: TouchEvent
 	touchstart: TouchEvent
 }
+
+export function isObjectOption(item: any): item is ObjectOption {
+	if (!item || item !== Object(item)) {
+		return false
+	}
+	if (item.label === undefined || item.label === null) {
+		return false
+	}
+	if (typeof item.label !== 'string' && typeof item.label !== 'number') {
+		return false
+	}
+	return true
+}
+
+export function isObjectOptionArray(arr: any): arr is ObjectOption[] {
+	if (!arr || !Array.isArray(arr)) {
+		return false
+	}
+	return arr.every((item) => isObjectOption(item))
+}
+
+export function isStringArray(arr: any): arr is string[] {
+	if (!arr || !Array.isArray(arr)) {
+		return false
+	}
+	return arr.every((item) => typeof item === 'string')
+}

@@ -35,16 +35,20 @@
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
-	// Workaround for MultiSelect: changing fieldType needs parent rehydration
-	function handleComponentInputChange(event: {
+	/**
+	 * Workaround for MultiSelect
+	 *
+	 * Changing fieldType in <ArrayStaticInputEditor /> needs to mutate this component data and this component data type.
+	 * */
+	function handleComponentInputChange(newData: {
 		newComponentInput: StaticInput<any>
 		newSubFieldType: InputType
 	}) {
-		if (!event) {
+		if (!newData) {
 			console.error('fired a componentInputChange with no data?')
 			return
 		}
-		const { newComponentInput, newSubFieldType } = event
+		const { newComponentInput, newSubFieldType } = newData
 
 		componentInput = { ...componentInput, ...newComponentInput }
 		subFieldType = newSubFieldType

@@ -16,7 +16,7 @@
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
-	import type { ObjectOption } from '../../../multiselect/types'
+	import { isObjectOptionArray, isStringArray, type ObjectOption } from '../../../multiselect/types'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -75,33 +75,6 @@
 				outputs?.result.set([...(value ?? [])])
 			}
 		}
-	}
-
-	function isObjectOption(item: any): item is ObjectOption {
-		if (!item || item !== Object(item)) {
-			return false
-		}
-		if (item.label === undefined || item.label === null) {
-			return false
-		}
-		if (typeof item.label !== 'string' && typeof item.label !== 'number') {
-			return false
-		}
-		return true
-	}
-
-	function isObjectOptionArray(arr: any | undefined): arr is ObjectOption[] {
-		if (!arr || !Array.isArray(arr)) {
-			return false
-		}
-		return arr.every((item) => isObjectOption(item))
-	}
-
-	function isStringArray(arr: any | undefined): arr is string[] {
-		if (!arr || !Array.isArray(arr)) {
-			return false
-		}
-		return arr.every((item) => typeof item === 'string')
 	}
 
 	function parseLabeledItems(resolvedConfigItems: ObjectOption[]) {
