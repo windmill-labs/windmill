@@ -754,9 +754,9 @@ pub async fn eval_fetch_timeout(
     _w_id: &str,
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
-) -> anyhow::Result<(Box<RawValue>, String)> {
+) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
-    Ok((to_raw_value("require deno_core").unwrap(), "".to_string()))
+    Ok(to_raw_value("require deno_core").unwrap())
 }
 
 #[cfg(feature = "deno_core")]
