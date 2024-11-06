@@ -1014,10 +1014,24 @@
 														</div>
 														<div>
 															<Toggle
+																disabled={values[setting.key].smtp_disable_tls}
 																id="smtp_tls_implicit"
 																bind:checked={values[setting.key].smtp_tls_implicit}
 																options={{ right: 'Implicit TLS' }}
 																label="Implicit TLS"
+															/>
+														</div>
+														<div>
+															<Toggle
+																id="smtp_disable_tls"
+																bind:checked={values[setting.key].smtp_disable_tls}
+																on:change={() => {
+																	if (values[setting.key].smtp_disable_tls) {
+																		values[setting.key].smtp_tls_implicit = false
+																	}
+																}}
+																options={{ right: 'Disable TLS' }}
+																label="Disable TLS"
 															/>
 														</div>
 													{/if}
@@ -1082,7 +1096,8 @@
 												password: smtp['smtp_password'],
 												port: smtp['smtp_port'],
 												from: smtp['smtp_from'],
-												tls_implicit: smtp['smtp_tls_implicit']
+												tls_implicit: smtp['smtp_tls_implicit'],
+												disable_tls: smtp['smtp_disable_tls']
 											}
 										}
 									})
