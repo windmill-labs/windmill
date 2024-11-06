@@ -724,6 +724,8 @@ paths:
                       type: string
                     tls_implicit:
                       type: boolean
+                    disable_tls:
+                      type: boolean
                   required:
                     - host
                     - username
@@ -731,6 +733,7 @@ paths:
                     - port
                     - from
                     - tls_implicit
+                    - disable_tls
               required:
                 - to
                 - smtp
