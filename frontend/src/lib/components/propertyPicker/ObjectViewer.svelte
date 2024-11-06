@@ -197,7 +197,7 @@
 				variant="border"
 				on:click={collapse}
 				wrapperClasses="inline-flex w-fit"
-				btnClasses="font-normal rounded-[0.275rem] h-4 px-1"
+				btnClasses="font-normal h-4 text-2xs px-1 text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}
 			</Button>
