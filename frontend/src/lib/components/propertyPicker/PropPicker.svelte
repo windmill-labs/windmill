@@ -370,7 +370,6 @@
 						<Button
 							color="light"
 							size="xs2"
-							ß
 							variant="border"
 							on:click={() => {
 								displayResources = false
