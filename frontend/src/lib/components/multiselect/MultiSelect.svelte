@@ -7,7 +7,7 @@
 	import { get_label, get_style, scroll_into_view_if_needed_polyfill } from './utils'
 	import { ChevronsUpDown, X } from 'lucide-svelte'
 
-	type Option = $$Generic<T>
+	type Option = any
 
 	export let activeIndex: number | null = null
 	export let activeOption: Option | null = null
