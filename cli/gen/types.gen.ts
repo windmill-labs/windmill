@@ -609,6 +609,8 @@ export type WebsocketTrigger = {
         key: string;
         value: unknown;
     }>;
+    initial_messages: Array<WebsocketTriggerInitialMessage>;
+    url_runnable_args: ScriptArgs;
 };
 
 export type NewWebsocketTrigger = {
@@ -621,6 +623,8 @@ export type NewWebsocketTrigger = {
         key: string;
         value: unknown;
     }>;
+    initial_messages: Array<WebsocketTriggerInitialMessage>;
+    url_runnable_args: ScriptArgs;
 };
 
 export type EditWebsocketTrigger = {
@@ -632,6 +636,18 @@ export type EditWebsocketTrigger = {
         key: string;
         value: unknown;
     }>;
+    initial_messages: Array<WebsocketTriggerInitialMessage>;
+    url_runnable_args: ScriptArgs;
+};
+
+export type WebsocketTriggerInitialMessage = {
+    raw_message: string;
+} | {
+    runnable_result: {
+        path: string;
+        args: ScriptArgs;
+        is_flow: boolean;
+    };
 };
 
 export type Group = {
@@ -1028,6 +1044,10 @@ export type JobSearchHit = {
     dancer?: string;
 };
 
+export type LogSearchHit = {
+    dancer?: string;
+};
+
 export type AutoscalingEvent = {
     id?: number;
     worker_group?: string;
@@ -1038,6 +1058,10 @@ export type AutoscalingEvent = {
 };
 
 export type CriticalAlert = {
+    /**
+     * Unique identifier for the alert
+     */
+    id?: number;
     /**
      * Type of alert (e.g., critical_error)
      */
@@ -1050,6 +1074,10 @@ export type CriticalAlert = {
      * Time when the alert was created
      */
     created_at?: string;
+    /**
+     * Acknowledgment status of the alert, can be true, false, or null if not set
+     */
+    acknowledged?: (boolean) | null;
 };
 
 export type OpenFlow = {
@@ -1157,6 +1185,7 @@ export type RawScript = {
     concurrent_limit?: number;
     concurrency_time_window_s?: number;
     custom_concurrency_key?: string;
+    is_trigger?: boolean;
 };
 
 export type language2 = 'deno' | 'bun' | 'python3' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'php';
@@ -1169,6 +1198,7 @@ export type PathScript = {
     hash?: string;
     type: 'script';
     tag_override?: string;
+    is_trigger?: boolean;
 };
 
 export type PathFlow = {
@@ -1777,7 +1807,24 @@ export type TestCriticalChannelsData = {
 
 export type TestCriticalChannelsResponse = (string);
 
+export type GetCriticalAlertsData = {
+    acknowledged?: (boolean) | null;
+    page?: number;
+    pageSize?: number;
+};
+
 export type GetCriticalAlertsResponse = (Array<CriticalAlert>);
+
+export type AcknowledgeCriticalAlertData = {
+    /**
+     * The ID of the critical alert to acknowledge
+     */
+    id: number;
+};
+
+export type AcknowledgeCriticalAlertResponse = (string);
+
+export type AcknowledgeAllCriticalAlertsResponse = (string);
 
 export type TestLicenseKeyData = {
     /**
@@ -6043,4 +6090,44 @@ export type SearchJobsIndexResponse = ({
      * the jobs that matched the query
      */
     hits?: Array<JobSearchHit>;
+});
+
+export type SearchLogsIndexData = {
+    hostname: string;
+    maxTs?: string;
+    minTs?: string;
+    mode: string;
+    searchQuery: string;
+    workerGroup?: string;
+};
+
+export type SearchLogsIndexResponse = ({
+    /**
+     * a list of the terms that couldn't be parsed (and thus ignored)
+     */
+    query_parse_errors?: Array<(string)>;
+    /**
+     * log files that matched the query
+     */
+    hits?: Array<LogSearchHit>;
+});
+
+export type CountSearchLogsIndexData = {
+    hosts: string;
+    maxTs?: string;
+    minTs?: string;
+    searchQuery: string;
+};
+
+export type CountSearchLogsIndexResponse = ({
+    /**
+     * a list of the terms that couldn't be parsed (and thus ignored)
+     */
+    query_parse_errors?: Array<(string)>;
+    /**
+     * count of log lines that matched the query per hostname
+     */
+    count_per_host?: {
+        [key: string]: unknown;
+    };
 });

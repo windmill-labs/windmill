@@ -14,6 +14,7 @@
 	import { classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
+	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
 		copilotInfo,
 		isPremiumStore,
@@ -291,6 +292,7 @@
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
+		<CriticalAlertModal />
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	<div>
