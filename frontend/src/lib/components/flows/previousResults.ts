@@ -281,21 +281,19 @@ export function filterNestedObject(obj: any, nestedKeys: string[]) {
 	if (nestedKeys.length === 0) return {}
 	if (nestedKeys.length === 1) {
 		if (nestedKeys[0] === '') {
-			return {}
+			return obj
 		}
 		const regexes = buildPrefixRegex(Object.keys(obj))
 		const matches = regexes.filter(({ regex }) => regex.test(nestedKeys[0]))
-		const filteredObj = {}
-		matches.forEach(({ word }) => {
-			if (obj.hasOwnProperty(word)) {
-				filteredObj[word] = obj[word]
-			}
-		})
-		return filteredObj
+		return Object.fromEntries(
+			Object.entries(obj).filter(([key]) => matches.some(({ word }) => word === key))
+		)
 	}
 	const [key, ...rest] = nestedKeys
 	if (obj && typeof obj === 'object' && key in obj) {
-		return filterNestedObject(obj[key], rest)
+		const result = {}
+		result[key] = filterNestedObject(obj[key], rest)
+		return result
 	}
 	return {}
 }

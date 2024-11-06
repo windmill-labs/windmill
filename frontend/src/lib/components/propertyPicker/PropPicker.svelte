@@ -100,12 +100,14 @@
 		}
 		if ($inputMatches?.length == 1) {
 			if ($inputMatches[0].word === 'flow_input') {
+				flowInputsFiltered = pickableProperties.flow_input
 				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
 				let filtered = filterNestedObject(flowInputsFiltered, nestedKeys)
 				if (Object.keys(filtered).length > 0) {
 					flowInputsFiltered = filtered
 				}
 			} else if ($inputMatches[0].word === 'results') {
+				resultByIdFiltered = pickableProperties.priorIds
 				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
 				let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
 				if (Object.keys(filtered).length > 0) {
