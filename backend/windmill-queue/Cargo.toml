@@ -36,6 +36,7 @@ prometheus = { workspace = true, optional = true }
 cron.workspace = true
 rsmq_async.workspace = true
 tokio.workspace = true
+futures.workspace = true
 futures-core.workspace = true
 itertools.workspace = true
 async-recursion.workspace = true

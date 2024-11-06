@@ -1,6 +1,7 @@
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{
@@ -88,6 +89,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -110,10 +112,10 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
                 LIMIT 1
             )
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-            running,  script_hash,  script_path,  args,   null as logs,  raw_code,  canceled,  canceled_by,
+            running,  script_hash,  script_path,  args,   null as logs,  canceled,  canceled_by,
             canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as,
-            flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,
-            same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak,
+            flow_status,  is_flow_step,  language,  suspend,  suspend_until,
+            same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
              root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
              timeout,  flow_step_id,  cache_ttl, priority", wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", "));
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
@@ -141,10 +143,10 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
             LIMIT 1
         )
         RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-        running,  script_hash,  script_path,  args,  null as logs,  raw_code,  canceled,  canceled_by,
+        running,  script_hash,  script_path,  args,  null as logs,  canceled,  canceled_by,
         canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as,
-        flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,
-        same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak,
+        flow_status,  is_flow_step,  language,  suspend,  suspend_until,
+        same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
          root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
          timeout,  flow_step_id,  cache_ttl, priority", tags.tags.iter().map(|x| format!("'{x}'")).join(", "));
 
@@ -546,6 +548,35 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     {
         None
     }
+}
+
+pub async fn living_workers_are_at_least(version: &str) -> bool {
+    *MIN_VERSION.read().await >= Version::parse(version).unwrap_or(Version::new(0, 0, 0))
+}
+
+pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(executor: E) -> bool {
+    use crate::utils::{GIT_VERSION, GIT_SEM_VERSION};
+
+    // fetch all pings with a different version than self from the last 5 minutes.
+    let pings = sqlx::query_scalar!(
+        "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
+        GIT_VERSION
+    ).fetch_all(executor).await.unwrap_or_default();
+
+    let cur_version = GIT_SEM_VERSION.clone();
+    let min_version = pings
+        .iter()
+        .filter(|x| !x.is_empty())
+        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
+        .min()
+        .unwrap_or_else(|| cur_version.clone());
+
+    if min_version != cur_version {
+        tracing::info!("Minimal worker version: {min_version}");
+    }
+
+    *MIN_VERSION.write().await = min_version.clone();
+    min_version >= cur_version
 }
 
 pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {

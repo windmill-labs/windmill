@@ -180,6 +180,7 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
+semver = "^1"
 
 deno_fetch = "0.195.0"
 deno_tls = "0.158.0"

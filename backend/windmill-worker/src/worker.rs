@@ -45,7 +45,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     get_latest_deployed_hash_for_path,
-    jobs::{JobKind, QueuedJob},
+    jobs::{JobKind, JobDefinition, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::StripPath,
@@ -54,7 +54,7 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PushArgs,
+    append_logs, canceled_job_to_result, empty_result, get_job_definition, pull, push, CanceledBy, PushArgs,
     PushIsolationLevel, HTTP_CLIENT,
 };
 
@@ -1813,15 +1813,16 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         None
     };
 
+    let job_definition = get_job_definition(db, &job.id, &job.workspace_id).await;
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
             format!("script_{}", h.to_string())
-        } else if let Some(rc) = job.raw_code.as_ref() {
+        } else if let Some(rc) = job_definition.raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
             rc.hash(&mut s);
             format!("inline_{}", hex::encode(s.finish().to_be_bytes()))
-        } else if let Some(rc) = job.raw_flow.as_ref() {
+        } else if let Some(rc) = job_definition.raw_flow.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
             serde_json::to_string(&rc.0)
@@ -1905,6 +1906,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     if job.is_flow() {
         handle_flow(
             job,
+            &job_definition,
             db,
             &client.get_authed().await,
             None,
@@ -1958,6 +1960,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             JobKind::Dependencies => {
                 handle_dependency_job(
                     &job,
+                    &job_definition,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -1974,6 +1977,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             JobKind::FlowDependencies => {
                 handle_flow_dependency_job(
                     &job,
+                    &job_definition,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2013,6 +2017,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 let metric_timer = Instant::now();
                 let r = handle_code_execution_job(
                     job.as_ref(),
+                    &job_definition,
                     db,
                     client,
                     job_dir,
@@ -2175,6 +2180,7 @@ pub async fn get_script_content_by_hash(
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
+    job_definition: &JobDefinition,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -2202,11 +2208,11 @@ async fn handle_code_execution_job(
             };
 
             ContentReqLangEnvs {
-                content: job
+                content: job_definition
                     .raw_code
                     .clone()
                     .unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: job.raw_lock.clone(),
+                lockfile: job_definition.raw_lock.clone(),
                 language: job.language.to_owned(),
                 envs: None,
                 codebase,

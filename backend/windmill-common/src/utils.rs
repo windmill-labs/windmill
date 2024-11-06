@@ -21,6 +21,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
+use semver::Version;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -34,6 +35,10 @@ lazy_static::lazy_static! {
         .timeout(std::time::Duration::from_secs(20))
         .connect_timeout(std::time::Duration::from_secs(10))
         .build().unwrap();
+    pub static ref GIT_SEM_VERSION: Version = Version::parse(
+        // skip first `v` character.
+        GIT_VERSION.split_at(1).1
+    ).unwrap_or(Version::new(0, 1, 0));
 }
 
 #[derive(Deserialize, Clone)]
