@@ -107,7 +107,6 @@
 						{displayContext}
 						{error}
 						{pickableProperties}
-						{notSelectable}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
 							dispatch('select', detail)

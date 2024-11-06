@@ -13,7 +13,6 @@
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
-	export let notSelectable: boolean
 	export let error: boolean = false
 	export let allowCopy = false
 
@@ -184,10 +183,7 @@
 	<div class="px-2 py-2">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
-	<div
-		class="overflow-y-auto px-2 pt-2 grow"
-		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
-	>
+	<div class="overflow-y-auto px-2 pt-2 grow" class:bg-surface-secondary={!$propPickerConfig}>
 		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered).length > 0 || !filterActive)}
 			<div class="flex justify-between items-center space-x-1">
 				<span class="font-normal text-sm text-secondary">Flow Input</span>
@@ -300,12 +296,12 @@
 							<Button
 								color="light"
 								size="xs2"
-								variant="contained"
+								variant="border"
 								on:click={() => {
 									allResultsCollapsed = true
 								}}
-								wrapperClasses="inline-flex w-fit h-4"
-								btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+								wrapperClasses="inline-flex whitespace-nowrap w-fit"
+								btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 							>
 						{/if}
 
@@ -335,8 +331,8 @@
 							on:click={() => {
 								displayVariable = false
 							}}
-							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 						>
 
 						<ObjectViewer
@@ -356,8 +352,8 @@
 								await loadVariables()
 								displayVariable = true
 							}}
-							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal rounded-[0.275rem] p-1"
+							wrapperClasses="inline-flex w-fit"
+							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
 						>
 							{'{...}'}
 						</Button>
@@ -372,12 +368,13 @@
 						<Button
 							color="light"
 							size="xs2"
+							ß
 							variant="border"
 							on:click={() => {
 								displayResources = false
 							}}
-							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 						>
 						<ObjectViewer
 							{allowCopy}
@@ -396,8 +393,8 @@
 								await loadResources()
 								displayResources = true
 							}}
-							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal rounded-[0.275rem] p-1"
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
 						>
 							{'{...}'}
 						</Button>
