@@ -125,11 +125,14 @@
 
 	function parseStringItems(resolvedConfigItems: string[]) {
 		return resolvedConfigItems?.map((item) => {
-			if (!item || typeof item !== 'string') {
+			if (item === null || item === undefined || typeof item !== 'string') {
 				console.error(
 					'When not labeled, MultiSelect component items should be an array of strings.'
 				)
 				return 'not string'
+			}
+			if (item === '') {
+				return 'empty string'
 			}
 			return item
 		})
