@@ -53,10 +53,12 @@
 					topBrackets={false}
 					pureViewer={viewOnly}
 					{prefix}
-					on:select={(e) => {
-						$flowPropPickerConfig?.onSelect(e.detail)
-						$flowPropPickerConfig?.clearFocus()
+					on:select={({ detail }) => {
+						if ($flowPropPickerConfig?.onSelect(detail)) {
+							$flowPropPickerConfig?.clearFocus()
+						}
 					}}
+					allowCopy={viewOnly || !$flowPropPickerConfig}
 				/>
 			</div>
 		</Popup>
