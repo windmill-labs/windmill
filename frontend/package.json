@@ -82,6 +82,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.32.1",
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@codingame/monaco-vscode-configuration-service-override": "~8.0.2",
 		"@codingame/monaco-vscode-files-service-override": "~8.0.2",

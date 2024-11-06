@@ -1,7 +1,7 @@
 import { OpenAI } from 'openai'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import type { Writable } from 'svelte/store'
-
+import { Anthropic } from '@anthropic-ai/sdk'
 import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 
@@ -12,6 +12,10 @@ import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
+import type {
+	CompletionCreateParams,
+	CompletionCreateParamsBase
+} from '@anthropic-ai/sdk/resources/completions.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -24,14 +28,18 @@ const openaiConfig: ChatCompletionCreateParamsStreaming = {
 	messages: []
 }
 
-class WorkspacedOpenai {
+interface AiProvider {
+	init: (workspace: string, token?: string) => void
+}
+
+class WorkspacedOpenai implements AiProvider {
 	private client: OpenAI | undefined
 
 	init(workspace: string, token: string | undefined = undefined) {
 		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
 		this.client = new OpenAI({
 			baseURL,
-			apiKey: 'fakekey',
+			apiKey: 'fake-key',
 			defaultHeaders: {
 				Authorization: token ? `Bearer ${token}` : ''
 			},
@@ -47,7 +55,33 @@ class WorkspacedOpenai {
 	}
 }
 
+
+
+class WorkspacedAnthropic implements AiProvider {
+	private client: Anthropic | undefined
+
+	init(workspace: string, token: string | undefined = undefined) {
+		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
+		this.client = new Anthropic({
+			baseURL,
+			defaultHeaders: {
+				Authorization: token ? `Bearer ${token}` : ''
+			},
+			
+			dangerouslyAllowBrowser: true
+		})
+	}
+
+	getClient() {
+		if (!this.client) {
+			throw new Error('OpenAI not initialized')
+		}
+		return this.client
+	}
+}
+
 export let workspacedOpenai = new WorkspacedOpenai()
+export let workspacedAnthropic = new WorkspacedAnthropic()
 
 export async function testKey({
 	apiKey,

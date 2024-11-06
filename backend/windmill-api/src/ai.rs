@@ -24,7 +24,7 @@ use windmill_common::variables::build_crypt;
 use windmill_common::error::Error;
 
 const OPENAI_BASE_API_URL: &str = "https://api.openai.com/v1";
-const ANTHROPIC_BASE_API_URL: &str = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_BASE_API_URL: &str = "https://api.anthropic.com/v1";
 const MISTRAL_BASE_API_URL: &str = "";
 use serde_json::value::{RawValue, Value};
 use std::collections::HashMap;
@@ -87,7 +87,7 @@ mod openai {
 
             let cp = body.clone();
 
-            println!("{:#?}", cp);
+            println!("body: {:#?}, {}", cp, &api_key);
 
             let base_url = if let Some(base_url) = azure_base_path {
                 base_url
@@ -313,7 +313,7 @@ struct Variable {
     is_secret: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct ProxyQueryParams {
     no_cache: Option<bool>,
 }
@@ -353,9 +353,10 @@ async fn proxy(
     Query(query_params): Query<ProxyQueryParams>,
     body: Bytes,
 ) -> impl IntoResponse {
+    println!("{:#?}", &query_params);
     let workspace_cache = AI_KEY_CACHE.get(&w_id);
     let ai_cache = match workspace_cache {
-        Some(cache) if !cache.is_expired() || !query_params.no_cache.unwrap_or(false) => {
+        Some(cache) if !cache.is_expired() && !query_params.no_cache.unwrap_or(false) => {
             cache.cached_key
         }
         _ => {
@@ -373,7 +374,7 @@ async fn proxy(
             }
 
             let ai_resource = serde_json::from_value::<AiRessource>(ai_resource.unwrap()).unwrap();
-
+            println!("{:#?}", &ai_resource);
             let ai_resource_path = ai_resource.path;
 
             let resource = sqlx::query_scalar!(

@@ -1002,7 +1002,7 @@
 						}}
 					/>
 				{/key}
-				<TestOpenaiKey disabled={!aiResourceInitialPath} />
+				<TestOpenaiKey  disabled={!aiResourceInitialPath} />
 			</div>
 			<div class="mt-3">
 				<Toggle

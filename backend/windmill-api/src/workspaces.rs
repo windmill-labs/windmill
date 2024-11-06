@@ -154,7 +154,7 @@ struct Workspace {
     premium: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct AiRessource {
     pub path: String,
     pub provider: String,
