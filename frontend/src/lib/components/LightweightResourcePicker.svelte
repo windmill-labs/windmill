@@ -202,6 +202,7 @@
 								path: valueSelect.label
 							})
 							await loadResources(resourceType)
+							value = undefined
 							valueSelect = undefined
 						}
 					}}
@@ -216,6 +217,7 @@
 					btnClasses="w-8 px-0.5 py-1.5"
 					size="sm"
 					on:click={() => {
+						refreshCount += 1
 						open = true
 						drawer?.openDrawer?.()
 					}}
