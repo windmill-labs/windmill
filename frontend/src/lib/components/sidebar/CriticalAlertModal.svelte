@@ -12,7 +12,7 @@
 
 	let alerts: CriticalAlert[] = []
 
-	let checkForNewAlertsInterval: number
+	let checkForNewAlertsInterval:  ReturnType<typeof setInterval>;
 	let checkingForNewAlerts = false
 	let isRefreshing = false
 	let previousOpen = open
