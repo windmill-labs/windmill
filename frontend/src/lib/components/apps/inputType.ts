@@ -209,7 +209,7 @@ export type AppInput =
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
 	| AppInputSpec<'array', object[], 'labeledselect'>
-	| AppInputSpec<'array', object[], 'simplestringselect'>
+	| AppInputSpec<'array', string[], 'simplestringselect'>
 	| AppInputSpec<'labeledselect', object>
 	| AppInputSpec<'labeledresource', object>
 	| AppInputSpec<'array', object[], 'tab-select'>

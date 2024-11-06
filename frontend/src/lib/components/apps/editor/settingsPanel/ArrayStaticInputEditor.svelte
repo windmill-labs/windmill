@@ -2,15 +2,16 @@
 	import { Button } from '$lib/components/common'
 	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import type { InputType, LabeledOption, StaticInput, StaticOptions } from '../../inputType'
+	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
+	import type { ObjectOption } from '$lib/components/multiselect/types'
 
-	export let componentInput: StaticInput<any[]> & { loading?: boolean; isLabeled?: boolean }
+	export let componentInput: StaticInput<any[]> & { loading?: boolean }
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let id: string | undefined
@@ -18,17 +19,6 @@
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
-
-	console.log(componentInput.value)
-
-	// transform string[] to LabeledOption[], or the opposite way
-	function handleLabeledChange() {
-		if (labeled) {
-			componentInput.value = componentInput.value?.map((option: LabeledOption) => option?.label)
-		} else if (!labeled) {
-			componentInput.value = componentInput.value?.map((label) => ({ label, value: label }))
-		}
-	}
 
 	function addElementByType() {
 		if (!Array.isArray(componentInput.value)) {
@@ -224,16 +214,62 @@
 
 	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
 
-	$: items != undefined && handleItemsChange()
+	let raw: boolean = false
+	let labeled: boolean = subFieldType === 'labeledselect'
 
 	function handleItemsChange() {
-		componentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
+		const newComponentInput = { ...componentInput }
+		newComponentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
+
+		const newSubFieldType = labeled ? 'labeledselect' : 'simplestringselect'
+
+		dispatch('componentInputChange', { newComponentInput, newSubFieldType })
 	}
 
-	let raw: boolean = false
-	let labeled: boolean = false
+	function isObjectOption(item: any): item is ObjectOption {
+		if (!item || item !== Object(item)) {
+			return false
+		}
+		if (item.label === undefined || item.label === null) {
+			return false
+		}
+		if (typeof item.label !== 'string' && typeof item.label !== 'number') {
+			return false
+		}
+		return true
+	}
 
-	$: labeled
+	function isObjectOptionArray(arr: any | undefined): arr is ObjectOption[] {
+		if (!arr || !Array.isArray(arr)) {
+			return false
+		}
+		return arr.every((item) => isObjectOption(item))
+	}
+
+	function isStringArray(arr: any | undefined): arr is string[] {
+		if (!arr || !Array.isArray(arr)) {
+			return false
+		}
+		return arr.every((item) => typeof item === 'string')
+	}
+
+	// transform string[] to ObjectOption[], or the opposite way
+	function handleLabeledChange() {
+		if (labeled && isStringArray(items.map((item) => item.value))) {
+			for (let i = 0; i < items.length; i++) {
+				const itemValue = items[i].value
+				items[i].value = { label: itemValue, value: itemValue }
+			}
+		} else if (!labeled && isObjectOptionArray(items.map((item) => item.value))) {
+			for (let i = 0; i < items.length; i++) {
+				const itemValue = items[i].value
+				items[i].value = itemValue.label
+			}
+		}
+	}
+
+	$: labeled !== undefined && handleLabeledChange()
+	$: items !== undefined && handleItemsChange()
 
 	// let mounted = false
 
@@ -257,16 +293,22 @@
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
+	<button
+		on:click={() =>
+			console.log(
+				'labeled =',
+				labeled,
+				'items =',
+				items,
+				'componentInput =',
+				componentInput,
+				'subFieldType =',
+				subFieldType
+			)}>console.log in ArrayStaticInputEditor</button
+	>
 	{#if Array.isArray(items) && componentInput.value}
-		<!-- {#if componentInput.isLabeled}<Toggle
-				size="xs"
-				options={{ right: 'LabeledOption' }}
-				bind:checked={isLabeled}
-			/>
-		{/if} -->
 		<div class="flex flex-row items-center justify-between">
 			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
-
 			{#if subFieldType === 'ag-grid' || subFieldType === 'table-column'}
 				<Toggle
 					options={{
@@ -304,7 +346,7 @@
 						<div class="grow min-w-0">
 							<SubTypeEditor
 								{id}
-								subFieldType={raw ? 'object' : !labeled ? 'simplestringselect' : subFieldType}
+								subFieldType={raw ? 'object' : labeled ? 'labeledselect' : subFieldType}
 								bind:componentInput
 								bind:value={item.value}
 								on:remove={() => deleteElementByType(index)}
