@@ -1703,7 +1703,7 @@ async fn do_nativets(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
-) -> windmill_common::error::Result<(Box<RawValue>, String)> {
+) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
@@ -1711,7 +1711,7 @@ async fn do_nativets(
         job.args.as_ref()
     };
 
-    let result = eval_fetch_timeout(
+    Ok(eval_fetch_timeout(
         env_code,
         code.clone(),
         transpile_ts(code)?,
@@ -1726,8 +1726,7 @@ async fn do_nativets(
         true,
         occupancy_metrics,
     )
-    .await?;
-    Ok((result.0, result.1))
+    .await?)
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -2356,7 +2355,8 @@ async fn handle_code_execution_job(
                 .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
                 .collect::<Vec<String>>()
                 .join("\n"));
-        let (result, ts_logs) = do_nativets(
+
+        let result = do_nativets(
             job,
             &client,
             env_code,
@@ -2368,7 +2368,6 @@ async fn handle_code_execution_job(
             occupancy_metrics,
         )
         .await?;
-        append_logs(&job.id, &job.workspace_id, ts_logs, db).await;
         return Ok(result);
     }
 
