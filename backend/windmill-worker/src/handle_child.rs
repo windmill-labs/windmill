@@ -143,15 +143,40 @@ pub async fn handle_child(
         occupancy_metrics,
     );
 
-    #[derive(PartialEq, Debug)]
     enum KillReason {
         TooManyLogs,
-        Timeout,
-        Cancelled,
+        Timeout { is_job_specific: bool },
+        Cancelled(Option<CanceledBy>),
         AlreadyCompleted,
     }
 
-    let (timeout_duration, timeout_warn_msg) =
+    impl std::fmt::Debug for KillReason {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            match self {
+                KillReason::TooManyLogs => f.write_str("too many logs (max size: 2MB)"),
+                KillReason::Timeout { is_job_specific } => f.write_str(if *is_job_specific {
+                    "timeout after exceeding job-specific duration limit"
+                } else {
+                    "timeout after exceeding instance-wide job duration limit"
+                }),
+                KillReason::Cancelled(canceled_by) => {
+                    let mut reason = "cancelled".to_string();
+                    if let Some(canceled_by) = canceled_by {
+                        if let Some(by) = canceled_by.username.as_ref() {
+                            reason.push_str(&format!(" by {}", by));
+                        }
+                        if let Some(rsn) = canceled_by.reason.as_ref() {
+                            reason.push_str(&format!(" (reason: {})", rsn));
+                        }
+                    }
+                    f.write_str(&reason)
+                }
+                KillReason::AlreadyCompleted => f.write_str("already completed"),
+            }
+        }
+    }
+
+    let (timeout_duration, timeout_warn_msg, is_job_specific) =
         resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
         append_logs(&job_id, w_id, msg.as_str(), db).await;
@@ -165,9 +190,9 @@ pub async fn handle_child(
             biased;
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(timeout_duration) => KillReason::Timeout,
+            _ = sleep(timeout_duration) => KillReason::Timeout { is_job_specific },
             ex = update_job, if job_id != Uuid::nil() => match ex {
-                UpdateJobPollingExit::Done => KillReason::Cancelled,
+                UpdateJobPollingExit::Done(canceled_by) => KillReason::Cancelled(canceled_by),
                 UpdateJobPollingExit::AlreadyCompleted => KillReason::AlreadyCompleted,
             },
         };
@@ -175,7 +200,7 @@ pub async fn handle_child(
         drop(tx);
 
         let set_reason = async {
-            if kill_reason == KillReason::Timeout {
+            if matches!(kill_reason, KillReason::Timeout { .. }) {
                 if let Err(err) = sqlx::query(
                     r#"
                        UPDATE queue
@@ -402,7 +427,7 @@ pub async fn handle_child(
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
             }
             _ => Err(Error::ExecutionErr(format!(
-                "job process killed because {kill_reason:#?}"
+                "job process terminated due to {kill_reason:#?}"
             ))),
         },
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
@@ -505,7 +530,10 @@ where
         })?,
         ex = update_job, if job_id != Uuid::nil() => {
             match ex {
-                UpdateJobPollingExit::Done => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+                UpdateJobPollingExit::Done(canceled_by) => {
+                    let (by, reason) = canceled_by.as_ref().map_or(("unknown".to_string(), "unknown".to_string()), |x| (x.username.clone().unwrap_or("".to_string()), x.reason.clone().unwrap_or("".to_string())));
+                    Err(Error::ExecutionErr(format!("Job cancelled by {by} (reason: {reason})",))).map_err(to_anyhow)?
+                },
                 UpdateJobPollingExit::AlreadyCompleted => Err(Error::AlreadyCompleted("Job already completed".to_string())).map_err(to_anyhow)?,
             }
         }
@@ -515,7 +543,7 @@ where
 }
 
 pub enum UpdateJobPollingExit {
-    Done,
+    Done(Option<CanceledBy>),
     AlreadyCompleted,
 }
 
@@ -640,7 +668,7 @@ where
     }
     tracing::info!("job {job_id} finished");
 
-    UpdateJobPollingExit::Done
+    UpdateJobPollingExit::Done(canceled_by_ref.clone())
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
