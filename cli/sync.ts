@@ -1398,11 +1398,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           log.info(`Deleting ${typ} ${change.path}`);
         }
         const workspaceId = workspace.workspaceId;
+        const target = change.path.replaceAll(SEP, "/");
         switch (typ) {
           case "script": {
             const script = await wmill.getScriptByPath({
               workspace: workspaceId,
-              path: removeExtensionToPath(change.path),
+              path: removeExtensionToPath(target),
             });
             await wmill.archiveScriptByHash({
               workspace: workspaceId,
@@ -1419,37 +1420,37 @@ export async function push(opts: GlobalOptions & SyncOptions) {
           case "resource":
             await wmill.deleteResource({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".resource.json"),
+              path: removeSuffix(target, ".resource.json"),
             });
             break;
           case "resource-type":
             await wmill.deleteResourceType({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".resource-type.json"),
+              path: removeSuffix(target, ".resource-type.json"),
             });
             break;
           case "flow":
             await wmill.deleteFlowByPath({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".flow/flow.json"),
+              path: removeSuffix(target, ".flow/flow.json"),
             });
             break;
           case "app":
             await wmill.deleteApp({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".app/app.json"),
+              path: removeSuffix(target, ".app/app.json"),
             });
             break;
           case "schedule":
             await wmill.deleteSchedule({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".schedule.json"),
+              path: removeSuffix(target, ".schedule.json"),
             });
             break;
           case "variable":
             await wmill.deleteVariable({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".variable.json"),
+              path: removeSuffix(target, ".variable.json"),
             });
             break;
           case "user": {
