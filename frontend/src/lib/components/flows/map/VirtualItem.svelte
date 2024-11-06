@@ -16,7 +16,7 @@
 	export let borderColor: string | undefined = undefined
 	export let hideId: boolean = false
 	export let preLabel: string | undefined = undefined
-	export let inputJson = {}
+	export let inputJson: Object | undefined = undefined
 	export let prefix = ''
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -61,7 +61,7 @@
 			</div>
 		{/if}
 	</div>
-	{#if $flowPropPickerConfig && (Object.keys(inputJson).length > 0 || !$flowPropPickerConfig.searchOn)}
+	{#if inputJson && $flowPropPickerConfig && (Object.keys(inputJson).length > 0 || !$flowPropPickerConfig.searchOn)}
 		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
 			<FlowPropPicker json={inputJson} {prefix} />
 		</div>
