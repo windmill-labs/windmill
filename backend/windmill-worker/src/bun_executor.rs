@@ -1304,6 +1304,8 @@ try {{
                 job.args.as_ref()
             };
 
+            append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), db).await;
+
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
                 inner_content.clone(),
@@ -1324,14 +1326,7 @@ try {{
                 "Executed native code in {}ms",
                 started_at.elapsed().as_millis()
             );
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!("{}\n{}", init_logs, result.1),
-                db,
-            )
-            .await;
-            return Ok(result.0);
+            return Ok(result);
         }
     }
     append_logs(&job.id, &job.workspace_id, init_logs, db).await;

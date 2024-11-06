@@ -562,7 +562,7 @@ pub async fn resolve_job_timeout(
     _w_id: &str,
     _job_id: Uuid,
     custom_timeout_secs: Option<i32>,
-) -> (Duration, Option<String>) {
+) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
     let cloud_premium_workspace = *CLOUD_HOSTED
@@ -587,12 +587,12 @@ pub async fn resolve_job_timeout(
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {
-            (Duration::from_secs(timeout_secs as u64), warn_msg)
+            (Duration::from_secs(timeout_secs as u64), warn_msg, true)
         }
         Some(timeout_secs) => {
             warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the max timeout will be used instead"));
             tracing::warn!(warn_msg);
-            (global_max_timeout_duration, warn_msg)
+            (global_max_timeout_duration, warn_msg, false)
         }
         None => {
             // fallback to default timeout or max if not set
@@ -610,7 +610,7 @@ pub async fn resolve_job_timeout(
                     global_max_timeout_duration
                 }
             };
-            (default_timeout, warn_msg)
+            (default_timeout, warn_msg, false)
         }
     }
 }
