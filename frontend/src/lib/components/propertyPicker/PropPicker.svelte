@@ -12,7 +12,6 @@
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
-	export let notSelectable: boolean
 	export let error: boolean = false
 	export let allowCopy = false
 
@@ -186,12 +185,12 @@
 						<Button
 							color="light"
 							size="xs2"
-							variant="contained"
+							variant="border"
 							on:click={() => {
 								allResultsCollapsed = true
 							}}
-							wrapperClasses="inline-flex w-fit h-4"
-							btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 						>
 					{/if}
 
@@ -219,8 +218,8 @@
 						on:click={() => {
 							displayVariable = false
 						}}
-						wrapperClasses="inline-flex w-fit h-4"
-						btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+						wrapperClasses="inline-flex whitespace-nowrap w-fit"
+						btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 					>
 
 					<ObjectViewer
@@ -240,8 +239,8 @@
 							await loadVariables()
 							displayVariable = true
 						}}
-						wrapperClasses="inline-flex w-fit h-4"
-						btnClasses="font-normal rounded-[0.275rem] p-1"
+						wrapperClasses="inline-flex w-fit"
+						btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
 					>
 						{'{...}'}
 					</Button>
@@ -259,8 +258,8 @@
 						on:click={() => {
 							displayResources = false
 						}}
-						wrapperClasses="inline-flex w-fit h-4"
-						btnClasses="font-normal text-primary rounded-[0.275rem]">-</Button
+						wrapperClasses="inline-flex whitespace-nowrap w-fit"
+						btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 					>
 					<ObjectViewer
 						{allowCopy}
@@ -279,8 +278,8 @@
 							await loadResources()
 							displayResources = true
 						}}
-						wrapperClasses="inline-flex w-fit h-4"
-						btnClasses="font-normal rounded-[0.275rem] p-1"
+						wrapperClasses="inline-flex whitespace-nowrap w-fit"
+						btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
 					>
 						{'{...}'}
 					</Button>
