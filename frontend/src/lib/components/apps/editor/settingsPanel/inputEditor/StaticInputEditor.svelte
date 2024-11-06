@@ -35,6 +35,21 @@
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
+	// Workaround for MultiSelect: changing fieldType needs parent rehydration
+	function handleComponentInputChange(event: {
+		newComponentInput: StaticInput<any>
+		newSubFieldType: InputType
+	}) {
+		if (!event) {
+			console.error('fired a componentInputChange with no data?')
+			return
+		}
+		const { newComponentInput, newSubFieldType } = event
+
+		componentInput = { ...componentInput, ...newComponentInput }
+		subFieldType = newSubFieldType
+	}
+
 	$: componentInput && onchange?.()
 </script>
 
@@ -168,6 +183,7 @@
 				{subFieldType}
 				bind:componentInput
 				on:deleteArrayItem
+				on:componentInputChange={(e) => handleComponentInputChange(e.detail)}
 				{hasLabeledMode}
 			/>
 		{:else if fieldType === 'schema'}

@@ -44,24 +44,28 @@
 	)
 
 	const outputs = initOutput($worldStore, id, {
-		result: [] as Options
+		result: isObjectOptionArray(items)
+			? ([] as ObjectOption[])
+			: isStringArray(items)
+			? ([] as string[])
+			: ([] as unknown[])
 	})
 
-	let value: Options | undefined = isLabeledArray(outputs?.result.peak())
+	let value: Options | undefined = isObjectOptionArray(outputs?.result.peak())
 		? ([...new Set(outputs?.result.peak())] as ObjectOption[])
 		: ([...new Set(outputs?.result.peak())] as string[])
 
 	$componentControl[id] = {
 		setValue(nvalue: Options) {
-			if (isLabeledArray(nvalue)) {
+			if (isObjectOptionArray(nvalue)) {
 				value = [...new Set(nvalue)] as ObjectOption[]
 				outputs?.result.set([...(value ?? [])])
 			}
 		}
 	}
 
-	function isObjectOption(item: Options[number]): item is ObjectOption {
-		if (typeof item === 'string') {
+	function isObjectOption(item: any): item is ObjectOption {
+		if (!item || item !== Object(item)) {
 			return false
 		}
 		if (item.label === undefined || item.label === null) {
@@ -73,11 +77,17 @@
 		return true
 	}
 
-	function isLabeledArray(arr: Options): arr is ObjectOption[] {
+	function isObjectOptionArray(arr: any | undefined): arr is ObjectOption[] {
+		if (!arr || !Array.isArray(arr)) {
+			return false
+		}
 		return arr.every((item) => isObjectOption(item))
 	}
 
-	function isStringArray(arr: Options): arr is string[] {
+	function isStringArray(arr: any | undefined): arr is string[] {
+		if (!arr || !Array.isArray(arr)) {
+			return false
+		}
 		return arr.every((item) => typeof item === 'string')
 	}
 
@@ -121,7 +131,7 @@
 	}
 
 	function handleItems() {
-		if (isLabeledArray(resolvedConfig.items)) {
+		if (isObjectOptionArray(resolvedConfig.items)) {
 			handleLabeledItems()
 		} else if (isStringArray(resolvedConfig.items)) {
 			handleStringItems()
@@ -138,9 +148,11 @@
 			outputs?.result.set([])
 			return
 		}
-		let rawNvalue = new Set(resolvedConfig.defaultItems?.filter((v) => typeof v === 'string'))
-		if (isLabeledArray(items)) {
-			nvalue = items?.filter((item) => rawNvalue.has(item.value)) as ObjectOption[]
+		let rawNvalue = new Set(
+			resolvedConfig.defaultItems?.filter((v) => typeof v === 'string' || typeof v === 'number')
+		)
+		if (isObjectOptionArray(items)) {
+			nvalue = items?.filter((item) => rawNvalue.has(item.label)) as ObjectOption[]
 			value = [...new Set(nvalue)]
 			outputs?.result.set([...(value ?? [])])
 		} else if (isStringArray(items)) {
@@ -184,6 +196,23 @@
 	}
 	let w = 0
 	let open: boolean = false
+
+	const multiSelectProps = {
+		outerDivClass: resolvedConfig.allowOverflow ? '' : 'h-full',
+		ulSelectedClass: resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full',
+		'--sms-border': 'none',
+		'--sms-min-height': '32px',
+		'--sms-focus-border': 'none',
+		placeholder: resolvedConfig.placeholder,
+		allowUserOptions: resolvedConfig.create,
+		onOpen: () => {
+			$selectedComponent = [id]
+			open = true
+		},
+		onClose: () => {
+			open = false
+		}
+	}
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -222,46 +251,67 @@
 		bind:clientWidth={w}
 	>
 		{#if !value || Array.isArray(value)}
-			<MultiSelect
-				bind:outerDiv
-				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
-				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
-				--sms-border={'none'}
-				--sms-min-height={'32px'}
-				--sms-focus-border={'none'}
-				bind:selected={value}
-				options={items}
-				placeholder={resolvedConfig.placeholder}
-				allowUserOptions={resolvedConfig.create}
-				on:change={(event) => {
-					if (event?.detail?.type === 'removeAll') {
-						outputs?.result.set([])
-					} else {
-						outputs?.result.set([...(value ?? [])])
-					}
-				}}
-				on:open={() => {
-					$selectedComponent = [id]
-					open = true
-				}}
-				on:close={() => {
-					open = false
-				}}
-				let:option
-			>
-				<!-- needed because portal doesn't work for mouseup event en mobile -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div
-					class="w-full"
-					on:mouseup|stopPropagation
-					on:pointerdown|stopPropagation={(e) => {
-						let newe = new MouseEvent('mouseup')
-						e.target?.['parentElement']?.dispatchEvent(newe)
+			{#if isObjectOptionArray(value) && isObjectOptionArray(items)}
+				<MultiSelect
+					bind:selected={value}
+					options={items}
+					on:change={(event) => {
+						if (event?.detail?.type === 'removeAll') {
+							outputs?.result.set([])
+						} else {
+							outputs?.result.set([...(value ?? [])])
+						}
 					}}
+					{...multiSelectProps}
+					bind:outerDiv
+					on:open={multiSelectProps.onOpen}
+					on:close={multiSelectProps.onClose}
+					let:option
 				>
-					{option.label}
-				</div>
-			</MultiSelect>
+					<!-- needed because portal doesn't work for mouseup event en mobile -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="w-full"
+						on:mouseup|stopPropagation
+						on:pointerdown|stopPropagation={(e) => {
+							let newe = new MouseEvent('mouseup')
+							e.target?.['parentElement']?.dispatchEvent(newe)
+						}}
+					>
+						{option.label}
+					</div>
+				</MultiSelect>
+			{:else if isStringArray(value) && isStringArray(items)}
+				<MultiSelect
+					bind:selected={value}
+					options={items}
+					on:change={(event) => {
+						if (event?.detail?.type === 'removeAll') {
+							outputs?.result.set([])
+						} else {
+							outputs?.result.set([...(value ?? [])])
+						}
+					}}
+					{...multiSelectProps}
+					bind:outerDiv
+					on:open={multiSelectProps.onOpen}
+					on:close={multiSelectProps.onClose}
+					let:option
+				>
+					<!-- needed because portal doesn't work for mouseup event en mobile -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="w-full"
+						on:mouseup|stopPropagation
+						on:pointerdown|stopPropagation={(e) => {
+							let newe = new MouseEvent('mouseup')
+							e.target?.['parentElement']?.dispatchEvent(newe)
+						}}
+					>
+						{option.label}
+					</div>
+				</MultiSelect>
+			{/if}
 			<Portal name="app-multiselect-v2">
 				<div use:floatingContent class="z5000" hidden={!open}>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->

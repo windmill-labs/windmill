@@ -16,6 +16,10 @@
 	$: fakeComponentInput && (value = fakeComponentInput.value)
 </script>
 
+<button
+	on:click={() => console.log('subFieldType =', subFieldType, 'componentInput =', componentInput)}
+	>console.log in SubtypeEditor</button
+>
 <StaticInputEditor
 	{id}
 	fieldType={subFieldType}
