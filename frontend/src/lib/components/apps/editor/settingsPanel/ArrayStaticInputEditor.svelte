@@ -293,19 +293,6 @@
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
-	<button
-		on:click={() =>
-			console.log(
-				'labeled =',
-				labeled,
-				'items =',
-				items,
-				'componentInput =',
-				componentInput,
-				'subFieldType =',
-				subFieldType
-			)}>console.log in ArrayStaticInputEditor</button
-	>
 	{#if Array.isArray(items) && componentInput.value}
 		<div class="flex flex-row items-center justify-between">
 			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>

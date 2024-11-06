@@ -27,8 +27,6 @@
 	// every option is labeled, or no one is.
 	type Options = ObjectOption[] | string[]
 
-	$: resolvedConfig.items && handleItems()
-
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
 		middleware: [offset(5), flip(), shift()]
@@ -42,6 +40,21 @@
 		components['multiselectcomponentv2'].initialData.configuration,
 		configuration
 	)
+
+	$: handleItems(resolvedConfig.items)
+
+	function handleItems(resolvedConfigItems) {
+		if (!resolvedConfigItems) {
+			return
+		}
+		items = []
+		value = []
+		if (isObjectOptionArray(resolvedConfigItems)) {
+			items = parseLabeledItems(resolvedConfigItems)
+		} else if (isStringArray(resolvedConfigItems)) {
+			items = parseStringItems(resolvedConfigItems)
+		}
+	}
 
 	const outputs = initOutput($worldStore, id, {
 		result: isObjectOptionArray(items)
@@ -91,12 +104,8 @@
 		return arr.every((item) => typeof item === 'string')
 	}
 
-	function handleLabeledItems() {
-		if (!Array.isArray(resolvedConfig.items)) {
-			items = []
-			return
-		}
-		items = resolvedConfig.items?.map((item) => {
+	function parseLabeledItems(resolvedConfigItems: ObjectOption[]) {
+		return resolvedConfigItems?.map((item) => {
 			if (!item || typeof item !== 'object') {
 				console.error(
 					'When labeled, MultiSelect component items should be an array of { label: string, value: string }.'
@@ -114,12 +123,8 @@
 		})
 	}
 
-	function handleStringItems() {
-		if (!Array.isArray(resolvedConfig.items)) {
-			items = []
-			return
-		}
-		items = resolvedConfig.items?.map((item) => {
+	function parseStringItems(resolvedConfigItems: string[]) {
+		return resolvedConfigItems?.map((item) => {
 			if (!item || typeof item !== 'string') {
 				console.error(
 					'When not labeled, MultiSelect component items should be an array of strings.'
@@ -128,14 +133,6 @@
 			}
 			return item
 		})
-	}
-
-	function handleItems() {
-		if (isObjectOptionArray(resolvedConfig.items)) {
-			handleLabeledItems()
-		} else if (isStringArray(resolvedConfig.items)) {
-			handleStringItems()
-		}
 	}
 
 	$: resolvedConfig.defaultItems && handleDefaultItems()
@@ -235,7 +232,6 @@
 {/each}
 
 <InitializeComponent {id} />
-
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div
 		class="w-full app-editor-input"
@@ -267,6 +263,7 @@
 					on:open={multiSelectProps.onOpen}
 					on:close={multiSelectProps.onClose}
 					let:option
+					id="objectoption-multiselect"
 				>
 					<!-- needed because portal doesn't work for mouseup event en mobile -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -297,6 +294,7 @@
 					on:open={multiSelectProps.onOpen}
 					on:close={multiSelectProps.onClose}
 					let:option
+					id="simplestring-multiselect"
 				>
 					<!-- needed because portal doesn't work for mouseup event en mobile -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -308,7 +306,7 @@
 							e.target?.['parentElement']?.dispatchEvent(newe)
 						}}
 					>
-						{option.label}
+						{option}
 					</div>
 				</MultiSelect>
 			{/if}
