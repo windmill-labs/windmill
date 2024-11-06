@@ -5,6 +5,7 @@ type InsertionMode = 'append' | 'connect' | 'insert'
 
 export type FlowPropPickerConfig = {
 	insertionMode: InsertionMode
+	searchOn: boolean
 	clearFocus: () => void
 	onSelect: (path: string) => boolean
 }

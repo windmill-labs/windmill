@@ -89,16 +89,18 @@
 
 		if (!$flowPropPickerConfig) {
 			$flowPropPickerConfig = {
-				insertionMode: $propPickerConfig.insertionMode,
-				onSelect: $propPickerConfig.onSelect,
+				insertionMode: 'insert',
+				searchOn: false,
+				onSelect: () => false,
 				clearFocus: () => {
 					$propPickerConfig = undefined
 				}
 			}
-		} else {
-			$flowPropPickerConfig.insertionMode = $propPickerConfig.insertionMode
-			$flowPropPickerConfig.onSelect = $propPickerConfig.onSelect
 		}
+
+		$flowPropPickerConfig.insertionMode = $propPickerConfig.insertionMode
+		$flowPropPickerConfig.onSelect = $propPickerConfig.onSelect
+		$flowPropPickerConfig.searchOn = !!search
 
 		if (!resultByIdFiltered || !flowInputsFiltered) {
 			return
