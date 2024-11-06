@@ -1,5 +1,5 @@
-import type { ApiRequestOptions } from './ApiRequestOptions';
-import type { ApiResult } from './ApiResult';
+import type { ApiRequestOptions } from './ApiRequestOptions.ts';
+import type { ApiResult } from './ApiResult.ts';
 
 export class ApiError extends Error {
 	public readonly url: string;

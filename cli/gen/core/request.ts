@@ -1,9 +1,9 @@
-import { ApiError } from './ApiError';
-import type { ApiRequestOptions } from './ApiRequestOptions';
-import type { ApiResult } from './ApiResult';
-import { CancelablePromise } from './CancelablePromise';
-import type { OnCancel } from './CancelablePromise';
-import type { OpenAPIConfig } from './OpenAPI';
+import { ApiError } from './ApiError.ts';
+import type { ApiRequestOptions } from './ApiRequestOptions.ts';
+import type { ApiResult } from './ApiResult.ts';
+import { CancelablePromise } from './CancelablePromise.ts';
+import type { OnCancel } from './CancelablePromise.ts';
+import type { OpenAPIConfig } from './OpenAPI.ts';
 
 export const isString = (value: unknown): value is string => {
 	return typeof value === 'string';

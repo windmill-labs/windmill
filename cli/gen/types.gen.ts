@@ -257,21 +257,18 @@ export type TruncatedToken = {
     created_at: string;
     last_used_at: string;
     scopes?: Array<(string)>;
-    email?: string;
 };
 
 export type NewToken = {
     label?: string;
     expiration?: string;
     scopes?: Array<(string)>;
-    workspace_id?: string;
 };
 
 export type NewTokenImpersonate = {
     label?: string;
     expiration?: string;
     impersonate_email: string;
-    workspace_id?: string;
 };
 
 export type ListableVariable = {
@@ -320,7 +317,7 @@ export type AuditLog = {
     id: number;
     timestamp: string;
     username: string;
-    operation: 'jobs.run' | 'jobs.run.script' | 'jobs.run.preview' | 'jobs.run.flow' | 'jobs.run.flow_preview' | 'jobs.run.script_hub' | 'jobs.run.dependencies' | 'jobs.run.identity' | 'jobs.run.noop' | 'jobs.flow_dependencies' | 'jobs' | 'jobs.cancel' | 'jobs.force_cancel' | 'jobs.disapproval' | 'jobs.delete' | 'account.delete' | 'openai.request' | 'resources.create' | 'resources.update' | 'resources.delete' | 'resource_types.create' | 'resource_types.update' | 'resource_types.delete' | 'schedule.create' | 'schedule.setenabled' | 'schedule.edit' | 'schedule.delete' | 'scripts.create' | 'scripts.update' | 'scripts.archive' | 'scripts.delete' | 'users.create' | 'users.delete' | 'users.update' | 'users.login' | 'users.login_failure' | 'users.logout' | 'users.accept_invite' | 'users.decline_invite' | 'users.token.create' | 'users.token.delete' | 'users.add_to_workspace' | 'users.add_global' | 'users.setpassword' | 'users.impersonate' | 'users.leave_workspace' | 'oauth.login' | 'oauth.login_failure' | 'oauth.signup' | 'variables.create' | 'variables.delete' | 'variables.update' | 'flows.create' | 'flows.update' | 'flows.delete' | 'flows.archive' | 'apps.create' | 'apps.update' | 'apps.delete' | 'folder.create' | 'folder.update' | 'folder.delete' | 'folder.add_owner' | 'folder.remove_owner' | 'group.create' | 'group.delete' | 'group.edit' | 'group.adduser' | 'group.removeuser' | 'igroup.create' | 'igroup.delete' | 'igroup.adduser' | 'igroup.removeuser' | 'variables.decrypt_secret' | 'workspaces.edit_command_script' | 'workspaces.edit_deploy_to' | 'workspaces.edit_auto_invite_domain' | 'workspaces.edit_webhook' | 'workspaces.edit_copilot_config' | 'workspaces.edit_error_handler' | 'workspaces.create' | 'workspaces.update' | 'workspaces.archive' | 'workspaces.unarchive' | 'workspaces.delete';
+    operation: 'jobs.run' | 'jobs.run.script' | 'jobs.run.preview' | 'jobs.run.flow' | 'jobs.run.flow_preview' | 'jobs.run.script_hub' | 'jobs.run.dependencies' | 'jobs.run.identity' | 'jobs.run.noop' | 'jobs.flow_dependencies' | 'jobs' | 'jobs.cancel' | 'jobs.force_cancel' | 'jobs.disapproval' | 'jobs.delete' | 'account.delete' | 'openai.request' | 'resources.create' | 'resources.update' | 'resources.delete' | 'resource_types.create' | 'resource_types.update' | 'resource_types.delete' | 'schedule.create' | 'schedule.setenabled' | 'schedule.edit' | 'schedule.delete' | 'scripts.create' | 'scripts.update' | 'scripts.archive' | 'scripts.delete' | 'users.create' | 'users.delete' | 'users.update' | 'users.login' | 'users.logout' | 'users.accept_invite' | 'users.decline_invite' | 'users.token.create' | 'users.token.delete' | 'users.add_to_workspace' | 'users.add_global' | 'users.setpassword' | 'users.impersonate' | 'users.leave_workspace' | 'oauth.login' | 'oauth.signup' | 'variables.create' | 'variables.delete' | 'variables.update' | 'flows.create' | 'flows.update' | 'flows.delete' | 'flows.archive' | 'apps.create' | 'apps.update' | 'apps.delete' | 'folder.create' | 'folder.update' | 'folder.delete' | 'folder.add_owner' | 'folder.remove_owner' | 'group.create' | 'group.delete' | 'group.edit' | 'group.adduser' | 'group.removeuser' | 'igroup.create' | 'igroup.delete' | 'igroup.adduser' | 'igroup.removeuser' | 'variables.decrypt_secret' | 'workspaces.edit_command_script' | 'workspaces.edit_deploy_to' | 'workspaces.edit_auto_invite_domain' | 'workspaces.edit_webhook' | 'workspaces.edit_copilot_config' | 'workspaces.edit_error_handler' | 'workspaces.create' | 'workspaces.update' | 'workspaces.archive' | 'workspaces.unarchive' | 'workspaces.delete';
     action_kind: 'Created' | 'Updated' | 'Delete' | 'Execute';
     resource?: string;
     parameters?: {
@@ -328,7 +325,7 @@ export type AuditLog = {
     };
 };
 
-export type operation = 'jobs.run' | 'jobs.run.script' | 'jobs.run.preview' | 'jobs.run.flow' | 'jobs.run.flow_preview' | 'jobs.run.script_hub' | 'jobs.run.dependencies' | 'jobs.run.identity' | 'jobs.run.noop' | 'jobs.flow_dependencies' | 'jobs' | 'jobs.cancel' | 'jobs.force_cancel' | 'jobs.disapproval' | 'jobs.delete' | 'account.delete' | 'openai.request' | 'resources.create' | 'resources.update' | 'resources.delete' | 'resource_types.create' | 'resource_types.update' | 'resource_types.delete' | 'schedule.create' | 'schedule.setenabled' | 'schedule.edit' | 'schedule.delete' | 'scripts.create' | 'scripts.update' | 'scripts.archive' | 'scripts.delete' | 'users.create' | 'users.delete' | 'users.update' | 'users.login' | 'users.login_failure' | 'users.logout' | 'users.accept_invite' | 'users.decline_invite' | 'users.token.create' | 'users.token.delete' | 'users.add_to_workspace' | 'users.add_global' | 'users.setpassword' | 'users.impersonate' | 'users.leave_workspace' | 'oauth.login' | 'oauth.login_failure' | 'oauth.signup' | 'variables.create' | 'variables.delete' | 'variables.update' | 'flows.create' | 'flows.update' | 'flows.delete' | 'flows.archive' | 'apps.create' | 'apps.update' | 'apps.delete' | 'folder.create' | 'folder.update' | 'folder.delete' | 'folder.add_owner' | 'folder.remove_owner' | 'group.create' | 'group.delete' | 'group.edit' | 'group.adduser' | 'group.removeuser' | 'igroup.create' | 'igroup.delete' | 'igroup.adduser' | 'igroup.removeuser' | 'variables.decrypt_secret' | 'workspaces.edit_command_script' | 'workspaces.edit_deploy_to' | 'workspaces.edit_auto_invite_domain' | 'workspaces.edit_webhook' | 'workspaces.edit_copilot_config' | 'workspaces.edit_error_handler' | 'workspaces.create' | 'workspaces.update' | 'workspaces.archive' | 'workspaces.unarchive' | 'workspaces.delete';
+export type operation = 'jobs.run' | 'jobs.run.script' | 'jobs.run.preview' | 'jobs.run.flow' | 'jobs.run.flow_preview' | 'jobs.run.script_hub' | 'jobs.run.dependencies' | 'jobs.run.identity' | 'jobs.run.noop' | 'jobs.flow_dependencies' | 'jobs' | 'jobs.cancel' | 'jobs.force_cancel' | 'jobs.disapproval' | 'jobs.delete' | 'account.delete' | 'openai.request' | 'resources.create' | 'resources.update' | 'resources.delete' | 'resource_types.create' | 'resource_types.update' | 'resource_types.delete' | 'schedule.create' | 'schedule.setenabled' | 'schedule.edit' | 'schedule.delete' | 'scripts.create' | 'scripts.update' | 'scripts.archive' | 'scripts.delete' | 'users.create' | 'users.delete' | 'users.update' | 'users.login' | 'users.logout' | 'users.accept_invite' | 'users.decline_invite' | 'users.token.create' | 'users.token.delete' | 'users.add_to_workspace' | 'users.add_global' | 'users.setpassword' | 'users.impersonate' | 'users.leave_workspace' | 'oauth.login' | 'oauth.signup' | 'variables.create' | 'variables.delete' | 'variables.update' | 'flows.create' | 'flows.update' | 'flows.delete' | 'flows.archive' | 'apps.create' | 'apps.update' | 'apps.delete' | 'folder.create' | 'folder.update' | 'folder.delete' | 'folder.add_owner' | 'folder.remove_owner' | 'group.create' | 'group.delete' | 'group.edit' | 'group.adduser' | 'group.removeuser' | 'igroup.create' | 'igroup.delete' | 'igroup.adduser' | 'igroup.removeuser' | 'variables.decrypt_secret' | 'workspaces.edit_command_script' | 'workspaces.edit_deploy_to' | 'workspaces.edit_auto_invite_domain' | 'workspaces.edit_webhook' | 'workspaces.edit_copilot_config' | 'workspaces.edit_error_handler' | 'workspaces.create' | 'workspaces.update' | 'workspaces.archive' | 'workspaces.unarchive' | 'workspaces.delete';
 
 export type action_kind = 'Created' | 'Updated' | 'Delete' | 'Execute';
 
@@ -578,78 +575,6 @@ export type EditHttpTrigger = {
     requires_auth: boolean;
 };
 
-export type TriggersCount = {
-    primary_schedule?: {
-        schedule?: string;
-    };
-    schedule_count?: number;
-    http_routes_count?: number;
-    webhook_count?: number;
-    email_count?: number;
-    websocket_count?: number;
-};
-
-export type WebsocketTrigger = {
-    path: string;
-    edited_by: string;
-    edited_at: string;
-    script_path: string;
-    url: string;
-    is_flow: boolean;
-    extra_perms: {
-        [key: string]: (boolean);
-    };
-    email: string;
-    workspace_id: string;
-    server_id?: string;
-    last_server_ping?: string;
-    error?: string;
-    enabled: boolean;
-    filters: Array<{
-        key: string;
-        value: unknown;
-    }>;
-    initial_messages: Array<WebsocketTriggerInitialMessage>;
-    url_runnable_args: ScriptArgs;
-};
-
-export type NewWebsocketTrigger = {
-    path: string;
-    script_path: string;
-    is_flow: boolean;
-    url: string;
-    enabled?: boolean;
-    filters: Array<{
-        key: string;
-        value: unknown;
-    }>;
-    initial_messages: Array<WebsocketTriggerInitialMessage>;
-    url_runnable_args: ScriptArgs;
-};
-
-export type EditWebsocketTrigger = {
-    url: string;
-    path: string;
-    script_path: string;
-    is_flow: boolean;
-    filters: Array<{
-        key: string;
-        value: unknown;
-    }>;
-    initial_messages: Array<WebsocketTriggerInitialMessage>;
-    url_runnable_args: ScriptArgs;
-};
-
-export type WebsocketTriggerInitialMessage = {
-    raw_message: string;
-} | {
-    runnable_result: {
-        path: string;
-        args: ScriptArgs;
-        is_flow: boolean;
-    };
-};
-
 export type Group = {
     name: string;
     summary?: string;
@@ -735,7 +660,6 @@ export type GlobalUserInfo = {
     name?: string;
     company?: string;
     username?: string;
-    operator_only?: boolean;
 };
 
 export type login_type = 'password' | 'github';
@@ -1044,42 +968,6 @@ export type JobSearchHit = {
     dancer?: string;
 };
 
-export type LogSearchHit = {
-    dancer?: string;
-};
-
-export type AutoscalingEvent = {
-    id?: number;
-    worker_group?: string;
-    event_type?: string;
-    desired_workers?: number;
-    reason?: string;
-    applied_at?: string;
-};
-
-export type CriticalAlert = {
-    /**
-     * Unique identifier for the alert
-     */
-    id?: number;
-    /**
-     * Type of alert (e.g., critical_error)
-     */
-    alert_type?: string;
-    /**
-     * The message content of the alert
-     */
-    message?: string;
-    /**
-     * Time when the alert was created
-     */
-    created_at?: string;
-    /**
-     * Acknowledgment status of the alert, can be true, false, or null if not set
-     */
-    acknowledged?: (boolean) | null;
-};
-
 export type OpenFlow = {
     summary: string;
     description?: string;
@@ -1185,7 +1073,6 @@ export type RawScript = {
     concurrent_limit?: number;
     concurrency_time_window_s?: number;
     custom_concurrency_key?: string;
-    is_trigger?: boolean;
 };
 
 export type language2 = 'deno' | 'bun' | 'python3' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'php';
@@ -1198,7 +1085,6 @@ export type PathScript = {
     hash?: string;
     type: 'script';
     tag_override?: string;
-    is_trigger?: boolean;
 };
 
 export type PathFlow = {
@@ -1807,25 +1693,6 @@ export type TestCriticalChannelsData = {
 
 export type TestCriticalChannelsResponse = (string);
 
-export type GetCriticalAlertsData = {
-    acknowledged?: (boolean) | null;
-    page?: number;
-    pageSize?: number;
-};
-
-export type GetCriticalAlertsResponse = (Array<CriticalAlert>);
-
-export type AcknowledgeCriticalAlertData = {
-    /**
-     * The ID of the critical alert to acknowledge
-     */
-    id: number;
-};
-
-export type AcknowledgeCriticalAlertResponse = (string);
-
-export type AcknowledgeAllCriticalAlertsResponse = (string);
-
 export type TestLicenseKeyData = {
     /**
      * test license key
@@ -2050,10 +1917,6 @@ export type ExistsEmailData = {
 export type ExistsEmailResponse = (boolean);
 
 export type ListUsersAsSuperAdminData = {
-    /**
-     * filter only active users
-     */
-    activeOnly?: boolean;
     /**
      * which page to return (start at 1, default 1)
      */
@@ -2356,15 +2219,6 @@ export type GetWorkspaceUsageData = {
 
 export type GetWorkspaceUsageResponse = (number);
 
-export type GetUsedTriggersData = {
-    workspace: string;
-};
-
-export type GetUsedTriggersResponse = ({
-    http_routes_used: boolean;
-    websocket_used: boolean;
-});
-
 export type ListUsersData = {
     workspace: string;
 };
@@ -2620,10 +2474,7 @@ export type DisconnectSlackData = {
 export type DisconnectSlackResponse = (string);
 
 export type ListOauthLoginsResponse = ({
-    oauth: Array<{
-        type: string;
-        display_name?: string;
-    }>;
+    oauth: Array<(string)>;
     saml?: string;
 });
 
@@ -3160,20 +3011,6 @@ export type GetScriptByPathData = {
 
 export type GetScriptByPathResponse = (Script);
 
-export type GetTriggersCountOfScriptData = {
-    path: string;
-    workspace: string;
-};
-
-export type GetTriggersCountOfScriptResponse = (TriggersCount);
-
-export type ListTokensOfScriptData = {
-    path: string;
-    workspace: string;
-};
-
-export type ListTokensOfScriptResponse = (Array<TruncatedToken>);
-
 export type GetScriptByPathWithDraftData = {
     path: string;
     workspace: string;
@@ -3187,13 +3024,6 @@ export type GetScriptHistoryByPathData = {
 };
 
 export type GetScriptHistoryByPathResponse = (Array<ScriptHistory>);
-
-export type GetScriptLatestVersionData = {
-    path: string;
-    workspace: string;
-};
-
-export type GetScriptLatestVersionResponse = (ScriptHistory);
 
 export type UpdateScriptHistoryData = {
     hash: string;
@@ -3548,13 +3378,6 @@ export type GetFlowHistoryData = {
 
 export type GetFlowHistoryResponse = (Array<FlowVersion>);
 
-export type GetFlowLatestVersionData = {
-    path: string;
-    workspace: string;
-};
-
-export type GetFlowLatestVersionResponse = (FlowVersion);
-
 export type GetFlowVersionData = {
     path: string;
     version: number;
@@ -3584,20 +3407,6 @@ export type GetFlowByPathData = {
 };
 
 export type GetFlowByPathResponse = (Flow);
-
-export type GetTriggersCountOfFlowData = {
-    path: string;
-    workspace: string;
-};
-
-export type GetTriggersCountOfFlowResponse = (TriggersCount);
-
-export type ListTokensOfFlowData = {
-    path: string;
-    workspace: string;
-};
-
-export type ListTokensOfFlowResponse = (Array<TruncatedToken>);
 
 export type ToggleWorkspaceErrorHandlerForFlowData = {
     path: string;
@@ -3827,13 +3636,6 @@ export type GetAppHistoryByPathData = {
 };
 
 export type GetAppHistoryByPathResponse = (Array<AppHistory>);
-
-export type GetAppLatestVersionData = {
-    path: string;
-    workspace: string;
-};
-
-export type GetAppLatestVersionResponse = (AppHistory);
 
 export type UpdateAppHistoryData = {
     id: number;
@@ -5086,80 +4888,11 @@ export type ExistsRouteData = {
 
 export type ExistsRouteResponse = (boolean);
 
-export type CreateWebsocketTriggerData = {
-    /**
-     * new websocket trigger
-     */
-    requestBody: NewWebsocketTrigger;
+export type UsedData = {
     workspace: string;
 };
 
-export type CreateWebsocketTriggerResponse = (string);
-
-export type UpdateWebsocketTriggerData = {
-    path: string;
-    /**
-     * updated trigger
-     */
-    requestBody: EditWebsocketTrigger;
-    workspace: string;
-};
-
-export type UpdateWebsocketTriggerResponse = (string);
-
-export type DeleteWebsocketTriggerData = {
-    path: string;
-    workspace: string;
-};
-
-export type DeleteWebsocketTriggerResponse = (string);
-
-export type GetWebsocketTriggerData = {
-    path: string;
-    workspace: string;
-};
-
-export type GetWebsocketTriggerResponse = (WebsocketTrigger);
-
-export type ListWebsocketTriggersData = {
-    isFlow?: boolean;
-    /**
-     * which page to return (start at 1, default 1)
-     */
-    page?: number;
-    /**
-     * filter by path
-     */
-    path?: string;
-    pathStart?: string;
-    /**
-     * number of items to return for a given page (default 30, max 100)
-     */
-    perPage?: number;
-    workspace: string;
-};
-
-export type ListWebsocketTriggersResponse = (Array<WebsocketTrigger>);
-
-export type ExistsWebsocketTriggerData = {
-    path: string;
-    workspace: string;
-};
-
-export type ExistsWebsocketTriggerResponse = (boolean);
-
-export type SetWebsocketTriggerEnabledData = {
-    path: string;
-    /**
-     * updated websocket trigger enable
-     */
-    requestBody: {
-        enabled: boolean;
-    };
-    workspace: string;
-};
-
-export type SetWebsocketTriggerEnabledResponse = (string);
+export type UsedResponse = (boolean);
 
 export type ListInstanceGroupsResponse = (Array<InstanceGroup>);
 
@@ -5497,14 +5230,8 @@ export type DeleteConfigResponse = (string);
 
 export type ListConfigsResponse = (Array<Config>);
 
-export type ListAutoscalingEventsData = {
-    workerGroup: string;
-};
-
-export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
-
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger';
     path: string;
     workspace: string;
 };
@@ -5514,7 +5241,7 @@ export type GetGranularAclsResponse = ({
 });
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger';
     path: string;
     /**
      * acl to add
@@ -5529,7 +5256,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = (string);
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger';
     path: string;
     /**
      * acl to add
@@ -6090,44 +5817,4 @@ export type SearchJobsIndexResponse = ({
      * the jobs that matched the query
      */
     hits?: Array<JobSearchHit>;
-});
-
-export type SearchLogsIndexData = {
-    hostname: string;
-    maxTs?: string;
-    minTs?: string;
-    mode: string;
-    searchQuery: string;
-    workerGroup?: string;
-};
-
-export type SearchLogsIndexResponse = ({
-    /**
-     * a list of the terms that couldn't be parsed (and thus ignored)
-     */
-    query_parse_errors?: Array<(string)>;
-    /**
-     * log files that matched the query
-     */
-    hits?: Array<LogSearchHit>;
-});
-
-export type CountSearchLogsIndexData = {
-    hosts: string;
-    maxTs?: string;
-    minTs?: string;
-    searchQuery: string;
-};
-
-export type CountSearchLogsIndexResponse = ({
-    /**
-     * a list of the terms that couldn't be parsed (and thus ignored)
-     */
-    query_parse_errors?: Array<(string)>;
-    /**
-     * count of log lines that matched the query per hostname
-     */
-    count_per_host?: {
-        [key: string]: unknown;
-    };
 });
