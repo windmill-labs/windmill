@@ -169,23 +169,6 @@
 	}
 	let w = 0
 	let open: boolean = false
-
-	const multiSelectProps = {
-		outerDivClass: resolvedConfig.allowOverflow ? '' : 'h-full',
-		ulSelectedClass: resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full',
-		'--sms-border': 'none',
-		'--sms-min-height': '32px',
-		'--sms-focus-border': 'none',
-		placeholder: resolvedConfig.placeholder,
-		allowUserOptions: resolvedConfig.create,
-		onOpen: () => {
-			$selectedComponent = [id]
-			open = true
-		},
-		onClose: () => {
-			open = false
-		}
-	}
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -223,69 +206,47 @@
 		bind:clientWidth={w}
 	>
 		{#if !value || Array.isArray(value)}
-			{#if isObjectOptionArray(value) && isObjectOptionArray(items)}
-				<MultiSelect
-					bind:selected={value}
-					options={items}
-					on:change={(event) => {
-						if (event?.detail?.type === 'removeAll') {
-							outputs?.result.set([])
-						} else {
-							outputs?.result.set([...(value ?? [])])
-						}
+			<MultiSelect
+				bind:outerDiv
+				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
+				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
+				--sms-border={'none'}
+				--sms-min-height={'32px'}
+				--sms-focus-border={'none'}
+				bind:selected={value}
+				options={items}
+				placeholder={resolvedConfig.placeholder}
+				allowUserOptions={resolvedConfig.create}
+				on:change={(event) => {
+					if (event?.detail?.type === 'removeAll') {
+						outputs?.result.set([])
+					} else {
+						outputs?.result.set([...(value ?? [])])
+					}
+				}}
+				on:open={() => {
+					$selectedComponent = [id]
+					open = true
+				}}
+				on:close={() => {
+					open = false
+				}}
+				let:option
+			>
+				<!-- needed because portal doesn't work for mouseup event en mobile -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div
+					class="w-full"
+					on:mouseup|stopPropagation
+					on:pointerdown|stopPropagation={(e) => {
+						let newe = new MouseEvent('mouseup')
+						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
-					{...multiSelectProps}
-					bind:outerDiv
-					on:open={multiSelectProps.onOpen}
-					on:close={multiSelectProps.onClose}
-					let:option
-					id="objectoption-multiselect"
 				>
-					<!-- needed because portal doesn't work for mouseup event en mobile -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div
-						class="w-full"
-						on:mouseup|stopPropagation
-						on:pointerdown|stopPropagation={(e) => {
-							let newe = new MouseEvent('mouseup')
-							e.target?.['parentElement']?.dispatchEvent(newe)
-						}}
-					>
-						{option.label}
-					</div>
-				</MultiSelect>
-			{:else if isStringArray(value) && isStringArray(items)}
-				<MultiSelect
-					bind:selected={value}
-					options={items}
-					on:change={(event) => {
-						if (event?.detail?.type === 'removeAll') {
-							outputs?.result.set([])
-						} else {
-							outputs?.result.set([...(value ?? [])])
-						}
-					}}
-					{...multiSelectProps}
-					bind:outerDiv
-					on:open={multiSelectProps.onOpen}
-					on:close={multiSelectProps.onClose}
-					let:option
-					id="simplestring-multiselect"
-				>
-					<!-- needed because portal doesn't work for mouseup event en mobile -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div
-						class="w-full"
-						on:mouseup|stopPropagation
-						on:pointerdown|stopPropagation={(e) => {
-							let newe = new MouseEvent('mouseup')
-							e.target?.['parentElement']?.dispatchEvent(newe)
-						}}
-					>
-						{option}
-					</div>
-				</MultiSelect>
-			{/if}
+					{isObjectOptionArray(value) && isObjectOptionArray(items) ? option.label : option}
+				</div>
+			</MultiSelect>
+
 			<Portal name="app-multiselect-v2">
 				<div use:floatingContent class="z5000" hidden={!open}>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
