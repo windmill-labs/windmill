@@ -23,7 +23,7 @@
 		Settings,
 		UserCog,
 		Plus,
-		Unplug,
+		Unplug
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
