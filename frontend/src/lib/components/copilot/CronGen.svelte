@@ -69,7 +69,7 @@
 			on:click={genLoading ? () => abortController?.abort() : undefined}
 		/>
 	</svelte:fragment>
-	{#if $copilotInfo.exists_ai_resource_path}
+	{#if $copilotInfo.exists_ai_resource}
 		<div class="flex w-96">
 			<input
 				bind:this={instructionsField}
@@ -104,7 +104,7 @@
 		<div class="block text-primary">
 			<p class="text-sm"
 				>Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=openai"
+					href="{base}/workspace_settings?tab=ai"
 					target="_blank"
 					class="inline-flex flex-row items-center gap-1"
 					>workspace settings <ExternalLink size={16} /></a

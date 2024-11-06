@@ -98,7 +98,10 @@
 			})
 			await WorkspaceService.editCopilotConfig({
 				workspace: id,
-				requestBody: { openai_resource_path: path, code_completion_enabled: codeCompletionEnabled }
+				requestBody: {
+					ai_resource: { path, provider: 'openai' },
+					code_completion_enabled: codeCompletionEnabled
+				}
 			})
 		}
 

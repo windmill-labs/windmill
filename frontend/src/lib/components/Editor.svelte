@@ -624,7 +624,7 @@
 		)
 	}
 
-	$: $copilotInfo.exists_ai_resource_path &&
+	$: $copilotInfo.exists_ai_resource &&
 		$copilotInfo.code_completion_enabled &&
 		$codeCompletionSessionEnabled &&
 		initialized &&

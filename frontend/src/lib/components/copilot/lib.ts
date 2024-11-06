@@ -28,7 +28,7 @@ class WorkspacedOpenai {
 	private client: OpenAI | undefined
 
 	init(workspace: string, token: string | undefined = undefined) {
-		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
+		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
 		this.client = new OpenAI({
 			baseURL,
 			apiKey: 'fakekey',
@@ -298,7 +298,6 @@ export async function getCompletion(
 			signal: abortController.signal
 		}
 	)
-
 	return completion
 }
 

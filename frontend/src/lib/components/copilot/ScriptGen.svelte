@@ -388,7 +388,7 @@
 						<LoadingIcon />
 					{/if}
 				</div>
-			{:else if $copilotInfo.exists_ai_resource_path}
+			{:else if $copilotInfo.exists_ai_resource}
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
@@ -493,7 +493,7 @@
 			{:else}
 				<p class="text-sm">
 					Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

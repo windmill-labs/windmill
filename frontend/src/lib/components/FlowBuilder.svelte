@@ -927,7 +927,7 @@
 						pastModule.value.type === 'script')
 				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource_path) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const { inputs, allExprs } = await glueCopilot(
@@ -985,7 +985,7 @@
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
-						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource_path) {
+						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true

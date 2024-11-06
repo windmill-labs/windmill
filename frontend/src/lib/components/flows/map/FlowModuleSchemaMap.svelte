@@ -79,10 +79,7 @@
 		} else if (wsScript) {
 			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(
-				module.id,
-				!disableAi && $copilotInfo.exists_ai_resource_path
-			)
+			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.exists_ai_resource)
 		} else if (kind == 'whileloop') {
 			;[module, state] = await createWhileLoop(module.id)
 		} else if (kind == 'branchone') {

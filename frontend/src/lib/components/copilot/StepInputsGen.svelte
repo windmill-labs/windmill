@@ -168,7 +168,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.exists_ai_resource_path && $stepInputCompletionEnabled}
+	{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -236,10 +236,10 @@ input_name2: expression2
 				</Button>
 			</svelte:fragment>
 			<p class="text-sm">
-				{#if !$copilotInfo.exists_ai_resource_path}
+				{#if !$copilotInfo.exists_ai_resource}
 					Enable Windmill AI in the{' '}
 					<a
-						href="{base}/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

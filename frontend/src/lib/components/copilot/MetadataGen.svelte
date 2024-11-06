@@ -138,7 +138,7 @@ Generate a description for the flow below:
 	}
 
 	if (
-		$copilotInfo.exists_ai_resource_path &&
+		$copilotInfo.exists_ai_resource &&
 		$metadataCompletionEnabled &&
 		generateOnAppear &&
 		!content &&
@@ -158,7 +158,7 @@ Generate a description for the flow below:
 	}
 
 	$: active =
-		$copilotInfo.exists_ai_resource_path &&
+		$copilotInfo.exists_ai_resource &&
 		$metadataCompletionEnabled &&
 		!content &&
 		(loading || focused || !!generatedContent) &&
@@ -192,7 +192,7 @@ Generate a description for the flow below:
 	class={twMerge('relative', $$props.class)}
 	bind:clientWidth={width}
 	on:keydown={(event) => {
-		if (!$copilotInfo.exists_ai_resource_path || !$metadataCompletionEnabled) {
+		if (!$copilotInfo.exists_ai_resource || !$metadataCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {

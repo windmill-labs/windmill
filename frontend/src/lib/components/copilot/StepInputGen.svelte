@@ -138,7 +138,7 @@ Only return the expression without any wrapper.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_ai_resource_path || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -181,7 +181,7 @@ Only return the expression without any wrapper.`
 		cancelOnOutOfFocus()
 	}
 
-	$: if ($copilotInfo.exists_ai_resource_path && $stepInputCompletionEnabled && focused) {
+	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
 	}
 
@@ -193,7 +193,7 @@ Only return the expression without any wrapper.`
 	let openInputsModal = false
 </script>
 
-{#if $copilotInfo.exists_ai_resource_path && $stepInputCompletionEnabled}
+{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()

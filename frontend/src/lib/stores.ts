@@ -70,12 +70,10 @@ export const userWorkspaces: Readable<
 	}
 })
 export const copilotInfo = writable<{
-	ai_resource_type: string
-	exists_ai_resource_path: boolean
+	exists_ai_resource: boolean
 	code_completion_enabled: boolean
 }>({
-	ai_resource_type: '',
-	exists_ai_resource_path: false,
+	exists_ai_resource: false,
 	code_completion_enabled: false
 })
 export const codeCompletionLoading = writable<boolean>(false)

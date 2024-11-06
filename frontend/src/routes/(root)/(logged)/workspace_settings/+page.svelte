@@ -195,8 +195,7 @@
 				}
 			})
 			copilotInfo.set({
-				ai_resource_type: aiProvider,
-				exists_ai_resource_path: true,
+				exists_ai_resource: true,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		} else {
@@ -208,8 +207,7 @@
 				}
 			})
 			copilotInfo.set({
-				ai_resource_type: aiProvider,
-				exists_ai_resource_path: true,
+				exists_ai_resource: false,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		}
@@ -978,7 +976,7 @@
 						Select an OpenAI resource to unlock Windmill AI features.
 					</div>
 					<div class="text-tertiary text-xs">
-						Windmill AI uses OpenAI's GPT-4o for all AI features.
+						Windmill AI supports integration with your preferred AI provider for all AI features.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
 							target="_blank"
@@ -987,10 +985,10 @@
 					</div>
 				</div>
 			</div>
-			<ToggleButtonGroup  bind:selected>
-				<ToggleButton value='openai' label="OpenAi" />
-				<ToggleButton value='anthropic' label="Anthropic" />
-				<ToggleButton value='mistral' label="Mistral" />
+			<ToggleButtonGroup bind:selected>
+				<ToggleButton value="openai" label="OpenAi" />
+				<ToggleButton value="anthropic" label="Anthropic" />
+				<ToggleButton value="mistral" label="Mistral" />
 			</ToggleButtonGroup>
 			<div class="mt-5 flex gap-1">
 				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth]}

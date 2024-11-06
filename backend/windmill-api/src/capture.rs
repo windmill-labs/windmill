@@ -20,7 +20,7 @@ use windmill_common::{
 };
 use windmill_queue::{PushArgs, PushArgsOwned};
 
-use crate::{db::{ApiAuthed, DB}, openai::OPENAI_AZURE_BASE_PATH};
+use crate::db::{ApiAuthed, DB};
 
 const KEEP_LAST: i64 = 8;
 
@@ -40,7 +40,7 @@ pub async fn new_payload(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<StatusCode> {
     let mut tx = user_db.begin(&authed).await?;
-    
+
     sqlx::query!(
         "
        INSERT INTO capture

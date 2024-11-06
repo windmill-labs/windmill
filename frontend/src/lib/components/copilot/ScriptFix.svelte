@@ -186,12 +186,12 @@
 					</Button>
 				</svelte:fragment>
 				{@const fixAction = (_) => {
-					if ($copilotInfo.exists_ai_resource_path) {
+					if ($copilotInfo.exists_ai_resource) {
 						onFix(() => close(null))
 					}
 				}}
 				<div use:fixAction>
-					{#if $copilotInfo.exists_ai_resource_path}
+					{#if $copilotInfo.exists_ai_resource}
 						<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
 							{#if $generatedCode.length > 0}
 								<div class="overflow-x-scroll">
@@ -211,7 +211,7 @@
 							<p class="text-sm"
 								>Enable Windmill AI in the <a
 									class="inline-flex flex-row items-center gap-1"
-									href="{base}/workspace_settings?tab=openai"
+									href="{base}/workspace_settings?tab=ai"
 									target="_blank">workspace settings</a
 								></p
 							></div

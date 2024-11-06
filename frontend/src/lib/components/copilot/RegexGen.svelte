@@ -114,7 +114,7 @@
 		/>
 	</svelte:fragment>
 	<div class="block text-primary z-[2000]">
-		{#if $copilotInfo.exists_ai_resource_path}
+		{#if $copilotInfo.exists_ai_resource}
 			<div class="flex flex-col gap-4">
 				<div class="flex w-96">
 					<input
@@ -167,7 +167,7 @@
 		{:else}
 			<p class="text-sm">
 				Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=openai"
+					href="{base}/workspace_settings?tab=ai"
 					target="_blank"
 					class="inline-flex flex-row items-center gap-1"
 				>
