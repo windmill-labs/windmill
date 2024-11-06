@@ -274,7 +274,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Keep job directories',
 			key: 'keep_job_dir',
 			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
+			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
 			storage: 'setting'
 		},
 		{

@@ -32,9 +32,11 @@
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
 				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
-				<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
-					>Scheduled Poll</Tab
-				>
+				{#if isFlow}
+					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
+						>Scheduled Poll</Tab
+					>
+				{/if}
 
 				<svelte:fragment slot="content">
 					{#if $selectedTrigger === 'webhooks'}
