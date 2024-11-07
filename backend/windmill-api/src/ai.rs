@@ -1,7 +1,6 @@
 use crate::{
     db::{ApiAuthed, DB},
     variables::decrypt,
-    workspaces::AiRessource,
 };
 use anthropic::AnthropicCache;
 use axum::{
@@ -15,7 +14,7 @@ use lazy_static::lazy_static;
 use openai::OpenaiCache;
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::error::{to_anyhow, Result};
@@ -24,8 +23,7 @@ use windmill_common::variables::build_crypt;
 use windmill_common::error::Error;
 
 const OPENAI_BASE_API_URL: &str = "https://api.openai.com/v1";
-const ANTHROPIC_BASE_API_URL: &str = "https://api.anthropic.com/v1";
-const MISTRAL_BASE_API_URL: &str = "";
+const ANTHROPIC_BASE_API_URL: &str = "https://api.anthropic.com";
 use serde_json::value::{RawValue, Value};
 use std::collections::HashMap;
 
@@ -39,11 +37,11 @@ lazy_static::lazy_static! {
 mod openai {
     use super::*;
 
-    use super::{get_variable_or_self, AiCache, KeyCache, AI_KEY_CACHE, OPENAI_BASE_API_URL};
+    use super::{get_variable_or_self, KeyCache, OPENAI_BASE_API_URL};
 
     const API_VERSION: &str = "2023-05-15";
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct OpenaiCache {
         api_key: String,
         organization_id: Option<String>,
@@ -62,6 +60,7 @@ mod openai {
         }
 
         pub fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
+            println!("In openai");
             let OpenaiCache { api_key, azure_base_path, organization_id, user } = self;
             if user.is_some() {
                 tracing::debug!("Adding user to request body");
@@ -86,9 +85,7 @@ mod openai {
             }
 
             let cp = body.clone();
-
-            println!("body: {:#?}, {}", cp, &api_key);
-
+            println!("{:#?}", body);
             let base_url = if let Some(base_url) = azure_base_path {
                 base_url
             } else {
@@ -96,7 +93,6 @@ mod openai {
             };
 
             let url = format!("{}/{}", base_url, openai_path);
-            println!("URL {}", &url);
             let mut request = HTTP_CLIENT
                 .post(url)
                 .header("content-type", "application/json")
@@ -186,14 +182,12 @@ mod openai {
         let mut resource = match config {
             OpenaiConfig::Resource(resource) => {
                 tracing::debug!("Getting OpenAI key from static resource");
-                println!("Here 1");
                 resource
             }
             OpenaiConfig::ClientCredentialsOauthResource(resource) => {
                 tracing::debug!("Getting OpenAI key with client credentials flow");
                 user = resource.user.clone();
                 let token = get_openai_key_using_credentials_flow(resource, db, w_id).await?;
-                println!("Here 2");
                 OpenaiResource { api_key: token, organization_id: None }
             }
         };
@@ -232,9 +226,7 @@ mod openai {
             azure_base_path.clone(),
             user.clone(),
         );
-        let cached_key = KeyCache::Openai(workspace_cache);
-        AI_KEY_CACHE.insert(w_id.to_string(), AiCache::new(cached_key.clone()));
-        Ok(cached_key)
+        Ok(KeyCache::Openai(workspace_cache))
     }
 }
 
@@ -256,14 +248,16 @@ mod anthropic {
 
         pub fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
             let AnthropicCache { api_key } = self;
+            println!("In anthropic");
             let url = format!("{}/{}", ANTHROPIC_BASE_API_URL, anthropic_path);
+            println!("{}, {}", &url, &api_key);
             let request = HTTP_CLIENT
                 .post(url)
                 .header("x-api-key", api_key)
                 .header("anthropic-version", API_VERSION)
                 .header("content-type", "application/json")
                 .body(body);
-
+            println!("{:#?}", request);
             Ok(request)
         }
     }
@@ -271,30 +265,31 @@ mod anthropic {
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let mut resource: AnthropicCache = serde_json::from_value(resource)
             .map_err(|e| Error::InternalErr(format!("validating anthropic resource {e:#}")))?;
-        println!("{:#?}", resource);
         resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
         let workspace_cache = AnthropicCache::new(resource.api_key);
-        let cached_key = KeyCache::Anthropic(workspace_cache);
-        AI_KEY_CACHE.insert(w_id.to_string(), AiCache::new(cached_key.clone()));
-        Ok(cached_key)
+        Ok(KeyCache::Anthropic(workspace_cache))
     }
 }
+
 mod mistral {}
-#[derive(Clone)]
-enum KeyCache {
+
+#[derive(Clone, Debug)]
+pub enum KeyCache {
     Openai(OpenaiCache),
     Anthropic(AnthropicCache),
 }
 
-#[derive(Clone)]
-struct AiCache {
-    cached_key: KeyCache,
-    expires_at: std::time::Instant,
+#[derive(Clone, Debug)]
+pub struct AiCache {
+    pub path: String,
+    pub cached_key: KeyCache,
+    pub expires_at: std::time::Instant,
 }
 
 impl AiCache {
-    pub fn new(cached_key: KeyCache) -> Self {
+    pub fn new(path: String, cached_key: KeyCache) -> Self {
         Self {
+            path,
             cached_key,
             expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
         }
@@ -305,7 +300,7 @@ impl AiCache {
 }
 
 lazy_static! {
-    static ref AI_KEY_CACHE: Cache<String, AiCache> = Cache::new(500);
+    pub static ref AI_KEY_CACHE: Cache<String, AiCache> = Cache::new(500);
 }
 
 struct Variable {
@@ -340,6 +335,26 @@ async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<Strin
     Ok(variable.value)
 }
 
+#[derive(Deserialize, Debug)]
+pub struct AiResource {
+    pub path: String,
+    #[serde(deserialize_with = "check_if_valid_ai_provider")]
+    pub provider: String,
+}
+
+fn check_if_valid_ai_provider<'de, D>(provider: D) -> std::result::Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let provider = String::deserialize(provider)?;
+    match provider.as_str() {
+        "anthropic" | "openai" => Ok(provider),
+        _ => Err(serde::de::Error::custom(
+            "Only the following Ai providers are supported: openai, anthropic".to_string(),
+        )),
+    }
+}
+
 pub fn workspaced_service() -> Router {
     let router = Router::new().route("/proxy/*ai", post(proxy));
 
@@ -353,7 +368,6 @@ async fn proxy(
     Query(query_params): Query<ProxyQueryParams>,
     body: Bytes,
 ) -> impl IntoResponse {
-    println!("{:#?}", &query_params);
     let workspace_cache = AI_KEY_CACHE.get(&w_id);
     let ai_cache = match workspace_cache {
         Some(cache) if !cache.is_expired() && !query_params.no_cache.unwrap_or(false) => {
@@ -373,8 +387,7 @@ async fn proxy(
                 ));
             }
 
-            let ai_resource = serde_json::from_value::<AiRessource>(ai_resource.unwrap()).unwrap();
-            println!("{:#?}", &ai_resource);
+            let ai_resource = serde_json::from_value::<AiResource>(ai_resource.unwrap()).unwrap();
             let ai_resource_path = ai_resource.path;
 
             let resource = sqlx::query_scalar!(
@@ -408,10 +421,15 @@ async fn proxy(
                     return Err(Error::BadRequest(format!("{} is not supported", provider)))
                 }
             };
-            ai_cache?
+            let ai_cache = ai_cache?;
+            AI_KEY_CACHE.insert(
+                w_id.clone(),
+                AiCache::new(ai_resource_path, ai_cache.clone()),
+            );
+            ai_cache
         }
     };
-
+    println!("{:#?}", ai_cache);
     let (path, request) = match ai_cache {
         KeyCache::Openai(cached) => ("openai_path", cached.prepare_request(&ai_path, body)),
         KeyCache::Anthropic(cached) => ("anthropic_path", cached.prepare_request(&ai_path, body)),

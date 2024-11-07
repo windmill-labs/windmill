@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use crate::ai::{AiResource, AI_KEY_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_ee::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
@@ -152,12 +153,6 @@ struct Workspace {
     owner: String,
     deleted: bool,
     premium: bool,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct AiRessource {
-    pub path: String,
-    pub provider: String,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -652,6 +647,9 @@ async fn edit_copilot_config(
     let mut tx = db.begin().await?;
 
     if let Some(ai_resource) = &eo.ai_resource {
+        let path = serde_json::from_value::<AiResource>(ai_resource.clone())
+            .map_err(|e| Error::BadRequest(e.to_string()))?
+            .path;
         sqlx::query!(
             "UPDATE workspace_settings SET ai_resource = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
             ai_resource,
@@ -660,6 +658,12 @@ async fn edit_copilot_config(
         )
         .execute(&mut *tx)
         .await?;
+
+        if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
+            if cached.path != path {
+                AI_KEY_CACHE.remove(&w_id);
+            }
+        }
     } else {
         sqlx::query!(
             "UPDATE workspace_settings SET ai_resource = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
@@ -668,6 +672,7 @@ async fn edit_copilot_config(
         )
         .execute(&mut *tx)
         .await?;
+        AI_KEY_CACHE.remove(&w_id);
     }
     audit_log(
         &mut *tx,
@@ -695,6 +700,7 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
+    pub ai_provider: String,
     pub exists_ai_resource: bool,
     pub code_completion_enabled: bool,
 }
@@ -712,13 +718,23 @@ async fn get_copilot_info(
     .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
-    let exists_ai_resource = if let Some(ai_resource) = record.ai_resource {
-        serde_json::from_value::<AiRessource>(ai_resource).is_ok()
+    let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
+        let ai_resource = serde_json::from_value::<AiResource>(ai_resource);
+        let exist = ai_resource.is_ok();
+        (
+            if exist {
+                ai_resource.unwrap().provider
+            } else {
+                "".to_string()
+            },
+            exist,
+        )
     } else {
-        false
+        ("".to_string(), false)
     };
 
     Ok(Json(CopilotInfo {
+        ai_provider,
         exists_ai_resource,
         code_completion_enabled: record.code_completion_enabled,
     }))
