@@ -355,6 +355,8 @@ you to have it being synced automatically everyday.
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
+Using [Nix](./frontend/README_DEV.md#nix).
+
 ### only Frontend
 This will use the backend of <https://app.windmill.dev> but your own frontend
 with hot-code reloading. Note that you will need to use a username / password login due to CSRF checks using a different auth provider.
