@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as \"http_method: _\" FROM http_trigger",
+  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as \"http_method: _\", static_asset_config as \"static_asset_config: _\" FROM http_trigger",
   "describe": {
     "columns": [
       {
@@ -65,6 +65,11 @@
             }
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "static_asset_config: _",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -80,8 +85,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "fe4f91ca7e179e58041a5c0b1a36015175e9301c01a99e8f2b82cb853349a183"
+  "hash": "11b698f82a54aac68b3617047dfe2b18dd6da7d962118fee276af354218baac2"
 }
