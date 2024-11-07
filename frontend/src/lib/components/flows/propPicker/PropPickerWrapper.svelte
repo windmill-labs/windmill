@@ -1,19 +1,22 @@
 <script context="module" lang="ts">
-	type InsertionMode = 'append' | 'connect' | 'insert'
-
 	type SelectCallback = (path: string) => boolean
 
-	type PropPickerConfig = {
-		insertionMode: InsertionMode
-		propName: string
+	export const CONNECT = 'connect' as const
+	export type PropPickerConfig = {
+		propName?: string
 		onSelect: SelectCallback
 		clearFocus: () => void
+		insertionMode: 'append' | 'connect' | 'insert'
 	}
 
 	export type PropPickerWrapperContext = {
 		propPickerConfig: Writable<PropPickerConfig | undefined>
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
-		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
+		focusProp: (
+			propName: string,
+			insertionMode: 'append' | 'connect' | 'insert',
+			onSelect: SelectCallback
+		) => void
 		clearFocus: () => void
 	}
 </script>
@@ -38,8 +41,13 @@
 	export let displayContext = true
 	export let notSelectable = false
 	export let noPadding: boolean = false
+	export let alwaysOn: boolean = false
+	export let paneClass: string = ''
 
-	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
+	const propPickerConfig: Writable<PropPickerConfig | undefined> = writable<
+		PropPickerConfig | undefined
+	>(undefined)
+
 	const inputMatches = writable<{ word: string; value: string }[] | undefined>(undefined)
 	const dispatch = createEventDispatcher()
 
@@ -99,12 +107,12 @@
 		<Pane
 			minSize={20}
 			size={40}
-			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''}"
+			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
 		>
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
-				wrapperClasses="h-full w-full pt-2 !bg-surface"
+				wrapperClasses="h-full w-full pt-2 !bg-surface "
 				marginWidth="3px"
 				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
 				$propPickerConfig?.insertionMode == 'append'
@@ -127,6 +135,7 @@
 					/>
 				{:else if pickableProperties}
 					<PropPicker
+						{alwaysOn}
 						{displayContext}
 						{error}
 						{pickableProperties}

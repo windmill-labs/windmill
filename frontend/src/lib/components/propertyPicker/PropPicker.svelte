@@ -16,6 +16,7 @@
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
+	export let alwaysOn = false
 
 	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
@@ -63,9 +64,10 @@
 		}, 50)
 	}
 
-	$: suggestedPropsFiltered = $propPickerConfig
-		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
-		: undefined
+	$: suggestedPropsFiltered =
+		$propPickerConfig && $propPickerConfig.propName
+			? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName ?? '')
+			: undefined
 	$: search != undefined && onSearch(search)
 
 	async function loadVariables() {
@@ -186,7 +188,10 @@
 	<div class="px-2 py-2">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
-	<div class="overflow-y-auto px-2 pt-2 grow" class:bg-surface-secondary={!$propPickerConfig}>
+	<div
+		class="overflow-y-auto px-2 pt-2 grow"
+		class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
+	>
 		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered).length > 0 || !filterActive)}
 			<div class="flex justify-between items-center space-x-1">
 				<span class="font-normal text-sm text-secondary">Flow Input</span>
