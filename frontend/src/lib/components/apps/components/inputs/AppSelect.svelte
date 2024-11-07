@@ -1,14 +1,8 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext } from 'svelte'
 	import Select from '../../svelte-select/lib/index'
 
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		ListContext,
-		ListInputs,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
@@ -46,11 +40,6 @@
 		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const iterContext = getContext<ListContext>('ListWrapperContext')
-	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
-	const rowContext = getContext<ListContext>('RowWrapperContext')
-	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
-
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			setValue(JSON.stringify(nvalue))
@@ -81,14 +70,6 @@
 
 	let listItems: { label: string; value: string; created?: boolean }[] = []
 
-	function setContextValue(value: any) {
-		if (iterContext && listInputs) {
-			listInputs.set(id, value)
-		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, value)
-		}
-	}
 	function handleItems() {
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
@@ -119,13 +100,7 @@
 			value = JSON.stringify(rawValue)
 			outputs?.result.set(rawValue)
 		}
-		setContextValue(rawValue)
 	}
-
-	onDestroy(() => {
-		listInputs?.remove(id)
-		rowInputs?.remove(id)
-	})
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
@@ -156,7 +131,7 @@
 		} catch (_) {}
 		value = nvalue
 		outputs?.result.set(result)
-		setContextValue(result)
+
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
 		}
@@ -165,7 +140,6 @@
 	function onClear() {
 		value = undefined
 		outputs?.result.set(undefined, true)
-		setContextValue(undefined)
 	}
 
 	let css = initCss($app.css?.selectcomponent, customCss)
@@ -198,7 +172,6 @@
 			const nvalue = resolvedConfig.defaultValue
 			value = JSON.stringify(nvalue)
 			outputs?.result.set(nvalue)
-			setContextValue(nvalue)
 		}
 	}
 	let filterText = ''
