@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.421.0](https://github.com/windmill-labs/windmill/compare/v1.420.1...v1.421.0) (2024-11-07)
+
+
+### Features
+
+* http custom routes for static assets ([#4666](https://github.com/windmill-labs/windmill/issues/4666)) ([dc8bd6d](https://github.com/windmill-labs/windmill/commit/dc8bd6d2b5d6f5cd8521f9034853175ec78d5639))
+
+
+### Bug Fixes
+
+* improve nested schema editor field change ([a3feca7](https://github.com/windmill-labs/windmill/commit/a3feca719799ea2bf08f2b49350e6b732a24abf4))
+
 ## [1.420.1](https://github.com/windmill-labs/windmill/compare/v1.420.0...v1.420.1) (2024-11-07)
 
 
