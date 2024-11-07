@@ -11,7 +11,11 @@
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
 	import { isObjectOptionArray, isStringArray } from '$lib/components/multiselect/types'
 
-	export let componentInput: StaticInput<any[]> & { loading?: boolean; expr?: string }
+	export let componentInput: StaticInput<any[]> & {
+		loading?: boolean
+		expr?: string
+		isLabeled?: boolean
+	}
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let id: string | undefined
@@ -223,6 +227,7 @@
 		const newComponentInput = { ...componentInput }
 		newComponentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
 		newComponentInput.expr = JSON.stringify(newComponentInput.value)
+		newComponentInput.isLabeled = labeled
 
 		const newSubFieldType = labeled ? 'labeledselect' : 'simplestringselect'
 
@@ -281,7 +286,7 @@
 			{#if hasLabeledMode}
 				<Toggle
 					options={{
-						right: 'Labeled'
+						right: 'w/ label'
 					}}
 					size="xs"
 					bind:checked={labeled}
