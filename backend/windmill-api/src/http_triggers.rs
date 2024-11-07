@@ -532,87 +532,85 @@ async fn route_job(
             Err(e) => return e.into_response(),
         };
 
+    #[cfg(not(feature = "parquet"))]
+    if trigger.static_asset_config.is_some() {
+        return error::Error::InternalErr(
+            "Static asset configuration is not supported in this build".to_string(),
+        )
+        .into_response();
+    }
+
+    #[cfg(feature = "parquet")]
     if let Some(sqlx::types::Json(config)) = trigger.static_asset_config {
-        #[cfg(not(feature = "parquet"))]
-        {
-            return error::Error::InternalErr(
-                "Static asset configuration is not supported in this build".to_string(),
+        let build_static_response_f = async {
+            let (_, s3_resource_opt) = get_workspace_s3_resource(
+                &authed,
+                &db,
+                None,
+                &"NO_TOKEN".to_string(), // no token is provided in this case
+                &trigger.workspace_id,
+                config.storage,
             )
-            .into_response();
-        }
-
-        #[cfg(feature = "parquet")]
-        {
-            let build_static_response_f = async {
-                let (_, s3_resource_opt) = get_workspace_s3_resource(
-                    &authed,
-                    &db,
-                    None,
-                    &"NO_TOKEN".to_string(), // no token is provided in this case
-                    &trigger.workspace_id,
-                    config.storage,
-                )
-                .await?;
-                let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
-                    "No files storage resource defined at the workspace level".to_string(),
-                ))?;
-                let s3_client = build_object_store_client(&s3_resource).await?;
-                let path = object_store::path::Path::from(config.s3);
-                let s3_object = s3_client.get(&path).await.map_err(|err| {
-                    tracing::warn!("Error retrieving file from S3: {:?}", err);
-                    error::Error::InternalErr(format!("Error retrieving file: {}", err.to_string()))
-                })?;
-                let mut response_headers = http::HeaderMap::new();
-                if let Some(ref e_tag) = s3_object.meta.e_tag {
-                    if let Some(if_none_match) = headers.get(IF_NONE_MATCH) {
-                        if if_none_match == e_tag {
-                            return Ok::<_, error::Error>((
-                                StatusCode::NOT_MODIFIED,
-                                response_headers,
-                                axum::body::Body::empty(),
-                            ));
-                        }
+            .await?;
+            let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+                "No files storage resource defined at the workspace level".to_string(),
+            ))?;
+            let s3_client = build_object_store_client(&s3_resource).await?;
+            let path = object_store::path::Path::from(config.s3);
+            let s3_object = s3_client.get(&path).await.map_err(|err| {
+                tracing::warn!("Error retrieving file from S3: {:?}", err);
+                error::Error::InternalErr(format!("Error retrieving file: {}", err.to_string()))
+            })?;
+            let mut response_headers = http::HeaderMap::new();
+            if let Some(ref e_tag) = s3_object.meta.e_tag {
+                if let Some(if_none_match) = headers.get(IF_NONE_MATCH) {
+                    if if_none_match == e_tag {
+                        return Ok::<_, error::Error>((
+                            StatusCode::NOT_MODIFIED,
+                            response_headers,
+                            axum::body::Body::empty(),
+                        ));
                     }
-
-                    response_headers.insert("etag", e_tag.parse().unwrap());
                 }
-                response_headers.insert(
-                    "content-type",
-                    s3_object
-                        .attributes
-                        .get(&object_store::Attribute::ContentType)
-                        .map(|s| s.parse().ok())
-                        .flatten()
-                        .unwrap_or("application/octet-stream".parse().unwrap()),
-                );
-                response_headers.insert(
-                    "content-disposition",
-                    config.filename.as_ref().map_or_else(
-                        || {
-                            s3_object
-                                .attributes
-                                .get(&object_store::Attribute::ContentDisposition)
-                                .map(|s| s.parse().ok())
-                                .flatten()
-                                .unwrap_or("inline".parse().unwrap())
-                        },
-                        |filename| {
-                            format!("inline; filename=\"{}\"", filename)
-                                .parse()
-                                .unwrap_or("inline".parse().unwrap())
-                        },
-                    ),
-                );
 
-                let body_stream = axum::body::Body::from_stream(s3_object.into_stream());
-                Ok::<_, error::Error>((StatusCode::OK, response_headers, body_stream))
-            };
-            match build_static_response_f.await {
-                Ok((status, headers, body_stream)) => {
-                    return (status, headers, body_stream).into_response()
-                }
-                Err(e) => return e.into_response(),
+                response_headers.insert("etag", e_tag.parse().unwrap());
             }
+            response_headers.insert(
+                "content-type",
+                s3_object
+                    .attributes
+                    .get(&object_store::Attribute::ContentType)
+                    .map(|s| s.parse().ok())
+                    .flatten()
+                    .unwrap_or("application/octet-stream".parse().unwrap()),
+            );
+            response_headers.insert(
+                "content-disposition",
+                config.filename.as_ref().map_or_else(
+                    || {
+                        s3_object
+                            .attributes
+                            .get(&object_store::Attribute::ContentDisposition)
+                            .map(|s| s.parse().ok())
+                            .flatten()
+                            .unwrap_or("inline".parse().unwrap())
+                    },
+                    |filename| {
+                        format!("inline; filename=\"{}\"", filename)
+                            .parse()
+                            .unwrap_or("inline".parse().unwrap())
+                    },
+                ),
+            );
+
+            let body_stream = axum::body::Body::from_stream(s3_object.into_stream());
+            Ok::<_, error::Error>((StatusCode::OK, response_headers, body_stream))
+        };
+        match build_static_response_f.await {
+            Ok((status, headers, body_stream)) => {
+                return (status, headers, body_stream).into_response()
+            }
+            Err(e) => return e.into_response(),
         }
     }
 
