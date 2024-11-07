@@ -4,7 +4,6 @@ import type { Writable } from 'svelte/store'
 import { Anthropic } from '@anthropic-ai/sdk'
 import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
-
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 
 import { buildClientSchema, printSchema } from 'graphql'
@@ -12,18 +11,26 @@ import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
-import type {
-	CompletionCreateParams,
-	CompletionCreateParamsBase
-} from '@anthropic-ai/sdk/resources/completions.mjs'
+
+import type { MessageCreateParams, MessageParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
+
+export type AiProviderTypes = 'openai' | 'anthropic'
 
 const openaiConfig: ChatCompletionCreateParamsStreaming = {
 	temperature: 0,
 	max_tokens: 16384,
 	model: 'gpt-4o-2024-08-06',
 	seed: 42,
+	stream: true,
+	messages: []
+}
+
+const anthropicConfig: MessageCreateParams = {
+	temperature: 0,
+	max_tokens: 16384,
+	model: 'claude-3-5-sonnet-20241022',
 	stream: true,
 	messages: []
 }
@@ -37,6 +44,8 @@ class WorkspacedOpenai implements AiProvider {
 
 	init(workspace: string, token: string | undefined = undefined) {
 		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
+		console.log({ baseURL })
+
 		this.client = new OpenAI({
 			baseURL,
 			apiKey: 'fake-key',
@@ -55,26 +64,25 @@ class WorkspacedOpenai implements AiProvider {
 	}
 }
 
-
-
 class WorkspacedAnthropic implements AiProvider {
 	private client: Anthropic | undefined
 
 	init(workspace: string, token: string | undefined = undefined) {
+		console.log('inside')
 		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
 		this.client = new Anthropic({
 			baseURL,
+			apiKey: 'fake-key',
 			defaultHeaders: {
 				Authorization: token ? `Bearer ${token}` : ''
 			},
-			
 			dangerouslyAllowBrowser: true
 		})
 	}
 
 	getClient() {
 		if (!this.client) {
-			throw new Error('OpenAI not initialized')
+			throw new Error('AnthropicAi not initialized')
 		}
 		return this.client
 	}
@@ -86,12 +94,15 @@ export let workspacedAnthropic = new WorkspacedAnthropic()
 export async function testKey({
 	apiKey,
 	abortController,
-	messages
+	messages,
+	aiProvider
 }: {
 	apiKey?: string
 	messages: ChatCompletionMessageParam[]
 	abortController: AbortController
+	aiProvider: AiProviderTypes
 }) {
+	console.log({ aiProvider , apiKey})
 	if (apiKey) {
 		const openai = new OpenAI({
 			apiKey,
@@ -108,7 +119,7 @@ export async function testKey({
 			}
 		)
 	} else {
-		await getNonStreamingCompletion(messages, abortController, undefined, true)
+		await getNonStreamingCompletion(messages, abortController, aiProvider, undefined, true)
 	}
 }
 
@@ -289,31 +300,59 @@ const PROMPTS_CONFIGS = {
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
+	aiProvider: AiProviderTypes,
 	model = openaiConfig.model,
 	noCache?: boolean
 ) {
-	const openaiClient = workspacedOpenai.getClient()
-	const completion = await openaiClient.chat.completions.create(
-		{
-			...openaiConfig,
-			messages,
-			stream: false,
-			model
+	const queryOptions = {
+		query: {
+			no_cache: noCache
 		},
-		{
-			query: {
-				no_cache: noCache
-			},
-			signal: abortController.signal
+		signal: abortController.signal
+	}
+	switch (aiProvider) {
+		case 'openai': {
+			console.log('insided')
+
+			const openaiClient = workspacedOpenai.getClient()
+			const completion = await openaiClient.chat.completions.create(
+				{
+					...openaiConfig,
+					messages,
+					stream: false,
+					model
+				},
+				queryOptions
+			)
+
+			// if (completion.usage) {
+			// 	const { prompt_tokens, completion_tokens } = completion.usage
+			// 	console.log('Cost: ', (prompt_tokens * 0.0015 + completion_tokens * 0.002) / 1000)
+			// }
+
+			return completion.choices[0]?.message.content || ''
 		}
-	)
+		case 'anthropic': {
+			console.log('inside')
+			const anthropicClient = workspacedAnthropic.getClient()
+			let system: string | undefined = undefined
+			if (messages[0].role == 'system') {
+				system = messages[0].content as string
+				messages.shift()
+			}
+			const completion = await anthropicClient.messages.create(
+				{
+					...anthropicConfig,
+					system,
+					messages: messages as MessageParam[]
+				},
+				queryOptions
+			)
 
-	// if (completion.usage) {
-	// 	const { prompt_tokens, completion_tokens } = completion.usage
-	// 	console.log('Cost: ', (prompt_tokens * 0.0015 + completion_tokens * 0.002) / 1000)
-	// }
-
-	return completion.choices[0]?.message.content || ''
+			console.log(messages)
+			return ''
+		}
+	}
 }
 
 export async function getCompletion(

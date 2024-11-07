@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
@@ -62,7 +62,7 @@ ${YAML.stringify(availableData)}</available>
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only output the expression, do not explain or discuss.`
-
+			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -70,7 +70,8 @@ Only output the expression, do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 		} catch (err) {
 			if (!abortController.signal.aborted) {

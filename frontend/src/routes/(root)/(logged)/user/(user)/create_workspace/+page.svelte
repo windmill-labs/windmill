@@ -205,6 +205,7 @@
 			</Tooltip>
 			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
 		</span>
+
 		<div class="flex flex-row gap-1">
 			<input
 				type="password"
@@ -212,7 +213,7 @@
 				bind:value={openAiKey}
 				on:keyup={handleKeyUp}
 			/>
-			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
+			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} aiProvider={'openai'} />
 		</div>
 		{#if openAiKey}
 			<Toggle

@@ -58,6 +58,7 @@
 	import { hubPaths } from '$lib/hub'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type { AiProviderTypes } from '$lib/components/copilot/lib'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -131,7 +132,7 @@
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
-	let selected: 'openai' | 'anthropic' | 'mistral' = 'openai'
+	let selected: AiProviderTypes = 'openai'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -194,7 +195,9 @@
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
+			console.log({ aiProvider })
 			copilotInfo.set({
+				ai_provider: aiProvider,
 				exists_ai_resource: true,
 				code_completion_enabled: codeCompletionEnabled
 			})
@@ -207,6 +210,7 @@
 				}
 			})
 			copilotInfo.set({
+				ai_provider: '',
 				exists_ai_resource: false,
 				code_completion_enabled: codeCompletionEnabled
 			})
@@ -988,10 +992,9 @@
 			<ToggleButtonGroup bind:selected>
 				<ToggleButton value="openai" label="OpenAi" />
 				<ToggleButton value="anthropic" label="Anthropic" />
-				<ToggleButton value="mistral" label="Mistral" />
 			</ToggleButtonGroup>
 			<div class="mt-5 flex gap-1">
-				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth]}
+				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}
 					<ResourcePicker
 						resourceType={usingOpenaiClientCredentialsOauth
 							? 'openai_client_credentials_oauth'
@@ -1001,8 +1004,8 @@
 							editCopilotConfig(ev.detail, selected)
 						}}
 					/>
+					<TestOpenaiKey disabled={!aiResourceInitialPath} aiProvider={selected} />
 				{/key}
-				<TestOpenaiKey  disabled={!aiResourceInitialPath} />
 			</div>
 			<div class="mt-3">
 				<Toggle

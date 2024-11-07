@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Popup from '../common/popup/Popup.svelte'
 	import { copilotInfo } from '$lib/stores'
@@ -25,6 +25,7 @@
 		savePrompt()
 		genLoading = true
 		abortController = new AbortController()
+		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const res = await getNonStreamingCompletion(
 				[
@@ -38,7 +39,8 @@
 						content: funcDesc
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
 			funcDesc = ''

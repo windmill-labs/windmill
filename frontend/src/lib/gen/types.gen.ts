@@ -417,7 +417,7 @@ export type AuditLog = {
 		| 'jobs.disapproval'
 		| 'jobs.delete'
 		| 'account.delete'
-		| 'openai.request'
+		| 'ai.request'
 		| 'resources.create'
 		| 'resources.update'
 		| 'resources.delete'
@@ -2242,11 +2242,6 @@ export type GetSettingsData = {
 	workspace: string
 }
 
-export type AiResource = {
-	path: string
-	provider: string
-}
-
 export type GetSettingsResponse = {
 	workspace_id?: string
 	slack_name?: string
@@ -2373,6 +2368,11 @@ export type EditWebhookData = {
 
 export type EditWebhookResponse = string
 
+export type AiResource = {
+	path: string
+	provider: string
+}
+
 export type EditCopilotConfigData = {
 	/**
 	 * WorkspaceCopilotConfig
@@ -2391,6 +2391,7 @@ export type GetCopilotInfoData = {
 }
 
 export type GetCopilotInfoResponse = {
+    ai_provider: string
 	exists_ai_resource: boolean
 	code_completion_enabled: boolean
 }
@@ -7295,7 +7296,7 @@ export type $OpenApiTs = {
 					customer_id?: string
 					webhook?: string
 					deploy_to?: string
-					ai_resource?: AiResource
+					ai_resource?: string
 					code_completion_enabled: boolean
 					error_handler?: string
 					error_handler_extra_args?: ScriptArgs
@@ -7503,6 +7504,7 @@ export type $OpenApiTs = {
 				 * status
 				 */
 				200: {
+                    ai_provider: string
 					exists_ai_resource: boolean
 					code_completion_enabled: boolean
 				}
