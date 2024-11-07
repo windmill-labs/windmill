@@ -60,8 +60,6 @@
 				search === EMPTY_STRING
 					? pickableProperties.priorIds
 					: keepByKey(pickableProperties.priorIds, search)
-
-			console.log(resultByIdFiltered, search)
 		}, 50)
 	}
 

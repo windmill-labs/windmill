@@ -63,6 +63,9 @@
 					on:select={({ detail }) => {
 						if ($flowPropPickerConfig?.onSelect(detail)) {
 							$flowPropPickerConfig?.clearFocus()
+							// console.log('BAR')
+						} else {
+							// console.log('FOO')
 						}
 					}}
 					allowCopy={!$flowPropPickerConfig}

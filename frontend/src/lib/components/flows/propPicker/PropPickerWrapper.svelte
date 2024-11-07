@@ -7,6 +7,7 @@
 		insertionMode: InsertionMode
 		propName: string
 		onSelect: SelectCallback
+		clearFocus: () => void
 	}
 
 	export type PropPickerWrapperContext = {
@@ -51,26 +52,28 @@
 			const config = {
 				propName,
 				insertionMode,
-				onSelect
+				onSelect,
+				clearFocus: () => {
+					propPickerConfig.set(undefined)
+					flowPropPickerConfig.set(undefined)
+				}
 			}
 			propPickerConfig.set(config)
 			flowPropPickerConfig.set({
 				...config,
-				clearFocus: () => propPickerConfig.set(undefined)
+				clearFocus: () => {
+					propPickerConfig.set(undefined)
+					flowPropPickerConfig.set(undefined)
+				}
 			})
 		},
 		clearFocus: () => {
+			flowPropPickerConfig.set(undefined)
 			propPickerConfig.set(undefined)
 		}
 	})
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		console.log(
-			'dbg getPropPickerElements',
-			Array.from(
-				document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
-			) as HTMLElement[]
-		)
 		return Array.from(
 			document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
 		) as HTMLElement[]
@@ -118,7 +121,7 @@
 						on:select={({ detail }) => {
 							dispatch('select', detail)
 							if ($propPickerConfig?.onSelect(detail)) {
-								propPickerConfig.set(undefined)
+								$propPickerConfig?.clearFocus()
 							}
 						}}
 					/>
@@ -131,7 +134,7 @@
 						on:select={({ detail }) => {
 							dispatch('select', detail)
 							if ($propPickerConfig?.onSelect(detail)) {
-								propPickerConfig.set(undefined)
+								$propPickerConfig?.clearFocus()
 							}
 						}}
 					/>
