@@ -1,3 +1,12 @@
+<script context="module">
+	const dynamicTemplateRegexPairs = buildPrefixRegex([
+		'flow_input',
+		'results',
+		'resource',
+		'variable'
+	])
+</script>
+
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
@@ -140,13 +149,6 @@
 
 	let codeInjectionDetected = false
 
-	const dynamicTemplateRegexPairs = buildPrefixRegex([
-		'flow_input',
-		'results',
-		'resource',
-		'variable'
-	])
-
 	function checkCodeInjection(rawValue: string) {
 		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
 			return undefined
@@ -234,7 +236,7 @@
 		}
 		if (propertyType == 'static') {
 			setPropertyType(arg?.value)
-			codeInjectionDetected = !!checkCodeInjection(arg?.value)
+			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
 		} else if (propertyType == 'javascript' && focused) {
 			setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
@@ -404,13 +406,27 @@
 								<ToggleButton small label="Static" value="static" />
 							{/if}
 
-							<ToggleButton
-								small
-								light
-								tooltip="JavaScript expression ('flow_input' or 'results')."
-								value="javascript"
-								icon={FunctionSquare}
-							/>
+							{#if codeInjectionDetected && propertyType == 'static'}
+								<Button
+									size="xs2"
+									color="light"
+									btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-300 dark:bg-green-700 dark:hover:bg-green-600"
+									on:click={() => setJavaScriptExpr(arg.value)}
+								>
+									<span class="font-normal whitespace-nowrap flex gap-2 items-center"
+										><FunctionSquare size={14} /> detected -
+										<span class="font-bold">TAB</span>
+									</span>
+								</Button>
+							{:else}
+								<ToggleButton
+									small
+									light
+									tooltip="JavaScript expression ('flow_input' or 'results')."
+									value="javascript"
+									icon={FunctionSquare}
+								/>
+							{/if}
 						</ToggleButtonGroup>
 					</div>
 
@@ -477,20 +493,6 @@
 								/>
 							{/if}
 						</div>
-
-						{#if codeInjectionDetected}
-							<Button
-								size="xs"
-								color="light"
-								btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700"
-								on:click={() => setJavaScriptExpr(arg.value)}
-							>
-								<span class="font-normal"
-									>JavaScript expression detected - press
-									<span class="font-bold">TAB</span> to exit static mode
-								</span>
-							</Button>
-						{/if}
 					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
 						<ArgInput
 							{resourceTypes}
