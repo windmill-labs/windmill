@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.420.0](https://github.com/windmill-labs/windmill/compare/v1.419.0...v1.420.0) (2024-11-07)
+
+
+### Features
+
+* **frontend:** detect expr in flow input transform + filter right panel based on expr ([#4651](https://github.com/windmill-labs/windmill/issues/4651)) ([e9b7dca](https://github.com/windmill-labs/windmill/commit/e9b7dca20387e775fa50aaecd832890251582cf9))
+* **frontend:** nodes from flow can be connected directly in expr input through a plug icon ([#4652](https://github.com/windmill-labs/windmill/issues/4652)) ([ceaf56c](https://github.com/windmill-labs/windmill/commit/ceaf56c21ee2e548bc93859f9e0303e53b25b241))
+
 ## [1.419.0](https://github.com/windmill-labs/windmill/compare/v1.418.0...v1.419.0) (2024-11-06)
 
 
