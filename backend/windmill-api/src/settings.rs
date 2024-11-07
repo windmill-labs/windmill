@@ -452,6 +452,7 @@ pub struct AlertQueryParams {
     pub acknowledged: Option<bool>,
 }
 
+#[cfg(feature = "enterprise")]
 pub async fn get_critical_alerts(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -495,6 +496,12 @@ pub async fn get_critical_alerts(
     Ok(Json(alerts))
 }
 
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_critical_alerts() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
 pub async fn acknowledge_critical_alert(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -513,6 +520,12 @@ pub async fn acknowledge_critical_alert(
     Ok("Critical alert acknowledged".to_string())
 }
 
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_critical_alert() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
 pub async fn acknowledge_all_critical_alerts(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -527,4 +540,9 @@ pub async fn acknowledge_all_critical_alerts(
 
     tracing::info!("Acknowledged all unacknowledged critical alerts");
     Ok("All unacknowledged critical alerts acknowledged".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_all_critical_alerts() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
 }

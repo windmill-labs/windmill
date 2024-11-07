@@ -16,6 +16,7 @@
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
+		enterpriseLicense,
 		copilotInfo,
 		isPremiumStore,
 		starStore,
@@ -305,7 +306,7 @@
 	</CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
-	{#if $superadmin}
+	{#if $superadmin && $enterpriseLicense}
 		{#if !isCriticalAlertsUiMuted}
 			<CriticalAlertModal
 				bind:open={isCriticalAlertsModalOpen}

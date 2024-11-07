@@ -68,7 +68,7 @@
 	}
 
 	async function checkCriticalAlertChannels() {
-		const channels = await SettingService.getGlobal({key: "critical_error_channels"}) as any[]
+		const channels = (await SettingService.getGlobal({ key: 'critical_error_channels' })) as any[]
 		hasCriticalAlertChannels = channels && channels.length > 0
 	}
 
