@@ -200,6 +200,7 @@
 									argName="groups"
 									{schema}
 									{previousModuleId}
+									bind:editor
 								/>
 							</PropPickerWrapper>
 						</div>
