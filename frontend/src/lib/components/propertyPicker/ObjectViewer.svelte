@@ -94,8 +94,12 @@
 					>-</Button
 				>
 			{/if}
-			{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
-			<ul class={`w-full ${level === 0 ? 'border-none' : 'pl-2 border-l border-dotted'}`}>
+			{#if level == 0 && topBrackets}<span class="text-tertiary">{openBracket}</span>{/if}
+			<ul
+				class={`w-full ${
+					level === 0 ? `border-none ${topBrackets ? 'pl-2' : ''}` : 'pl-2 border-l border-dotted'
+				}`}
+			>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
 						<Button
@@ -162,7 +166,7 @@
 			</ul>
 			{#if level == 0 && topBrackets}
 				<div class="flex">
-					<span class="h-0">{closeBracket}</span>
+					<span class="text-tertiary">{closeBracket}</span>
 					{#if getTypeAsString(json) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
