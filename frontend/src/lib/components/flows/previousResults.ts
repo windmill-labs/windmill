@@ -283,11 +283,8 @@ export function filterNestedObject(obj: any, nestedKeys: string[]) {
 		if (nestedKeys[0] === '') {
 			return obj
 		}
-		const regexes = buildPrefixRegex(Object.keys(obj))
-		const matches = regexes.filter(({ regex }) => regex.test(nestedKeys[0]))
-		return Object.fromEntries(
-			Object.entries(obj).filter(([key]) => matches.some(({ word }) => word === key))
-		)
+
+		return Object.fromEntries(Object.entries(obj).filter(([key]) => key.startsWith(nestedKeys[0])))
 	}
 	const [key, ...rest] = nestedKeys
 	if (obj && typeof obj === 'object' && key in obj) {

@@ -18,7 +18,7 @@
 	<Label label="Setting a scheduled poll" primary>
 		<ul class="pt-4 space-y-2 text-sm">
 			<li>
-				1. Chose a trigger script using the script picker that will poll for new events regularly <img
+				1. Choose a trigger script using the script picker that will poll for new events regularly <img
 					class="shadow-lg rounded"
 					alt="script picker"
 					src="{base}/script-picker.png"

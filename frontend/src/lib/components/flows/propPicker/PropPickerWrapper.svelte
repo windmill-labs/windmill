@@ -94,6 +94,7 @@
 	use:clickOutside={{ capture: true, exclude: getPropPickerElements }}
 	on:click_outside={() => {
 		propPickerConfig.set(undefined)
+		flowPropPickerConfig.set(undefined)
 	}}
 >
 	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>

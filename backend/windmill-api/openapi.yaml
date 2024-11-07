@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.419.0
+  version: 1.421.0
   title: Windmill API
 
   contact:
@@ -9218,6 +9218,14 @@ paths:
           in: query
           schema:
             type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
       requestBody:
         description: File content
         required: true
@@ -11535,6 +11543,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         extra_perms:
@@ -11581,6 +11600,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -11614,6 +11644,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
