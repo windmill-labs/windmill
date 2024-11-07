@@ -12,7 +12,6 @@
 	export type PropPickerWrapperContext = {
 		propPickerConfig: Writable<PropPickerConfig | undefined>
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
-		filteredPickableProperties: Writable<PickableProperties | undefined>
 		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
 		clearFocus: () => void
 	}
@@ -22,12 +21,13 @@
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
@@ -39,19 +39,24 @@
 	export let noPadding: boolean = false
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
-	const filteredPickableProperties = writable<PickableProperties | undefined>(undefined)
 	const inputMatches = writable<{ word: string; value: string }[] | undefined>(undefined)
 	const dispatch = createEventDispatcher()
 
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+	flowPropPickerConfig.set(undefined)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
-		filteredPickableProperties,
 		focusProp: (propName, insertionMode, onSelect) => {
-			propPickerConfig.set({
+			const config = {
 				propName,
 				insertionMode,
 				onSelect
+			}
+			propPickerConfig.set(config)
+			flowPropPickerConfig.set({
+				...config,
+				clearFocus: () => propPickerConfig.set(undefined)
 			})
 		},
 		clearFocus: () => {

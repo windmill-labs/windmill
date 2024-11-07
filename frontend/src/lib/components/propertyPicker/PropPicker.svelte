@@ -4,13 +4,13 @@
 	import { getContext } from 'svelte'
 	import { Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
-	import type { PropPickerContext } from '../prop_picker'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
 	import type { PickableProperties } from '../flows/previousResults'
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import { filterNestedObject } from '../flows/previousResults'
+	import type { PropPickerContext } from '../prop_picker'
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
@@ -37,10 +37,12 @@
 	const EMPTY_STRING = ''
 	let search = ''
 
-	const { propPickerConfig, filteredPickableProperties, inputMatches } =
+	const { propPickerConfig, inputMatches } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$filteredPickableProperties = { ...pickableProperties }
+	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
+	$: $pickablePropertiesFiltered = pickableProperties
+
 	let flowInputsFiltered = pickableProperties.flow_input
 	let resultByIdFiltered = pickableProperties.priorIds
 
@@ -117,9 +119,9 @@
 			}
 		}
 
-		if ($filteredPickableProperties) {
-			resultByIdFiltered && ($filteredPickableProperties.priorIds = resultByIdFiltered)
-			flowInputsFiltered && ($filteredPickableProperties.flow_input = flowInputsFiltered)
+		if ($pickablePropertiesFiltered) {
+			resultByIdFiltered && ($pickablePropertiesFiltered.priorIds = resultByIdFiltered)
+			flowInputsFiltered && ($pickablePropertiesFiltered.flow_input = flowInputsFiltered)
 		}
 	}
 

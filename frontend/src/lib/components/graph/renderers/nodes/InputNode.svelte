@@ -82,5 +82,6 @@
 		}}
 		inputJson={filteredInput}
 		prefix="flow_input"
+		alwaysPluggable
 	/>
 </NodeWrapper>

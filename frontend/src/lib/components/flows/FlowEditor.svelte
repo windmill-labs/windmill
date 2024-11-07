@@ -28,9 +28,8 @@
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 
-	const flowPropPickerConfig = writable<FlowPropPickerConfig | undefined>(undefined)
 	setContext<PropPickerContext>('PropPickerContext', {
-		flowPropPickerConfig,
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 </script>

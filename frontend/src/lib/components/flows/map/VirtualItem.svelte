@@ -18,6 +18,7 @@
 	export let preLabel: string | undefined = undefined
 	export let inputJson: Object | undefined = undefined
 	export let prefix = ''
+	export let alwaysPluggable: boolean = false
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -61,7 +62,8 @@
 			</div>
 		{/if}
 	</div>
-	{#if inputJson && $flowPropPickerConfig && (Object.keys(inputJson).length > 0 || !$flowPropPickerConfig.searchOn)}
+
+	{#if inputJson && $flowPropPickerConfig && (Object.keys(inputJson).length > 0 || alwaysPluggable)}
 		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
 			<FlowPropPicker json={inputJson} {prefix} />
 		</div>
