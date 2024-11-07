@@ -43,7 +43,6 @@
 	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
 	$: $pickablePropertiesFiltered = pickableProperties
 
-
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
@@ -125,7 +124,6 @@
 		} else {
 			filteringFlowInputsOrResult = ''
 		}
-
 
 		// if ($pickablePropertiesFiltered) {
 		// 	resultByIdFiltered && ($pickablePropertiesFiltered.priorIds = resultByIdFiltered)
