@@ -11,6 +11,8 @@
 
 	export type PropPickerWrapperContext = {
 		propPickerConfig: Writable<PropPickerConfig | undefined>
+		inputMatches: Writable<{ word: string; value: string }[] | undefined>
+		filteredPickableProperties: Writable<PickableProperties | undefined>
 		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
 		clearFocus: () => void
 	}
@@ -37,10 +39,14 @@
 	export let noPadding: boolean = false
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
+	const filteredPickableProperties = writable<PickableProperties | undefined>(undefined)
+	const inputMatches = writable<{ word: string; value: string }[] | undefined>(undefined)
 	const dispatch = createEventDispatcher()
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
+		inputMatches,
+		filteredPickableProperties,
 		focusProp: (propName, insertionMode, onSelect) => {
 			propPickerConfig.set({
 				propName,
