@@ -3,6 +3,7 @@ node_modules
 /build
 /.svelte-kit
 /package
+/src/lib/gen
 CaddyfileRemoteRuben
 tests-out/
 storageState.json
