@@ -1,5 +1,7 @@
 # Developing
 
+[Using Nix](#nix), otherwise:
+
 In the `frontend/` directory:
 
 - install the dependencies with `npm install` (or `pnpm install` or `yarn`)
@@ -136,3 +138,45 @@ NOTCATCHALL=true npm run build
 which will generate an index.html and allow you to serve the frontend with any static server.
 
 Env variables used for build are set in .env file. See [https://vitejs.dev/guide/env-and-mode.html#env-files](https://vitejs.dev/guide/env-and-mode.html#env-files) for more details.
+
+## Nix
+
+Windmill use [nix flakes](https://nixos.wiki/wiki/Flakes):
+```bash
+nix run github:windmill-labs/windmill
+```
+
+### Development
+```bash
+nix develop # enter a dev shell containing all necessary packages.
+
+wm-setup # build the frontend and setup the database.
+wm # run the frontend.
+
+# In an other shell:
+nix develop
+cd backend
+cargo run
+```
+
+### Updating [`flake.nix`](../flake.nix)
+
+```bash
+nix flake update # update the lock file.
+```
+
+Some cargo dependencies use fixed git revisions, which are also fixed in `flake.nix`:
+```nix
+outputHashes = {
+  "php-parser-rs-0.1.3" = "sha256-ZeI3KgUPmtjlRfq6eAYveqt8Ay35gwj6B9iOQRjQa9A=";
+  # ...
+};
+```
+
+When updating a revision, replace the incorrect `sha256` with `pkgs.lib.fakeHash`:
+```diff
+-            "php-parser-rs-0.1.3" = "sha256-ZeI3KgUPmtjlRfq6eAYveqt8Ay35gwj6B9iOQRjQa9A=";
++            "php-parser-rs-0.1.3" = pkgs.lib.fakeHash;
+```
+
+Then run `nix build .#windmill` and update with the correct sha.
