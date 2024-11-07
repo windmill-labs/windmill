@@ -74,7 +74,10 @@ function getFlowInput(
 	if (parentState && parentModule) {
 		if (
 			parentState.previewArgs &&
-			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1)
+			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1) &&
+			parentState &&
+			typeof parentState.previewArgs == 'object' &&
+			`iter` in parentState.previewArgs
 		) {
 			return { ...topFlowInput, ...parentState.previewArgs }
 		} else {
