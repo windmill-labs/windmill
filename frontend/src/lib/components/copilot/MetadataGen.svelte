@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getCompletion } from './lib'
+	import { getCompletion, isChatCompletionChunk, type AiProviderTypes } from './lib'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
@@ -118,11 +118,14 @@ Generate a description for the flow below:
 					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
-			const response = await getCompletion(messages, abortController)
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
+			const response = await getCompletion(messages, abortController, aiProvider)
 			generatedContent = ''
 			for await (const chunk of response) {
-				const toks = chunk.choices[0]?.delta?.content || ''
-				generatedContent += toks
+				if (isChatCompletionChunk(chunk)) {
+					const toks = chunk.choices[0]?.delta?.content || ''
+					generatedContent += toks
+				}
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {

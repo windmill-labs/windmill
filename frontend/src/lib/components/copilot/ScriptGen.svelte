@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
+	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot, type AiProviderTypes } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -68,6 +68,7 @@
 			return
 		}
 		savePrompt()
+		const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 		try {
 			genLoading = true
 			blockPopupOpen = true
@@ -84,7 +85,8 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController
+					abortController,
+					aiProvider
 				)
 			} else {
 				await copilot(
@@ -97,7 +99,8 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController
+					abortController,
+					aiProvider
 				)
 			}
 			setupDiff()

@@ -23,7 +23,7 @@
 	async function generateCron() {
 		genLoading = true
 		abortController = new AbortController()
-		let aiProvider = $copilotInfo.ai_provider
+		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const messages: ChatCompletionMessageParam[] = [
 				{

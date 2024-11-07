@@ -404,7 +404,7 @@ function isRawMessageStreamEvent(
 	return 'uniquePropertyA' in message // Replace `uniquePropertyA` with an actual property unique to RawMessageStreamEvent
 }
 
-function isChatCompletionChunk(
+export function isChatCompletionChunk(
 	response: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
 ): response is OpenAI.Chat.Completions.ChatCompletionChunk {
 	return 'choices' in response

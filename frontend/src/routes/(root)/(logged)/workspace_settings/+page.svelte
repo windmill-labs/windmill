@@ -43,7 +43,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -1004,7 +1004,7 @@
 							editCopilotConfig(ev.detail, selected)
 						}}
 					/>
-					<TestOpenaiKey disabled={!aiResourceInitialPath} aiProvider={selected} />
+					<TestAiKey disabled={!aiResourceInitialPath} aiProvider={selected} />
 				{/key}
 			</div>
 			<div class="mt-3">

@@ -18,7 +18,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -213,7 +213,7 @@
 				bind:value={openAiKey}
 				on:keyup={handleKeyUp}
 			/>
-			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} aiProvider={'openai'} />
+			<TestAiKey apiKey={openAiKey} disabled={!openAiKey} aiProvider={'openai'} />
 		</div>
 		{#if openAiKey}
 			<Toggle
