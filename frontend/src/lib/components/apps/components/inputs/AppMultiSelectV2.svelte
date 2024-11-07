@@ -18,9 +18,9 @@
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 	import { isObjectOptionArray, isStringArray, type ObjectOption } from '../../../multiselect/types'
 
-	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
+	export let id: string
 	export let render: boolean
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
@@ -31,44 +31,60 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let items: ObjectOption[] = []
 
 	const resolvedConfig = initConfig(
 		components['multiselectcomponentv2'].initialData.configuration,
 		configuration
 	)
+	const outputs = initOutput($worldStore, id, { result: [] as any[] })
+	let options: ObjectOption[] = []
+	let selectedOptions: ObjectOption[] = [...new Set(findOptionsByValue(outputs?.result.peak()))]
+
+	let css = initCss($app.css?.multiselectcomponent, customCss)
+	let outerDiv: HTMLDivElement | undefined = undefined
+	let portalRef: HTMLDivElement | undefined = undefined
+	let w = 0
+	let open: boolean = false
 
 	$: handleItems(resolvedConfig.items)
+
+	$componentControl[id] = {
+		setValue(newValues: any[]) {
+			selectOptionsByValue(newValues)
+		}
+	}
+
+	$: resolvedConfig.defaultItems && handleDefaultItems()
+
+	$: outerDiv &&
+		portalRef &&
+		css?.multiselect?.style &&
+		setOuterDivStyle(outerDiv, portalRef, css?.multiselect?.style)
+
+	$: if (render && portalRef && outerDiv && options?.length > 0) {
+		tick().then(() => {
+			moveOptionsToPortal()
+		})
+	}
+
+	function findOptionsByValue(valuesArray: any[]) {
+		const values = new Set(valuesArray)
+		return options?.filter((item) => values.has(item.value)) as ObjectOption[]
+	}
+
+	function selectOptionsByValue(values: any[]) {
+		selectedOptions = findOptionsByValue(values)
+		outputs?.result.set([...(selectedOptions.map((option) => option.value) ?? [])])
+	}
 
 	function handleItems(resolvedConfigItems) {
 		if (!resolvedConfigItems) {
 			return
 		}
-		items = []
-		value = []
 		if (isObjectOptionArray(resolvedConfigItems)) {
-			items = parseLabeledItems(resolvedConfigItems)
+			options = parseLabeledItems(resolvedConfigItems)
 		} else if (isStringArray(resolvedConfigItems)) {
-			items = parseStringItems(resolvedConfigItems)
-		}
-	}
-
-	const outputs = initOutput($worldStore, id, {
-		result: isObjectOptionArray(items)
-			? ([] as ObjectOption[])
-			: isStringArray(items)
-			? ([] as string[])
-			: ([] as unknown[])
-	})
-
-	let value: ObjectOption[] | undefined = [...new Set(outputs?.result.peak())] as ObjectOption[]
-
-	$componentControl[id] = {
-		setValue(nvalue: ObjectOption[]) {
-			if (isObjectOptionArray(nvalue)) {
-				value = [...new Set(nvalue)] as ObjectOption[]
-				outputs?.result.set([...(value ?? [])])
-			}
+			options = parseStringItems(resolvedConfigItems)
 		}
 	}
 
@@ -91,7 +107,7 @@
 		})
 	}
 
-	function parseStringItems(resolvedConfigItems: string[]): ObjectOption[] {
+	function parseStringItems(resolvedConfigItems: any[]): ObjectOption[] {
 		return resolvedConfigItems?.map((option: string) => {
 			if (option === null || option === undefined || typeof option !== 'string') {
 				console.error(
@@ -106,26 +122,14 @@
 		})
 	}
 
-	$: resolvedConfig.defaultItems && handleDefaultItems()
-
-	// todo
 	function handleDefaultItems() {
-		let nvalue: typeof items
 		if (!Array.isArray(resolvedConfig.defaultItems)) {
-			nvalue = []
 			outputs?.result.set([])
 			return
 		}
-		let rawNvalue = new Set(
-			resolvedConfig.defaultItems?.filter((v) => typeof v === 'string' || typeof v === 'number')
-		)
 
-		nvalue = items?.filter((item) => rawNvalue.has(item.label)) as ObjectOption[]
-		value = [...new Set(nvalue)]
-		outputs?.result.set([...(value ?? [])])
+		selectOptionsByValue(resolvedConfig.defaultItems)
 	}
-
-	let css = initCss($app.css?.multiselectcomponent, customCss)
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
@@ -133,14 +137,6 @@
 		const ul = portalRef.querySelector('ul')
 		ul?.setAttribute('style', extractCustomProperties(style))
 	}
-
-	$: outerDiv &&
-		portalRef &&
-		css?.multiselect?.style &&
-		setOuterDivStyle(outerDiv, portalRef, css?.multiselect?.style)
-
-	let outerDiv: HTMLDivElement | undefined = undefined
-	let portalRef: HTMLDivElement | undefined = undefined
 
 	function moveOptionsToPortal() {
 		// Find ul element with class 'options' within the outerDiv
@@ -151,14 +147,6 @@
 			portalRef?.appendChild(ul)
 		}
 	}
-
-	$: if (render && portalRef && outerDiv && items?.length > 0) {
-		tick().then(() => {
-			moveOptionsToPortal()
-		})
-	}
-	let w = 0
-	let open: boolean = false
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -195,7 +183,7 @@
 		use:floatingRef
 		bind:clientWidth={w}
 	>
-		{#if !value || Array.isArray(value)}
+		{#if !selectedOptions || Array.isArray(selectedOptions)}
 			<MultiSelect
 				bind:outerDiv
 				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
@@ -203,15 +191,15 @@
 				--sms-border={'none'}
 				--sms-min-height={'32px'}
 				--sms-focus-border={'none'}
-				bind:selected={value}
-				options={items}
+				bind:selected={selectedOptions}
+				{options}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
 				on:change={(event) => {
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
 					} else {
-						outputs?.result.set([...(value ?? [])])
+						outputs?.result.set([...(selectedOptions.map((option) => option.value) ?? [])])
 					}
 				}}
 				on:open={() => {
@@ -233,7 +221,7 @@
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
 				>
-					{isObjectOptionArray(value) && isObjectOptionArray(items) ? option.label : option}
+					{option.label}
 				</div>
 			</MultiSelect>
 
@@ -250,7 +238,7 @@
 				</div>
 			</Portal>
 		{:else}
-			Value {value} is not an array
+			Value {selectedOptions} is not an array
 		{/if}
 	</div>
 </AlignWrapper>
