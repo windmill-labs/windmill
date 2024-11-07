@@ -241,6 +241,7 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			loadExtraLib()
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				code = getCode()

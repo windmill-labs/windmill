@@ -10,11 +10,13 @@
 	import type { PickableProperties } from '../flows/previousResults'
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import { filterNestedObject } from '../flows/previousResults'
+	import type { PropPickerContext } from '../prop_picker'
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
+	export let alwaysOn = false
 
 	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
@@ -36,10 +38,12 @@
 	const EMPTY_STRING = ''
 	let search = ''
 
-	const { propPickerConfig, filteredPickableProperties, inputMatches } =
+	const { propPickerConfig, inputMatches } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$filteredPickableProperties = { ...pickableProperties }
+	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
+	$: $pickablePropertiesFiltered = pickableProperties
+
 	let flowInputsFiltered = pickableProperties.flow_input
 	let resultByIdFiltered = pickableProperties.priorIds
 
@@ -57,14 +61,13 @@
 				search === EMPTY_STRING
 					? pickableProperties.priorIds
 					: keepByKey(pickableProperties.priorIds, search)
-
-			console.log(resultByIdFiltered, search)
 		}, 50)
 	}
 
-	$: suggestedPropsFiltered = $propPickerConfig
-		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
-		: undefined
+	$: suggestedPropsFiltered =
+		$propPickerConfig && $propPickerConfig.propName
+			? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName ?? '')
+			: undefined
 	$: search != undefined && onSearch(search)
 
 	async function loadVariables() {
@@ -116,9 +119,9 @@
 			}
 		}
 
-		if ($filteredPickableProperties) {
-			resultByIdFiltered && ($filteredPickableProperties.priorIds = resultByIdFiltered)
-			flowInputsFiltered && ($filteredPickableProperties.flow_input = flowInputsFiltered)
+		if ($pickablePropertiesFiltered) {
+			resultByIdFiltered && ($pickablePropertiesFiltered.priorIds = resultByIdFiltered)
+			flowInputsFiltered && ($pickablePropertiesFiltered.flow_input = flowInputsFiltered)
 		}
 	}
 
@@ -185,7 +188,10 @@
 	<div class="px-2 py-2">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
-	<div class="overflow-y-auto px-2 pt-2 grow" class:bg-surface-secondary={!$propPickerConfig}>
+	<div
+		class="overflow-y-auto px-2 pt-2 grow"
+		class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
+	>
 		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered).length > 0 || !filterActive)}
 			<div class="flex justify-between items-center space-x-1">
 				<span class="font-normal text-sm text-secondary">Flow Input</span>
