@@ -61,7 +61,8 @@
 	on:change={toggleErrorHandler}
 	options={{
 		right: 'Mute',
-		rightTooltip: 'Disable workspace error handler, EE only'
+		rightTooltip: 'Disable workspace error handler, EE only',
+		rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'
 	}}
 	{textDisabled}
 />
