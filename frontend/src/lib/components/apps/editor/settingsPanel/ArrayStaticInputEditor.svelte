@@ -11,7 +11,7 @@
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
 	import { isObjectOptionArray, isStringArray } from '$lib/components/multiselect/types'
 
-	export let componentInput: StaticInput<any[]> & { loading?: boolean }
+	export let componentInput: StaticInput<any[]> & { loading?: boolean; expr?: string }
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let id: string | undefined
@@ -19,6 +19,15 @@
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
+
+	let items = getItems(componentInput)
+	let raw: boolean = false
+	let labeled: boolean = subFieldType === 'labeledselect'
+
+	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
+
+	$: labeled !== undefined && handleLabeledChange()
+	$: items !== undefined && handleItemsChange()
 
 	function addElementByType() {
 		if (!Array.isArray(componentInput.value)) {
@@ -196,8 +205,6 @@
 		componentInput.value = reorderedValues
 	}
 
-	let items = getItems(componentInput)
-
 	function getItems(componentInput: StaticInput<any[]> & { loading?: boolean }) {
 		return (Array.isArray(componentInput.value) ? componentInput.value : [])
 			.filter((x) => x != undefined)
@@ -212,14 +219,10 @@
 		}
 	}
 
-	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
-
-	let raw: boolean = false
-	let labeled: boolean = subFieldType === 'labeledselect'
-
 	function handleItemsChange() {
 		const newComponentInput = { ...componentInput }
 		newComponentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
+		newComponentInput.expr = JSON.stringify(newComponentInput.value)
 
 		const newSubFieldType = labeled ? 'labeledselect' : 'simplestringselect'
 
@@ -240,9 +243,6 @@
 			}
 		}
 	}
-
-	$: labeled !== undefined && handleLabeledChange()
-	$: items !== undefined && handleItemsChange()
 
 	// let mounted = false
 

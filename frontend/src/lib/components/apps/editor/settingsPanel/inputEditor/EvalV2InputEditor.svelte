@@ -30,6 +30,9 @@
 		editor?.setCode(code)
 	}
 
+	let fullscreen = false
+	let focus = false
+
 	$: extraLib =
 		componentInput?.expr && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $state, false)
@@ -52,9 +55,6 @@
 			inferDeps(code, $worldStore.outputsById, componentInput, app)
 		}
 	}
-
-	let fullscreen = false
-	let focus = false
 </script>
 
 {#if componentInput?.type === 'evalv2'}
