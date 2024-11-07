@@ -154,7 +154,7 @@ tracing-appender = "^0"
 prometheus = { version = "^0", default-features = false }
 cookie = { version = "0.17.0" }
 phf = { version = "0.11", features = ["macros"] }
-rust-embed = "^6"
+rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"

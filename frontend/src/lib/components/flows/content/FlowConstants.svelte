@@ -77,6 +77,7 @@
 		.filter(([i, f, m]) => f.length > 0)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
+		inputMatches: writable(undefined),
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearFocus: () => {}

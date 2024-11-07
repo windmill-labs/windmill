@@ -1,3 +1,12 @@
+<script context="module">
+	const dynamicTemplateRegexPairs = buildPrefixRegex([
+		'flow_input',
+		'results',
+		'resource',
+		'variable'
+	])
+</script>
+
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
@@ -10,22 +19,23 @@
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button } from '$lib/components/common'
-	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { tick } from 'svelte'
 	import { fade } from 'svelte/transition'
-
+	import { buildPrefixRegex } from './flows/previousResults'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare, Plug } from 'lucide-svelte'
+	import { FunctionSquare } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
+	import FlowPlugConnect from './FlowPlugConnect.svelte'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
@@ -43,6 +53,7 @@
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
+	let focusedPrev = false
 
 	const dispatch = createEventDispatcher()
 
@@ -58,6 +69,9 @@
 
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	const { inputMatches, focusProp, propPickerConfig } =
+		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -133,6 +147,50 @@
 		}
 	}
 
+	let codeInjectionDetected = false
+
+	function checkCodeInjection(rawValue: string) {
+		if (!arg || !rawValue || rawValue.length < 3 || !dynamicTemplateRegexPairs) {
+			return undefined
+		}
+		if (rawValue.trim() !== rawValue) {
+			return undefined
+		}
+		const matches = dynamicTemplateRegexPairs.filter(({ regex }) => regex.test(rawValue))
+		if (matches.length > 0) {
+			return matches.map((m) => ({ word: m.word, value: rawValue }))
+		}
+		return undefined
+	}
+
+	async function setJavaScriptExpr(rawValue: string) {
+		arg = {
+			type: 'javascript',
+			expr: rawValue
+		}
+		propertyType = 'javascript'
+		monaco?.setCode('')
+		monaco?.insertAtCursor(rawValue)
+		await tick()
+		monaco?.focus()
+		await tick()
+		monaco?.setCursorToEnd()
+	}
+
+	function handleKeyUp(e: KeyboardEvent) {
+		if (
+			e.key === 'Tab' &&
+			isStaticTemplate(inputCat) &&
+			propertyType == 'static' &&
+			!noDynamicToggle &&
+			codeInjectionDetected
+		) {
+			setJavaScriptExpr(arg.value)
+		} else {
+			stepInputGen?.onKeyUp?.(e)
+		}
+	}
+
 	function isStaticTemplate(inputCat: InputCat) {
 		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
 	}
@@ -166,15 +224,38 @@
 		}
 	}
 
-	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	$: updateStaticInput(inputCat, propertyType, arg)
 
-	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
+	function updateStaticInput(
+		inputCat: InputCat,
+		propertyType: 'static' | 'javascript',
+		arg: InputTransform | any
+	) {
+		if (!isStaticTemplate(inputCat)) {
+			return
+		}
+		if (propertyType == 'static') {
+			setPropertyType(arg?.value)
+			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
+		} else if (propertyType == 'javascript' && focused) {
+			setPropertyType(arg?.expr)
+			$inputMatches = checkCodeInjection(arg?.expr)
+		}
+	}
 
 	function setDefaultCode() {
 		if (!arg?.value) {
 			monacoTemplate?.setCode(schema.properties?.[argName].default)
 		}
 	}
+
+	function updateFocused(newFocused: boolean) {
+		if (focusedPrev && !newFocused) {
+			$inputMatches = undefined
+		}
+		focusedPrev = focused
+	}
+	$: updateFocused(focused)
 
 	$: schema?.properties?.[argName].default && setDefaultCode()
 
@@ -325,45 +406,47 @@
 								<ToggleButton small label="Static" value="static" />
 							{/if}
 
-							<ToggleButton
-								small
-								light
-								tooltip="JavaScript expression ('flow_input' or 'results')."
-								value="javascript"
-								icon={FunctionSquare}
-							/>
+							{#if codeInjectionDetected && propertyType == 'static'}
+								<Button
+									size="xs2"
+									color="light"
+									btnClasses="font-normal text-xs w-fit bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-300 dark:bg-green-700 dark:hover:bg-green-600"
+									on:click={() => setJavaScriptExpr(arg.value)}
+								>
+									<span class="font-normal whitespace-nowrap flex gap-2 items-center"
+										><FunctionSquare size={14} /> detected -
+										<span class="font-bold">TAB</span>
+									</span>
+								</Button>
+							{:else}
+								<ToggleButton
+									small
+									light
+									tooltip="JavaScript expression ('flow_input' or 'results')."
+									value="javascript"
+									icon={FunctionSquare}
+								/>
+							{/if}
 						</ToggleButtonGroup>
 					</div>
 
-					<AnimatedButton
-						animate={connecting}
-						baseRadius="6px"
-						animationDuration="2s"
-						marginWidth="2px"
-					>
-						<Button
-							variant="border"
-							color="light"
-							size="xs2"
-							btnClasses={connecting ? 'text-blue-500' : 'text-primary'}
-							on:click={() => {
-								focusProp(argName, 'connect', (path) => {
-									connectProperty(path)
-									dispatch('change', { argName })
-									return true
-								})
-							}}
-						>
-							<Plug size={16} /> &rightarrow;
-						</Button>
-					</AnimatedButton>
+					<FlowPlugConnect
+						{connecting}
+						on:click={() => {
+							focusProp(argName, 'connect', (path) => {
+								connectProperty(path)
+								dispatch('change', { argName })
+								return true
+							})
+						}}
+					/>
 				</div>
 			{/if}
 		</div>
 
 		<div class="max-w-xs" />
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="relative" on:keyup={stepInputGen?.onKeyUp}>
+		<div class="relative" on:keyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
