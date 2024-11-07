@@ -75,17 +75,19 @@
 				</MenuItem>
 			{/each}
 		</div>
-		<div class="py-1" role="none">
-			<a
-				href="{base}/user/create_workspace"
-				class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
-				role="menuitem"
-				tabindex="-1"
-			>
-				<Plus size={16} />
-				Workspace
-			</a>
-		</div>
+		{#if isCloudHosted() || $superadmin}
+			<div class="py-1" role="none">
+				<a
+					href="{base}/user/create_workspace"
+					class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
+					role="menuitem"
+					tabindex="-1"
+				>
+					<Plus size={16} />
+					Workspace
+				</a>
+			</div>
+		{/if}
 		<div class="py-1" role="none">
 			<a
 				href="{base}/user/workspaces"
@@ -96,7 +98,7 @@
 				role="menuitem"
 				tabindex="-1"
 			>
-				All workspaces & invites
+				All workspaces
 			</a>
 		</div>
 		{#if $userStore?.is_admin || $superadmin}

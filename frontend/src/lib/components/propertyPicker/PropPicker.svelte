@@ -18,7 +18,6 @@
 	export let allowCopy = false
 	export let alwaysOn = false
 
-	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
