@@ -191,7 +191,7 @@
 				<span class="font-normal text-sm text-secondary">Flow Input</span>
 				<div class="flex space-x-2 items-center" />
 			</div>
-			<div class="overflow-y-auto mb-2">
+			<div class="overflow-y-auto pb-2">
 				<ObjectViewer
 					{allowCopy}
 					pureViewer={!$propPickerConfig}
@@ -203,7 +203,7 @@
 		{/if}
 		{#if error}
 			<span class="font-normal text-sm text-secondary">Error</span>
-			<div class="overflow-y-auto mb-2">
+			<div class="overflow-y-auto pb-2">
 				<ObjectViewer
 					{allowCopy}
 					pureViewer={!$propPickerConfig}
@@ -221,7 +221,7 @@
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
-					<div class="overflow-y-auto mb-2">
+					<div class="overflow-y-auto pb-2">
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -233,11 +233,11 @@
 					</div>
 				{/if}
 				<span class="font-normal text-sm text-secondary">All Results</span>
-				<div class="overflow-y-auto mb-2">
+				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
-						collapsed={true}
+						collapseLevel={allResultsCollapsed ? 1 : undefined}
 						json={resultByIdFiltered}
 						prefix="results"
 						on:select
@@ -250,7 +250,7 @@
 			)}
 			{#if previousId && Object.keys(json).length > 0}
 				<span class="font-normal text-sm text-secondary">Previous Result</span>
-				<div class="overflow-y-auto mb-2">
+				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
@@ -264,7 +264,7 @@
 			{/if}
 			{#if pickableProperties.hasResume}
 				<span class="font-normal text-sm text-secondary">Resume payloads</span>
-				<div class="overflow-y-auto mb-2">
+				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
@@ -280,7 +280,7 @@
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if !filterActive && suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
 					<span class="font-normal text-sm text-secondary">Suggested Results</span>
-					<div class="overflow-y-auto mb-2">
+					<div class="overflow-y-auto pb-2">
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -292,25 +292,13 @@
 					</div>
 				{/if}
 				{#if Object.keys(resultByIdFiltered).length > 0}
-					<div class="overflow-y-auto mb-2">
+					<div class="overflow-y-auto pb-2">
 						<span class="font-normal text-sm text-secondary">All Results</span>
-						{#if !allResultsCollapsed}
-							<Button
-								color="light"
-								size="xs2"
-								variant="border"
-								on:click={() => {
-									allResultsCollapsed = true
-								}}
-								wrapperClasses="inline-flex whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
-							>
-						{/if}
 
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
-							bind:collapsed={allResultsCollapsed}
+							collapseLevel={allResultsCollapsed ? 1 : undefined}
 							json={resultByIdFiltered}
 							prefix="results"
 							on:select
@@ -322,7 +310,7 @@
 
 		{#if displayContext}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
-				<div class="overflow-y-auto mb-2">
+				<div class="overflow-y-auto pb-2">
 					<span class="font-normal text-sm text-secondary">Variables:</span>
 
 					{#if displayVariable}
@@ -363,7 +351,7 @@
 				</div>
 			{/if}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
-				<div class="overflow-y-auto mb-2">
+				<div class="overflow-y-auto pb-2">
 					<span class="font-normal text-sm text-secondary">Resources:</span>
 
 					{#if displayResources}
