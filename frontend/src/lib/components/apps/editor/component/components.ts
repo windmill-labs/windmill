@@ -2079,7 +2079,8 @@ This is a paragraph.
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
-					]
+					],
+					hasLabeledMode: true
 				} as StaticAppInput,
 				create: {
 					type: 'static',
@@ -2150,7 +2151,7 @@ This is a paragraph.
 					subFieldType: 'text',
 					value: ['Foo', 'Bar']
 				} as StaticAppInput,
-				defaultItems: {
+				defaultValues: {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'text',
@@ -2203,7 +2204,7 @@ This is a paragraph.
 					value: ['Foo', 'Bar'],
 					hasLabeledMode: true
 				} as StaticAppInput,
-				defaultItems: {
+				defaultValues: {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'simplestringselect',
