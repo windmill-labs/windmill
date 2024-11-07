@@ -46,7 +46,9 @@
 	let w = 0
 	let open: boolean = false
 
-	$: handleItems(resolvedConfig.items)
+	$: if (resolvedConfig.items) {
+		options = parseConfigOptions(resolvedConfig.items)
+	}
 
 	$componentControl[id] = {
 		setValue(newValues: any[]) {
@@ -54,7 +56,7 @@
 		}
 	}
 
-	$: resolvedConfig.defaultItems && handleDefaultItems()
+	$: resolvedConfig.defaultItems && parseDefaultItems()
 
 	$: outerDiv &&
 		portalRef &&
@@ -77,15 +79,16 @@
 		outputs?.result.set([...(selectedOptions.map((option) => option.value) ?? [])])
 	}
 
-	function handleItems(resolvedConfigItems) {
+	function parseConfigOptions(resolvedConfigItems) {
 		if (!resolvedConfigItems) {
-			return
+			return []
 		}
 		if (isObjectOptionArray(resolvedConfigItems)) {
-			options = parseLabeledItems(resolvedConfigItems)
+			return parseLabeledItems(resolvedConfigItems)
 		} else if (isStringArray(resolvedConfigItems)) {
-			options = parseStringItems(resolvedConfigItems)
+			return parseStringItems(resolvedConfigItems)
 		}
+		return []
 	}
 
 	function parseLabeledItems(resolvedConfigItems: ObjectOption[]) {
@@ -122,7 +125,7 @@
 		})
 	}
 
-	function handleDefaultItems() {
+	function parseDefaultItems() {
 		if (!Array.isArray(resolvedConfig.defaultItems)) {
 			outputs?.result.set([])
 			return
