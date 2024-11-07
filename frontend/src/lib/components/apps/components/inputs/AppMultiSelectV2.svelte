@@ -16,7 +16,8 @@
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
-	import { isObjectOptionArray, isStringArray, type ObjectOption } from '../../../multiselect/types'
+	import type { ObjectOption } from '../../../multiselect/types'
+	import { parseConfigOptions } from './utils'
 
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
@@ -56,7 +57,9 @@
 		}
 	}
 
-	$: resolvedConfig.defaultItems && parseDefaultItems()
+	$: if (resolvedConfig.defaultValues) {
+		selectOptionsByValue(resolvedConfig.defaultValues)
+	}
 
 	$: outerDiv &&
 		portalRef &&
@@ -75,63 +78,12 @@
 	}
 
 	function selectOptionsByValue(values: any[]) {
+		if (!Array.isArray(values)) {
+			outputs?.result.set([])
+		}
+
 		selectedOptions = findOptionsByValue(values)
 		outputs?.result.set([...(selectedOptions.map((option) => option.value) ?? [])])
-	}
-
-	function parseConfigOptions(resolvedConfigItems) {
-		if (!resolvedConfigItems) {
-			return []
-		}
-		if (isObjectOptionArray(resolvedConfigItems)) {
-			return parseLabeledItems(resolvedConfigItems)
-		} else if (isStringArray(resolvedConfigItems)) {
-			return parseStringItems(resolvedConfigItems)
-		}
-		return []
-	}
-
-	function parseLabeledItems(resolvedConfigItems: ObjectOption[]) {
-		return resolvedConfigItems?.map((item: ObjectOption) => {
-			if (!item || typeof item !== 'object') {
-				console.error(
-					'When labeled, MultiSelect component items should be an array of { label: string, value: string }.'
-				)
-				return {
-					label: 'not object',
-					value: 'not object'
-				}
-			}
-			return {
-				label: item?.label ?? 'undefined',
-				value:
-					typeof item?.value === 'object' ? JSON.stringify(item.value) : item?.value ?? 'undefined'
-			}
-		})
-	}
-
-	function parseStringItems(resolvedConfigItems: any[]): ObjectOption[] {
-		return resolvedConfigItems?.map((option: string) => {
-			if (option === null || option === undefined || typeof option !== 'string') {
-				console.error(
-					'When not labeled, MultiSelect component items should be an array of strings.'
-				)
-				return { label: 'not string', value: 'not string' }
-			}
-			if (option === '') {
-				return { label: 'empty string', value: 'empty string' }
-			}
-			return { label: option, value: option }
-		})
-	}
-
-	function parseDefaultItems() {
-		if (!Array.isArray(resolvedConfig.defaultItems)) {
-			outputs?.result.set([])
-			return
-		}
-
-		selectOptionsByValue(resolvedConfig.defaultItems)
 	}
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {

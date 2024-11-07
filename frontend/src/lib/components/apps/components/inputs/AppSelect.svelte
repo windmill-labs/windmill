@@ -16,6 +16,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import type { ObjectOption } from '$lib/components/multiselect/types'
+	import { parseConfigOptions } from './utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -42,8 +43,8 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	$componentControl[id] = {
-		setValue(nvalue: string) {
-			setValue(JSON.stringify(nvalue))
+		setValue(newValue: any) {
+			setValue(newValue)
 		}
 	}
 	if (controls) {
@@ -60,13 +61,12 @@
 	})
 
 	// The library expects double quotes around the value
-	let value: string | undefined = noDefault
-		? undefined
-		: outputs?.result.peak()
-		? JSON.stringify(outputs?.result.peak())
-		: undefined
+	let selectedValue: string | undefined
 
-	$: resolvedConfig.items && handleItems()
+	$: if (resolvedConfig.items) {
+		options = parseConfigOptions(resolvedConfig.items)
+		updateSelectedValue()
+	}
 
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 	let filterText = ''
@@ -74,35 +74,20 @@
 
 	let previsousFilter = ''
 
-	function handleItems() {
-		options = Array.isArray(resolvedConfig.items)
-			? resolvedConfig.items.map((item) => {
-					if (!item || typeof item !== 'object') {
-						console.error('Select component items should be an array of objects')
-						return {
-							label: 'not object',
-							value: 'not object'
-						}
-					}
-					return {
-						label: item?.label ?? 'undefined',
-						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
-					}
-			  })
-			: []
-
-		if (value != undefined && options.some((x) => x.value === value)) {
+	function updateSelectedValue() {
+		if (selectedValue != undefined && options.some((x) => x.value === selectedValue)) {
 			return
 		}
-		let rawValue
+		let newValue: string | undefined
 		if (resolvedConfig.defaultValue !== undefined) {
-			rawValue = resolvedConfig.defaultValue
+			newValue = resolvedConfig.defaultValue
 		} else if (options.length > 0 && resolvedConfig?.preselectFirst) {
-			rawValue = resolvedConfig.items[0].value
+			newValue = resolvedConfig.items[0].value
 		}
-		if (rawValue !== undefined && rawValue !== null) {
-			value = JSON.stringify(rawValue)
-			outputs?.result.set(rawValue)
+
+		if (newValue !== undefined && newValue !== null) {
+			selectedValue = newValue
+			outputs?.result.set(newValue)
 		}
 	}
 
@@ -128,13 +113,9 @@
 		setValue(value)
 	}
 
-	function setValue(nvalue: any) {
-		let result: any = undefined
-		try {
-			result = JSON.parse(nvalue)
-		} catch (_) {}
-		value = nvalue
-		outputs?.result.set(result)
+	function setValue(newValue: any) {
+		selectedValue = newValue
+		outputs?.result.set(newValue)
 
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
@@ -142,11 +123,11 @@
 	}
 
 	function onClear() {
-		value = undefined
+		selectedValue = undefined
 		outputs?.result.set(undefined, true)
 	}
 
-	function handleFilter(e) {
+	function handleFilter() {
 		if (resolvedConfig.create && filterText !== previsousFilter) {
 			previsousFilter = filterText
 			if (filterText.length > 0) {
@@ -156,21 +137,18 @@
 					(item) => item.label.toString().toLowerCase() === filterText.toLowerCase()
 				)
 				if (!exists) {
-					options = [
-						...prev,
-						{ value: JSON.stringify(filterText), label: filterText, created: true }
-					]
+					options = [...prev, { value: filterText, label: filterText, created: true }]
 				}
 			}
 		}
 	}
 
 	function handleDefault() {
-		if (resolvedConfig.defaultValue != undefined) {
-			const nvalue = resolvedConfig.defaultValue
-			value = JSON.stringify(nvalue)
-			outputs?.result.set(nvalue)
+		if (!!noDefault || resolvedConfig.defaultValue !== undefined) {
+			return
 		}
+		selectedValue = resolvedConfig.defaultValue
+		outputs?.result.set(resolvedConfig.defaultValue)
 	}
 </script>
 
@@ -215,7 +193,7 @@
 						<option value="" disabled selected>{resolvedConfig.placeholder}</option>
 					{/if}
 					{#each options as item (item.value)}
-						<option value={item.value} selected={item.value === value}>{item.label}</option>
+						<option value={item.value} selected={item.value === selectedValue}>{item.label}</option>
 					{/each}
 				</select>
 			{:else}
@@ -234,7 +212,7 @@
 					containerStyles={($darkMode
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-					{value}
+					value={selectedValue}
 					class={css?.input?.class}
 					placeholder={resolvedConfig.placeholder}
 					disabled={resolvedConfig.disabled}

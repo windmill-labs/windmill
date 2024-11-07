@@ -232,7 +232,7 @@
 		dispatch('componentInputChange', newComponentInput)
 	}
 
-	/** Transforms items string[] to ObjectOption[ and vice versa. Mutating items will fire handleItemsChange. */
+	/** Transforms items string[] to ObjectOption] and vice versa. Mutating items will fire handleItemsChange. */
 	function handleLabeledChange() {
 		if (labeled && isStringArray(items.map((item) => item.value))) {
 			for (let i = 0; i < items.length; i++) {
