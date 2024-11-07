@@ -3,7 +3,7 @@
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import JsonEditor from './JsonEditor.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import IconSelectInput from './IconSelectInput.svelte'
 	import ColorInput from './ColorInput.svelte'
@@ -24,7 +24,7 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AppPicker from '$lib/components/wizards/AppPicker.svelte'
 
-	export let componentInput: StaticInput<any> | undefined
+	export let componentInput: (StaticInput<any> & { isLabeled?: boolean }) | undefined
 	export let fieldType: InputType | undefined = undefined
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
@@ -35,6 +35,18 @@
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
+	$: componentInput && onchange?.()
+
+	onMount(() => {
+		/** preserve the `labeled` toggling when switching from eval to static */
+		if (
+			componentInput?.isLabeled &&
+			fieldType === 'array' &&
+			subFieldType === 'simplestringselect'
+		) {
+			subFieldType = 'labeledselect'
+		}
+	})
 	/**
 	 * Workaround for MultiSelect
 	 *
@@ -49,12 +61,9 @@
 			return
 		}
 		const { newComponentInput, newSubFieldType } = newData
-
 		componentInput = { ...componentInput, ...newComponentInput }
 		subFieldType = newSubFieldType
 	}
-
-	$: componentInput && onchange?.()
 </script>
 
 {#key subFieldType}
