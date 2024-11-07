@@ -572,8 +572,9 @@ async fn route_job(
                         ));
                     }
                 }
-
-                response_headers.insert("etag", e_tag.parse().unwrap());
+                if let Ok(e_tag) = e_tag.parse() {
+                    response_headers.insert("etag", e_tag);
+                }
             }
             response_headers.insert(
                 "content-type",
