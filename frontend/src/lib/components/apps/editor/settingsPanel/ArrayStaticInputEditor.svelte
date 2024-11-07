@@ -229,9 +229,7 @@
 		newComponentInput.expr = JSON.stringify(newComponentInput.value)
 		newComponentInput.isLabeled = labeled
 
-		const newSubFieldType = labeled ? 'labeledselect' : 'simplestringselect'
-
-		dispatch('componentInputChange', { newComponentInput, newSubFieldType })
+		dispatch('componentInputChange', newComponentInput)
 	}
 
 	/** Transforms items string[] to ObjectOption[ and vice versa. Mutating items will fire handleItemsChange. */

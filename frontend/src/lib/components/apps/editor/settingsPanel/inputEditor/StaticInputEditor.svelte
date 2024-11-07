@@ -39,30 +39,33 @@
 
 	onMount(() => {
 		/** preserve the `labeled` toggling when switching from eval to static */
-		if (
-			componentInput?.isLabeled &&
-			fieldType === 'array' &&
-			subFieldType === 'simplestringselect'
-		) {
-			subFieldType = 'labeledselect'
+		if (componentInput !== undefined) {
+			handleComponentInputChange(componentInput)
 		}
 	})
 	/**
-	 * Workaround for MultiSelect
+	 * Every components: switching from `static` to `eval` preserves the user data
 	 *
-	 * Changing fieldType in <ArrayStaticInputEditor /> needs to mutate this component data and this component data type.
+	 * Multiselect: toggling `labeled` needs to mutate input value and input fieldType.
 	 * */
-	function handleComponentInputChange(newData: {
-		newComponentInput: StaticInput<any>
-		newSubFieldType: InputType
-	}) {
-		if (!newData) {
-			console.error('fired a componentInputChange with no data?')
-			return
-		}
-		const { newComponentInput, newSubFieldType } = newData
+	function handleComponentInputChange(newComponentInput: StaticInput<any>) {
 		componentInput = { ...componentInput, ...newComponentInput }
-		subFieldType = newSubFieldType
+
+		if (componentInput?.isLabeled) {
+			if (fieldType === 'array' && subFieldType === 'simplestringselect') {
+				subFieldType = 'labeledselect'
+			}
+			if (fieldType === 'simplestringselect') {
+				fieldType = 'labeledselect'
+			}
+		} else if (componentInput?.isLabeled === false) {
+			if (fieldType === 'array' && subFieldType === 'labeledselect') {
+				subFieldType = 'simplestringselect'
+			}
+			if (fieldType === 'labeledselect') {
+				fieldType = 'simplestringselect'
+			}
+		}
 	}
 </script>
 
