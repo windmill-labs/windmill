@@ -5,6 +5,8 @@
 	import { getStateColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
 	import type { GraphEventHandlers } from '../../graphBuilder'
+	import { getContext } from 'svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let data: {
 		offset: number
@@ -13,6 +15,16 @@
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
+	}
+
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
+
+	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
+
+	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
+		if (!inputJson || typeof inputJson !== 'object' || !inputJson.iter) return {}
+		return { iter: inputJson.iter }
 	}
 </script>
 
@@ -28,5 +40,7 @@
 		on:select={(e) => {
 			data?.eventHandlers?.select(e.detail)
 		}}
+		inputJson={filteredInput}
+		prefix="flow_input"
 	/>
 </NodeWrapper>

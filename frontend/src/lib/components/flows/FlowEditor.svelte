@@ -4,11 +4,14 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
 
+	import { writable } from 'svelte/store'
+	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
+	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -24,6 +27,11 @@
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
+
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 </script>
 
 <div

@@ -19,7 +19,6 @@
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button } from '$lib/components/common'
-	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { tick } from 'svelte'
@@ -30,12 +29,13 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare, Plug } from 'lucide-svelte'
+	import { FunctionSquare } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
+	import FlowPlugConnect from './FlowPlugConnect.svelte'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
@@ -430,28 +430,16 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<AnimatedButton
-						animate={connecting}
-						baseRadius="6px"
-						animationDuration="2s"
-						marginWidth="2px"
-					>
-						<Button
-							variant="border"
-							color="light"
-							size="xs2"
-							btnClasses={connecting ? 'text-blue-500' : 'text-primary'}
-							on:click={() => {
-								focusProp(argName, 'connect', (path) => {
-									connectProperty(path)
-									dispatch('change', { argName })
-									return true
-								})
-							}}
-						>
-							<Plug size={16} /> &rightarrow;
-						</Button>
-					</AnimatedButton>
+					<FlowPlugConnect
+						{connecting}
+						on:click={() => {
+							focusProp(argName, 'connect', (path) => {
+								connectProperty(path)
+								dispatch('change', { argName })
+								return true
+							})
+						}}
+					/>
 				</div>
 			{/if}
 		</div>

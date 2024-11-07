@@ -98,20 +98,19 @@
 			<ul class={`w-full ${level === 0 ? 'border-none' : 'pl-2 border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<div class="inline-flex items-baseline">
-							<Button
-								on:click={() => selectProp(key, undefined, false)}
-								size="xs2"
-								color="light"
-								variant="border"
-								wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]"
-								title={computeFullKey(key, rawKey)}
-							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
-							</Button>
-							<span class="text-2xs text-tertiary">:</span>
-						</div>
+						<Button
+							on:click={() => selectProp(key, undefined, false)}
+							size="xs2"
+							color="light"
+							variant="border"
+							wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]"
+							title={computeFullKey(key, rawKey)}
+						>
+							<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+						</Button>
+						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
+
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
 								json={json[key]}
@@ -124,15 +123,16 @@
 								collapsed={collapseLevel !== undefined ? level + 1 >= collapseLevel : undefined}
 							/>
 						{:else}
-							<button
-								class="val text-left {pureViewer
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<span
+								class="val inline text-left {pureViewer
 									? 'cursor-auto'
-									: ''} rounded px-1 {getTypeAsString(json[key])}"
+									: ''} rounded pl-0.5 {getTypeAsString(json[key])}"
 								on:click={() => {
 									selectProp(key, json[key], true)
 								}}
 								title={JSON.stringify(json[key])}
-								disabled={false}
 							>
 								{#if json[key] === NEVER_TESTED_THIS_FAR}
 									<span class="text-2xs text-tertiary font-normal">
@@ -149,7 +149,7 @@
 										{truncate(JSON.stringify(json[key]), 200)}
 									</span>
 								{/if}
-							</button>
+							</span>
 						{/if}
 					</li>
 				{/each}
@@ -190,18 +190,18 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 
 	{#if fullyCollapsed}
-		<div class="inline-flex relative">
+		<span>
 			<Button
 				color="light"
 				size="xs2"
 				variant="border"
 				on:click={collapse}
 				wrapperClasses="inline-flex w-fit"
-				btnClasses="font-normal h-4 text-2xs px-1 text-primary rounded-[0.275rem]"
+				btnClasses="h-4 text-[9px] px-1  text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}
 			</Button>
-		</div>
+		</span>
 	{/if}
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>

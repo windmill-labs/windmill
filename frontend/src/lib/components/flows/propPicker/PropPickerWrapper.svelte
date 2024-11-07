@@ -1,19 +1,22 @@
 <script context="module" lang="ts">
-	type InsertionMode = 'append' | 'connect' | 'insert'
-
 	type SelectCallback = (path: string) => boolean
 
-	type PropPickerConfig = {
-		insertionMode: InsertionMode
-		propName: string
+	export const CONNECT = 'connect' as const
+	export type PropPickerConfig = {
+		propName?: string
 		onSelect: SelectCallback
+		clearFocus: () => void
+		insertionMode: 'append' | 'connect' | 'insert'
 	}
 
 	export type PropPickerWrapperContext = {
 		propPickerConfig: Writable<PropPickerConfig | undefined>
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
-		filteredPickableProperties: Writable<PickableProperties | undefined>
-		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
+		focusProp: (
+			propName: string,
+			insertionMode: 'append' | 'connect' | 'insert',
+			onSelect: SelectCallback
+		) => void
 		clearFocus: () => void
 	}
 </script>
@@ -22,12 +25,13 @@
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
@@ -37,33 +41,60 @@
 	export let displayContext = true
 	export let notSelectable = false
 	export let noPadding: boolean = false
+	export let alwaysOn: boolean = false
+	export let paneClass: string = ''
 
-	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
-	const filteredPickableProperties = writable<PickableProperties | undefined>(undefined)
+	const propPickerConfig: Writable<PropPickerConfig | undefined> = writable<
+		PropPickerConfig | undefined
+	>(undefined)
+
 	const inputMatches = writable<{ word: string; value: string }[] | undefined>(undefined)
 	const dispatch = createEventDispatcher()
 
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+	flowPropPickerConfig.set(undefined)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
-		filteredPickableProperties,
 		focusProp: (propName, insertionMode, onSelect) => {
-			propPickerConfig.set({
+			const config = {
 				propName,
 				insertionMode,
-				onSelect
+				onSelect,
+				clearFocus: () => {
+					propPickerConfig.set(undefined)
+					flowPropPickerConfig.set(undefined)
+				}
+			}
+			propPickerConfig.set(config)
+			flowPropPickerConfig.set({
+				...config,
+				clearFocus: () => {
+					propPickerConfig.set(undefined)
+					flowPropPickerConfig.set(undefined)
+				}
 			})
 		},
 		clearFocus: () => {
+			flowPropPickerConfig.set(undefined)
 			propPickerConfig.set(undefined)
 		}
 	})
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		return Array.from(
+			document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
+		) as HTMLElement[]
+	}
 </script>
 
 <div
 	class="h-full w-full"
-	use:clickOutside
-	on:click_outside={() => propPickerConfig.set(undefined)}
+	data-prop-picker-root
+	use:clickOutside={{ capture: true, exclude: getPropPickerElements }}
+	on:click_outside={() => {
+		propPickerConfig.set(undefined)
+	}}
 >
 	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
 		<Pane
@@ -76,12 +107,12 @@
 		<Pane
 			minSize={20}
 			size={40}
-			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''}"
+			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
 		>
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
-				wrapperClasses="h-full w-full pt-2 !bg-surface"
+				wrapperClasses="h-full w-full pt-2 !bg-surface "
 				marginWidth="3px"
 				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
 				$propPickerConfig?.insertionMode == 'append'
@@ -98,12 +129,13 @@
 						on:select={({ detail }) => {
 							dispatch('select', detail)
 							if ($propPickerConfig?.onSelect(detail)) {
-								propPickerConfig.set(undefined)
+								$propPickerConfig?.clearFocus()
 							}
 						}}
 					/>
 				{:else if pickableProperties}
 					<PropPicker
+						{alwaysOn}
 						{displayContext}
 						{error}
 						{pickableProperties}
@@ -111,7 +143,7 @@
 						on:select={({ detail }) => {
 							dispatch('select', detail)
 							if ($propPickerConfig?.onSelect(detail)) {
-								propPickerConfig.set(undefined)
+								$propPickerConfig?.clearFocus()
 							}
 						}}
 					/>
