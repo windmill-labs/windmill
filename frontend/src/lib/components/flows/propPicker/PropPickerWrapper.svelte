@@ -43,6 +43,7 @@
 	export let noPadding: boolean = false
 	export let alwaysOn: boolean = false
 	export let paneClass: string = ''
+	export let noFlowPlugConnect = false
 
 	const propPickerConfig: Writable<PropPickerConfig | undefined> = writable<
 		PropPickerConfig | undefined
@@ -67,13 +68,15 @@
 				}
 			}
 			propPickerConfig.set(config)
-			flowPropPickerConfig.set({
-				...config,
-				clearFocus: () => {
-					propPickerConfig.set(undefined)
-					flowPropPickerConfig.set(undefined)
-				}
-			})
+			if (!noFlowPlugConnect) {
+				flowPropPickerConfig.set({
+					...config,
+					clearFocus: () => {
+						propPickerConfig.set(undefined)
+						flowPropPickerConfig.set(undefined)
+					}
+				})
+			}
 		},
 		clearFocus: () => {
 			flowPropPickerConfig.set(undefined)
@@ -121,7 +124,7 @@
 					: 'transparent'}
 				animationDuration="4s"
 			>
-				{#if result}
+				{#if result != undefined}
 					<PropPickerResult
 						{result}
 						{extraResults}

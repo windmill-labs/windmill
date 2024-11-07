@@ -57,6 +57,7 @@
 		{#if flowModule.sleep && schema.properties['sleep']}
 			<div class="border">
 				<PropPickerWrapper
+					noFlowPlugConnect={true}
 					notSelectable
 					{result}
 					displayContext={false}
