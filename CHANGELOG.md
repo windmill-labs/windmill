@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.420.1](https://github.com/windmill-labs/windmill/compare/v1.420.0...v1.420.1) (2024-11-07)
+
+
+### Bug Fixes
+
+* improve prop filtering on flow prop picker ([0501ad8](https://github.com/windmill-labs/windmill/commit/0501ad8a99f6f7d9fd26c996b754e8afe8f958b1))
+
 ## [1.420.0](https://github.com/windmill-labs/windmill/compare/v1.419.0...v1.420.0) (2024-11-07)
 
 
