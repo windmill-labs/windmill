@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from '../common/modal/Modal.svelte'
 	import Button from '../common/button/Button.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
 	import { CheckCircle2, AlertCircle, RefreshCw, EyeOff, Eye, CheckSquare2 } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
@@ -12,7 +13,7 @@
 
 	let alerts: CriticalAlert[] = []
 
-	let checkForNewAlertsInterval:  ReturnType<typeof setInterval>;
+	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 	let isRefreshing = false
 	let previousOpen = open
@@ -36,11 +37,6 @@
 	async function acknowledgeAll() {
 		await SettingService.acknowledgeAllCriticalAlerts()
 		getAlerts(false)
-	}
-
-	function toggleHideAcknowledged() {
-		hideAcknowledged = !hideAcknowledged
-		getAlerts(true)
 	}
 
 	async function fetchAlerts(pageNumber: number) {
@@ -141,7 +137,6 @@
 	}
 
 	async function refreshAlerts() {
-		console.log('Refreshing alerts')
 		await getAlerts(true)
 	}
 
@@ -165,13 +160,6 @@
 			<Button color="green" startIcon={{ icon: CheckSquare2 }} size="sm" on:click={acknowledgeAll}
 				>Acknowledge All</Button
 			>
-			<Button
-				startIcon={hideAcknowledged ? { icon: Eye } : { icon: EyeOff }}
-				size="sm"
-				on:click={toggleHideAcknowledged}
-			>
-				{hideAcknowledged ? 'Show Acknowledged' : 'Hide Acknowledged'}
-			</Button>
 		</div>
 
 		<button class="p-2 rounded-full hover:bg-gray-200" on:click={refreshAlerts} disabled={loading}>
@@ -186,11 +174,19 @@
 			<span>Page {page}</span>
 			<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
 		</div>
+        <div class="pr-3">
+            <Toggle
+                bind:checked={hideAcknowledged}
+                on:change={refreshAlerts}
+                options={{ right: 'Hide Acknowledged' }}
+                size="xs"
+            />
+        </div>
 	</div>
 
 	<!-- Table of alerts with scrollable body -->
 	<div class="overflow-y-auto max-h-1/2">
-		<table class="min-w-full  w-full">
+		<table class="min-w-full w-full">
 			<thead class="bg-gray-600 text-white sticky top-0 z-10">
 				<tr>
 					<th class="w-[60px] px-4 py-2 text-center">Type</th>
