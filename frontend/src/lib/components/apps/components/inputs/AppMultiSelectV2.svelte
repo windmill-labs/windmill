@@ -24,9 +24,6 @@
 	export let render: boolean
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
-	// every option is labeled, or no one is.
-	type Options = ObjectOption[] | string[]
-
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
 		middleware: [offset(5), flip(), shift()]
@@ -34,7 +31,7 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let items: Options = []
+	let items: ObjectOption[] = []
 
 	const resolvedConfig = initConfig(
 		components['multiselectcomponentv2'].initialData.configuration,
@@ -64,12 +61,10 @@
 			: ([] as unknown[])
 	})
 
-	let value: Options | undefined = isObjectOptionArray(outputs?.result.peak())
-		? ([...new Set(outputs?.result.peak())] as ObjectOption[])
-		: ([...new Set(outputs?.result.peak())] as string[])
+	let value: ObjectOption[] | undefined = [...new Set(outputs?.result.peak())] as ObjectOption[]
 
 	$componentControl[id] = {
-		setValue(nvalue: Options) {
+		setValue(nvalue: ObjectOption[]) {
 			if (isObjectOptionArray(nvalue)) {
 				value = [...new Set(nvalue)] as ObjectOption[]
 				outputs?.result.set([...(value ?? [])])
@@ -78,7 +73,7 @@
 	}
 
 	function parseLabeledItems(resolvedConfigItems: ObjectOption[]) {
-		return resolvedConfigItems?.map((item) => {
+		return resolvedConfigItems?.map((item: ObjectOption) => {
 			if (!item || typeof item !== 'object') {
 				console.error(
 					'When labeled, MultiSelect component items should be an array of { label: string, value: string }.'
@@ -96,18 +91,18 @@
 		})
 	}
 
-	function parseStringItems(resolvedConfigItems: string[]) {
-		return resolvedConfigItems?.map((item) => {
-			if (item === null || item === undefined || typeof item !== 'string') {
+	function parseStringItems(resolvedConfigItems: string[]): ObjectOption[] {
+		return resolvedConfigItems?.map((option: string) => {
+			if (option === null || option === undefined || typeof option !== 'string') {
 				console.error(
 					'When not labeled, MultiSelect component items should be an array of strings.'
 				)
-				return 'not string'
+				return { label: 'not string', value: 'not string' }
 			}
-			if (item === '') {
-				return 'empty string'
+			if (option === '') {
+				return { label: 'empty string', value: 'empty string' }
 			}
-			return item
+			return { label: option, value: option }
 		})
 	}
 
@@ -124,15 +119,10 @@
 		let rawNvalue = new Set(
 			resolvedConfig.defaultItems?.filter((v) => typeof v === 'string' || typeof v === 'number')
 		)
-		if (isObjectOptionArray(items)) {
-			nvalue = items?.filter((item) => rawNvalue.has(item.label)) as ObjectOption[]
-			value = [...new Set(nvalue)]
-			outputs?.result.set([...(value ?? [])])
-		} else if (isStringArray(items)) {
-			nvalue = items?.filter((label) => rawNvalue.has(label)) as string[]
-			value = [...new Set(nvalue)]
-			outputs?.result.set([...(value ?? [])])
-		}
+
+		nvalue = items?.filter((item) => rawNvalue.has(item.label)) as ObjectOption[]
+		value = [...new Set(nvalue)]
+		outputs?.result.set([...(value ?? [])])
 	}
 
 	let css = initCss($app.css?.multiselectcomponent, customCss)
