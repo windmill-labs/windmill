@@ -14,7 +14,9 @@ use axum::{
     routing::{delete, get, post},
     Extension, Json, Router,
 };
-use http::{header::IF_NONE_MATCH, HeaderMap, StatusCode};
+#[cfg(feature = "parquet")]
+use http::header::IF_NONE_MATCH;
+use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
