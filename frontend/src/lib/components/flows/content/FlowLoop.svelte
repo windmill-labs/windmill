@@ -130,8 +130,7 @@
 								}}
 							/>
 						</div>
-						<div
-							>``
+						<div>
 							<div class="mb-2 text-sm font-bold">Run in parallel</div>
 							<Toggle
 								bind:checked={mod.value.parallel}

@@ -98,7 +98,7 @@
 				}}><Expand size={18} /></button
 			>
 		{/if}
-		<div class="max-h-40 overflow-auto">
+		<div class="max-h-60 overflow-auto">
 			<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
 		</div>
 	</div>
