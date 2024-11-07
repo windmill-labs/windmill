@@ -637,7 +637,14 @@
 						cannot be inferred from the type directly.
 					</Tooltip>
 				</Tab>
-				<Tab value="triggers">Triggers</Tab>
+				<Tab value="triggers">
+					Triggers
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/getting_started/trigger_scripts"
+					>
+						Configure how this script will be triggered.
+					</Tooltip>
+				</Tab>
 				<svelte:fragment slot="content">
 					<div
 						class={selectedTab === 'ui' ? 'p-0' : 'p-4'}
@@ -683,6 +690,11 @@
 											/>
 										</Label>
 										<Label label="Path">
+											<svelte:fragment slot="header">
+												<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path">
+													The unique identifier of the script in the workspace that defines permissions
+												</Tooltip>
+											</svelte:fragment>
 											<Path
 												bind:this={path}
 												bind:error={pathError}
@@ -702,7 +714,7 @@
 												promptConfigName="description"
 												elementType="textarea"
 												elementProps={{
-													placeholder: 'Description displayed'
+													placeholder: 'What this script does and how to use it'
 												}}
 											/>
 										</Label>
@@ -782,7 +794,9 @@
 
 								<Section label="Script kind">
 									<svelte:fragment slot="header">
-										<Tooltip>
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/script_editor/script_kinds"
+										>
 											Tag this script's purpose within flows such that it is available as the
 											corresponding action.
 										</Tooltip>
@@ -813,6 +827,13 @@
 						<TabContent value="runtime">
 							<div class="flex flex-col gap-8">
 								<Section label="Concurrency limits" eeOnly>
+									<svelte:fragment slot="header">
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
+										>
+											Allowed concurrency within a given timeframe
+										</Tooltip>
+									</svelte:fragment>
 									<div class="flex flex-col gap-4">
 										<Label label="Max number of executions within the time window">
 											<div class="flex flex-row gap-2 max-w-sm">
@@ -841,7 +862,9 @@
 										</Label>
 										<Label label="Custom concurrency key (optional)">
 											<svelte:fragment slot="header">
-												<Tooltip>
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
+												>
 													Concurrency keys are global, you can have them be workspace specific using
 													the variable `$workspace`. You can also use an argument's value using
 													`$args[name_of_arg]`</Tooltip
@@ -857,7 +880,7 @@
 										</Label>
 									</div>
 								</Section>
-								<Section label="Worker Group Tag (Queue)">
+								<Section label="Worker group tag (queue)">
 									<svelte:fragment slot="header">
 										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
@@ -869,6 +892,13 @@
 									<WorkerTagPicker bind:tag={script.tag} />
 								</Section>
 								<Section label="Cache">
+									<svelte:fragment slot="header">
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/caching"
+										>
+											Cache the results for each possible inputs
+										</Tooltip>
+									</svelte:fragment>
 									<div class="flex gap-2 shrink flex-col">
 										<Toggle
 											size="sm"
@@ -895,6 +925,13 @@
 									</div>
 								</Section>
 								<Section label="Timeout">
+									<svelte:fragment slot="header">
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/script_editor/settings#timeout"
+										>
+											Add a custom timeout for this script
+										</Tooltip>
+									</svelte:fragment>
 									<div class="flex gap-2 shrink flex-col">
 										<Toggle
 											size="sm"
@@ -918,7 +955,14 @@
 										{/if}
 									</div>
 								</Section>
-								<Section label="Perpetual Script">
+								<Section label="Perpetual script">
+									<svelte:fragment slot="header">
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/script_editor/perpetual_scripts"
+										>
+											Restart the script upon ending unless cancelled
+										</Tooltip>
+									</svelte:fragment>
 									<div class="flex gap-2 shrink flex-col">
 										<Toggle
 											size="sm"
@@ -936,7 +980,7 @@
 										/>
 									</div>
 								</Section>
-								<Section label="Dedicated Workers" eeOnly>
+								<Section label="Dedicated workers" eeOnly>
 									<Toggle
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
@@ -966,7 +1010,9 @@
 									{/if}
 									<svelte:fragment slot="header">
 										<Tooltip
-											>In this mode, the script is meant to be run on dedicated workers that run the
+											documentationLink="https://www.windmill.dev/docs/core_concepts/dedicated_workers"
+										>
+											In this mode, the script is meant to be run on dedicated workers that run the
 											script at native speed. Can reach >1500rps per dedicated worker. Only
 											available on enterprise edition and for Python3, Deno and Bun. For other
 											languages, the efficiency is already on par with deidcated workers since they
@@ -976,7 +1022,9 @@
 								</Section>
 								<Section label="Delete after use">
 									<svelte:fragment slot="header">
-										<Tooltip>
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/script_editor/settings#delete-after-use"
+										>
 											WARNING: This settings ONLY applies to synchronous webhooks or when the script
 											is used within a flow. If used individually, this script must be triggered
 											using a synchronous endpoint to have the desired effect.
@@ -1048,7 +1096,9 @@
 										</Toggle>
 										<svelte:fragment slot="header">
 											<!-- TODO: Add EE-only badge when we have it -->
-											<Tooltip>
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/jobs#high-priority-jobs"
+											>
 												Jobs from script labeled as high priority take precedence over the other
 												jobs when in the jobs queue.
 												{#if !$enterpriseLicense}This is a feature only available on enterprise
@@ -1059,7 +1109,9 @@
 								{/if}
 								<Section label="Runs visibility">
 									<svelte:fragment slot="header">
-										<Tooltip>
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#invisible-runs"
+										>
 											When this option is enabled, manual executions of this script are invisible to
 											users other than the user running it, including the owner(s). This setting can
 											be overridden when this script is run manually from the advanced menu.
