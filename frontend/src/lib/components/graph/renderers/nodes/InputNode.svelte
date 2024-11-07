@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let data: {
 		hasPreprocessor: boolean
@@ -22,6 +23,20 @@
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
+
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
+
+	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
+		if (!inputJson || typeof inputJson !== 'object') return {}
+
+		const newJson = { ...inputJson }
+		delete newJson.iter
+
+		return newJson
+	}
+
+	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
 </script>
 
 <NodeWrapper let:darkMode>
@@ -65,5 +80,8 @@
 		on:select={(e) => {
 			data.eventHandlers?.select(e.detail)
 		}}
+		inputJson={filteredInput}
+		prefix="flow_input"
+		alwaysPluggable
 	/>
 </NodeWrapper>

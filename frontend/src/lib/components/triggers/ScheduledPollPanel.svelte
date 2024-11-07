@@ -2,8 +2,6 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { base } from '$lib/base'
-
-	$: console.log('dbg base', base)
 </script>
 
 <div class="flex flex-col w-full gap-4 text-sm">

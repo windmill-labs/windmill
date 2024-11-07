@@ -19,9 +19,9 @@
 </script>
 
 <Popover on:close class="leading-none">
-	<PopoverButton>
+	<PopoverButton let:open>
 		<div use:floatingRef>
-			<slot name="button" />
+			<slot name="button" {open} />
 		</div>
 	</PopoverButton>
 	<ConditionalPortal condition={shouldUsePortal} {target}>

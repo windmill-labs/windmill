@@ -49,6 +49,8 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
+	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -503,7 +505,10 @@
 		customUi: {},
 		insertButtonOpen: writable(false)
 	})
-
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined

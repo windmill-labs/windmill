@@ -34,6 +34,7 @@
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -49,6 +50,8 @@
 	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
+
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -431,6 +434,9 @@
 					await addBranch(detail.module)
 					$flowStore = $flowStore
 				}
+			}}
+			on:select={async ({ detail }) => {
+				flowPropPickerConfig.set(undefined)
 			}}
 			on:changeId={({ detail }) => {
 				let { id, newId, deps } = detail

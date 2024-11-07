@@ -29,6 +29,8 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
 
+	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -48,16 +50,24 @@
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
 	export let isTrigger: boolean = false
+	let pickableIds: Record<string, any> | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
 	)
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+
 	const dispatch = createEventDispatcher()
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
+	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
+
+	$: pickableIds = $pickablePropertiesFiltered?.priorIds
 
 	let editId = false
 
@@ -283,6 +293,18 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 			{/if}
 		</div>
 	</div>
+
+	{#if id && $flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
+		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
+			<FlowPropPicker
+				json={{
+					[id]: pickableIds[id]
+				}}
+				prefix={'results'}
+			/>
+		</div>
+	{/if}
+
 	{#if deletable}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
