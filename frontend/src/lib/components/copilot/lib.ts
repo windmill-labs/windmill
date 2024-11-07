@@ -13,6 +13,7 @@ import type {
 } from 'openai/resources/index.mjs'
 
 import type { MessageCreateParams, MessageParam } from '@anthropic-ai/sdk/resources/messages.mjs'
+import type { Stream } from '@anthropic-ai/sdk/streaming.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -102,7 +103,7 @@ export async function testKey({
 	abortController: AbortController
 	aiProvider: AiProviderTypes
 }) {
-	console.log({ aiProvider , apiKey})
+	console.log({ aiProvider, apiKey })
 	if (apiKey) {
 		const openai = new OpenAI({
 			apiKey,
@@ -358,26 +359,62 @@ export async function getNonStreamingCompletion(
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
+	aiProvider: AiProviderTypes,
 	model = openaiConfig.model
 ) {
-	const openaiClient = workspacedOpenai.getClient()
-	const completion = await openaiClient.chat.completions.create(
-		{
-			...openaiConfig,
-			messages,
-			model
-		},
-		{
-			signal: abortController.signal
+	switch (aiProvider) {
+		case 'anthropic': {
+			const anthropicClient = workspacedAnthropic.getClient()
+			let system: string | undefined = undefined
+			if (messages[0].role == 'system') {
+				system = messages[0].content as string
+				messages.shift()
+			}
+			const completion = await anthropicClient.messages.create(
+				{
+					...anthropicConfig,
+					system,
+					messages: messages as MessageParam[]
+				},
+				{ signal: abortController.signal }
+			)
+			return completion as Stream<Anthropic.Messages.RawMessageStreamEvent>
 		}
-	)
-	return completion
+
+		case 'openai': {
+			const openaiClient = workspacedOpenai.getClient()
+			const completion = await openaiClient.chat.completions.create(
+				{
+					...openaiConfig,
+					messages,
+					model
+				},
+				{
+					signal: abortController.signal
+				}
+			)
+			return completion
+		}
+	}
+}
+
+function isRawMessageStreamEvent(
+	message: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
+): message is Anthropic.Messages.RawMessageStreamEvent {
+	return 'uniquePropertyA' in message // Replace `uniquePropertyA` with an actual property unique to RawMessageStreamEvent
+}
+
+function isChatCompletionChunk(
+	response: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
+): response is OpenAI.Chat.Completions.ChatCompletionChunk {
+	return 'choices' in response
 }
 
 export async function copilot(
 	scriptOptions: CopilotOptions,
 	generatedCode: Writable<string>,
 	abortController: AbortController,
+	aiProvider: AiProviderTypes,
 	generatedExplanation?: Writable<string>
 ) {
 	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
@@ -393,13 +430,16 @@ export async function copilot(
 				content: prompt
 			}
 		],
-		abortController
+		abortController,
+		aiProvider
 	)
 
 	let response = ''
 	let code = ''
 	for await (const part of completion) {
-		response += part.choices[0]?.delta?.content || ''
+		if (isChatCompletionChunk(part)) {
+			response += part.choices[0]?.delta?.content || ''
+		}
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
@@ -465,15 +505,18 @@ function getStringEndDelta(prev: string, now: string) {
 export async function deltaCodeCompletion(
 	messages: ChatCompletionMessageParam[],
 	generatedCodeDelta: Writable<string>,
-	abortController: AbortController
+	abortController: AbortController,
+	aiProvider: AiProviderTypes
 ) {
-	const completion = await getCompletion(messages, abortController)
+	const completion = await getCompletion(messages, abortController, aiProvider)
 
 	let response = ''
 	let code = ''
 	let delta = ''
 	for await (const part of completion) {
-		response += part.choices[0]?.delta?.content || ''
+		if (isChatCompletionChunk(part)) {
+			response += part.choices[0]?.delta?.content || ''
+		}
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {

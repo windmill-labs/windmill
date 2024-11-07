@@ -113,6 +113,7 @@
 				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 			} catch (err) {
 				copilotInfo.set({
+					ai_provider: '',
 					exists_ai_resource: false,
 					code_completion_enabled: false
 				})

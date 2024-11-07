@@ -85,6 +85,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
+	import type { AiProviderTypes } from './copilot/lib'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -781,6 +782,7 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -911,7 +913,8 @@
 						  })
 						: undefined,
 					isFirstInLoop,
-					abortController
+					abortController,
+					aiProvider
 				)
 				unsubscribe()
 			}
@@ -937,7 +940,8 @@
 								value: RawScript | PathScript
 							},
 							isFirstInLoop,
-							abortController
+							abortController,
+							aiProvider
 						)
 
 						// create flow inputs used by AI for autocompletion
