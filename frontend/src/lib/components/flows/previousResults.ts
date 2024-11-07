@@ -260,3 +260,40 @@ declare const approvers: string
 }
 `
 }
+
+export function buildPrefixRegex(words: string[]): Array<{ regex: RegExp; word: string }> {
+	return words.map((word) => {
+		const prefixes: string[] = []
+		for (let i = 1; i <= word.length; i++) {
+			prefixes.push(word.slice(0, i) + '$')
+		}
+		prefixes.push(word + '\\.')
+		prefixes.push(word + '\\[')
+
+		return {
+			regex: new RegExp(`^(${prefixes.join('|')}).*`),
+			word
+		}
+	})
+}
+
+export function filterNestedObject(obj: any, nestedKeys: string[]) {
+	if (nestedKeys.length === 0) return {}
+	if (nestedKeys.length === 1) {
+		if (nestedKeys[0] === '') {
+			return obj
+		}
+		const regexes = buildPrefixRegex(Object.keys(obj))
+		const matches = regexes.filter(({ regex }) => regex.test(nestedKeys[0]))
+		return Object.fromEntries(
+			Object.entries(obj).filter(([key]) => matches.some(({ word }) => word === key))
+		)
+	}
+	const [key, ...rest] = nestedKeys
+	if (obj && typeof obj === 'object' && key in obj) {
+		const result = {}
+		result[key] = filterNestedObject(obj[key], rest)
+		return result
+	}
+	return {}
+}
