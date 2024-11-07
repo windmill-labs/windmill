@@ -209,7 +209,9 @@
 		{/if}
 		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered ?? {}).length > 0 || !filterActive)}
 			<div class="flex justify-between items-center space-x-1">
-				<span class="font-normal text-sm text-secondary">Flow Input</span>
+				<span class="font-normal text-sm text-secondary"
+					><span class="font-mono">flow_input</span></span
+				>
 				<div class="flex space-x-2 items-center" />
 			</div>
 			<div class="overflow-y-auto pb-2">
@@ -253,7 +255,7 @@
 						/>
 					</div>
 				{/if}
-				<span class="font-normal text-sm text-secondary">All Results</span>
+				<span class="font-normal text-sm text-tertiary font-mono">results</span>
 				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
 						{allowCopy}
@@ -266,23 +268,6 @@
 				</div>
 			{/if}
 		{:else}
-			{@const json = Object.fromEntries(
-				Object.entries(resultByIdFiltered ?? {}).filter(([k, v]) => k == previousId)
-			)}
-			{#if previousId && Object.keys(json).length > 0}
-				<span class="font-normal text-sm text-secondary">Previous Result</span>
-				<div class="overflow-y-auto pb-2">
-					<ObjectViewer
-						{allowCopy}
-						pureViewer={!$propPickerConfig}
-						json={Object.fromEntries(
-							Object.entries(resultByIdFiltered ?? {}).filter(([k, v]) => k == previousId)
-						)}
-						prefix="results"
-						on:select
-					/>
-				</div>
-			{/if}
 			{#if pickableProperties.hasResume}
 				<span class="font-normal text-sm text-secondary">Resume payloads</span>
 				<div class="overflow-y-auto pb-2">
@@ -313,8 +298,8 @@
 					</div>
 				{/if}
 				{#if Object.keys(resultByIdFiltered ?? {}).length > 0}
-					<div class="overflow-y-auto pb-2">
-						<span class="font-normal text-sm text-secondary">All Results</span>
+					<div class="overflow-y-auto pb-2 pt-2">
+						<span class="font-normal text-sm text-tertiary font-mono">results</span>
 
 						<ObjectViewer
 							{allowCopy}
@@ -331,8 +316,8 @@
 
 		{#if displayContext}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
-				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-sm text-secondary">Variables:</span>
+				<div class="overflow-y-auto pb-2 pt-4">
+					<span class="font-normal text-xs text-secondary">Variables:</span>
 
 					{#if displayVariable}
 						<Button
@@ -373,7 +358,7 @@
 			{/if}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
 				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-sm text-secondary">Resources:</span>
+					<span class="font-normal text-xs text-secondary">Resources:</span>
 
 					{#if displayResources}
 						<Button
