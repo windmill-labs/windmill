@@ -15,6 +15,7 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import type { ObjectOption } from '$lib/components/multiselect/types'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -45,7 +46,6 @@
 			setValue(JSON.stringify(nvalue))
 		}
 	}
-
 	if (controls) {
 		$componentControl[id] = { ...$componentControl[id], ...controls }
 	}
@@ -54,7 +54,7 @@
 		components['selectcomponent'].initialData.configuration,
 		configuration
 	)
-
+	let options: (ObjectOption & { created?: boolean })[] = []
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as string | undefined
 	})
@@ -68,10 +68,14 @@
 
 	$: resolvedConfig.items && handleItems()
 
-	let listItems: { label: string; value: string; created?: boolean }[] = []
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
+	let filterText = ''
+	let css = initCss($app.css?.selectcomponent, customCss)
+
+	let previsousFilter = ''
 
 	function handleItems() {
-		listItems = Array.isArray(resolvedConfig.items)
+		options = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
 					if (!item || typeof item !== 'object') {
 						console.error('Select component items should be an array of objects')
@@ -87,13 +91,13 @@
 			  })
 			: []
 
-		if (value != undefined && listItems.some((x) => x.value === value)) {
+		if (value != undefined && options.some((x) => x.value === value)) {
 			return
 		}
 		let rawValue
 		if (resolvedConfig.defaultValue !== undefined) {
 			rawValue = resolvedConfig.defaultValue
-		} else if (listItems.length > 0 && resolvedConfig?.preselectFirst) {
+		} else if (options.length > 0 && resolvedConfig?.preselectFirst) {
 			rawValue = resolvedConfig.items[0].value
 		}
 		if (rawValue !== undefined && rawValue !== null) {
@@ -106,7 +110,7 @@
 		e?.stopPropagation()
 
 		if (resolvedConfig.create) {
-			listItems = listItems.map((i) => {
+			options = options.map((i) => {
 				delete i.created
 				return i
 			})
@@ -142,21 +146,17 @@
 		outputs?.result.set(undefined, true)
 	}
 
-	let css = initCss($app.css?.selectcomponent, customCss)
-
-	let previsousFilter = ''
-
 	function handleFilter(e) {
 		if (resolvedConfig.create && filterText !== previsousFilter) {
 			previsousFilter = filterText
 			if (filterText.length > 0) {
-				const prev = listItems?.filter((i) => !i.created)
+				const prev = options?.filter((i) => !i.created)
 
-				const exists = listItems?.some(
-					(item) => item.label.toLowerCase() === filterText.toLowerCase()
+				const exists = options?.some(
+					(item) => item.label.toString().toLowerCase() === filterText.toLowerCase()
 				)
 				if (!exists) {
-					listItems = [
+					options = [
 						...prev,
 						{ value: JSON.stringify(filterText), label: filterText, created: true }
 					]
@@ -165,8 +165,6 @@
 		}
 	}
 
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
-
 	function handleDefault() {
 		if (resolvedConfig.defaultValue != undefined) {
 			const nvalue = resolvedConfig.defaultValue
@@ -174,7 +172,6 @@
 			outputs?.result.set(nvalue)
 		}
 	}
-	let filterText = ''
 </script>
 
 {#each Object.keys(components['selectcomponent'].initialData.configuration) as key (key)}
@@ -211,13 +208,13 @@
 			}
 		}}
 	>
-		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
+		{#if Array.isArray(options) && options.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			{#if resolvedConfig.nativeHtmlSelect}
 				<select class={css?.input?.class} style={css?.input?.style} on:change={onNativeChange}>
 					{#if resolvedConfig.placeholder}
 						<option value="" disabled selected>{resolvedConfig.placeholder}</option>
 					{/if}
-					{#each listItems as item (item.value)}
+					{#each options as item (item.value)}
 						<option value={item.value} selected={item.value === value}>{item.label}</option>
 					{/each}
 				</select>
@@ -231,7 +228,7 @@
 					on:filter={handleFilter}
 					on:clear={onClear}
 					on:change={onChange}
-					items={listItems}
+					items={options}
 					listAutoWidth={resolvedConfig.fullWidth}
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 					containerStyles={($darkMode
@@ -266,7 +263,7 @@
 						<Alert title="Incorrect options" type="error" size="xs" class="h-full w-full ">
 							The selectable items should be an array of {'{"value": any, "label":}'}. Found:
 							<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
-								>{JSON.stringify(listItems, null, 4)}</pre
+								>{JSON.stringify(options, null, 4)}</pre
 							>
 						</Alert>
 					</div>
