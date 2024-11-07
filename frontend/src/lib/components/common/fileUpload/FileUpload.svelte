@@ -14,7 +14,9 @@
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
-	export let containerText: string = 'Drag and drop files here or click to browse'
+	export let containerText: string = allowMultiple
+		? 'Drag and drop files here or click to browse'
+		: 'Drag and drop a file here or click to browse'
 	export let customResourcePath: string | undefined = undefined
 	export let customResourceType: 's3' | 'azure_blob' | undefined = undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
 	export let customClass: string = ''
@@ -109,6 +111,10 @@
 			if (fileExtension) {
 				params.append('file_extension', fileExtension)
 			}
+			if (fileToUpload.type) {
+				params.append('content_type', fileToUpload.type)
+			}
+
 			// let response = await fetch(
 			// 	`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
 			// 	{
@@ -400,7 +406,6 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
-			includeMimeType
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)

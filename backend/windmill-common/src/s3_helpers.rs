@@ -109,10 +109,13 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct S3Object {
     pub s3: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
 }
 
 #[cfg(feature = "parquet")]

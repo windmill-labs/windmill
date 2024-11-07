@@ -10,13 +10,18 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
+	import S3FilePicker from '../S3FilePicker.svelte'
+	import Toggle from '../Toggle.svelte'
+	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import FileUpload from '../common/fileUpload/FileUpload.svelte'
+	import SimpleEditor from '../SimpleEditor.svelte'
 
 	let is_flow: boolean = false
 	let initialPath = ''
@@ -64,6 +69,8 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
+			static_asset_config = undefined
+			s3FileUploadRawMode = false
 			path = ''
 			initialPath = ''
 			dirtyPath = false
@@ -81,6 +88,12 @@
 	let initialRoutePath = ''
 	let route_path = ''
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
+	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
+		undefined
+
+	let s3FilePicker: S3FilePicker
+	let s3FileUploadRawMode = false
+	let s3Editor: SimpleEditor | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -100,6 +113,8 @@
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
+		static_asset_config = s.static_asset_config
+		s3FileUploadRawMode = !!static_asset_config
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
@@ -116,7 +131,8 @@
 					is_async,
 					requires_auth,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
-					http_method
+					http_method,
+					static_asset_config
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -130,7 +146,8 @@
 					is_async,
 					requires_auth,
 					route_path,
-					http_method
+					http_method,
+					static_asset_config
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -181,6 +198,17 @@
 	$: validateRoute(route_path, http_method)
 </script>
 
+{#if static_asset_config}
+	<S3FilePicker
+		bind:this={s3FilePicker}
+		bind:selectedFileKey={static_asset_config}
+		on:close={() => {
+			s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
+		}}
+		readOnlyMode={false}
+	/>
+{/if}
+
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
 		title={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
@@ -190,7 +218,11 @@
 			{#if !drawerLoading && can_write}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' || routeError != '' || emptyString(script_path) || !can_write}
+					disabled={pathError != '' ||
+						routeError != '' ||
+						(!static_asset_config && emptyString(script_path)) ||
+						(static_asset_config && emptyString(static_asset_config.s3)) ||
+						!can_write}
 					on:click={triggerScript}
 				>
 					Save
@@ -286,35 +318,107 @@
 					</div>
 				</Section>
 
-				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered<Required required={true} /><br />
-						To handle headers, query or path parameters, add a preprocessor to your runnable.
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh
-						/>
+				<Section label="Target">
+					<ToggleButtonGroup
+						disabled={fixedScriptPath != '' || !can_write}
+						selected={static_asset_config ? 'static_asset' : 'runnable'}
+						on:selected={(ev) => {
+							if (ev.detail === 'static_asset') {
+								static_asset_config = { s3: '' }
+								script_path = ''
+								initialScriptPath = ''
+								is_flow = false
+							} else {
+								static_asset_config = undefined
+							}
+						}}
+					>
+						<ToggleButton label="Runnable" value="runnable" />
+						<ToggleButton label="Static asset" value="static_asset" />
+					</ToggleButtonGroup>
 
-						{#if script_path === undefined}
-							<Button
-								btnClasses="ml-4 mt-2"
-								color="dark"
+					{#if static_asset_config}
+						<div class="flex flex-col w-full gap-1">
+							<Toggle
+								class="flex justify-end"
+								bind:checked={s3FileUploadRawMode}
 								size="xs"
-								href={itemKind === 'flow'
-									? '/flows/add?hub=55'
-									: '/scripts/add?hub=hub%2F9088%2Fwindmill%2FHTTP%20route%20script%20with%20preprocessor%20template'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
-					</div>
+								options={{ left: 'Existing file' }}
+							/>
+							{#if s3FileUploadRawMode}
+								<JsonEditor
+									bind:editor={s3Editor}
+									on:focus={(e) => {
+										dispatch('focus')
+									}}
+									on:blur={(e) => {
+										dispatch('blur')
+									}}
+									code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+									bind:value={static_asset_config}
+								/>
+								<Button
+									variant="border"
+									color="light"
+									size="xs"
+									btnClasses="mt-1"
+									on:click={() => {
+										s3FilePicker?.open?.(static_asset_config)
+									}}
+									startIcon={{ icon: Pipette }}
+								>
+									Choose an object from the catalog
+								</Button>
+							{:else}
+								<FileUpload
+									allowMultiple={false}
+									randomFileKey={true}
+									on:addition={(evt) => {
+										static_asset_config = {
+											s3: evt.detail?.path ?? '',
+											filename: evt.detail?.filename ?? undefined
+										}
+										s3FileUploadRawMode = true
+									}}
+									on:deletion={(evt) => {
+										static_asset_config = {
+											s3: ''
+										}
+									}}
+								/>
+							{/if}
+						</div>
+					{:else}
+						<p class="text-xs mb-1 text-tertiary">
+							Pick a script or flow to be triggered<Required required={true} /><br />
+							To handle headers, query or path parameters, add a preprocessor to your runnable.
+						</p>
+						<div class="flex flex-row mb-2">
+							<ScriptPicker
+								disabled={fixedScriptPath != '' || !can_write}
+								initialPath={fixedScriptPath || initialScriptPath}
+								kinds={['script']}
+								allowFlow={true}
+								bind:itemKind
+								bind:scriptPath={script_path}
+								allowRefresh
+							/>
+
+							{#if script_path === undefined}
+								<Button
+									btnClasses="ml-4 mt-2"
+									color="dark"
+									size="xs"
+									href={itemKind === 'flow'
+										? '/flows/add?hub=55'
+										: '/scripts/add?hub=hub%2F9088%2Fwindmill%2FHTTP%20route%20script%20with%20preprocessor%20template'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						</div>
+					{/if}
 				</Section>
+
 				<Section label="Settings">
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between">

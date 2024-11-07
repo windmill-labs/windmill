@@ -358,15 +358,15 @@ class Windmill:
                 "percent": value,
                 "flow_job_id": flow_id or None,
             },
-        )        
+        )
 
-    def get_progress(self, job_id: Optional[str] = None ) -> Any:
+    def get_progress(self, job_id: Optional[str] = None) -> Any:
         workspace = get_workspace()
         job_id = job_id or os.environ.get("WM_JOB_ID")
 
         r = self.get(
             f"/w/{workspace}/job_metrics/get_progress/{job_id}",
-        )        
+        )
         if r.status_code == 404:
             print(f"Job {job_id} does not exist")
             return None
@@ -472,7 +472,13 @@ class Windmill:
             print(file_reader.read())
         '''
         """
-        reader = S3BufferedReader(f"{self.workspace}", self.client, s3object["s3"], s3_resource_path, s3object["storage"] if "storage" in s3object else None)
+        reader = S3BufferedReader(
+            f"{self.workspace}",
+            self.client,
+            s3object["s3"],
+            s3_resource_path,
+            s3object["storage"] if "storage" in s3object else None,
+        )
         return reader
 
     def write_s3_file(
@@ -480,6 +486,8 @@ class Windmill:
         s3object: S3Object | None,
         file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
+        content_type: str | None,
+        content_disposition: str | None,
     ) -> S3Object:
         """
         Write a file to the workspace S3 bucket
@@ -511,8 +519,12 @@ class Windmill:
             query_params["file_key"] = s3object["s3"]
         if s3_resource_path is not None and s3_resource_path != "":
             query_params["s3_resource_path"] = s3_resource_path
-        if s3object is not None and  "storage" in s3object and s3object["storage"] is not None:
+        if s3object is not None and "storage" in s3object and s3object["storage"] is not None:
             query_params["storage"] = s3object["storage"]
+        if content_type is not None:
+            query_params["content_type"] = content_type
+        if content_disposition is not None:
+            query_params["content_disposition"] = content_disposition
 
         try:
             # need a vanilla client b/c content-type is not application/json here
@@ -865,12 +877,14 @@ def set_state(value: Any) -> None:
     """
     return _client.set_state(value)
 
+
 @init_global_client
 def set_progress(value: int, job_id: Optional[str] = None) -> None:
     """
     Set the progress
     """
     return _client.set_progress(value, job_id)
+
 
 @init_global_client
 def get_progress(job_id: Optional[str] = None) -> Any:
