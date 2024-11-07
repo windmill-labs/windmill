@@ -3,10 +3,12 @@
 	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import { CheckCircle2, AlertCircle, RefreshCw, EyeOff, Eye, CheckSquare2 } from 'lucide-svelte'
+	import { CheckCircle2, AlertCircle, RefreshCw, CheckSquare2, AlertTriangle } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount, onDestroy, beforeUpdate } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { instanceSettingsSelectedTab } from '$lib/stores'
+	import { goto } from '$app/navigation'
 
 	export let open: boolean = false
 	export let numUnaknowledgedCriticalAlerts: number = 0
@@ -17,6 +19,7 @@
 	let checkingForNewAlerts = false
 	let isRefreshing = false
 	let previousOpen = open
+	let hasCriticalAlertChannels = false
 
 	$: loading = isRefreshing
 
@@ -40,7 +43,6 @@
 	}
 
 	async function fetchAlerts(pageNumber: number) {
-		console.log('Fetching alerts', pageNumber)
 		isRefreshing = true
 		try {
 			const newAlerts = await SettingService.getCriticalAlerts({
@@ -61,9 +63,13 @@
 	}
 
 	async function getAlerts(reset?: boolean) {
-		console.log('Getting alerts', reset)
 		if (reset) page = 1
 		await fetchAlerts(page)
+	}
+
+	async function checkCriticalAlertChannels() {
+		const channels = await SettingService.getGlobal({key: "critical_error_channels"}) as any[]
+		hasCriticalAlertChannels = channels && channels.length > 0
 	}
 
 	onMount(() => {
@@ -137,6 +143,7 @@
 	}
 
 	async function refreshAlerts() {
+		checkCriticalAlertChannels()
 		await getAlerts(true)
 	}
 
@@ -151,9 +158,24 @@
 			fetchAlerts(page + 1)
 		}
 	}
+
+	function goToCoreTab() {
+		goto('/#superadmin-settings')
+		instanceSettingsSelectedTab.set('Core')
+	}
 </script>
 
 <Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
+	{#if !hasCriticalAlertChannels}
+		<div class="flex flex-row pb-4">
+			<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
+			<p>
+				No critical alert channels are set up. Go to the
+				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance Settings</a>
+				page to configure critical alert channels.
+			</p>
+		</div>
+	{/if}
 	<!-- Row of action buttons above the table -->
 	<div class="flex justify-between items-center mb-4">
 		<div class="flex space-x-2">
@@ -174,14 +196,14 @@
 			<span>Page {page}</span>
 			<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
 		</div>
-        <div class="pr-3">
-            <Toggle
-                bind:checked={hideAcknowledged}
-                on:change={refreshAlerts}
-                options={{ right: 'Hide Acknowledged' }}
-                size="xs"
-            />
-        </div>
+		<div class="pr-3">
+			<Toggle
+				bind:checked={hideAcknowledged}
+				on:change={refreshAlerts}
+				options={{ right: 'Hide Acknowledged' }}
+				size="xs"
+			/>
+		</div>
 	</div>
 
 	<!-- Table of alerts with scrollable body -->

@@ -23,6 +23,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { instanceSettingsSelectedTab } from '$lib/stores';
 	let drawer: Drawer
 	let filter = ''
 
@@ -55,6 +56,9 @@
 	$: listUsers(activeOnly)
 
 	let tab: 'users' | string = 'users'
+
+	$: $instanceSettingsSelectedTab, tab = $instanceSettingsSelectedTab
+	$: tab, instanceSettingsSelectedTab.set(tab)
 
 	let nbDisplayed = 50
 

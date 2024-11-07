@@ -128,6 +128,7 @@
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadUsedTriggerKinds()
+		loadCriticalAlertsMuted()
 	}
 
 	async function loadUsage() {
@@ -280,6 +281,11 @@
 
 	let numUnaknowledgedCriticalAlerts = 0
 	let isCriticalAlertsModalOpen = false
+	let isCriticalAlertsUiMuted = false
+
+	async function loadCriticalAlertsMuted() {
+		isCriticalAlertsUiMuted = await SettingService.getGlobal({ key: 'critical_alert_mute_ui' }) as boolean
+	}
 
 	function openCriticalAlertsModal(text?: string): void {
 		isCriticalAlertsModalOpen = true;
@@ -300,10 +306,12 @@
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
-		<CriticalAlertModal 
-			bind:open={isCriticalAlertsModalOpen} 
-			bind:numUnaknowledgedCriticalAlerts={numUnaknowledgedCriticalAlerts} 
-		/>
+		{#if !isCriticalAlertsUiMuted}
+			<CriticalAlertModal
+				bind:open={isCriticalAlertsModalOpen}
+				bind:numUnaknowledgedCriticalAlerts={numUnaknowledgedCriticalAlerts}
+			/>
+		{/if}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	<div>
