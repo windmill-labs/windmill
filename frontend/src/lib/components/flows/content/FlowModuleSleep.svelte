@@ -72,6 +72,7 @@
 						{schema}
 						{previousModuleId}
 						argExtra={{ seconds: true }}
+						bind:editor
 					/>
 				</PropPickerWrapper>
 			</div>
