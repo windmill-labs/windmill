@@ -10,6 +10,7 @@
 		leftTooltip?: string
 		right?: string
 		rightTooltip?: string
+		rightDocumentationLink?: string
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
@@ -94,7 +95,9 @@
 		>
 			{options?.right}
 			{#if options?.rightTooltip}
-				<Tooltip light={lightMode}>{options?.rightTooltip}</Tooltip>
+				<Tooltip documentationLink={options.rightDocumentationLink}>
+					{options.rightTooltip}
+				</Tooltip>
 			{/if}
 		</span>
 	{/if}
