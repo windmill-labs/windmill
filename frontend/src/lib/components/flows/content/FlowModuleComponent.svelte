@@ -385,6 +385,7 @@
 										noPadding
 									>
 										<InputTransformSchemaForm
+											class="px-1 xl:px-2"
 											bind:this={inputTransformSchemaForm}
 											pickableProperties={stepPropPicker.pickableProperties}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
