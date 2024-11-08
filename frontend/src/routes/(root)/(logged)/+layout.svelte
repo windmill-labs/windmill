@@ -280,41 +280,43 @@
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
-    let enterpriseLoaded = false;
-    let superadminLoaded = false;
+	let enterpriseLoaded = false
+	let superadminLoaded = false
 
-    $: {
-        if (enterpriseLoaded && superadminLoaded) {
-            loadCriticalAlertsMuted();
-        }
-    }
+	$: {
+		if (enterpriseLoaded && superadminLoaded) {
+			loadCriticalAlertsMuted()
+		}
+	}
 
-    function manageSubscriptions() {
-        const unsubscribeEnterprise = enterpriseLicense.subscribe((value) => {
-            enterpriseLoaded = !!value;
-        });
+	function manageSubscriptions() {
+		const unsubscribeEnterprise = enterpriseLicense.subscribe((value) => {
+			enterpriseLoaded = !!value
+		})
 
-        const unsubscribeSuperadmin = superadmin.subscribe((value) => {
-            superadminLoaded = !!value;
-        });
+		const unsubscribeSuperadmin = superadmin.subscribe((value) => {
+			superadminLoaded = !!value
+		})
 
-        // Clean up subscriptions on component destroy
-        return () => {
-            unsubscribeEnterprise();
-            unsubscribeSuperadmin();
-        };
-    }
+		// Clean up subscriptions on component destroy
+		return () => {
+			unsubscribeEnterprise()
+			unsubscribeSuperadmin()
+		}
+	}
 
 	let numUnacknowledgedCriticalAlerts = 0
 	let isCriticalAlertsModalOpen = false
 	let isCriticalAlertsUiMuted = false
 
 	async function loadCriticalAlertsMuted() {
-		isCriticalAlertsUiMuted = await SettingService.getGlobal({ key: 'critical_alert_mute_ui' }) as boolean
+		isCriticalAlertsUiMuted = (await SettingService.getGlobal({
+			key: 'critical_alert_mute_ui'
+		})) as boolean
 	}
 
 	function openCriticalAlertsModal(text?: string): void {
-		isCriticalAlertsModalOpen = true;
+		isCriticalAlertsModalOpen = true
 	}
 </script>
 
@@ -452,15 +454,15 @@
 								</div>
 							</button>
 							{#if $superadmin && $enterpriseLicense}
-							<CriticalAlertButton
-								stopPropagationOnClick={true}
-								on:click={() => openCriticalAlertsModal()}
-								{numUnacknowledgedCriticalAlerts}
-								{isCollapsed}
-								label="Critical Alerts"
-								class="!text-xs"
-								disabled={numUnacknowledgedCriticalAlerts === 0}
-							/>
+								<CriticalAlertButton
+									stopPropagationOnClick={true}
+									on:click={() => openCriticalAlertsModal()}
+									{numUnacknowledgedCriticalAlerts}
+									{isCollapsed}
+									label="Critical Alerts"
+									class="!text-xs"
+									disabled={numUnacknowledgedCriticalAlerts === 0}
+								/>
 							{/if}
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
