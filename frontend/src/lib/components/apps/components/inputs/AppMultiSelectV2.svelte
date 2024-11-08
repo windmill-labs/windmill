@@ -57,8 +57,8 @@
 		}
 	}
 
-	$: if (resolvedConfig.defaultValues) {
-		selectOptionsByValue(resolvedConfig.defaultValues)
+	$: if (resolvedConfig.defaultItems) {
+		selectOptionsByValue(resolvedConfig.defaultItems)
 	}
 
 	$: outerDiv &&

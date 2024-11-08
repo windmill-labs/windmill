@@ -2151,7 +2151,7 @@ This is a paragraph.
 					subFieldType: 'text',
 					value: ['Foo', 'Bar']
 				} as StaticAppInput,
-				defaultValues: {
+				defaultItems: {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'text',
@@ -2204,7 +2204,7 @@ This is a paragraph.
 					value: ['Foo', 'Bar'],
 					hasLabeledMode: true
 				} as StaticAppInput,
-				defaultValues: {
+				defaultItems: {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'simplestringselect',
