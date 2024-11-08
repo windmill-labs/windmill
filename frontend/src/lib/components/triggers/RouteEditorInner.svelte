@@ -283,7 +283,9 @@
 						<ToggleButtonGroup
 							class="w-auto"
 							bind:selected={http_method}
-							disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+							disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
+								!can_write ||
+								!!static_asset_config}
 						>
 							<ToggleButton label="GET" value="get" />
 							<ToggleButton label="POST" value="post" />
@@ -328,6 +330,7 @@
 								script_path = ''
 								initialScriptPath = ''
 								is_flow = false
+								http_method = 'get'
 							} else {
 								static_asset_config = undefined
 							}
