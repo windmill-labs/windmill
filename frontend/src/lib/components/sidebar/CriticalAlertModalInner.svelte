@@ -10,7 +10,7 @@
 	import { goto } from '$app/navigation'
 
 	export let open: boolean = false
-	export let updateHasUnaknowledgedCriticalAlerts: () => void = () => {}
+	export let updateHasUnacknowledgedCriticalAlerts: () => void = () => {}
 
 	let alerts: CriticalAlert[] = []
 
@@ -55,7 +55,7 @@
 			alerts = newAlerts
 			hasMore = newAlerts.length === pageSize
 			page = pageNumber
-			updateHasUnaknowledgedCriticalAlerts()
+			updateHasUnacknowledgedCriticalAlerts()
 		} finally {
 			setTimeout(() => {
 				isRefreshing = false

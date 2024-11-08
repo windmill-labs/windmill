@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 
 	export let label: string | undefined = undefined
-	export let numUnaknowledgedCriticalAlerts: number
+	export let numUnacknowledgedCriticalAlerts: number
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
@@ -35,7 +35,7 @@
 			<span
 				class="flex items-center justify-center h-6 w-6 rounded-lg bg-red-600 text-white font-bold text-xs"
 			>
-				{numUnaknowledgedCriticalAlerts > 9 ? '9+' : numUnaknowledgedCriticalAlerts}
+				{numUnacknowledgedCriticalAlerts > 9 ? '9+' : numUnacknowledgedCriticalAlerts}
 			</span>
 
 			{#if !isCollapsed && label}

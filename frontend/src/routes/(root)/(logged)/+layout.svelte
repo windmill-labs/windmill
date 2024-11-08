@@ -305,7 +305,7 @@
         };
     }
 
-	let numUnaknowledgedCriticalAlerts = 0
+	let numUnacknowledgedCriticalAlerts = 0
 	let isCriticalAlertsModalOpen = false
 	let isCriticalAlertsUiMuted = false
 
@@ -335,7 +335,7 @@
 		{#if !isCriticalAlertsUiMuted && $enterpriseLicense}
 			<CriticalAlertModal
 				bind:open={isCriticalAlertsModalOpen}
-				bind:numUnaknowledgedCriticalAlerts={numUnaknowledgedCriticalAlerts}
+				bind:numUnacknowledgedCriticalAlerts
 			/>
 		{/if}
 		<SuperadminSettings bind:this={superadminSettings} />
@@ -455,11 +455,11 @@
 							<CriticalAlertButton
 								stopPropagationOnClick={true}
 								on:click={() => openCriticalAlertsModal()}
-								{numUnaknowledgedCriticalAlerts}
+								{numUnacknowledgedCriticalAlerts}
 								{isCollapsed}
 								label="Critical Alerts"
 								class="!text-xs"
-								disabled={numUnaknowledgedCriticalAlerts === 0}
+								disabled={numUnacknowledgedCriticalAlerts === 0}
 							/>
 							{/if}
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">

@@ -5,14 +5,14 @@
 	import { sendUserToast } from '$lib/toast'
 
 	export let open: boolean = false
-	export let numUnaknowledgedCriticalAlerts: number = 0
+	export let numUnacknowledgedCriticalAlerts: number = 0
 
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 
 	onMount(() => {
 		checkForNewAlertsInterval = setInterval(() => {
-			updateHasUnaknowledgedCriticalAlerts(true)
+			updateHasUnacknowledgedCriticalAlerts(true)
 		}, 15000)
 	})
 
@@ -20,18 +20,18 @@
 		clearInterval(checkForNewAlertsInterval)
 	})
 
-	async function updateHasUnaknowledgedCriticalAlerts(sendToast: boolean = false) {
+	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
 		if (checkingForNewAlerts) return
 		checkingForNewAlerts = true
 
 		try {
-			const unaknowledged = await SettingService.getCriticalAlerts({
+			const unacknowledged = await SettingService.getCriticalAlerts({
 				page: 1,
 				pageSize: 10,
 				acknowledged: false
 			})
 
-			if (numUnaknowledgedCriticalAlerts === 0 && unaknowledged.length > 0 && sendToast) {
+			if (numUnacknowledgedCriticalAlerts === 0 && unacknowledged.length > 0 && sendToast) {
 				sendUserToast(
 					'Critical Alert:',
 					true,
@@ -45,15 +45,15 @@
 						{
 							label: 'Acknowledge',
 							callback: () => {
-								if (unaknowledged[0].id) acknowledgeAlert(unaknowledged[0].id)
+								if (unacknowledged[0].id) acknowledgeAlert(unacknowledged[0].id)
 							}
 						}
 					],
-					unaknowledged[0].message,
+					unacknowledged[0].message,
 					10000
 				)
 			}
-			numUnaknowledgedCriticalAlerts = unaknowledged.length
+			numUnacknowledgedCriticalAlerts = unacknowledged.length
 		} finally {
 			checkingForNewAlerts = false
 		}
@@ -61,8 +61,8 @@
 
 	async function acknowledgeAlert(id: number) {
 		await SettingService.acknowledgeCriticalAlert({ id })
-		updateHasUnaknowledgedCriticalAlerts()
+		updateHasUnacknowledgedCriticalAlerts()
 	}
 </script>
 
-<CriticalAlertModalInner bind:open {updateHasUnaknowledgedCriticalAlerts} />
+<CriticalAlertModalInner bind:open {updateHasUnacknowledgedCriticalAlerts} />
