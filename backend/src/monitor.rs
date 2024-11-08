@@ -1318,7 +1318,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE job_logs.job_id = $1", r.id)
                 .execute(db).await;
             tracing::error!(error_message);
-            report_critical_error(error_message, db.clone()).await;
+            report_critical_error(error_message, db.clone(), Some(&r.workspace_id)).await;
         }
     }
 
@@ -1432,7 +1432,7 @@ async fn handle_zombie_flows(
                 flow.id, flow.workspace_id
             );
             tracing::error!(error_message);
-            report_critical_error(error_message, db.clone()).await;
+            report_critical_error(error_message, db.clone(), Some(&flow.workspace_id)).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
@@ -1452,7 +1452,7 @@ async fn handle_zombie_flows(
                     format!("Flow {id} was cancelled because it")
                 }
             );
-            report_critical_error(reason.clone(), db.clone()).await;
+            report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id)).await;
             cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
         }
     }

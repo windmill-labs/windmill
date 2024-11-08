@@ -258,6 +258,8 @@
 	}
 	let timeout: NodeJS.Timeout | undefined
 	async function onUserStore(u: UserExt | undefined) {
+		console.log('workspaceStore', $workspaceStore)
+		console.log('user: ', $userStore)
 		if (u && timeout) {
 			clearTimeout(timeout)
 			timeout = undefined

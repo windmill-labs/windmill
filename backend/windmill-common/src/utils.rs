@@ -28,8 +28,11 @@ pub const DEFAULT_PER_PAGE: usize = 1000;
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
-use std::sync::atomic::Ordering;
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
+use std::sync::atomic::Ordering;
+
+#[cfg(feature = "enterprise")]
+use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -244,15 +247,20 @@ pub fn generate_lock_id(database_name: &str) -> i64 {
     0x3d32ad9e * (CRC_IEEE.checksum(database_name.as_bytes()) as i64)
 }
 
-pub async fn report_critical_error(error_message: String, _db: DB) -> () {
+pub async fn report_critical_error(
+    error_message: String,
+    _db: DB,
+    workspace_id: Option<&str>,
+) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
 
     let mute = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged) VALUES ('critical_error', $1, $2)",
+        "INSERT INTO alerts (alert_type, message, acknowledged, workspace_id) VALUES ('critical_error', $1, $2, $3)",
         error_message,
-        mute
+        mute,
+        workspace_id,
     )
     .execute(&_db)
     .await
@@ -261,18 +269,27 @@ pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     }
 
     #[cfg(feature = "enterprise")]
-    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
+    if !*CLOUD_HOSTED {
+        send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
+    } else {
+        tracing::error!(error_message)
+    }
 }
 
-pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
+pub async fn report_recovered_critical_error(
+    message: String,
+    _db: DB,
+    workspace_id: Option<&str>
+) -> () {
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
     let mute = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged) VALUES ('recovered_critical_error', $1, $2)",
+        "INSERT INTO alerts (alert_type, message, acknowledged, workspace_id) VALUES ('recovered_critical_error', $1, $2, $3)",
         message,
-        mute
+        mute,
+        workspace_id,
     )
     .execute(&_db)
     .await
@@ -280,6 +297,7 @@ pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
         tracing::error!("Failed to save critical error to database: {}", err);
     }
     #[cfg(feature = "enterprise")]
+    if !*CLOUD_HOSTED {
     send_critical_alert(
         message,
         &_db,
@@ -287,4 +305,7 @@ pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
         None,
     )
     .await;
+    } else {
+        tracing::error!(message);
+    }
 }

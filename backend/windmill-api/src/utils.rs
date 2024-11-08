@@ -6,13 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{body::Body, response::Response};
+use axum::{Json, body::Body, response::Response};
 use regex::Regex;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
     auth::is_super_admin_email,
-    error::{self, Error},
+    error::{self, Error, JsonResult},
     DB,
 };
 
@@ -161,4 +161,101 @@ pub fn content_plain(body: Body) -> Response {
         .header(header::CONTENT_TYPE, "text/plain")
         .body(body)
         .unwrap()
+}
+
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct CriticalAlert {
+    id: i32,
+    alert_type: String,
+    message: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    acknowledged: Option<bool>,
+    workspace_id: Option<String>,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct AlertQueryParams {
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub acknowledged: Option<bool>,
+    pub workspace_id: Option<String>,
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    db: DB,
+    params: AlertQueryParams,
+    workspace_id: Option<String>,
+) -> JsonResult<Vec<CriticalAlert>> {
+    let page = params.page.unwrap_or(1).max(1);
+    let page_size = params.page_size.unwrap_or(10).min(100) as i64;
+    let offset = ((page - 1) * page_size as i32) as i64;
+
+    let alerts = sqlx::query_as!(
+        CriticalAlert,
+        "SELECT id, alert_type, message, created_at, acknowledged, workspace_id
+         FROM alerts 
+         WHERE ($1::boolean IS NULL OR acknowledged = $1)
+           AND ($2::text IS NULL OR workspace_id = $2)
+         ORDER BY created_at DESC 
+         LIMIT $3 OFFSET $4",
+        params.acknowledged,
+        workspace_id,
+        page_size,
+        offset
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(alerts))
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    db: DB,
+    workspace_id: Option<String>,
+    id: i32,
+) -> error::Result<String> {
+    sqlx::query!(
+        "UPDATE alerts 
+         SET acknowledged = true 
+         WHERE id = $1 
+           AND ($2::text IS NULL OR workspace_id = $2)",
+        id,
+        workspace_id
+    )
+    .execute(&db)
+    .await?;
+    
+    tracing::info!(
+        "Acknowledged critical alert with id: {}{}",
+        id,
+        workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
+    );
+    Ok("Critical alert acknowledged".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    db: DB,
+    workspace_id: Option<String>,
+) -> error::Result<String> {
+    sqlx::query!(
+        "UPDATE alerts 
+         SET acknowledged = true 
+         WHERE acknowledged = false 
+           AND ($1::text IS NULL OR workspace_id = $1)",
+        workspace_id
+    )
+    .execute(&db)
+    .await?;
+
+    tracing::info!(
+        "Acknowledged all unacknowledged critical alerts{}",
+        workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
+    );
+    Ok("All unacknowledged critical alerts acknowledged".to_string())
 }

@@ -118,7 +118,10 @@ pub fn workspaced_service() -> Router {
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_id", post(change_workspace_id))
         .route("/usage", get(get_usage))
-        .route("/used_triggers", get(get_used_triggers));
+        .route("/used_triggers", get(get_used_triggers))
+        .route("/critical_alerts", get(get_critical_alerts))
+        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
+        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts));
 
     #[cfg(feature = "stripe")]
     {
@@ -3049,4 +3052,52 @@ async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Re
     .await?
     .unwrap_or(0);
     Ok(usage.to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+    Query(params): Query<crate::utils::AlertQueryParams>,
+) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    crate::utils::get_critical_alerts(db, params, Some(w_id)).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+    Path(id): Path<i32>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_critical_alert() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::utils::acknowledge_all_critical_alerts(db, Some(w_id)).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_all_critical_alerts() -> error::Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
 }

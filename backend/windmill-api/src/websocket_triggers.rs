@@ -754,12 +754,13 @@ async fn disable_with_error(db: &DB, ws_trigger: &WebsocketTrigger, error: Strin
     )
     .execute(db).await {
         Ok(_) => {
-            report_critical_error(format!("Disabling websocket {} because of error: {}", ws_trigger.url, error), db.clone()).await;
+            report_critical_error(format!("Disabling websocket {} because of error: {}", ws_trigger.url, error), db.clone(), Some(&ws_trigger.workspace_id)).await;
         },
         Err(disable_err) => {
             report_critical_error(
                 format!("Could not disable websocket {} with err {}, disabling because of error {}", ws_trigger.path, disable_err, error), 
-                db.clone()
+                db.clone(),
+                Some(&ws_trigger.workspace_id),
             ).await;
         }
     }
@@ -896,7 +897,7 @@ async fn listen_to_websocket(
                                                                 }
                                                                 if should_handle {
                                                                     if let Err(err) = run_job(&db, rsmq.clone(), &ws_trigger, text).await {
-                                                                        report_critical_error(format!("Failed to trigger job from websocket {}: {:?}", ws_trigger.url, err), db.clone()).await;
+                                                                        report_critical_error(format!("Failed to trigger job from websocket {}: {:?}", ws_trigger.url, err), db.clone(), Some(&ws_trigger.workspace_id)).await;
                                                                     };
                                                                 }
                                                             },

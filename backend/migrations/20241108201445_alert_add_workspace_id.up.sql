@@ -1,0 +1,2 @@
+ALTER TABLE alerts 
+ADD COLUMN workspace_id TEXT DEFAULT NULL;
