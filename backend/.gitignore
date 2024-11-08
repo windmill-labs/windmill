@@ -5,4 +5,4 @@ oauth2.json
 tracing.folded
 heaptrack*
 index/
-windmill-api/openapi-*.yaml
+windmill-api/openapi-*.*
