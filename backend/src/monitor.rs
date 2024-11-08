@@ -132,7 +132,7 @@ pub async fn initial_load(
     }
 
     if let Err(e) = reload_critical_alert_mute_ui_setting(db).await {
-        tracing::error!("Error loading expose debug metrics: {e:#}");
+        tracing::error!("Error loading critical alert mute ui setting: {e:#}");
     }
 
     if let Err(e) = load_tag_per_workspace_enabled(db).await {
