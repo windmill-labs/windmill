@@ -791,17 +791,22 @@ pub async fn add_completed_job<
                         let base_url = BASE_URL.read().await;
                         let w_id: &String = &queued_job.workspace_id;
                         if !matches!(err, Error::QuotaExceeded(_)) {
-                            report_error_to_workspace_handler_or_critical_side_channel(
+                            let msg =                                     format!(
+                                "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                                queued_job.id,
+                                err
+                            );
+                            if !*CLOUD_HOSTED {
+                                report_error_to_workspace_handler_or_critical_side_channel(
                                     rsmq.clone(),
                                     &queued_job,
                                     db,
-                                    format!(
-                                        "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                        queued_job.id,
-                                        err
-                                    ),
+                                    msg,
                                 )
                                 .await;
+                            } else {
+                                tracing::error!(msg);
+                            }
                         }
                     } else {
                         tracing::error!("Could not apply schedule recovery handler: {}", err);
@@ -933,22 +938,27 @@ pub async fn add_completed_job<
         } else if queued_job.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
             let w_id = &queued_job.workspace_id;
-            report_error_to_workspace_handler_or_critical_side_channel(
-                rsmq.clone(),
-                &queued_job,
-                db,
-                format!(
-                    "Schedule error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
-                    queued_job.id,
-                    queued_job
-                        .parent_job
-                        .map(|id| format!(
-                            " trying to handle failed job: {base_url}/run/{id}?workspace={w_id}"
-                        ))
-                        .unwrap_or("".to_string()),
-                ),
-            )
-            .await;
+            let msg = format!(
+                "Schedule error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
+                queued_job.id,
+                queued_job
+                    .parent_job
+                    .map(|id| format!(
+                        " trying to handle failed job: {base_url}/run/{id}?workspace={w_id}"
+                    ))
+                    .unwrap_or("".to_string()),
+            );
+            if !*CLOUD_HOSTED {
+                report_error_to_workspace_handler_or_critical_side_channel(
+                    rsmq.clone(),
+                    &queued_job,
+                    db,
+                    msg,
+                )
+                .await;
+            } else {
+                tracing::error!(msg);
+            }
         } else if !skip_downstream_error_handlers
             && (matches!(queued_job.job_kind, JobKind::Script)
                 || matches!(queued_job.job_kind, JobKind::Flow)
@@ -1307,9 +1317,12 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                         match err {
                             Error::QuotaExceeded(_) => {}
                             _ => {
-                                report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db,
-                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err)
-                                ).await;
+                                let msg = format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err);
+                                if !*CLOUD_HOSTED {
+                                    report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db, msg).await;
+                                } else {
+                                    tracing::error!(msg);
+                                }
                             }
                         }
                         Ok(())
@@ -1317,9 +1330,12 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                     Err(disable_err) => match err {
                         Error::QuotaExceeded(_) => Err(err),
                         _ => {
-                            report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db,
-                                    format!("Could not schedule next job for {} and could not disable schedule with err {}. Will retry", schedule.path, disable_err)
-                                ).await;
+                            let msg = format!("Could not schedule next job for {} and could not disable schedule with err {}. Will retry", schedule.path, disable_err);
+                            if !*CLOUD_HOSTED {
+                                report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db, msg).await;
+                            } else {
+                                tracing::error!(msg);
+                            }
                             Err(to_anyhow(disable_err).into())
                         }
                     },
