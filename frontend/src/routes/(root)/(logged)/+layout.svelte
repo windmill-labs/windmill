@@ -129,7 +129,6 @@
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadUsedTriggerKinds()
-		manageSubscriptions()
 	}
 
 	async function loadUsage() {
@@ -280,28 +279,9 @@
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
-	let enterpriseLoaded = false
-	let superadminLoaded = false
-
 	$: {
-		if (enterpriseLoaded && superadminLoaded) {
+		if ($enterpriseLicense && $superadmin) {
 			loadCriticalAlertsMuted()
-		}
-	}
-
-	function manageSubscriptions() {
-		const unsubscribeEnterprise = enterpriseLicense.subscribe((value) => {
-			enterpriseLoaded = !!value
-		})
-
-		const unsubscribeSuperadmin = superadmin.subscribe((value) => {
-			superadminLoaded = !!value
-		})
-
-		// Clean up subscriptions on component destroy
-		return () => {
-			unsubscribeEnterprise()
-			unsubscribeSuperadmin()
 		}
 	}
 
