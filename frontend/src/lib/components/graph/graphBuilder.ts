@@ -37,7 +37,8 @@ export function graphBuilder(
 	selectedId: string | undefined,
 	moving: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
-	flowPathForTriggerNode: string | undefined
+	flowPathForTriggerNode: string | undefined,
+	expandedSubflows: Record<string, FlowModule[]>
 	// triggerProps?: {
 	// 	path?: string
 	// 	flowIsSimplifiable?: boolean
@@ -516,6 +517,7 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else {
+						// if
 						addNode(module, currentOffset, 'module', modules)
 
 						previousId = module.id

@@ -74,6 +74,7 @@
 
 	export let wideResults = false
 	export let hideFlowResult = false
+	export let workspace: string | undefined = $workspaceStore
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -1009,6 +1010,7 @@
 							failureModule={job.raw_flow?.failure_module}
 							preprocessorModule={job.raw_flow?.preprocessor_module}
 							allowSimplifiedPoll={false}
+							{workspace}
 						/>
 					</div>
 					<div

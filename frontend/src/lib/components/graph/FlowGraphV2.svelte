@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { createEventDispatcher, getContext, onDestroy, onMount, setContext } from 'svelte'
 
@@ -39,6 +39,7 @@
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
+	import { workspaceStore } from '$lib/stores'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -65,6 +66,7 @@
 		undefined
 	)
 	export let triggerNode = false
+	export let workspace: string = $workspaceStore ?? 'NO_WORKSPACE'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -84,6 +86,8 @@
 	export let allowSimplifiedPoll: boolean = true
 
 	let simplifiableFlow: SimplifiableFlow | undefined = undefined
+
+	const expandedSubflows: Record<string, FlowModule[]> = {}
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -201,6 +205,13 @@
 		},
 		simplifyFlow: (detail) => {
 			triggerContext?.simplifiedPoll.set(detail)
+		},
+		expandSubflow: async (id: string, path: string) => {
+			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			expandedSubflows[id] = flow.value.modules
+		},
+		minimizeSubflow: (id: string) => {
+			delete expandedSubflows[id]
 		}
 	}
 
@@ -222,7 +233,8 @@
 		$selectedId,
 		moving,
 		simplifiableFlow,
-		triggerNode ? path : undefined
+		triggerNode ? path : undefined,
+		expandedSubflows
 	)
 
 	const nodes = writable<Node[]>([])
