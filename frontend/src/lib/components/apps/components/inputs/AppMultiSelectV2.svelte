@@ -37,7 +37,7 @@
 		components['multiselectcomponentv2'].initialData.configuration,
 		configuration
 	)
-	const outputs = initOutput($worldStore, id, { result: [] as any[] })
+	const outputs = initOutput($worldStore, id, { result: [] as string[] })
 	let options: ObjectOption[] = []
 	let selectedOptions: ObjectOption[] = [...new Set(findOptionsByValue(outputs?.result.peak()))]
 
@@ -83,7 +83,14 @@
 		}
 
 		selectedOptions = findOptionsByValue(values)
-		outputs?.result.set([...(selectedOptions.map((option) => option.value) ?? [])])
+		outputs?.result.set([...toStringValues(selectedOptions)])
+	}
+
+	function toStringValues(options: ObjectOption[] | undefined) {
+		if (!options) {
+			return []
+		}
+		return options.map((o) => (typeof o.value === 'string' ? o.value : JSON.stringify(o.value)))
 	}
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
@@ -154,7 +161,7 @@
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
 					} else {
-						outputs?.result.set([...(selectedOptions.map((option) => option.value) ?? [])])
+						outputs?.result.set([...toStringValues(selectedOptions)])
 					}
 				}}
 				on:open={() => {
