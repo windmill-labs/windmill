@@ -193,13 +193,18 @@
 </script>
 
 <div class="flex flex-col h-full rounded">
-	<div class="px-1 py-2">
+	<div class="px-1 py-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<!-- <div
 	class="px-2 pt-2 grow relative"
 	class:bg-surface-secondary={!$propPickerConfig && !alwaysOn} -->
-	<Scrollable scrollableClass="grow relative min-h-0 px-1 py-1 shrink ">
+	<Scrollable
+		scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink {!$propPickerConfig && !alwaysOn
+			? 'bg-surface-secondary'
+			: ''}
+}"
+	>
 		<!-- <div
 			class="px-2 pt-2 grow relative"
 			class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
