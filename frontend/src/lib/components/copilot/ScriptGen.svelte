@@ -2,7 +2,13 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot, type AiProviderTypes } from './lib'
+	import {
+		MAX_SCHEMA_LENGTH,
+		SUPPORTED_LANGUAGES,
+		addThousandsSeparator,
+		copilot,
+		type AiProviderTypes
+	} from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -400,7 +406,14 @@
 						</ToggleButtonGroup>
 
 						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							GPT-4o<Bot size={14} />
+							{#if $copilotInfo.ai_provider === 'openai'}
+								GPT-4o
+							{:else if $copilotInfo.ai_provider === 'anthropic'}
+								Claude-3.5
+							{:else}
+								Codestral
+							{/if}
+							<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96 items-start">

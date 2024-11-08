@@ -11,6 +11,7 @@ use axum::{
     Extension, Router,
 };
 use lazy_static::lazy_static;
+use mistral::MistralCache;
 use openai::OpenaiCache;
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
@@ -22,8 +23,6 @@ use windmill_common::variables::build_crypt;
 
 use windmill_common::error::Error;
 
-const OPENAI_BASE_API_URL: &str = "https://api.openai.com/v1";
-const ANTHROPIC_BASE_API_URL: &str = "https://api.anthropic.com";
 use serde_json::value::{RawValue, Value};
 use std::collections::HashMap;
 
@@ -34,14 +33,52 @@ lazy_static::lazy_static! {
         .build().unwrap();
 }
 
+trait AiRequest {
+    fn prepare_request(self, path: &str, body: Bytes) -> Result<RequestBuilder>;
+}
+
 mod openai {
     use super::*;
 
-    use super::{get_variable_or_self, KeyCache, OPENAI_BASE_API_URL};
+    use super::{get_variable_or_self, KeyCache};
 
     const API_VERSION: &str = "2023-05-15";
 
-    #[derive(Clone, Debug)]
+    #[derive(Deserialize, Debug)]
+    #[serde(rename_all = "snake_case")]
+    struct OpenaiResource {
+        api_key: String,
+        organization_id: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    #[serde(rename_all = "snake_case")]
+    struct OpenaiClientCredentialsOauthResource {
+        client_id: String,
+        client_secret: String,
+        token_url: String,
+        user: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    #[serde(untagged, rename_all = "snake_case")]
+    enum OpenaiConfig {
+        Resource(OpenaiResource),
+        ClientCredentialsOauthResource(OpenaiClientCredentialsOauthResource),
+    }
+
+    lazy_static::lazy_static! {
+        pub static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
+    }
+
+    #[derive(Deserialize, Debug)]
+    #[serde(rename_all = "snake_case")]
+    struct OpenaiCredentials {
+        access_token: String,
+    }
+
+    #[derive(Clone, Debug, Deserialize)]
+    #[serde(rename_all = "snake_case")]
     pub struct OpenaiCache {
         api_key: String,
         organization_id: Option<String>,
@@ -58,8 +95,11 @@ mod openai {
         ) -> Self {
             Self { api_key, organization_id, azure_base_path, user }
         }
+    }
 
-        pub fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
+    const BASE_URL: &str = "https://api.openai.com/v1";
+    impl AiRequest for OpenaiCache {
+        fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
             let OpenaiCache { api_key, azure_base_path, organization_id, user } = self;
             if user.is_some() {
                 tracing::debug!("Adding user to request body");
@@ -86,16 +126,15 @@ mod openai {
             let base_url = if let Some(base_url) = azure_base_path {
                 base_url
             } else {
-                OPENAI_BASE_API_URL.to_string()
+                BASE_URL.to_string()
             };
-
             let url = format!("{}/{}", base_url, openai_path);
             let mut request = HTTP_CLIENT
                 .post(url)
                 .header("content-type", "application/json")
                 .body(body);
 
-            if base_url != OPENAI_BASE_API_URL {
+            if base_url != BASE_URL {
                 request = request
                     .header("api-key", api_key)
                     .query(&[("api-version", API_VERSION)])
@@ -109,36 +148,6 @@ mod openai {
 
             Ok(request)
         }
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenaiResource {
-        api_key: String,
-        organization_id: Option<String>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenaiClientCredentialsOauthResource {
-        client_id: String,
-        client_secret: String,
-        token_url: String,
-        user: Option<String>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    #[serde(untagged)]
-    enum OpenaiConfig {
-        Resource(OpenaiResource),
-        ClientCredentialsOauthResource(OpenaiClientCredentialsOauthResource),
-    }
-
-    lazy_static::lazy_static! {
-        pub static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenaiCredentials {
-        access_token: String,
     }
 
     async fn get_openai_key_using_credentials_flow(
@@ -233,6 +242,7 @@ mod anthropic {
     use super::*;
 
     #[derive(Clone, Deserialize, Debug)]
+    #[serde(rename_all = "snake_case")]
     pub struct AnthropicCache {
         pub api_key: String,
     }
@@ -243,10 +253,13 @@ mod anthropic {
         pub fn new(api_key: String) -> Self {
             Self { api_key }
         }
+    }
 
-        pub fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
+    const BASE_URL: &str = "https://api.anthropic.com";
+    impl AiRequest for AnthropicCache {
+        fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
             let AnthropicCache { api_key } = self;
-            let url = format!("{}/{}", ANTHROPIC_BASE_API_URL, anthropic_path);
+            let url = format!("{}/{}", BASE_URL, anthropic_path);
             let request = HTTP_CLIENT
                 .post(url)
                 .header("x-api-key", api_key)
@@ -266,12 +279,98 @@ mod anthropic {
     }
 }
 
-mod mistral {}
+mod mistral {
+    use super::*;
+    use std::collections::HashMap;
+    #[derive(Deserialize, Clone, Debug)]
+    pub struct MistralCache {
+        #[serde(rename = "apiKey")]
+        pub api_key: String,
+        #[serde(default)]
+        pub model: Option<String>,
+        #[serde(default)]
+        pub agent_id: Option<String>,
+    }
+
+    lazy_static! {
+        static ref API_VERSION: HashMap<String, String> = HashMap::from([(
+            String::from("mistral-moderation-latest"),
+            String::from("mistral-moderation-2411")
+        )]);
+    }
+
+    impl MistralCache {
+        pub fn new(api_key: String, model: Option<String>, agent_id: Option<String>) -> Self {
+            Self { api_key, model, agent_id }
+        }
+    }
+
+    const BASE_URL: &str = "https://api.mistral.ai";
+    impl AiRequest for MistralCache {
+        fn prepare_request(self, mistral_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
+            let MistralCache { api_key, agent_id, model } = self;
+            let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
+                .map_err(|e| Error::InternalErr(format!("Failed to parse request body: {}", e)))?;
+
+            if let Some(agent_id) = agent_id {
+                let agent_id = serde_json::Value::String(agent_id).to_string();
+                json_body.insert(
+                    "agent_id".to_string(),
+                    RawValue::from_string(agent_id).map_err(|e| {
+                        Error::InternalErr(format!("Failed to parse agent_id: {}", e))
+                    })?,
+                );
+            }
+
+            if let Some(model) = model {
+                let model = serde_json::Value::String(model).to_string();
+                json_body.insert(
+                    "model".to_string(),
+                    RawValue::from_string(model)
+                        .map_err(|e| Error::InternalErr(format!("Failed to parse model: {}", e)))?,
+                );
+            }
+
+            body = serde_json::to_vec(&json_body)
+                .map_err(|e| {
+                    Error::InternalErr(format!("Failed to reserialize request body: {}", e))
+                })?
+                .into();
+            let url = format!("{}/{}", BASE_URL, mistral_path);
+            let request = HTTP_CLIENT
+                .post(url)
+                .header("content-type", "application/json")
+                .header("Accept", "application/json")
+                .header("authorization", format!("Bearer {}", api_key))
+                .body(body);
+            Ok(request)
+        }
+    }
+
+    pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
+        let mut resource: MistralCache = serde_json::from_value(resource)
+            .map_err(|e| Error::InternalErr(format!("validating mistral resource {e:#}")))?;
+        resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
+
+        if let Some(model) = resource.model {
+            resource.model = Some(get_variable_or_self(model, db, w_id).await?);
+        }
+
+        if let Some(agent_id) = resource.agent_id {
+            resource.agent_id = Some(get_variable_or_self(agent_id, db, w_id).await?);
+        }
+
+        let workspace_cache =
+            MistralCache::new(resource.api_key, resource.model, resource.agent_id);
+        Ok(KeyCache::Mistral(workspace_cache))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum KeyCache {
     Openai(OpenaiCache),
     Anthropic(AnthropicCache),
+    Mistral(MistralCache),
 }
 
 #[derive(Clone, Debug)]
@@ -343,7 +442,7 @@ where
 {
     let provider = String::deserialize(provider)?;
     match provider.as_str() {
-        "anthropic" | "openai" => Ok(provider),
+        "anthropic" | "openai" | "mistral" => Ok(provider),
         _ => Err(serde::de::Error::custom(
             "Only the following Ai providers are supported: openai, anthropic".to_string(),
         )),
@@ -412,6 +511,7 @@ async fn proxy(
             let ai_cache = match ai_resource.provider.as_str() {
                 "openai" => openai::get_cached_value(&db, &w_id, resource).await,
                 "anthropic" => anthropic::get_cached_value(&db, &w_id, resource).await,
+                "mistral" => mistral::get_cached_value(&db, &w_id, resource).await,
                 provider => {
                     return Err(Error::BadRequest(format!("{} is not supported", provider)))
                 }
@@ -427,10 +527,10 @@ async fn proxy(
     let (path, request) = match ai_cache {
         KeyCache::Openai(cached) => ("openai_path", cached.prepare_request(&ai_path, body)),
         KeyCache::Anthropic(cached) => ("anthropic_path", cached.prepare_request(&ai_path, body)),
+        KeyCache::Mistral(cached) => ("mistral_path", cached.prepare_request(&ai_path, body)),
     };
 
     let response = request?.send().await.map_err(to_anyhow)?;
-
 
     let mut tx = db.begin().await?;
 
@@ -447,14 +547,12 @@ async fn proxy(
     tx.commit().await?;
 
     if response.error_for_status_ref().is_err() {
-        return Err(Error::OpenAIError(
-            response.text().await.unwrap_or("".to_string()),
-        ));
+        let err_msg = response.text().await.unwrap_or("".to_string());
+        return Err(Error::AiError(err_msg));
     }
 
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
-
     Ok((status_code, headers, axum::body::Body::from_stream(stream)))
 }

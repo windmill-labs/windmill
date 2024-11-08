@@ -991,6 +991,7 @@
 			<ToggleButtonGroup bind:selected>
 				<ToggleButton value="openai" label="OpenAi" />
 				<ToggleButton value="anthropic" label="Anthropic" />
+				<ToggleButton value="mistral" label="Mistral" />
 			</ToggleButtonGroup>
 			<div class="mt-5 flex gap-1">
 				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}

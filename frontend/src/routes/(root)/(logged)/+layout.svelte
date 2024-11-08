@@ -41,7 +41,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { workspacedAnthropic, workspacedOpenai } from '$lib/components/copilot/lib'
+	import { AnthropicAi, MistralAi, OpenAi } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
@@ -227,8 +227,9 @@
 	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
-		workspacedOpenai.init(workspace)
-		workspacedAnthropic.init(workspace)
+		OpenAi.workspacedOpenai.init(workspace)
+		AnthropicAi.workspacedAnthropic.init(workspace)
+		MistralAi.workspacedMistral.init(workspace)
 		try {
 			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 		} catch (err) {
