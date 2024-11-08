@@ -445,6 +445,7 @@ pub struct CriticalAlert {
     acknowledged: Option<bool>,
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 pub struct AlertQueryParams {
     pub page: Option<i32>,

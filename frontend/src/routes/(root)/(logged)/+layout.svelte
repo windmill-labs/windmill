@@ -306,8 +306,8 @@
 	</CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
-	{#if $superadmin && $enterpriseLicense}
-		{#if !isCriticalAlertsUiMuted}
+	{#if $superadmin}
+		{#if !isCriticalAlertsUiMuted && $enterpriseLicense}
 			<CriticalAlertModal
 				bind:open={isCriticalAlertsModalOpen}
 				bind:numUnaknowledgedCriticalAlerts={numUnaknowledgedCriticalAlerts}
@@ -378,12 +378,6 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-									{#if numUnaknowledgedCriticalAlerts}
-									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
-										<WindmillIcon white={true} height="20px" width="20px" />
-										TODO
-									</div>
-									{/if}
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
@@ -432,7 +426,7 @@
 									{/if}
 								</div>
 							</button>
-							{#if $superadmin}
+							{#if $superadmin && $enterpriseLicense}
 							<CriticalAlertButton
 								stopPropagationOnClick={true}
 								on:click={() => openCriticalAlertsModal()}

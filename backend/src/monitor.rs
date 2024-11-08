@@ -39,7 +39,7 @@ use windmill_common::{
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -55,7 +55,7 @@ use windmill_common::{
         WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, CRITICAL_ALERT_MUTE_UI_ENABLED
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -128,6 +128,10 @@ pub async fn initial_load(
     }
 
     if let Err(e) = load_metrics_debug_enabled(db).await {
+        tracing::error!("Error loading expose debug metrics: {e:#}");
+    }
+
+    if let Err(e) = reload_critical_alert_mute_ui_setting(db).await {
         tracing::error!("Error loading expose debug metrics: {e:#}");
     }
 
@@ -220,6 +224,17 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
         Ok(None) => {
             let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
             *w = None;
+        }
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn reload_critical_alert_mute_ui_setting(db: &DB) -> error::Result<()> {
+    let mute = load_value_from_global_settings(db, CRITICAL_ALERT_MUTE_UI_SETTING).await;
+    match mute {
+        Ok(Some(serde_json::Value::Bool(t))) => {
+            CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
         }
         _ => (),
     };

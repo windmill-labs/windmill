@@ -36,7 +36,7 @@ use windmill_common::{
         ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -78,7 +78,7 @@ use crate::monitor::{
     reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
     reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config,
+    reload_worker_config, reload_critical_alert_mute_ui_setting,
 };
 
 #[cfg(feature = "parquet")]
@@ -815,6 +815,12 @@ Windmill Community Edition {GIT_VERSION}
                                                 JWT_SECRET_SETTING => {
                                                     if let Err(e) = reload_jwt_secret_setting(&db).await {
                                                         tracing::error!(error = %e, "Could not reload jwt secret setting");
+                                                    }
+                                                },
+                                                CRITICAL_ALERT_MUTE_UI_SETTING => {
+                                                    tracing::info!("Critical alert UI setting changed");
+                                                    if let Err(e) = reload_critical_alert_mute_ui_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                     }
                                                 },
                                                 a @_ => {
