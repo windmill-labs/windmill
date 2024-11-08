@@ -26,7 +26,10 @@
       ]);
     in {
       devShell = pkgs.mkShell {
-        buildInputs = buildInputs ++ (with pkgs; [ git go xcaddy sqlx-cli ]);
+        buildInputs = buildInputs ++ (with pkgs; [
+          git xcaddy sqlx-cli flock
+          deno python3 python3Packages.pip go bun uv
+        ]);
         packages = [
           (pkgs.writeScriptBin "wm-caddy" ''
             cd ./frontend
@@ -56,6 +59,9 @@
             sqlx database create
             wm-migrate
           '')
+          (pkgs.writeScriptBin "wm-bench" ''
+            deno run -A benchmarks/main.ts -e admin@windmill.dev -p changeme $*
+          '')
           (pkgs.writeScriptBin "wm" ''
             cd ./frontend
             npm run dev $*
@@ -68,6 +74,12 @@
         DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
         REMOTE = "http://127.0.0.1:8000";
         REMOTE_LSP = "http://127.0.0.1:3001";
+        DENO_PATH = "${pkgs.deno}/bin/deno";
+        PYTHON_PATH = "${pkgs.python3}/bin/python3";
+        GO_PATH = "${pkgs.go}/bin/go";
+        BUN_PATH = "${pkgs.bun}/bin/bun";
+        UV_PATH = "${pkgs.uv}/bin/uv";
+        FLOCK_PATH = "${pkgs.flock}/bin/flock";
       };
       packages.default = self.packages.${system}.windmill;
       packages.windmill-client = pkgs.stdenv.mkDerivation {
@@ -82,7 +94,7 @@
           npm config set strict-ssl false
           cd frontend
           npm install --verbose
-          npm run generate-backend-client-mac
+          npm run ${if pkgs.stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
           NODE_OPTIONS="--max-old-space-size=8192" npm run build
         '';
 
