@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getCompletion, isChatCompletionChunk, type AiProviderTypes } from './lib'
+	import { getCompletion, getResponseFromEvent, type AiProviderTypes } from './lib'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
@@ -122,11 +122,7 @@ Generate a description for the flow below:
 			const response = await getCompletion(messages, abortController, aiProvider)
 			generatedContent = ''
 			for await (const chunk of response) {
-				console.log({ chunk })
-				if (isChatCompletionChunk(chunk)) {
-					const toks = chunk.choices[0]?.delta?.content || ''
-					generatedContent += toks
-				}
+				generatedContent += getResponseFromEvent(chunk)
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {

@@ -13,7 +13,6 @@ import type {
 } from 'openai/resources/index.mjs'
 
 import type { MessageCreateParams, MessageParam } from '@anthropic-ai/sdk/resources/messages.mjs'
-import type { Stream } from '@anthropic-ai/sdk/streaming.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -32,7 +31,6 @@ const anthropicConfig: MessageCreateParams = {
 	temperature: 0,
 	max_tokens: 8192,
 	model: 'claude-3-5-sonnet-20241022',
-	stream: true,
 	messages: []
 }
 
@@ -366,15 +364,24 @@ export async function getCompletion(
 				system = messages[0].content as string
 				messages.shift()
 			}
+
+			const anthropicMessages: MessageParam[] = messages.map((message) => {
+				return {
+					role: message.role == 'user' ? 'user' : 'assistant',
+					content: message.content as string
+				}
+			})
+
 			const completion = await anthropicClient.messages.create(
 				{
 					...anthropicConfig,
 					system,
-					messages: messages as MessageParam[]
+					messages: anthropicMessages,
+					stream: true
 				},
 				{ signal: abortController.signal }
 			)
-			return completion as Stream<Anthropic.Messages.RawMessageStreamEvent>
+			return completion
 		}
 
 		case 'openai': {
@@ -394,16 +401,38 @@ export async function getCompletion(
 	}
 }
 
+/*
+
+May be needed in case of adding support of new ai provider (only supporting anthropic and openai for now),
+because it will help to find from which Ai provider the streamed response comes.
+If used, use it in getResponseFromEvent function that is just below
 function isRawMessageStreamEvent(
 	message: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
 ): message is Anthropic.Messages.RawMessageStreamEvent {
 	return 'type' in message
 }
-
-export function isChatCompletionChunk(
+*/
+function isChatCompletionChunk(
 	response: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
 ): response is OpenAI.Chat.Completions.ChatCompletionChunk {
 	return 'choices' in response
+}
+
+export function getResponseFromEvent(
+	part: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
+): string {
+	if (isChatCompletionChunk(part)) {
+		return part.choices[0]?.delta?.content || ''
+	}
+	let response = ''
+	if (part.type == 'content_block_delta') {
+		if (part.delta.type == 'text_delta') {
+			response = part.delta.text
+		} else {
+			response = part.delta.partial_json
+		}
+	}
+	return response
 }
 
 export async function copilot(
@@ -433,15 +462,7 @@ export async function copilot(
 	let response = ''
 	let code = ''
 	for await (const part of completion) {
-		if (isChatCompletionChunk(part)) {
-			response += part.choices[0]?.delta?.content || ''
-		} else if (part.type == 'content_block_delta') {
-			if (part.delta.type == 'text_delta') {
-				response += part.delta.text
-			} else {
-				response += part.delta.partial_json
-			}
-		}
+		response += getResponseFromEvent(part)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
@@ -516,9 +537,7 @@ export async function deltaCodeCompletion(
 	let code = ''
 	let delta = ''
 	for await (const part of completion) {
-		if (isChatCompletionChunk(part)) {
-			response += part.choices[0]?.delta?.content || ''
-		}
+		response += getResponseFromEvent(part)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
