@@ -60,11 +60,11 @@
 		}
 	}
 
-	$: resolvedConfig.defaultValues && handleDefaultValues()
+	$: resolvedConfig.defaultItems && handleDefaultItems()
 
-	function handleDefaultValues() {
-		if (Array.isArray(resolvedConfig.defaultValues)) {
-			const nvalue = resolvedConfig.defaultValues?.map((label) => {
+	function handleDefaultItems() {
+		if (Array.isArray(resolvedConfig.defaultItems)) {
+			const nvalue = resolvedConfig.defaultItems?.map((label) => {
 				return typeof label === 'string' ? label : `NOT_STRING`
 			})
 			value = [...new Set(nvalue)]
