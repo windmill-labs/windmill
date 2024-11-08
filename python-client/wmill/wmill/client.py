@@ -829,11 +829,19 @@ def write_s3_file(
     s3object: S3Object | None,
     file_content: BufferedReader | bytes,
     s3_resource_path: str | None = None,
+    content_type: str | None = None,
+    content_disposition: str | None = None,
 ) -> S3Object:
     """
     Upload a file to S3
+
+    Content type will be automatically guessed from path extension if left empty
+
+    See MDN for content_disposition: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition
+    and content_type: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type
+
     """
-    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None)
+    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None, content_type, content_disposition)
 
 
 @init_global_client
