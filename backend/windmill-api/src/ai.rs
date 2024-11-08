@@ -140,6 +140,7 @@ mod openai {
     struct OpenaiCredentials {
         access_token: String,
     }
+
     async fn get_openai_key_using_credentials_flow(
         mut resource: OpenaiClientCredentialsOauthResource,
         db: &DB,
@@ -245,8 +246,6 @@ mod anthropic {
 
         pub fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
             let AnthropicCache { api_key } = self;
-            let url = format!("{}/{}", ANTHROPIC_BASE_API_URL, anthropic_path);
-            let body_clone = body.clone();
             let request = HTTP_CLIENT
                 .post(url)
                 .header("x-api-key", api_key)

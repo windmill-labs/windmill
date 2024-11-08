@@ -2392,7 +2392,7 @@ export type GetCopilotInfoData = {
 
 export type GetCopilotInfoResponse = {
 	ai_provider: string
-	exists_ai_resource: AiResource
+	exists_ai_resource: boolean
 	code_completion_enabled: boolean
 }
 

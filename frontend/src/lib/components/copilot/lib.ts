@@ -313,8 +313,6 @@ export async function getNonStreamingCompletion(
 	}
 	switch (aiProvider) {
 		case 'openai': {
-			console.log('insided')
-
 			const openaiClient = workspacedOpenai.getClient()
 			const completion = await openaiClient.chat.completions.create(
 				{
@@ -334,7 +332,6 @@ export async function getNonStreamingCompletion(
 			return completion.choices[0]?.message.content || ''
 		}
 		case 'anthropic': {
-			console.log('inside')
 			const anthropicClient = workspacedAnthropic.getClient()
 			let system: string | undefined = undefined
 			if (messages[0].role == 'system') {
@@ -400,7 +397,7 @@ export async function getCompletion(
 function isRawMessageStreamEvent(
 	message: Anthropic.Messages.RawMessageStreamEvent | OpenAI.Chat.Completions.ChatCompletionChunk
 ): message is Anthropic.Messages.RawMessageStreamEvent {
-	return 'uniquePropertyA' in message // Replace `uniquePropertyA` with an actual property unique to RawMessageStreamEvent
+	return 'type' in message
 }
 
 export function isChatCompletionChunk(
@@ -438,8 +435,12 @@ export async function copilot(
 	for await (const part of completion) {
 		if (isChatCompletionChunk(part)) {
 			response += part.choices[0]?.delta?.content || ''
-			console.log({ part })
-
+		} else if (part.type == 'content_block_delta') {
+			if (part.delta.type == 'text_delta') {
+				response += part.delta.text
+			} else {
+				response += part.delta.partial_json
+			}
 		}
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
