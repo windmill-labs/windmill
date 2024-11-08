@@ -14,7 +14,9 @@
 	import { classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
+	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
+		enterpriseLicense,
 		copilotInfo,
 		isPremiumStore,
 		starStore,
@@ -48,6 +50,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
+	import CriticalAlertButton from '$lib/components/sidebar/CriticalAlertButton.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -275,6 +278,26 @@
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
+
+	$: {
+		if ($enterpriseLicense && $superadmin) {
+			loadCriticalAlertsMuted()
+		}
+	}
+
+	let numUnacknowledgedCriticalAlerts = 0
+	let isCriticalAlertsModalOpen = false
+	let isCriticalAlertsUiMuted = false
+
+	async function loadCriticalAlertsMuted() {
+		isCriticalAlertsUiMuted = (await SettingService.getGlobal({
+			key: 'critical_alert_mute_ui'
+		})) as boolean
+	}
+
+	function openCriticalAlertsModal(text?: string): void {
+		isCriticalAlertsModalOpen = true
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -291,6 +314,12 @@
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
+		{#if !isCriticalAlertsUiMuted && $enterpriseLicense}
+			<CriticalAlertModal
+				bind:open={isCriticalAlertsModalOpen}
+				bind:numUnacknowledgedCriticalAlerts
+			/>
+		{/if}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	<div>
@@ -356,7 +385,6 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
@@ -405,6 +433,17 @@
 									{/if}
 								</div>
 							</button>
+							{#if $superadmin && $enterpriseLicense}
+								<CriticalAlertButton
+									stopPropagationOnClick={true}
+									on:click={() => openCriticalAlertsModal()}
+									{numUnacknowledgedCriticalAlerts}
+									{isCollapsed}
+									label="Critical Alerts"
+									class="!text-xs"
+									disabled={numUnacknowledgedCriticalAlerts === 0}
+								/>
+							{/if}
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />

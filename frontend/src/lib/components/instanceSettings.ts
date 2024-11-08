@@ -147,6 +147,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'Channels other than tracing are only available in the EE version'
 		},
 		{
+			label: 'Mute critical alerts in UI',
+			description: 'Enable to mute critical alerts in the UI',
+			key: 'critical_alert_mute_ui',
+			fieldType: 'boolean',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			ee_only: 'Critical alerts in UI are only available in the EE version'
+		},
+		{
 			label: 'Azure OpenAI base path',
 			description:
 				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
