@@ -9,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { isJobCancelable } from '$lib/utils'
+	import RunnableBatchModal from './RunnableBatchModal.svelte'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
@@ -188,6 +189,8 @@
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
+
+<RunnableBatchModal {jobs} />
 
 <div
 	class="divide-y min-w-[640px] h-full"
