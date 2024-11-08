@@ -61,6 +61,7 @@
 
 	async function acknowledgeAlert(id: number) {
 		await SettingService.acknowledgeCriticalAlert({ id })
+		updateHasUnaknowledgedCriticalAlerts()
 	}
 </script>
 
