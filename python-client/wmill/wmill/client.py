@@ -486,8 +486,8 @@ class Windmill:
         s3object: S3Object | None,
         file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
-        content_type: str | None,
-        content_disposition: str | None,
+        content_type: str | None = None,
+        content_disposition: str | None = None,
     ) -> S3Object:
         """
         Write a file to the workspace S3 bucket
