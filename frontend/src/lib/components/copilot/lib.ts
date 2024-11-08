@@ -340,12 +340,13 @@ export async function getNonStreamingCompletion(
 				{
 					...anthropicConfig,
 					system,
-					messages: messages as MessageParam[]
+					messages: messages as MessageParam[],
+					stream: false
 				},
 				queryOptions
 			)
-			console.log({ message })
-			return ''
+
+			return message.content[0].type === 'text' ? message.content[0].text : ''
 		}
 	}
 }

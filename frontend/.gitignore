@@ -3,9 +3,9 @@ node_modules
 /build
 /.svelte-kit
 /package
+/src/lib/gen
 CaddyfileRemoteRuben
 tests-out/
-/src/lib/gen
 storageState.json
 .env.production
 dist/
