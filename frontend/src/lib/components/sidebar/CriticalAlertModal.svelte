@@ -10,8 +10,8 @@
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 
-	updateHasUnacknowledgedCriticalAlerts(true)
 	onMount(() => {
+		updateHasUnacknowledgedCriticalAlerts(true)
 		checkForNewAlertsInterval = setInterval(() => {
 			updateHasUnacknowledgedCriticalAlerts(true)
 		}, 15000)
