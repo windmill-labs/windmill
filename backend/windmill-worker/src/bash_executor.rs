@@ -89,8 +89,18 @@ cat bp | tail -1 >> ./result2.out &
 # Run main.sh in the same process group
 {bash} ./main.sh "$@" 2>&1 | tee bp &
 
-# Wait for all background processes to finish
-wait
+pid=$!
+
+# Wait for main.sh to finish and capture its exit status
+wait $pid
+exit_status=$?
+
+# Clean up the named pipe and background processes
+rm -f bp
+
+
+# Exit with the captured status
+exit $exit_status
 "#,
         bash = BIN_BASH.as_str(),
     );
