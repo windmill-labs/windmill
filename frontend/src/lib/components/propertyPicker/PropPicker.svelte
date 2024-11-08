@@ -17,6 +17,7 @@
 	export let error: boolean = false
 	export let allowCopy = false
 	export let alwaysOn = false
+	export let previousId: string | undefined = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
@@ -257,6 +258,7 @@
 				<span class="font-normal text-sm text-tertiary font-mono">results</span>
 				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
+						expandedEvenOnLevel0={previousId}
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						collapseLevel={allResultsCollapsed ? 1 : undefined}
@@ -305,6 +307,7 @@
 							pureViewer={!$propPickerConfig}
 							collapseLevel={allResultsCollapsed ? 1 : undefined}
 							json={resultByIdFiltered}
+							expandedEvenOnLevel0={previousId}
 							prefix="results"
 							on:select
 						/>
