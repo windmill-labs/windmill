@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE completed_job\n            SET \n                raw_code = d.raw_code,\n                raw_lock = d.raw_lock,\n                raw_flow = d.raw_flow\n            FROM job_definition d\n            WHERE completed_job.id = d.id\n                AND completed_job.workspace_id = d.workspace_id\n                AND completed_job.id = ANY($1)\n                AND completed_job.workspace_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21f227e5a01cc3aa2fb82a4cb03dded1db2d73423eb9a11e8ddcf07a32cf883b"
+}

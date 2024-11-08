@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT true FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+  "query": "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM job_definition WHERE id = $2 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -12,13 +12,12 @@
     "parameters": {
       "Left": [
         "Text",
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "661f472ff3860983322162420457f5033b9c9afc344d9c3e385ba20a3ad2197a"
+  "hash": "16f9ed060a17b00a334df483f1446e0d1c9c25bd059d8522bad13b4b4bbd0af0"
 }
