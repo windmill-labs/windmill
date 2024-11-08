@@ -11,12 +11,14 @@
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import { filterNestedObject } from '../flows/previousResults'
 	import type { PropPickerContext } from '../prop_picker'
+	import Scrollable from '../Scrollable.svelte'
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
 	export let alwaysOn = false
+	export let previousId: string | undefined = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
@@ -190,14 +192,23 @@
 	$: search, $inputMatches, $propPickerConfig, updateState()
 </script>
 
-<div class="flex flex-col h-full rounded overflow-hidden">
-	<div class="px-2 py-2">
+<div class="flex flex-col h-full rounded">
+	<div class="px-1 py-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
-	<div
-		class="overflow-y-auto px-2 pt-2 grow relative"
-		class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
+	<!-- <div
+	class="px-2 pt-2 grow relative"
+	class:bg-surface-secondary={!$propPickerConfig && !alwaysOn} -->
+	<Scrollable
+		scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink {!$propPickerConfig && !alwaysOn
+			? 'bg-surface-secondary'
+			: ''}
+}"
 	>
+		<!-- <div
+			class="px-2 pt-2 grow relative"
+			class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
+		> -->
 		<!-- <pre class="text-2xs w-full"
 			>{JSON.stringify({ pickableProperties, resultByIdFiltered }, null, 2)}</pre
 		> -->
@@ -257,6 +268,7 @@
 				<span class="font-normal text-sm text-tertiary font-mono">results</span>
 				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
+						expandedEvenOnLevel0={previousId}
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						collapseLevel={allResultsCollapsed ? 1 : undefined}
@@ -305,6 +317,7 @@
 							pureViewer={!$propPickerConfig}
 							collapseLevel={allResultsCollapsed ? 1 : undefined}
 							json={resultByIdFiltered}
+							expandedEvenOnLevel0={previousId}
 							prefix="results"
 							on:select
 						/>
@@ -396,5 +409,6 @@
 				</div>
 			{/if}
 		{/if}
-	</div>
+		<!-- </div> -->
+	</Scrollable>
 </div>
