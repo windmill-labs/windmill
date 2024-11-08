@@ -122,6 +122,7 @@ Generate a description for the flow below:
 			const response = await getCompletion(messages, abortController, aiProvider)
 			generatedContent = ''
 			for await (const chunk of response) {
+				console.log({ chunk })
 				if (isChatCompletionChunk(chunk)) {
 					const toks = chunk.choices[0]?.delta?.content || ''
 					generatedContent += toks

@@ -195,7 +195,6 @@
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
-			console.log({ aiProvider })
 			copilotInfo.set({
 				ai_provider: aiProvider,
 				exists_ai_resource: true,
@@ -1004,7 +1003,10 @@
 							editCopilotConfig(ev.detail, selected)
 						}}
 					/>
-					<TestAiKey disabled={!aiResourceInitialPath} aiProvider={selected} />
+					<TestAiKey
+						disabled={!aiResourceInitialPath || aiResourceInitialProvider != selected}
+						aiProvider={selected}
+					/>
 				{/key}
 			</div>
 			<div class="mt-3">

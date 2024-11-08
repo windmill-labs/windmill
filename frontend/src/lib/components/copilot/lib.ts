@@ -30,7 +30,7 @@ const openaiConfig: ChatCompletionCreateParamsStreaming = {
 
 const anthropicConfig: MessageCreateParams = {
 	temperature: 0,
-	max_tokens: 16384,
+	max_tokens: 8192,
 	model: 'claude-3-5-sonnet-20241022',
 	stream: true,
 	messages: []
@@ -341,7 +341,7 @@ export async function getNonStreamingCompletion(
 				system = messages[0].content as string
 				messages.shift()
 			}
-			const completion = await anthropicClient.messages.create(
+			const message = await anthropicClient.messages.create(
 				{
 					...anthropicConfig,
 					system,
@@ -349,8 +349,7 @@ export async function getNonStreamingCompletion(
 				},
 				queryOptions
 			)
-
-			console.log(messages)
+			console.log({ message })
 			return ''
 		}
 	}
@@ -439,6 +438,8 @@ export async function copilot(
 	for await (const part of completion) {
 		if (isChatCompletionChunk(part)) {
 			response += part.choices[0]?.delta?.content || ''
+			console.log({ part })
+
 		}
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 

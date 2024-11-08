@@ -5,6 +5,7 @@ node_modules
 /package
 CaddyfileRemoteRuben
 tests-out/
+/src/lib/gen
 storageState.json
 .env.production
 dist/

@@ -60,7 +60,6 @@ mod openai {
         }
 
         pub fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
-            println!("In openai");
             let OpenaiCache { api_key, azure_base_path, organization_id, user } = self;
             if user.is_some() {
                 tracing::debug!("Adding user to request body");
@@ -84,8 +83,6 @@ mod openai {
                     .into();
             }
 
-            let cp = body.clone();
-            println!("{:#?}", body);
             let base_url = if let Some(base_url) = azure_base_path {
                 base_url
             } else {
@@ -248,16 +245,14 @@ mod anthropic {
 
         pub fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
             let AnthropicCache { api_key } = self;
-            println!("In anthropic");
             let url = format!("{}/{}", ANTHROPIC_BASE_API_URL, anthropic_path);
-            println!("{}, {}", &url, &api_key);
+            let body_clone = body.clone();
             let request = HTTP_CLIENT
                 .post(url)
                 .header("x-api-key", api_key)
                 .header("anthropic-version", API_VERSION)
                 .header("content-type", "application/json")
                 .body(body);
-            println!("{:#?}", request);
             Ok(request)
         }
     }
@@ -429,13 +424,13 @@ async fn proxy(
             ai_cache
         }
     };
-    println!("{:#?}", ai_cache);
     let (path, request) = match ai_cache {
         KeyCache::Openai(cached) => ("openai_path", cached.prepare_request(&ai_path, body)),
         KeyCache::Anthropic(cached) => ("anthropic_path", cached.prepare_request(&ai_path, body)),
     };
 
     let response = request?.send().await.map_err(to_anyhow)?;
+
 
     let mut tx = db.begin().await?;
 
