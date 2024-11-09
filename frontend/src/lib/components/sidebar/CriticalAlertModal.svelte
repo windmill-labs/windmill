@@ -3,6 +3,7 @@
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import Modal from '../common/modal/Modal.svelte'
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
@@ -66,4 +67,6 @@
 	}
 </script>
 
-<CriticalAlertModalInner bind:open {updateHasUnacknowledgedCriticalAlerts} />
+<Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
+	<CriticalAlertModalInner {updateHasUnacknowledgedCriticalAlerts} />
+</Modal>

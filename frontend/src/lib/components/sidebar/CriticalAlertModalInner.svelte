@@ -1,34 +1,24 @@
 <script lang="ts">
-	import Modal from '../common/modal/Modal.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
 	import { CheckCircle2, AlertCircle, RefreshCw, CheckSquare2, AlertTriangle } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
-	import { onMount, beforeUpdate } from 'svelte'
+	import { onMount } from 'svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
 	import { goto } from '$app/navigation'
 
-	export let open: boolean = false
 	export let updateHasUnacknowledgedCriticalAlerts: () => void = () => {}
 
 	let alerts: CriticalAlert[] = []
 
 	let isRefreshing = false
-	let previousOpen = open
 	let hasCriticalAlertChannels = false
 
 	$: loading = isRefreshing
 
 	onMount(() => {
-		if (open) refreshAlerts()
-	})
-
-	beforeUpdate(() => {
-		if (open && !previousOpen) {
-			refreshAlerts()
-		}
-		previousOpen = open
+		refreshAlerts()
 	})
 
 	// Pagination
@@ -114,7 +104,7 @@
 	}
 </script>
 
-<Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
+<div>
 	{#if !hasCriticalAlertChannels}
 		<div class="flex flex-row pb-4">
 			<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
@@ -210,4 +200,4 @@
 	{#if alerts.length === 0}
 		<p class="text-center text-gray-500 mt-4">No critical alerts available.</p>
 	{/if}
-</Modal>
+</div>
