@@ -216,7 +216,7 @@
 				</ToggleButtonGroup>
 			</div>
 		</div>
-		<div class="flex flex-row gap-1">
+		<div class="flex flex-row gap-1 pb-4">
 			<input
 				type="password"
 				autocomplete="new-password"
@@ -228,7 +228,6 @@
 		{#if aiKey}
 			<Toggle
 				disabled={!aiKey}
-				size="xs"
 				bind:checked={codeCompletionEnabled}
 				options={{ right: 'Enable code completion' }}
 			/>
