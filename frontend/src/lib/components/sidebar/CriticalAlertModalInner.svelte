@@ -7,8 +7,13 @@
 	import { onMount } from 'svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
 	import { goto } from '$app/navigation'
+	import { superadmin } from '$lib/stores'
 
-	export let updateHasUnacknowledgedCriticalAlerts: () => void = () => {}
+	export let updateHasUnacknowledgedCriticalAlerts;
+	export let getCriticalAlerts;
+	export let acknowledgeCriticalAlert;
+	export let acknowledgeAllCriticalAlerts;
+	export let numUnacknowledgedCriticalAlerts;
 
 	let alerts: CriticalAlert[] = []
 
@@ -29,14 +34,14 @@
 	let hideAcknowledged = false
 
 	async function acknowledgeAll() {
-		await SettingService.acknowledgeAllCriticalAlerts()
+		await acknowledgeAllCriticalAlerts()
 		getAlerts(false)
 	}
 
 	async function fetchAlerts(pageNumber: number) {
 		isRefreshing = true
 		try {
-			const newAlerts = await SettingService.getCriticalAlerts({
+			const newAlerts = await getCriticalAlerts({
 				page: pageNumber,
 				pageSize: pageSize,
 				acknowledged: hideAcknowledged ? false : undefined
@@ -64,7 +69,7 @@
 	}
 
 	async function acknowledgeAlert(id: number) {
-		await SettingService.acknowledgeCriticalAlert({ id })
+		await acknowledgeCriticalAlert({ id })
 		getAlerts(false)
 	}
 
@@ -82,7 +87,7 @@
 	}
 
 	async function refreshAlerts() {
-		checkCriticalAlertChannels()
+		if ($superadmin) checkCriticalAlertChannels()
 		await getAlerts(true)
 	}
 
@@ -105,7 +110,7 @@
 </script>
 
 <div>
-	{#if !hasCriticalAlertChannels}
+	{#if !hasCriticalAlertChannels && $superadmin}
 		<div class="flex flex-row pb-4">
 			<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
 			<p>
@@ -118,8 +123,8 @@
 	<!-- Row of action buttons above the table -->
 	<div class="flex justify-between items-center mb-4">
 		<div class="flex space-x-2">
-			<Button color="green" startIcon={{ icon: CheckSquare2 }} size="sm" on:click={acknowledgeAll}
-				>Acknowledge All</Button
+			<Button color="green" startIcon={{ icon: CheckSquare2 }} size="sm" disabled={numUnacknowledgedCriticalAlerts === 0} on:click={acknowledgeAll}>
+				Acknowledge All</Button
 			>
 		</div>
 

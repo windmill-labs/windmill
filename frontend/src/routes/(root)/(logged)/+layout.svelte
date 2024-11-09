@@ -257,8 +257,6 @@
 	}
 	let timeout: NodeJS.Timeout | undefined
 	async function onUserStore(u: UserExt | undefined) {
-		console.log('workspaceStore', $workspaceStore)
-		console.log('user: ', $userStore)
 		if (u && timeout) {
 			clearTimeout(timeout)
 			timeout = undefined
@@ -300,6 +298,10 @@
 	function openCriticalAlertsModal(text?: string): void {
 		isCriticalAlertsModalOpen = true
 	}
+
+	function canSeeCriticalAlertsModal() {
+		return ($userStore?.is_admin || ($superadmin && !isCriticalAlertsUiMuted)) && $enterpriseLicense
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -316,13 +318,13 @@
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
-		{#if !isCriticalAlertsUiMuted && $enterpriseLicense}
-			<CriticalAlertModal
-				bind:open={isCriticalAlertsModalOpen}
-				bind:numUnacknowledgedCriticalAlerts
-			/>
-		{/if}
 		<SuperadminSettings bind:this={superadminSettings} />
+	{/if}
+	{#if canSeeCriticalAlertsModal()}
+		<CriticalAlertModal
+			bind:open={isCriticalAlertsModalOpen}
+			bind:numUnacknowledgedCriticalAlerts
+		/>
 	{/if}
 	<div>
 		{#if !menuHidden}
@@ -435,7 +437,7 @@
 									{/if}
 								</div>
 							</button>
-							{#if $superadmin && $enterpriseLicense}
+							{#if canSeeCriticalAlertsModal()}
 								<CriticalAlertButton
 									stopPropagationOnClick={true}
 									on:click={() => openCriticalAlertsModal()}

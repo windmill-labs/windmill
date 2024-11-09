@@ -176,12 +176,11 @@ pub struct CriticalAlert {
 }
 
 #[cfg(feature = "enterprise")]
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct AlertQueryParams {
     pub page: Option<i32>,
     pub page_size: Option<i32>,
     pub acknowledged: Option<bool>,
-    pub workspace_id: Option<String>,
 }
 
 #[cfg(feature = "enterprise")]

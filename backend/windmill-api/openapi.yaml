@@ -2649,13 +2649,14 @@ paths:
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
 
-  /w/{workspace}/critical_alerts:
+  /w/{workspace}/workspaces/critical_alerts:
     get:
       summary: Get all critical alerts for this workspace
-      operationId: getCriticalAlerts
+      operationId: workspaceGetCriticalAlerts
       tags:
         - setting
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - in: query
           name: page
           schema:
@@ -2685,13 +2686,14 @@ paths:
                 items:
                   $ref: '#/components/schemas/CriticalAlert'
 
-  /w/{workspace}/critical_alerts/{id}/acknowledge:
+  /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
     post:
       summary: Acknowledge a critical alert for this workspace
-      operationId: acknowledgeCriticalAlert
+      operationId: workspaceAcknowledgeCriticalAlert
       tags:
         - setting
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - in: path
           name: id
           required: true
@@ -2707,12 +2709,14 @@ paths:
                 type: string
                 example: "Critical alert acknowledged"
 
-  /w/{workspace}/critical_alerts/acknowledge_all:
+  /w/{workspace}/workspaces/critical_alerts/acknowledge_all:
     post:
       summary: Acknowledge all unacknowledged critical alerts for this workspace
-      operationId: acknowledgeAllCriticalAlerts
+      operationId: workspaceAcknowledgeAllCriticalAlerts
       tags:
         - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: Successfully acknowledged all unacknowledged critical alerts.

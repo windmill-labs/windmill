@@ -3342,10 +3342,14 @@ paths:
   /w/{workspace}/critical_alerts:
     get:
       summary: Get all critical alerts for this workspace
-      operationId: getCriticalAlerts
+      operationId: workspaceGetCriticalAlerts
       tags:
         - setting
       parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
         - in: query
           name: page
           schema:
@@ -3380,10 +3384,14 @@ paths:
   /w/{workspace}/critical_alerts/{id}/acknowledge:
     post:
       summary: Acknowledge a critical alert for this workspace
-      operationId: acknowledgeCriticalAlert
+      operationId: workspaceAcknowledgeCriticalAlert
       tags:
         - setting
       parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
         - in: path
           name: id
           required: true
@@ -3401,9 +3409,14 @@ paths:
   /w/{workspace}/critical_alerts/acknowledge_all:
     post:
       summary: Acknowledge all unacknowledged critical alerts for this workspace
-      operationId: acknowledgeAllCriticalAlerts
+      operationId: workspaceAcknowledgeAllCriticalAlerts
       tags:
         - setting
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
       responses:
         '200':
           description: Successfully acknowledged all unacknowledged critical alerts.

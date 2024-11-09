@@ -3074,9 +3074,8 @@ pub async fn get_critical_alerts() -> Error {
 #[cfg(feature = "enterprise")]
 pub async fn acknowledge_critical_alert(
     Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
+    Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
-    Path(id): Path<i32>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 

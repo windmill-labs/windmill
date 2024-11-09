@@ -3,6 +3,7 @@
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { superadmin, workspaceStore } from '$lib/stores'
 	import Modal from '../common/modal/Modal.svelte'
 
 	export let open: boolean = false
@@ -10,6 +11,34 @@
 
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
+
+	const withSuperadminLogic = (superadminFunction, workspaceFunction) => {
+		return async (params = {}) => {
+			if (!$superadmin) {
+				return workspaceFunction({
+					...params,
+					workspace: $workspaceStore
+				})
+			} else {
+				return superadminFunction(params)
+			}
+		}
+	}
+
+	const getCriticalAlerts = withSuperadminLogic(
+		SettingService.getCriticalAlerts,
+		SettingService.workspaceGetCriticalAlerts
+	)
+
+	const acknowledgeCriticalAlert = withSuperadminLogic(
+		SettingService.acknowledgeCriticalAlert,
+		SettingService.workspaceAcknowledgeCriticalAlert
+	)
+
+	const acknowledgeAllCriticalAlerts = withSuperadminLogic(
+		SettingService.acknowledgeAllCriticalAlerts,
+		SettingService.workspaceAcknowledgeAllCriticalAlerts
+	)
 
 	onMount(() => {
 		updateHasUnacknowledgedCriticalAlerts(true)
@@ -25,14 +54,12 @@
 	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
 		if (checkingForNewAlerts) return
 		checkingForNewAlerts = true
-
 		try {
-			const unacknowledged = await SettingService.getCriticalAlerts({
+			const unacknowledged = await getCriticalAlerts({
 				page: 1,
 				pageSize: 10,
 				acknowledged: false
 			})
-
 			if (numUnacknowledgedCriticalAlerts === 0 && unacknowledged.length > 0 && sendToast) {
 				sendUserToast(
 					'Critical Alert:',
@@ -62,11 +89,17 @@
 	}
 
 	async function acknowledgeAlert(id: number) {
-		await SettingService.acknowledgeCriticalAlert({ id })
+		await acknowledgeCriticalAlert({ id })
 		updateHasUnacknowledgedCriticalAlerts()
 	}
 </script>
 
 <Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
-	<CriticalAlertModalInner {updateHasUnacknowledgedCriticalAlerts} />
+	<CriticalAlertModalInner
+		{numUnacknowledgedCriticalAlerts}
+		{updateHasUnacknowledgedCriticalAlerts}
+		{getCriticalAlerts}
+		{acknowledgeCriticalAlert}
+		{acknowledgeAllCriticalAlerts}
+	/>
 </Modal>

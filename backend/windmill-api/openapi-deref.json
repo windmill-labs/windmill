@@ -4110,11 +4110,14 @@
     "/w/{workspace}/critical_alerts": {
       "get": {
         "summary": "Get all critical alerts for this workspace",
-        "operationId": "getCriticalAlerts",
+        "operationId": "workspaceGetCriticalAlerts",
         "tags": [
           "setting"
         ],
         "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
           {
             "in": "query",
             "name": "page",
@@ -4164,11 +4167,14 @@
     "/w/{workspace}/critical_alerts/{id}/acknowledge": {
       "post": {
         "summary": "Acknowledge a critical alert for this workspace",
-        "operationId": "acknowledgeCriticalAlert",
+        "operationId": "workspaceAcknowledgeCriticalAlert",
         "tags": [
           "setting"
         ],
         "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
           {
             "in": "path",
             "name": "id",
@@ -4197,9 +4203,14 @@
     "/w/{workspace}/critical_alerts/acknowledge_all": {
       "post": {
         "summary": "Acknowledge all unacknowledged critical alerts for this workspace",
-        "operationId": "acknowledgeAllCriticalAlerts",
+        "operationId": "workspaceAcknowledgeAllCriticalAlerts",
         "tags": [
           "setting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
         ],
         "responses": {
           "200": {
