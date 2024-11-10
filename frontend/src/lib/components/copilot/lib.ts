@@ -49,7 +49,7 @@ class WorkspacedMistral implements AiProvider {
 }
 
 export namespace MistralAi {
-	export let workspacedMistral = new WorkspacedMistral()
+	export let workspace = new WorkspacedMistral()
 
 	export const mistralConfig: ChatCompletionRequest = {
 		temperature: 0,
@@ -96,7 +96,7 @@ class WorkspacedAnthropic implements AiProvider {
 }
 
 export namespace AnthropicAi {
-	export let workspacedAnthropic = new WorkspacedAnthropic()
+	export let workspace = new WorkspacedAnthropic()
 
 	export const config: MessageCreateParams = {
 		temperature: 0,
@@ -153,7 +153,7 @@ class WorkspacedOpenai implements AiProvider {
 }
 
 export namespace OpenAi {
-	export let workspacedOpenai = new WorkspacedOpenai()
+	export let workspace = new WorkspacedOpenai()
 
 	export const openaiConfig: ChatCompletionCreateParamsStreaming = {
 		temperature: 0,
@@ -167,6 +167,12 @@ export namespace OpenAi {
 	export function retrieveTextValue(part: OpenAI.Chat.Completions.ChatCompletionChunk) {
 		return part.choices[0]?.delta?.content || ''
 	}
+}
+
+export function initAllAiWorkspace(workspace: string) {
+	OpenAi.workspace.init(workspace)
+	AnthropicAi.workspace.init(workspace)
+	MistralAi.workspace.init(workspace)
 }
 
 function initWorkspaceAiProvider(
@@ -474,7 +480,7 @@ export async function getNonStreamingCompletion(
 	}
 	switch (aiProvider) {
 		case 'openai': {
-			const openaiClient = OpenAi.workspacedOpenai.getClient()
+			const openaiClient = OpenAi.workspace.getClient()
 			const completion = await openaiClient.chat.completions.create(
 				{
 					...OpenAi.openaiConfig,
@@ -488,7 +494,7 @@ export async function getNonStreamingCompletion(
 			break
 		}
 		case 'anthropic': {
-			const anthropicClient = AnthropicAi.workspacedAnthropic.getClient()
+			const anthropicClient = AnthropicAi.workspace.getClient()
 			const [system, anthropicMessages] = AnthropicAi.getSystemPromptAndArrayMessages(messages)
 			const message = await anthropicClient.messages.create(
 				{
@@ -503,7 +509,7 @@ export async function getNonStreamingCompletion(
 			break
 		}
 		case 'mistral': {
-			const mistralClient = MistralAi.workspacedMistral.getClient()
+			const mistralClient = MistralAi.workspace.getClient()
 			const message = await mistralClient.chat.complete(
 				{
 					...MistralAi.mistralConfig,
@@ -533,7 +539,7 @@ export async function getCompletion(
 ) {
 	switch (aiProvider) {
 		case 'anthropic': {
-			const anthropicClient = AnthropicAi.workspacedAnthropic.getClient()
+			const anthropicClient = AnthropicAi.workspace.getClient()
 			const [system, anthropicMessages] = AnthropicAi.getSystemPromptAndArrayMessages(messages)
 
 			const completion = await anthropicClient.messages.create(
@@ -548,7 +554,7 @@ export async function getCompletion(
 			return completion
 		}
 		case 'openai': {
-			const openaiClient = OpenAi.workspacedOpenai.getClient()
+			const openaiClient = OpenAi.workspace.getClient()
 			const completion = await openaiClient.chat.completions.create(
 				{
 					...OpenAi.openaiConfig,
@@ -562,7 +568,7 @@ export async function getCompletion(
 			return completion
 		}
 		case 'mistral': {
-			const mistralClient = MistralAi.workspacedMistral.getClient()
+			const mistralClient = MistralAi.workspace.getClient()
 			const message = await mistralClient.chat.stream(
 				{
 					...MistralAi.mistralConfig,
@@ -581,35 +587,27 @@ export async function getCompletion(
 	}
 }
 
-function isCompletionEvent(
-	message:
-		| Anthropic.Messages.RawMessageStreamEvent
-		| OpenAI.Chat.Completions.ChatCompletionChunk
-		| CompletionEvent
-): message is CompletionEvent {
-	return 'data' in message
-}
-function isChatCompletionChunk(
-	response:
-		| Anthropic.Messages.RawMessageStreamEvent
-		| OpenAI.Chat.Completions.ChatCompletionChunk
-		| CompletionEvent
-): response is OpenAI.Chat.Completions.ChatCompletionChunk {
-	return 'choices' in response
-}
-
 export function getResponseFromEvent(
 	part:
 		| Anthropic.Messages.RawMessageStreamEvent
 		| OpenAI.Chat.Completions.ChatCompletionChunk
-		| CompletionEvent
+		| CompletionEvent,
+	aiProvider: AiProviderTypes
 ): string {
-	if (isChatCompletionChunk(part)) {
-		return OpenAi.retrieveTextValue(part)
-	} else if (isCompletionEvent(part)) {
-		return MistralAi.retrieveTextValue(part.data.choices[0].delta.content)
+	switch (aiProvider) {
+		case 'openai': {
+			const messages = part as OpenAI.Chat.Completions.ChatCompletionChunk
+			return OpenAi.retrieveTextValue(messages)
+		}
+		case 'anthropic': {
+			const messages = part as Anthropic.Messages.RawMessageStreamEvent
+			return AnthropicAi.retrieveTextValue(messages)
+		}
+		case 'mistral': {
+			const messages = part as CompletionEvent
+			return MistralAi.retrieveTextValue(messages.data.choices[0].delta.content)
+		}
 	}
-	return AnthropicAi.retrieveTextValue(part)
 }
 
 export async function copilot(
@@ -639,7 +637,7 @@ export async function copilot(
 	let response = ''
 	let code = ''
 	for await (const part of completion) {
-		response += getResponseFromEvent(part)
+		response += getResponseFromEvent(part, aiProvider)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
@@ -714,7 +712,7 @@ export async function deltaCodeCompletion(
 	let code = ''
 	let delta = ''
 	for await (const part of completion) {
-		response += getResponseFromEvent(part)
+		response += getResponseFromEvent(part, aiProvider)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
