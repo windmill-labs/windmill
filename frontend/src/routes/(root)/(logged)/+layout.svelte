@@ -280,7 +280,7 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $superadmin) {
+		if ($enterpriseLicense && ($superadmin || $userStore?.is_admin)) {
 			loadCriticalAlertsMuted()
 		}
 	}
@@ -290,18 +290,20 @@
 	let isCriticalAlertsUiMuted = false
 
 	async function loadCriticalAlertsMuted() {
-		isCriticalAlertsUiMuted = (await SettingService.getGlobal({
-			key: 'critical_alert_mute_ui'
-		})) as boolean
+		if ($superadmin) {
+			isCriticalAlertsUiMuted = (await SettingService.getGlobal({
+				key: 'critical_alert_mute_ui'
+			})) as boolean
+		} else {
+			const ws = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+			isCriticalAlertsUiMuted = ws.mute_critical_alerts || false
+		}
 	}
 
 	function openCriticalAlertsModal(text?: string): void {
 		isCriticalAlertsModalOpen = true
 	}
 
-	function canSeeCriticalAlertsModal() {
-		return ($userStore?.is_admin || ($superadmin && !isCriticalAlertsUiMuted)) && $enterpriseLicense
-	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -320,7 +322,7 @@
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
-	{#if canSeeCriticalAlertsModal()}
+	{#if $enterpriseLicense && ($superadmin || $userStore?.is_admin)}
 		<CriticalAlertModal
 			bind:open={isCriticalAlertsModalOpen}
 			bind:numUnacknowledgedCriticalAlerts
@@ -437,7 +439,7 @@
 									{/if}
 								</div>
 							</button>
-							{#if canSeeCriticalAlertsModal()}
+							{#if !isCriticalAlertsUiMuted}
 								<CriticalAlertButton
 									stopPropagationOnClick={true}
 									on:click={() => openCriticalAlertsModal()}

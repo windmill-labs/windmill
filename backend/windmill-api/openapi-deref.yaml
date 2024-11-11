@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.421.2
+  version: 1.422.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -2098,6 +2098,8 @@ paths:
                       default_script_content:
                         additionalProperties:
                           type: string
+                  mute_critical_alerts:
+                    type: boolean
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -3339,7 +3341,7 @@ paths:
                     - value
                     - description
                     - is_custom
-  /w/{workspace}/critical_alerts:
+  /w/{workspace}/workspaces/critical_alerts:
     get:
       summary: Get all critical alerts for this workspace
       operationId: workspaceGetCriticalAlerts
@@ -3381,7 +3383,7 @@ paths:
                 items:
                   type: object
                   properties: *ref_24
-  /w/{workspace}/critical_alerts/{id}/acknowledge:
+  /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
     post:
       summary: Acknowledge a critical alert for this workspace
       operationId: workspaceAcknowledgeCriticalAlert
@@ -3406,7 +3408,7 @@ paths:
               schema:
                 type: string
                 example: Critical alert acknowledged
-  /w/{workspace}/critical_alerts/acknowledge_all:
+  /w/{workspace}/workspaces/critical_alerts/acknowledge_all:
     post:
       summary: Acknowledge all unacknowledged critical alerts for this workspace
       operationId: workspaceAcknowledgeAllCriticalAlerts
@@ -3425,6 +3427,39 @@ paths:
               schema:
                 type: string
                 example: All unacknowledged critical alerts acknowledged
+  /w/{workspace}/workspaces/critical_alerts/mute:
+    post:
+      summary: Mute critical alert UI for this workspace
+      operationId: workspaceMuteCriticalAlertsUI
+      tags:
+        - setting
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: Boolean flag to mute critical alerts.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mute_critical_alerts:
+                  type: boolean
+                  description: Whether critical alerts should be muted.
+                  example: true
+      responses:
+        '200':
+          description: Successfully updated mute critical alert settings.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: >-
+                  Updated mute critical alert UI settings for workspace:
+                  workspace_id
   /oauth/login_callback/{client_name}:
     post:
       security: []

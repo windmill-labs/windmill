@@ -1636,6 +1636,8 @@ paths:
                     type: string
                   default_scripts:
                     $ref: "#/components/schemas/WorkspaceDefaultScripts"
+                  mute_critical_alerts:
+                    type: boolean
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -2725,6 +2727,35 @@ paths:
               schema:
                 type: string
                 example: "All unacknowledged critical alerts acknowledged"
+
+  /w/{workspace}/workspaces/critical_alerts/mute:
+    post:
+      summary: Mute critical alert UI for this workspace
+      operationId: workspaceMuteCriticalAlertsUI
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Boolean flag to mute critical alerts.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mute_critical_alerts:
+                  type: boolean
+                  description: Whether critical alerts should be muted.
+                  example: true
+      responses:
+        '200':
+          description: Successfully updated mute critical alert settings.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
   /oauth/login_callback/{client_name}:
     post:

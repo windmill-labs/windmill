@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.421.2",
+    "version": "1.422.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -2493,6 +2493,9 @@
                     },
                     "default_scripts": {
                       "$ref": "#/components/schemas/WorkspaceDefaultScripts"
+                    },
+                    "mute_critical_alerts": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -4107,7 +4110,7 @@
         }
       }
     },
-    "/w/{workspace}/critical_alerts": {
+    "/w/{workspace}/workspaces/critical_alerts": {
       "get": {
         "summary": "Get all critical alerts for this workspace",
         "operationId": "workspaceGetCriticalAlerts",
@@ -4164,7 +4167,7 @@
         }
       }
     },
-    "/w/{workspace}/critical_alerts/{id}/acknowledge": {
+    "/w/{workspace}/workspaces/critical_alerts/{id}/acknowledge": {
       "post": {
         "summary": "Acknowledge a critical alert for this workspace",
         "operationId": "workspaceAcknowledgeCriticalAlert",
@@ -4200,7 +4203,7 @@
         }
       }
     },
-    "/w/{workspace}/critical_alerts/acknowledge_all": {
+    "/w/{workspace}/workspaces/critical_alerts/acknowledge_all": {
       "post": {
         "summary": "Acknowledge all unacknowledged critical alerts for this workspace",
         "operationId": "workspaceAcknowledgeAllCriticalAlerts",
@@ -4220,6 +4223,51 @@
                 "schema": {
                   "type": "string",
                   "example": "All unacknowledged critical alerts acknowledged"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/workspaces/critical_alerts/mute": {
+      "post": {
+        "summary": "Mute critical alert UI for this workspace",
+        "operationId": "workspaceMuteCriticalAlertsUI",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "Boolean flag to mute critical alerts.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mute_critical_alerts": {
+                    "type": "boolean",
+                    "description": "Whether critical alerts should be muted.",
+                    "example": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully updated mute critical alert settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "example": "Updated mute critical alert UI settings for workspace: workspace_id"
                 }
               }
             }

@@ -3,11 +3,14 @@
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin, workspaceStore } from '$lib/stores'
+	import { superadmin, workspaceStore, isCriticalAlertsUIOpen } from '$lib/stores'
 	import Modal from '../common/modal/Modal.svelte'
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
+
+	$: isCriticalAlertsUIOpen.set(open)
+	$: if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
 
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false

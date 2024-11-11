@@ -121,7 +121,8 @@ pub fn workspaced_service() -> Router {
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
         .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
-        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts));
+        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts))
+        .route("/critical_alerts/mute", post(mute_critical_alerts));
 
     #[cfg(feature = "stripe")]
     {
@@ -182,6 +183,7 @@ pub struct WorkspaceSettings {
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
+    pub mute_critical_alerts: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -3098,5 +3100,36 @@ pub async fn acknowledge_all_critical_alerts(
 
 #[cfg(not(feature = "enterprise"))]
 pub async fn acknowledge_all_critical_alerts() -> error::Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+
+#[derive(Deserialize, Debug)]
+pub struct MuteCriticalAlertRequest {
+    pub mute_critical_alerts: Option<bool>,
+}
+
+#[cfg(feature = "enterprise")]
+async fn mute_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(m_r): Json<MuteCriticalAlertRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET mute_critical_alerts = $1 WHERE workspace_id = $2",
+        m_r.mute_critical_alerts.unwrap_or(false),
+        &w_id
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!("Updated mute criticital alert ui settings for workspace: {}", &w_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn mute_critical_alerts() -> error::Error {
     Error::NotFound("Critical Alerts require EE".to_string())
 }
