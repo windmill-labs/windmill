@@ -202,8 +202,7 @@
 	<Scrollable
 		scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink {!$propPickerConfig && !alwaysOn
 			? 'bg-surface-secondary'
-			: ''}
-}"
+			: ''}"
 	>
 		<!-- <div
 			class="px-2 pt-2 grow relative"

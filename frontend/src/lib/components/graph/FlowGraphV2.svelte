@@ -40,6 +40,7 @@
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
+	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -87,7 +88,7 @@
 
 	let simplifiableFlow: SimplifiableFlow | undefined = undefined
 
-	const expandedSubflows: Record<string, FlowModule[]> = {}
+	export let expandedSubflows: Record<string, FlowModule[]> = {}
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -209,9 +210,11 @@
 		expandSubflow: async (id: string, path: string) => {
 			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
 			expandedSubflows[id] = flow.value.modules
+			expandedSubflows = expandedSubflows
 		},
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
+			expandedSubflows = expandedSubflows
 		}
 	}
 
@@ -242,69 +245,6 @@
 
 	let height = 0
 
-	// function removeInputNode(nodes, edges, id) {
-	// 	const inputNode = nodes.find((node) => node.id === id)
-	// 	if (!inputNode) return { nodes, edges }
-
-	// 	// Find edges connected to the input node
-	// 	const connectedEdges = edges.filter((edge) => edge.source === id || edge.target === id)
-
-	// 	// Remove the input node
-	// 	let updatedNodes = nodes.filter((node) => node.id !== id)
-
-	// 	// Remove edges connected to the input node
-	// 	let updatedEdges = edges.filter((edge) => edge.source !== id && edge.target !== id)
-
-	// 	// Create new edges from the input node's parent to its children
-	// 	const inputEdges = connectedEdges.filter((edge) => edge.target === id)
-	// 	const outputEdges = connectedEdges.filter((edge) => edge.source === id)
-
-	// 	inputEdges.forEach((inputEdge) => {
-	// 		outputEdges.forEach((outputEdge) => {
-	// 			const newEdge = {
-	// 				id: `edge:${inputEdge.source}->${outputEdge.target}`,
-	// 				source: inputEdge.source,
-	// 				target: outputEdge.target,
-	// 				type: 'empty',
-	// 				data: {
-	// 					...outputEdge.data,
-	// 					sourceId: inputEdge.source,
-	// 					targetId: outputEdge.target
-	// 				}
-	// 			}
-	// 			updatedEdges.push(newEdge)
-	// 		})
-	// 	})
-
-	// 	// Update parent ids of the nodes
-	// 	updatedNodes = updatedNodes.map((node) => {
-	// 		if (node.data && node.data.parentIds && node.data.parentIds.includes(id)) {
-	// 			const updatedParentIds = node.data.parentIds.filter((parentId) => parentId !== id)
-	// 			if (inputNode.data && inputNode.data.parentIds) {
-	// 				updatedParentIds.push(...inputNode.data.parentIds)
-	// 			}
-	// 			return {
-	// 				...node,
-	// 				data: {
-	// 					...node.data,
-	// 					parentIds: [...new Set(updatedParentIds)] // Remove duplicates
-	// 				}
-	// 			}
-	// 		}
-	// 		return node
-	// 	})
-
-	// 	return { nodes: updatedNodes, edges: updatedEdges }
-	// }
-
-	// function processGraph(graph, simplifiable) {
-	// 	let newGraph = { nodes: graph.nodes, edges: graph.edges }
-	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, 'Input')
-	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.forLoopNode.id)
-	// 	newGraph = removeInputNode(newGraph.nodes, newGraph.edges, simplifiable.triggerNode.id)
-	// 	return newGraph
-	// }
-
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false
@@ -325,7 +265,7 @@
 
 		$nodes = layoutNodes(newGraph.nodes)
 		$edges = newGraph.edges
-		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
+		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
 
 	$: (graph || allowSimplifiedPoll) && updateStores()
@@ -342,6 +282,7 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
+		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode
 	} as any
