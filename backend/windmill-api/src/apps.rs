@@ -9,14 +9,14 @@ use std::collections::HashMap;
  */
 
 #[cfg(feature = "parquet")]
-use crate::job_helpers_ee::{
+use crate::{job_helpers_ee::{
     get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
     UploadFileResponse,
-};
+}, users::fetch_api_authed_from_permissioned_as};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
-    users::{fetch_api_authed_from_permissioned_as, require_owner_of_path, OptAuthed},
+    users::{require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
     variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -29,10 +29,12 @@ use axum::{
     Router,
 };
 use hyper::StatusCode;
+#[cfg(feature = "parquet")]
 use itertools::Itertools;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "parquet")]
 use object_store::{Attribute, Attributes};
+#[cfg(feature = "parquet")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
