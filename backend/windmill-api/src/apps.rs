@@ -7,12 +7,14 @@ use std::collections::HashMap;
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+
+#[cfg(feature = "parquet")]
+use crate::job_helpers_ee::{
+    get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
+    UploadFileResponse,
+};
 use crate::{
     db::{ApiAuthed, DB},
-    job_helpers_ee::{
-        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
-        UploadFileResponse,
-    },
     resources::get_resource_value_interpolated_internal,
     users::{fetch_api_authed_from_permissioned_as, require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
@@ -29,6 +31,7 @@ use axum::{
 use hyper::StatusCode;
 use itertools::Itertools;
 use magic_crypt::MagicCryptTrait;
+#[cfg(feature = "parquet")]
 use object_store::{Attribute, Attributes};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -39,12 +42,13 @@ use sqlx::{types::Uuid, FromRow};
 use std::str;
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
     apps::ListAppQuery,
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
-    s3_helpers::build_object_store_client,
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
@@ -1275,6 +1279,15 @@ async fn execute_component(
     Ok(uuid.to_string())
 }
 
+#[cfg(not(feature = "parquet"))]
+async fn upload_s3_file_from_app() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
+
+#[cfg(feature = "parquet")]
 #[derive(Debug, Deserialize, Clone)]
 struct UploadFileToS3Query {
     file_key: Option<String>,
@@ -1288,6 +1301,7 @@ struct UploadFileToS3Query {
     force_viewer_allowed_resources: Option<String>,
 }
 
+#[cfg(feature = "parquet")]
 async fn upload_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
