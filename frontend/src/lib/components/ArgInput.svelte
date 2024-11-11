@@ -418,6 +418,9 @@
 									bind:selected={value}
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -428,6 +431,9 @@
 									bind:selected={value}
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else}
@@ -816,6 +822,12 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						on:focus={() => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
 						enumLabels={extra['enumLabels']}
 					/>
 				</div>
