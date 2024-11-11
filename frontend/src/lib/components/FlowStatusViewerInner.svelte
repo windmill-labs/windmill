@@ -29,6 +29,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
+	import { buildPrefix } from './graph/graphBuilder'
 
 	const dispatch = createEventDispatcher()
 
@@ -74,6 +75,10 @@
 
 	export let wideResults = false
 	export let hideFlowResult = false
+	export let workspace: string | undefined = $workspaceStore
+	export let prefix: string | undefined = undefined
+	export let subflowParentsGlobalModuleStates: Writable<Record<string, GraphModuleState>>[] = []
+	export let subflowParentsDurationStatuses: Writable<Record<string, DurationStatus>>[] = []
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -83,6 +88,7 @@
 
 	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
+	let expandedSubflows: Record<string, FlowModule[]> = {}
 
 	export let job: Job | undefined = undefined
 
@@ -94,6 +100,24 @@
 	// 	}
 	// }
 
+	function updateModuleStates(
+		moduleState: Writable<Record<string, GraphModuleState>>,
+		key: string,
+		newValue: GraphModuleState,
+		keepType: boolean | undefined
+	) {
+		moduleState.update((x) => {
+			if (keepType && (x[key]?.type == 'Success' || x[key]?.type == 'Failure')) {
+				newValue.type = x[key].type
+			}
+			x[key] = newValue
+			return x
+		})
+	}
+
+	function buildSubflowKey(key: string, prefix: string | undefined) {
+		return prefix ? 'subflow:' + prefix + key : key
+	}
 	function setModuleState(
 		key: string,
 		value: Partial<GraphModuleState>,
@@ -102,15 +126,14 @@
 	) {
 		let newValue = { ...($localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual($localModuleStates[key], value) || force) {
-			;[localModuleStates, ...globalModuleStates].forEach((s) => {
-				s.update((x) => {
-					if (keepType && (x[key]?.type == 'Success' || x[key]?.type == 'Failure')) {
-						newValue.type = x[key].type
-					}
-					x[key] = newValue
-					return x
-				})
-			})
+			;[localModuleStates, ...globalModuleStates].forEach((s) =>
+				updateModuleStates(s, key, newValue, keepType)
+			)
+			if (prefix) {
+				subflowParentsGlobalModuleStates.forEach((s) =>
+					updateModuleStates(s, buildSubflowKey(key, prefix), newValue, keepType)
+				)
+			}
 		}
 	}
 
@@ -124,6 +147,14 @@
 					return x
 				})
 			})
+			if (prefix) {
+				subflowParentsDurationStatuses.forEach((s) => {
+					s.update((x) => {
+						x[buildSubflowKey(key, prefix)].byJob[id] = value
+						return x
+					})
+				})
+			}
 		}
 	}
 
@@ -131,15 +162,25 @@
 		if ($localDurationStatuses[modId] == undefined) {
 			$localDurationStatuses[modId] = { byJob: {} }
 		}
-		let prefixed = modId
 		globalDurationStatuses.forEach((x) =>
 			x.update((x) => {
-				if (x[prefixed] == undefined) {
-					x[prefixed] = { byJob: {} }
+				if (x[modId] == undefined) {
+					x[modId] = { byJob: {} }
 				}
 				return x
 			})
 		)
+		if (prefix) {
+			subflowParentsDurationStatuses.forEach((x) =>
+				x.update((x) => {
+					let key = buildSubflowKey(modId, prefix)
+					if (x[key] == undefined) {
+						x[key] = { byJob: {} }
+					}
+					return x
+				})
+			)
+		}
 	}
 
 	let innerModules: FlowStatusModule[] = []
@@ -368,7 +409,7 @@
 		if (globalRefreshes) {
 			let modId = flowJobIds?.moduleId
 			if (modId) {
-				globalRefreshes[modId] = async (loopJob) => {
+				globalRefreshes[buildSubflowKey(modId, prefix)] = async (loopJob) => {
 					setIteration(loopJob.index, loopJob.job, false, modId ?? '')
 					refresh(true, loopJob)
 				}
@@ -631,6 +672,36 @@
 			})
 		}
 	}
+
+	function allModulesForTimeline(
+		modules: FlowModule[],
+		expandedSubflows: Record<string, FlowModule[]>
+	): string[] {
+		const ids = dfs(modules, (x) => x.id)
+
+		function rec(ids: string[], prefix: string | undefined): string[] {
+			return ids.concat(
+				ids.flatMap((id) => {
+					let fms = expandedSubflows[id]
+					let oid = id.split(':').pop()
+					if (!oid) {
+						return []
+					}
+					let nprefix = buildPrefix(prefix, oid)
+					return fms
+						? rec(
+								dfs(fms, (x) =>
+									x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)
+								),
+								nprefix
+						  )
+						: []
+				})
+			)
+		}
+
+		return rec(ids, undefined)
+	}
 </script>
 
 {#if notAnonynmous}
@@ -803,6 +874,9 @@
 									job={storedListJobs[j]}
 									globalModuleStates={[localModuleStates, ...globalModuleStates]}
 									globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
+									{prefix}
+									{subflowParentsGlobalModuleStates}
+									{subflowParentsDurationStatuses}
 									render={forloop_selected == loopJobId && selected == 'sequence' && render}
 									reducedPolling={flowJobIds?.flowJobs.length && flowJobIds?.flowJobs.length > 20}
 									{workspaceId}
@@ -880,6 +954,9 @@
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
+											{prefix}
+											{subflowParentsGlobalModuleStates}
+											{subflowParentsDurationStatuses}
 											render={failedRetry == retry_selected && render}
 											reducedPolling={false}
 											{workspaceId}
@@ -895,6 +972,17 @@
 										bind:refresh={recursiveRefresh[mod.job ?? '']}
 										globalModuleStates={[]}
 										globalDurationStatuses={[]}
+										prefix={buildPrefix(prefix, mod.id ?? '')}
+										subflowParentsGlobalModuleStates={[
+											localModuleStates,
+											...globalModuleStates,
+											...subflowParentsGlobalModuleStates
+										]}
+										subflowParentsDurationStatuses={[
+											localDurationStatuses,
+											...globalDurationStatuses,
+											...subflowParentsDurationStatuses
+										]}
 										render={selected == 'sequence' && render}
 										{workspaceId}
 										jobId={mod.job}
@@ -915,6 +1003,9 @@
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 										render={selected == 'sequence' && render}
 										{workspaceId}
+										{prefix}
+										{subflowParentsGlobalModuleStates}
+										{subflowParentsDurationStatuses}
 										jobId={mod.job}
 										innerModule={mod.flow_jobs ? job.raw_flow?.modules[i]?.value : undefined}
 										flowJobIds={mod.flow_jobs
@@ -973,6 +1064,7 @@
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
+							bind:expandedSubflows
 							on:select={(e) => {
 								if (rightColumnSelect != 'node_definition') {
 									rightColumnSelect = 'node_status'
@@ -1004,11 +1096,13 @@
 									selectedForloopIndex: detail.index
 								})
 								globalRefreshes[detail.moduleId]?.({ job: detail.id, index: detail.index })
+								// console.log('selectedIteration', prefix, detail.moduleId, globalRefreshes)
 							}}
 							modules={job.raw_flow?.modules ?? []}
 							failureModule={job.raw_flow?.failure_module}
 							preprocessorModule={job.raw_flow?.preprocessor_module}
 							allowSimplifiedPoll={false}
+							{workspace}
 						/>
 					</div>
 					<div
@@ -1033,7 +1127,10 @@
 								aggregateWaitTime={job?.aggregate_wait_time_ms}
 								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
-								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}
+								flowModules={allModulesForTimeline(
+									job?.raw_flow?.modules ?? [],
+									expandedSubflows ?? {}
+								)}
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}

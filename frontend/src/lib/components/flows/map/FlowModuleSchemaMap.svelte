@@ -26,7 +26,7 @@
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
-	import { copilotInfo, tutorialsToDo } from '$lib/stores'
+	import { copilotInfo, tutorialsToDo, workspaceStore } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
@@ -44,6 +44,7 @@
 	export let disableSettings = false
 	export let newFlow: boolean = false
 	export let smallErrorHandler = false
+	export let workspace: string | undefined = $workspaceStore
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
@@ -345,6 +346,7 @@
 			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
+			{workspace}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
