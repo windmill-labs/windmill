@@ -7,23 +7,61 @@
 	import { onMount } from 'svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
 	import { goto } from '$app/navigation'
-	import { superadmin } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
+	import Section from '$lib/components/Section.svelte'
+	import { sendUserToast } from '$lib/toast'
 
-	export let updateHasUnacknowledgedCriticalAlerts;
-	export let getCriticalAlerts;
-	export let acknowledgeCriticalAlert;
-	export let acknowledgeAllCriticalAlerts;
-	export let numUnacknowledgedCriticalAlerts;
+	export let updateHasUnacknowledgedCriticalAlerts
+	export let getCriticalAlerts
+	export let acknowledgeCriticalAlert
+	export let acknowledgeAllCriticalAlerts
+	export let numUnacknowledgedCriticalAlerts
 
 	let alerts: CriticalAlert[] = []
 
 	let isRefreshing = false
-	let hasCriticalAlertChannels = false
+	let hasCriticalAlertChannels = true
+
+	export let muteSettings = {
+		workspace: true,
+		global: true
+	}
+
+	$: muteSettings
+
+	let initialMuteSettings = muteSettings
+
+	async function saveMuteSettings() {
+		// Workspace
+		await SettingService.workspaceMuteCriticalAlertsUi({
+			workspace: $workspaceStore!,
+			requestBody: {
+				mute_critical_alerts: muteSettings.workspace
+			}
+		})
+		sendUserToast(
+			`Critical alert UI mute setting for workspace is set to ${muteSettings.workspace}\nreloading page...`
+		)
+
+		// Global
+		if ($superadmin) {
+			await SettingService.setGlobal({
+				key: 'critical_alert_mute_ui',
+				requestBody: { value: muteSettings.global }
+			})
+		}
+
+		// reload page after change of setting
+		setTimeout(() => {
+			window.location.reload()
+		}, 3000)
+	}
 
 	$: loading = isRefreshing
 
 	onMount(() => {
 		refreshAlerts()
+		initialMuteSettings = { ...muteSettings }
 	})
 
 	// Pagination
@@ -120,10 +158,47 @@
 			</p>
 		</div>
 	{/if}
+	<Section
+		label="Mute Settings"
+		collapsable={true}
+		tooltip="Mute settings allow you to temporarily disable UI notifications for critical alerts."
+		eeOnly={false}
+	>
+		<div class="flex flex-col gap-2">
+			{#if $superadmin}
+				<Toggle
+					bind:checked={muteSettings.global}
+					options={{ right: 'Mute critical alerts instance wide' }}
+					size="xs"
+				/>
+			{/if}
+			<Toggle
+				bind:checked={muteSettings.workspace}
+				options={{ right: 'Mute critical alerts for current workspace' }}
+				size="xs"
+			/>
+			<div class="flex flex-row">
+				<Button
+					disabled={initialMuteSettings.global === muteSettings.global &&
+						initialMuteSettings.workspace === muteSettings.workspace}
+					size="sm"
+					on:click={saveMuteSettings}
+				>
+					Save
+				</Button>
+			</div>
+		</div>
+	</Section>
 	<!-- Row of action buttons above the table -->
-	<div class="flex justify-between items-center mb-4">
+	<div class="flex justify-between items-center mb-4 mt-4">
 		<div class="flex space-x-2">
-			<Button color="green" startIcon={{ icon: CheckSquare2 }} size="sm" disabled={numUnacknowledgedCriticalAlerts === 0} on:click={acknowledgeAll}>
+			<Button
+				color="green"
+				startIcon={{ icon: CheckSquare2 }}
+				size="sm"
+				disabled={numUnacknowledgedCriticalAlerts === 0}
+				on:click={acknowledgeAll}
+			>
 				Acknowledge All</Button
 			>
 		</div>

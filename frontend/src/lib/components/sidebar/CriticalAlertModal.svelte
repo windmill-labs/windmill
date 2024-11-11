@@ -8,6 +8,7 @@
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
+	export let muteSettings
 
 	$: isCriticalAlertsUIOpen.set(open)
 	$: if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
@@ -63,7 +64,12 @@
 				pageSize: 10,
 				acknowledged: false
 			})
-			if (numUnacknowledgedCriticalAlerts === 0 && unacknowledged.length > 0 && sendToast) {
+			if (
+				numUnacknowledgedCriticalAlerts === 0 &&
+				unacknowledged.length > 0 &&
+				sendToast &&
+				(($superadmin && !muteSettings.global) || (!$superadmin && !muteSettings.workspace))
+			) {
 				sendUserToast(
 					'Critical Alert:',
 					true,
@@ -104,5 +110,6 @@
 		{getCriticalAlerts}
 		{acknowledgeCriticalAlert}
 		{acknowledgeAllCriticalAlerts}
+		{muteSettings}
 	/>
 </Modal>

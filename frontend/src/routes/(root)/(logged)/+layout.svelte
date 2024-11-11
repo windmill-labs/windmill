@@ -287,23 +287,32 @@
 
 	let numUnacknowledgedCriticalAlerts = 0
 	let isCriticalAlertsModalOpen = false
-	let isCriticalAlertsUiMuted = false
-
+	let isCriticalAlertsUiMuted = true
+	let muteSettings = {
+		global: true,
+		workspace: true
+	}
 	async function loadCriticalAlertsMuted() {
+		let g_muted = true
+		const ws_muted =
+			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
+			false
+
 		if ($superadmin) {
-			isCriticalAlertsUiMuted = (await SettingService.getGlobal({
+			g_muted = (await SettingService.getGlobal({
 				key: 'critical_alert_mute_ui'
 			})) as boolean
+			isCriticalAlertsUiMuted = g_muted
 		} else {
-			const ws = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-			isCriticalAlertsUiMuted = ws.mute_critical_alerts || false
+			isCriticalAlertsUiMuted = ws_muted
 		}
+
+		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
 
 	function openCriticalAlertsModal(text?: string): void {
 		isCriticalAlertsModalOpen = true
 	}
-
 </script>
 
 <svelte:window bind:innerWidth />
@@ -324,6 +333,7 @@
 	{/if}
 	{#if $enterpriseLicense && ($superadmin || $userStore?.is_admin)}
 		<CriticalAlertModal
+			bind:muteSettings
 			bind:open={isCriticalAlertsModalOpen}
 			bind:numUnacknowledgedCriticalAlerts
 		/>
