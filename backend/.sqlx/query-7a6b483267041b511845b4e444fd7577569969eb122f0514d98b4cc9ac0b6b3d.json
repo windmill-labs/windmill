@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, alert_type, message, created_at, acknowledged \n             FROM alerts \n             ORDER BY created_at DESC \n             LIMIT $1 OFFSET $2",
+  "query": "SELECT id, alert_type, message, created_at, acknowledged, workspace_id\n         FROM alerts \n         WHERE ($1::boolean IS NULL OR acknowledged = $1)\n           AND ($2::text IS NULL OR workspace_id = $2)\n         ORDER BY created_at DESC \n         LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -27,10 +27,17 @@
         "ordinal": 4,
         "name": "acknowledged",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "workspace_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Bool",
+        "Text",
         "Int8",
         "Int8"
       ]
@@ -40,8 +47,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "cc5ab80241b88c5befea279f16c4ec68cec17b31dcd277b321f652917346496b"
+  "hash": "7a6b483267041b511845b4e444fd7577569969eb122f0514d98b4cc9ac0b6b3d"
 }

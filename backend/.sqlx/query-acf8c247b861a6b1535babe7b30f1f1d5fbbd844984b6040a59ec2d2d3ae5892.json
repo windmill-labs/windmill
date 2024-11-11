@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE alerts \n         SET acknowledged = true \n         WHERE acknowledged = false \n           AND ($1::text IS NULL OR workspace_id = $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "acf8c247b861a6b1535babe7b30f1f1d5fbbd844984b6040a59ec2d2d3ae5892"
+}
