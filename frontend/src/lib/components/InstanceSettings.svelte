@@ -43,7 +43,7 @@
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
 	export let hideSave: boolean = false
-	export let closeDrawer
+	export let closeDrawer: (() => void) | undefined = () => {}
 
 	let values: Record<string, any> = {}
 	let initialOauths: Record<string, any> = {}
@@ -828,7 +828,7 @@
 															size="sm"
 															on:click={() => {
 																isCriticalAlertsUIOpen.set(true)
-																closeDrawer()
+																closeDrawer?.()
 															}}
 														>
 															Show Critical Alerts

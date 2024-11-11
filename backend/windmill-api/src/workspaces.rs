@@ -3099,12 +3099,13 @@ pub async fn acknowledge_all_critical_alerts(
 }
 
 #[cfg(not(feature = "enterprise"))]
-pub async fn acknowledge_all_critical_alerts() -> error::Error {
+pub async fn acknowledge_all_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
 }
 
 
-#[derive(Deserialize, Debug)]
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
 pub struct MuteCriticalAlertRequest {
     pub mute_critical_alerts: Option<bool>,
 }
@@ -3130,6 +3131,6 @@ async fn mute_critical_alerts(
 }
 
 #[cfg(not(feature = "enterprise"))]
-pub async fn mute_critical_alerts() -> error::Error {
+pub async fn mute_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
 }
