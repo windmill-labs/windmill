@@ -28,15 +28,15 @@ export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 export type AiProviderTypes = 'openai' | 'anthropic' | 'mistral'
 
 interface AiProvider {
-	init: (workspace: string, token?: string) => void
+	init: (workspace: string, updateClient: boolean, token?: string) => void
 }
 
 class WorkspacedMistral implements AiProvider {
 	private client: Mistral | undefined
 
-	init(workspace: string, token?: string) {
-		if (!this.client) {
-			this.client = initWorkspaceAiProvider(workspace, token, 'mistral') as unknown as Mistral
+	init(workspace: string, updateClient: boolean, token?: string) {
+		if (!this.client || updateClient) {
+			this.client = initWorkspaceAiProvider(workspace, 'mistral', token) as unknown as Mistral
 		}
 	}
 
@@ -81,9 +81,9 @@ export namespace MistralAi {
 class WorkspacedAnthropic implements AiProvider {
 	private client: Anthropic | undefined
 
-	init(workspace: string, token: string | undefined = undefined) {
-		if (!this.client) {
-			this.client = initWorkspaceAiProvider(workspace, token, 'anthropic') as unknown as Anthropic
+	init(workspace: string, updateClient: boolean, token: string | undefined = undefined) {
+		if (!this.client || updateClient) {
+			this.client = initWorkspaceAiProvider(workspace, 'anthropic', token) as unknown as Anthropic
 		}
 	}
 
@@ -138,9 +138,9 @@ export namespace AnthropicAi {
 class WorkspacedOpenai implements AiProvider {
 	private client: OpenAI | undefined
 
-	init(workspace: string, token: string | undefined = undefined) {
-		if (!this.client) {
-			this.client = initWorkspaceAiProvider(workspace, token, 'openai') as unknown as OpenAI
+	init(workspace: string, updateClient: boolean, token: string | undefined = undefined) {
+		if (!this.client || updateClient) {
+			this.client = initWorkspaceAiProvider(workspace, 'openai', token) as unknown as OpenAI
 		}
 	}
 
@@ -169,16 +169,16 @@ export namespace OpenAi {
 	}
 }
 
-export function initAllAiWorkspace(workspace: string) {
-	OpenAi.workspace.init(workspace)
-	AnthropicAi.workspace.init(workspace)
-	MistralAi.workspace.init(workspace)
+export function initAllAiWorkspace(workspace: string, updateClient: boolean = false) {
+	OpenAi.workspace.init(workspace, updateClient)
+	AnthropicAi.workspace.init(workspace, updateClient)
+	MistralAi.workspace.init(workspace, updateClient)
 }
 
 function initWorkspaceAiProvider(
 	workspace: string,
-	token: string | undefined = undefined,
-	aiProvider: AiProviderTypes
+	aiProvider: AiProviderTypes,
+	token: string | undefined = undefined
 ): Anthropic | OpenAI | Mistral {
 	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
 	let client

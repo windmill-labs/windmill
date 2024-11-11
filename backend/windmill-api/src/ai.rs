@@ -45,14 +45,12 @@ mod openai {
     const API_VERSION: &str = "2023-05-15";
 
     #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "snake_case")]
     struct OpenaiResource {
         api_key: String,
         organization_id: Option<String>,
     }
 
     #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "snake_case")]
     struct OpenaiClientCredentialsOauthResource {
         client_id: String,
         client_secret: String,
@@ -72,13 +70,11 @@ mod openai {
     }
 
     #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "snake_case")]
     struct OpenaiCredentials {
         access_token: String,
     }
 
     #[derive(Clone, Debug, Deserialize)]
-    #[serde(rename_all = "snake_case")]
     pub struct OpenaiCache {
         api_key: String,
         organization_id: Option<String>,
@@ -242,7 +238,6 @@ mod anthropic {
     use super::*;
 
     #[derive(Clone, Deserialize, Debug)]
-    #[serde(rename_all = "snake_case")]
     pub struct AnthropicCache {
         pub api_key: String,
     }
@@ -281,61 +276,23 @@ mod anthropic {
 
 mod mistral {
     use super::*;
-    use std::collections::HashMap;
     #[derive(Deserialize, Clone, Debug)]
     pub struct MistralCache {
         #[serde(rename = "apiKey")]
         pub api_key: String,
-        #[serde(default)]
-        pub model: Option<String>,
-        #[serde(default)]
-        pub agent_id: Option<String>,
-    }
-
-    lazy_static! {
-        static ref API_VERSION: HashMap<String, String> = HashMap::from([(
-            String::from("mistral-moderation-latest"),
-            String::from("mistral-moderation-2411")
-        )]);
     }
 
     impl MistralCache {
-        pub fn new(api_key: String, model: Option<String>, agent_id: Option<String>) -> Self {
-            Self { api_key, model, agent_id }
+        pub fn new(api_key: String) -> Self {
+            Self { api_key }
         }
     }
 
     const BASE_URL: &str = "https://api.mistral.ai";
     impl AiRequest for MistralCache {
-        fn prepare_request(self, mistral_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
-            let MistralCache { api_key, agent_id, model } = self;
-            let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
-                .map_err(|e| Error::InternalErr(format!("Failed to parse request body: {}", e)))?;
+        fn prepare_request(self, mistral_path: &str, body: Bytes) -> Result<RequestBuilder> {
+            let MistralCache { api_key } = self;
 
-            if let Some(agent_id) = agent_id {
-                let agent_id = serde_json::Value::String(agent_id).to_string();
-                json_body.insert(
-                    "agent_id".to_string(),
-                    RawValue::from_string(agent_id).map_err(|e| {
-                        Error::InternalErr(format!("Failed to parse agent_id: {}", e))
-                    })?,
-                );
-            }
-
-            if let Some(model) = model {
-                let model = serde_json::Value::String(model).to_string();
-                json_body.insert(
-                    "model".to_string(),
-                    RawValue::from_string(model)
-                        .map_err(|e| Error::InternalErr(format!("Failed to parse model: {}", e)))?,
-                );
-            }
-
-            body = serde_json::to_vec(&json_body)
-                .map_err(|e| {
-                    Error::InternalErr(format!("Failed to reserialize request body: {}", e))
-                })?
-                .into();
             let url = format!("{}/{}", BASE_URL, mistral_path);
             let request = HTTP_CLIENT
                 .post(url)
@@ -352,16 +309,7 @@ mod mistral {
             .map_err(|e| Error::InternalErr(format!("validating mistral resource {e:#}")))?;
         resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
 
-        if let Some(model) = resource.model {
-            resource.model = Some(get_variable_or_self(model, db, w_id).await?);
-        }
-
-        if let Some(agent_id) = resource.agent_id {
-            resource.agent_id = Some(get_variable_or_self(agent_id, db, w_id).await?);
-        }
-
-        let workspace_cache =
-            MistralCache::new(resource.api_key, resource.model, resource.agent_id);
+        let workspace_cache = MistralCache::new(resource.api_key);
         Ok(KeyCache::Mistral(workspace_cache))
     }
 }
