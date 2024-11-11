@@ -12114,6 +12114,10 @@ components:
           type: object
           additionalProperties:
             type: object
+        s3_inputs:
+          type: array
+          items:
+            type: object
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]

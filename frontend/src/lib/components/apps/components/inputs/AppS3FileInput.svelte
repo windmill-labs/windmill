@@ -10,6 +10,9 @@
 	import { writable, type Writable } from 'svelte/store'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { computeS3FileInputPolicy } from '../../editor/appUtilsS3'
+	import { defaultIfEmptyString } from '$lib/utils'
+	import { userStore } from '$lib/stores'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -77,6 +80,15 @@
 									{/if}
 									*/
 	let forceDisplayUploads: boolean = false
+
+	const { appPath, isEditor } = getContext<AppViewerContext>('AppViewerContext')
+	function computeForceViewerPolicies() {
+		if (!isEditor) {
+			return undefined
+		}
+		const policy = computeS3FileInputPolicy((configuration as any)?.type?.configuration?.s3, $app)
+		return policy
+	}
 </script>
 
 <InitializeComponent {id} />
@@ -139,5 +151,7 @@
 			outputs.result.set(value)
 		}}
 		{forceDisplayUploads}
+		appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+		{computeForceViewerPolicies}
 	/>
 {/if}

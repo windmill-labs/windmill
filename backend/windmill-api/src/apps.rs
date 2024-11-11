@@ -9,8 +9,12 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
+    job_helpers_ee::{
+        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
+        UploadFileResponse,
+    },
     resources::get_resource_value_interpolated_internal,
-    users::{require_owner_of_path, OptAuthed},
+    users::{fetch_api_authed_from_permissioned_as, require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
     variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -23,7 +27,10 @@ use axum::{
     Router,
 };
 use hyper::StatusCode;
+use itertools::Itertools;
 use magic_crypt::MagicCryptTrait;
+use object_store::{Attribute, Attributes};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sha2::{Digest, Sha256};
@@ -37,6 +44,7 @@ use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
+    s3_helpers::build_object_store_client,
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
@@ -69,6 +77,7 @@ pub fn workspaced_service() -> Router {
 pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
+        .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
 }
@@ -180,6 +189,14 @@ pub struct PolicyTriggerableInputs {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct S3Input {
+    allowed_resources: Vec<String>,
+    allow_user_resources: bool,
+    allow_workspace_resource: bool,
+    file_key_regex: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
     pub on_behalf_of_email: Option<String>,
@@ -192,6 +209,7 @@ pub struct Policy {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
     pub execution_mode: ExecutionMode,
+    pub s3_inputs: Option<Vec<S3Input>>,
 }
 
 #[derive(Deserialize)]
@@ -432,9 +450,7 @@ async fn get_latest_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-
 ) -> JsonResult<Option<AppHistory>> {
-
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -457,7 +473,6 @@ async fn get_latest_version(
     } else {
         return Ok(Json(None));
     }
-
 }
 
 async fn update_app_history(
@@ -1067,6 +1082,49 @@ fn digest(code: &str) -> String {
     format!("rawscript/{:x}", result)
 }
 
+async fn get_on_behalf_details_from_policy_and_authed(
+    policy: &Policy,
+    opt_authed: &Option<ApiAuthed>,
+) -> Result<(String, String, String)> {
+    let (username, permissioned_as, email) = match policy.execution_mode {
+        ExecutionMode::Anonymous => {
+            let username = opt_authed
+                .as_ref()
+                .map(|a| a.username.clone())
+                .unwrap_or_else(|| "anonymous".to_string());
+            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
+            (username, permissioned_as, email)
+        }
+        ExecutionMode::Publisher => {
+            let username = opt_authed
+                .as_ref()
+                .map(|a| a.username.clone())
+                .ok_or_else(|| {
+                    Error::BadRequest(
+                        "publisher execution mode requires authentication".to_string(),
+                    )
+                })?;
+            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
+            (username, permissioned_as, email)
+        }
+        ExecutionMode::Viewer => {
+            let (username, email) = opt_authed
+                .as_ref()
+                .map(|a| (a.username.clone(), a.email.clone()))
+                .ok_or_else(|| {
+                    Error::BadRequest("Required to be authed in viewer mode".to_string())
+                })?;
+            (
+                username.clone(),
+                username_to_permissioned_as(&username),
+                email,
+            )
+        }
+    };
+
+    Ok((username, permissioned_as, email))
+}
+
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -1129,6 +1187,7 @@ async fn execute_component(
                 triggerables_v2: Some(hm),
                 on_behalf_of: None,
                 on_behalf_of_email: None,
+                s3_inputs: None,
             }
         }
         _ => {
@@ -1146,41 +1205,8 @@ async fn execute_component(
         }
     };
 
-    let (username, permissioned_as, email) = match policy.execution_mode {
-        ExecutionMode::Anonymous => {
-            let username = opt_authed
-                .as_ref()
-                .map(|a| a.username.clone())
-                .unwrap_or_else(|| "anonymous".to_string());
-            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
-            (username, permissioned_as, email)
-        }
-        ExecutionMode::Publisher => {
-            let username = opt_authed
-                .as_ref()
-                .map(|a| a.username.clone())
-                .ok_or_else(|| {
-                    Error::BadRequest(
-                        "publisher execution mode requires authentication".to_string(),
-                    )
-                })?;
-            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
-            (username, permissioned_as, email)
-        }
-        ExecutionMode::Viewer => {
-            let (username, email) = opt_authed
-                .as_ref()
-                .map(|a| (a.username.clone(), a.email.clone()))
-                .ok_or_else(|| {
-                    Error::BadRequest("Required to be authed in viewer mode".to_string())
-                })?;
-            (
-                username.clone(),
-                username_to_permissioned_as(&username),
-                email,
-            )
-        }
-    };
+    let (username, permissioned_as, email) =
+        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
     let (job_payload, (args, job_id), tag) = match payload {
         ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
@@ -1247,6 +1273,238 @@ async fn execute_component(
     tx.commit().await?;
 
     Ok(uuid.to_string())
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct UploadFileToS3Query {
+    file_key: Option<String>,
+    file_extension: Option<String>,
+    s3_resource_path: Option<String>,
+    content_type: Option<String>,
+    content_disposition: Option<String>,
+    force_viewer_file_key_regex: Option<String>,
+    force_viewer_allow_user_resources: Option<bool>,
+    force_viewer_allow_workspace_resource: Option<bool>,
+    force_viewer_allowed_resources: Option<String>,
+}
+
+async fn upload_s3_file_from_app(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<UploadFileToS3Query>,
+    request: axum::extract::Request,
+) -> JsonResult<UploadFileResponse> {
+    let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
+        Some(Policy {
+            execution_mode: ExecutionMode::Viewer,
+            triggerables: None,
+            triggerables_v2: None,
+            on_behalf_of: None,
+            on_behalf_of_email: None,
+            s3_inputs: Some(vec![S3Input {
+                file_key_regex: file_key_regex,
+                allow_user_resources: query.force_viewer_allow_user_resources.unwrap_or(false),
+                allow_workspace_resource: query
+                    .force_viewer_allow_workspace_resource
+                    .unwrap_or(false),
+                allowed_resources: query
+                    .force_viewer_allowed_resources
+                    .map(|s| s.split(',').map(|s| s.to_string()).collect())
+                    .unwrap_or_default(),
+            }]),
+        })
+    } else {
+        let policy_o = sqlx::query_scalar!(
+            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            &path.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+
+        policy_o
+            .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
+            .transpose()?
+    };
+
+    let user_db = UserDB::new(db.clone());
+
+    let (s3_resource_opt, file_key) = if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
+        let policy = policy.unwrap();
+        let s3_inputs = policy.s3_inputs.as_ref().unwrap();
+
+        let (username, permissioned_as, email) =
+            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+
+        let on_behalf_authed =
+            fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, username)
+                .await?;
+
+        if let Some(file_key) = query.file_key {
+            // file key is provided => requires workspace, user or list policy and must match the regex
+            let matching_s3_inputs = if let Some(ref s3_resource_path) = query.s3_resource_path {
+                s3_inputs
+                    .iter()
+                    .filter(|s3_input| {
+                        s3_input.allowed_resources.contains(s3_resource_path)
+                            || s3_input.allow_user_resources
+                    })
+                    .sorted_by_key(|i| i.allow_user_resources) // consider user resources last
+                    .collect::<Vec<_>>()
+            } else {
+                s3_inputs
+                    .iter()
+                    .filter(|s3_input| s3_input.allow_workspace_resource)
+                    .collect::<Vec<_>>()
+            };
+
+            let matched_input = matching_s3_inputs.iter().find(|s3_input| {
+                match Regex::new(&s3_input.file_key_regex) {
+                    Ok(re) => re.is_match(&file_key),
+                    Err(e) => {
+                        tracing::error!("Error compiling regex: {}", e);
+                        false
+                    }
+                }
+            });
+
+            if let Some(matched_input) = matched_input {
+                if let Some(ref s3_resource_path) = query.s3_resource_path {
+                    if matched_input.allow_user_resources {
+                        if let Some(authed) = opt_authed {
+                            (
+                                Some(
+                                    get_s3_resource(
+                                        &authed,
+                                        &db,
+                                        Some(user_db),
+                                        "",
+                                        &w_id,
+                                        s3_resource_path,
+                                        None,
+                                        None,
+                                    )
+                                    .await?,
+                                ),
+                                file_key,
+                            )
+                        } else {
+                            return Err(Error::BadRequest(
+                                "User resources are not allowed without being logged in"
+                                    .to_string(),
+                            ));
+                        }
+                    } else {
+                        (
+                            Some(
+                                get_s3_resource(
+                                    &on_behalf_authed,
+                                    &db,
+                                    Some(user_db),
+                                    "",
+                                    &w_id,
+                                    s3_resource_path,
+                                    None,
+                                    None,
+                                )
+                                .await?,
+                            ),
+                            file_key,
+                        )
+                    }
+                } else {
+                    let (_, s3_resource_opt) =
+                        get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None)
+                            .await?;
+                    (s3_resource_opt, file_key)
+                }
+            } else {
+                return Err(Error::BadRequest(
+                    "No matching s3 resource found for the given file key".to_string(),
+                ));
+            }
+        } else {
+            // no file key => requires unnamed upload policy => allow workspace resource and file_key_regex is empty
+            let has_unnamed_policy = s3_inputs.iter().any(|s3_input| {
+                s3_input.allow_workspace_resource && s3_input.file_key_regex.is_empty()
+            });
+
+            if !has_unnamed_policy {
+                return Err(Error::BadRequest(
+                    "no policy found for unnamed s3 file uplooad".to_string(),
+                ));
+            }
+
+            // for now, we place all files into `windmill_uploads` folder with a random name
+            // TODO: make the folder configurable via the workspace settings
+            let file_key = get_random_file_name(query.file_extension);
+
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
+
+            (s3_resource_opt, file_key)
+        }
+    } else {
+        // backward compatibility (no policy)
+        // if no policy but logged in, use the user's auth to get the s3 resource
+        if let Some(authed) = opt_authed {
+            let file_key = query
+                .file_key
+                .unwrap_or_else(|| get_random_file_name(query.file_extension));
+
+            if let Some(ref s3_resource_path) = query.s3_resource_path {
+                (
+                    Some(
+                        get_s3_resource(
+                            &authed,
+                            &db,
+                            Some(user_db),
+                            "",
+                            &w_id,
+                            s3_resource_path,
+                            None,
+                            None,
+                        )
+                        .await?,
+                    ),
+                    file_key,
+                )
+            } else {
+                let (_, s3_resource) =
+                    get_workspace_s3_resource(&authed, &db, None, "", &w_id, None).await?;
+
+                (s3_resource, file_key)
+            }
+        } else {
+            return Err(Error::BadRequest("Missing s3 policy".to_string()));
+        }
+    };
+
+    let s3_resource = s3_resource_opt.ok_or(Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let s3_client = build_object_store_client(&s3_resource).await?;
+
+    let options = Attributes::from_iter(vec![
+        (
+            Attribute::ContentType,
+            query.content_type.unwrap_or_else(|| {
+                mime_guess::from_path(&file_key)
+                    .first_or_octet_stream()
+                    .to_string()
+            }),
+        ),
+        (
+            Attribute::ContentDisposition,
+            query.content_disposition.unwrap_or("inline".to_string()),
+        ),
+    ])
+    .into();
+
+    upload_file_internal(s3_client, &file_key, request, options).await?;
+
+    return Ok(Json(UploadFileResponse { file_key }));
 }
 
 fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
