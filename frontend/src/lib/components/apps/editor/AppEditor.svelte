@@ -294,13 +294,27 @@
 		hasResult: writable<Record<string, boolean>>({})
 	})
 
+	let lastSelected: string[] | undefined | null = null
+
 	$: if ($connectingInput.opened) {
-		secondaryMenuRight.open(ConnectionInstructions, {}, () => {
-			$connectingInput.opened = false
-		})
-		secondaryMenuLeft.close()
+		if (lastSelected !== null && lastSelected !== $selectedComponent) {
+			stopConnecting()
+		} else {
+			startConnecting()
+		}
 	} else {
-		secondaryMenuRight.close()
+		stopConnecting()
+	}
+
+	function startConnecting() {
+		lastSelected = $selectedComponent
+		secondaryMenuLeft.close()
+	}
+
+	function stopConnecting() {
+		$connectingInput.opened = false
+		$connectingInput.input = undefined
+		lastSelected = null
 	}
 
 	function onThemeChange() {

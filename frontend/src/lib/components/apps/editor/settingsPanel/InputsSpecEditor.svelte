@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
@@ -17,6 +18,7 @@
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -43,8 +45,11 @@
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
 	export let securedContext = false
+	export let selected: boolean = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+
+	const dispatch = createEventDispatcher()
 
 	let evalV2editor: EvalV2InputEditor
 	function applyConnection(connection: InputConnection) {
@@ -136,23 +141,31 @@
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
 					<div>
-						<Button
-							size="xs"
-							variant="border"
-							color="light"
-							title="Connect"
-							on:click={() => {
-								$connectingInput = {
-									opened: true,
-									input: undefined,
-									hoveredComponent: undefined,
-									onConnect: applyConnection
-								}
-							}}
-							id="schema-plug"
+						<AnimatedButton
+							animate={$connectingInput?.opened && selected}
+							baseRadius="6px"
+							animationDuration="2s"
+							marginWidth="2px"
 						>
-							<Plug size={14} />
-						</Button>
+							<Button
+								size="xs"
+								variant="border"
+								color="light"
+								title="Connect"
+								on:click={() => {
+									$connectingInput = {
+										opened: true,
+										input: undefined,
+										hoveredComponent: undefined,
+										onConnect: applyConnection
+									}
+									dispatch('select', true)
+								}}
+								id="schema-plug"
+							>
+								<Plug size={14} />
+							</Button>
+						</AnimatedButton>
 					</div>
 				{/if}
 			</div>

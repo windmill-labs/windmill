@@ -29,6 +29,8 @@
 		onSuccess: 'On success wizard',
 		onError: 'On error wizard'
 	}
+
+	let selectedSpec: string | undefined = undefined
 </script>
 
 {#if inputSpecs}
@@ -81,6 +83,8 @@
 					{recomputeOnInputChanged}
 					{showOnDemandOnlyToggle}
 					{securedContext}
+					selected={selectedSpec == k}
+					on:select={() => (selectedSpec = k)}
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">

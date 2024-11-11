@@ -1,16 +1,9 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../types'
 	import { secondaryMenuRight } from './settingsPanel/secondaryMenu'
 	import { Plug2 } from 'lucide-svelte'
 
-	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
-
 	function stopConnecting() {
-		$connectingInput.opened = false
-		$connectingInput.input = undefined
-
 		secondaryMenuRight.close()
 	}
 </script>
