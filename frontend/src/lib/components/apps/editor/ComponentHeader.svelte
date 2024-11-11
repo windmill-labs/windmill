@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug2 } from 'lucide-svelte'
+	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -12,6 +12,7 @@
 	import TabsDebug from './TabsDebug.svelte'
 	import ComponentOutputViewer from './contextPanel/ComponentOutputViewer.svelte'
 	import DecisionTreeDebug from './DecisionTreeDebug.svelte'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -59,15 +60,23 @@
 </script>
 
 {#if connecting}
-	<div class="absolute z-50 left-6 -top-[11px] overflow-auto">
+	<div class="absolute z-50 left-4 -top-[12px] overflow-auto">
 		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button">
-				<button
-					id={`connect-output-${component.id}`}
-					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
-					title="Outputs"
-					aria-label="Open output"><Plug2 size={12} /></button
+				<AnimatedButton
+					animate={true}
+					baseRadius="9999px"
+					wrapperClasses="h-full w-full pt-2"
+					marginWidth="3px"
+					animationDuration="3s"
 				>
+					<button
+						id={`connect-output-${component.id}`}
+						class="h-[22px] w-[22px] bg-surface-secondary-inverse rounded-full center-center text-primary-inverse px-1 py-0.5"
+						title="Outputs"
+						aria-label="Open output"><Plug size={12} /></button
+					>
+				</AnimatedButton>
 			</svelte:fragment>
 			<ComponentOutputViewer
 				suffix="connect"
