@@ -78,6 +78,10 @@
 		newItem={newFlow}
 		isFlow={true}
 	/>
+{:else if $selectedId.startsWith('subflow:')}
+	<div class="p-4"
+		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
+	>
 {:else}
 	{@const dup = checkDup($flowStore.value.modules)}
 	{#if dup}

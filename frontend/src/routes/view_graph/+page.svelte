@@ -1,5 +1,6 @@
 <script lang="ts">
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import { workspaceStore } from '$lib/stores'
 	import { decodeState } from '$lib/utils'
 
 	let content = localStorage.getItem('svelvet')
@@ -8,7 +9,13 @@
 		: { modules: [], failureModule: undefined, preprocessorModule: undefined }
 </script>
 
-<FlowGraphV2 triggerNode={false} {modules} {failureModule} {preprocessorModule} />
+<FlowGraphV2
+	workspace={$workspaceStore}
+	triggerNode={false}
+	{modules}
+	{failureModule}
+	{preprocessorModule}
+/>
 <a
 	download="flow.json"
 	href={'data:text/json;charset=utf-8,' +

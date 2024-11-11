@@ -54,7 +54,7 @@
 				<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
 			{/if}
 		</div>
-		{#if id && !hideId}
+		{#if id && !hideId && !id?.startsWith('subflow:')}
 			<div class="flex items-center shrink min-w-0">
 				<Badge color="indigo" wrapperClass="w-full" baseClass="max-w-full" title={id}>
 					<span class="max-w-full text-2xs truncate">{id}</span>

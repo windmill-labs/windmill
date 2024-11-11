@@ -1,7 +1,7 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import type { FlowModule, FlowModuleValue } from '$lib/gen'
-	import { GitBranchPlus } from 'lucide-svelte'
+	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import type { GraphModuleState } from '../../model'
@@ -46,6 +46,19 @@
 </script>
 
 <NodeWrapper offset={data.offset} let:darkMode>
+	{#if data.module.value.type == 'flow'}
+		<button
+			title="Unexpand subflow"
+			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
+			on:click|preventDefault|stopPropagation={() => {
+				if (data.module.value.type == 'flow') {
+					data.eventHandlers.expandSubflow(data.module.id, data.module.value.path)
+				}
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	{/if}
 	<MapItem
 		mod={data.module}
 		insertable={data.insertable}

@@ -253,6 +253,10 @@
 							forceReload++
 							await reload(flowModule)
 						}
+						if (flowModule.value.type == 'flow') {
+							forceReload++
+							await reload(flowModule)
+						}
 					}}
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
@@ -361,7 +365,9 @@
 								</div>
 							{/if}
 						{:else if flowModule.value.type === 'flow'}
-							<FlowPathViewer path={flowModule.value.path} />
+							{#key forceReload}
+								<FlowPathViewer path={flowModule.value.path} />
+							{/key}
 						{/if}
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
