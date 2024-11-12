@@ -36,6 +36,8 @@
 
 	$: muteSettings
 
+	$: numUnacknowledgedCriticalAlerts &&  getAlerts(true)
+
 	let initialMuteSettings = muteSettings
 
 	async function saveMuteSettings() {
@@ -270,7 +272,7 @@
 					<th class="px-4 py-2 text-center">Message</th>
 					<th class="w-[150px] px-4 py-2 text-center">Created At</th>
 					{#if $superadmin}
-						<th class="w-[180px] px-4 py-2 text-center">Workspace</th>
+						<th class="w-[80px] px-4 py-2 text-center">Workspace</th>
 					{/if}
 					<th class="w-[180px] px-4 py-2 text-center">Acknowledge</th>
 				</tr>
