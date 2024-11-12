@@ -19,6 +19,7 @@
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import { clickOutside, pointerDownOutside } from '$lib/utils'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -72,6 +73,24 @@
 		componentInput = {
 			type: 'static',
 			value: undefined
+		}
+	}
+
+	async function getConnectionButtonElements(): Promise<HTMLElement[]> {
+		return Array.from(
+			document.querySelectorAll('[data-connection-button], [data-connection-button] *')
+		) as HTMLElement[]
+	}
+
+	function closeConnection() {
+		if (!$connectingInput?.opened) {
+			return
+		}
+		$connectingInput = {
+			opened: false,
+			hoveredComponent: undefined,
+			input: undefined,
+			onConnect: () => {}
 		}
 	}
 </script>
@@ -140,7 +159,24 @@
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
-					<div>
+					<div
+						use:clickOutside={{
+							capture: true,
+							stopPropagation: !!$connectingInput?.opened,
+							exclude: getConnectionButtonElements
+						}}
+						use:pointerDownOutside={{
+							capture: true,
+							stopPropagation: !!$connectingInput?.opened,
+							exclude: getConnectionButtonElements
+						}}
+						on:pointerdown_outside={() => {
+							closeConnection()
+						}}
+						on:click_outside={() => {
+							closeConnection()
+						}}
+					>
 						<AnimatedButton
 							animate={$connectingInput?.opened && selected}
 							baseRadius="6px"
@@ -162,6 +198,7 @@
 									dispatch('select', true)
 								}}
 								id="schema-plug"
+								data-connection-button
 							>
 								<Plug size={14} />
 							</Button>

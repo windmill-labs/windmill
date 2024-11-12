@@ -37,13 +37,11 @@
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
-	import ConnectionInstructions from './ConnectionInstructions.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
 	import {
 		SecondaryMenu,
 		secondaryMenuLeft,
 		secondaryMenuLeftStore,
-		secondaryMenuRight,
 		secondaryMenuRightStore
 	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
@@ -294,28 +292,7 @@
 		hasResult: writable<Record<string, boolean>>({})
 	})
 
-	let lastSelected: string[] | undefined | null = null
-
-	$: if ($connectingInput.opened) {
-		if (lastSelected !== null && lastSelected !== $selectedComponent) {
-			stopConnecting()
-		} else {
-			startConnecting()
-		}
-	} else {
-		stopConnecting()
-	}
-
-	function startConnecting() {
-		lastSelected = $selectedComponent
-		secondaryMenuLeft.close()
-	}
-
-	function stopConnecting() {
-		$connectingInput.opened = false
-		$connectingInput.input = undefined
-		lastSelected = null
-	}
+	$: $connectingInput.opened && secondaryMenuLeft.close()
 
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')

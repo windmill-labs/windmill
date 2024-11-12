@@ -60,19 +60,19 @@
 </script>
 
 {#if connecting}
-	<div class="absolute z-50 left-4 -top-[12px] overflow-auto">
+	<div class="absolute z-50 left-4 -top-[12px] overflow-auto" data-connection-button>
 		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button">
 				<AnimatedButton
 					animate={true}
 					baseRadius="9999px"
 					wrapperClasses="h-full w-full pt-2"
-					marginWidth="3px"
+					marginWidth="2px"
 					animationDuration="3s"
 				>
 					<button
 						id={`connect-output-${component.id}`}
-						class="h-[22px] w-[22px] bg-surface-secondary-inverse rounded-full center-center text-primary-inverse px-1 py-0.5"
+						class="h-[20px] w-[20px] bg-blue-800 rounded-full center-center text-white"
 						title="Outputs"
 						aria-label="Open output"><Plug size={12} /></button
 					>

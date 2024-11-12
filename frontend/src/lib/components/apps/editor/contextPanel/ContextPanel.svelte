@@ -46,6 +46,7 @@
 				'bg-surface w-full h-full z-30 overflow-auto',
 				$connectingInput.opened ? 'z-50 dark:bg-frost-900' : ''
 			)}
+			data-connection-button
 		>
 			<div class="min-w-[150px]">
 				<div class="sticky z-10 top-0 left-0 w-full p-1.5 bg-surface">
