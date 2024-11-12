@@ -403,6 +403,17 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
+									{#if !isCriticalAlertsUiMuted}
+										<CriticalAlertButton
+											stopPropagationOnClick={true}
+											on:click={() => openCriticalAlertsModal()}
+											{numUnacknowledgedCriticalAlerts}
+											{isCollapsed}
+											label="Critical Alerts"
+											class="!text-xs"
+											disabled={numUnacknowledgedCriticalAlerts === 0}
+										/>
+									{/if}
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
