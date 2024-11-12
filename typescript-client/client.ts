@@ -706,7 +706,9 @@ export async function loadS3FileStream(
 export async function writeS3File(
   s3object: S3Object | undefined,
   fileContent: string | Blob,
-  s3ResourcePath: string | undefined = undefined
+  s3ResourcePath: string | undefined = undefined,
+  contentType: string | undefined = undefined,
+  contentDisposition: string | undefined = undefined
 ): Promise<S3Object> {
   let fileContentBlob: Blob;
   if (typeof fileContent === "string") {
@@ -724,6 +726,8 @@ export async function writeS3File(
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
     storage: s3object?.storage,
+    contentType,
+    contentDisposition,
   });
   return {
     s3: response.file_key,
