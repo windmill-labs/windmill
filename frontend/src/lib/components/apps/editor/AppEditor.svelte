@@ -660,6 +660,7 @@
 			if (!previousBottomPanelHidden) {
 				hideBottomPanel(true)
 			}
+			secondaryMenuLeft.close()
 			toggled = true
 		} else if (!$connectingInput.opened && toggled) {
 			if (previousLeftPanelHidden) {
