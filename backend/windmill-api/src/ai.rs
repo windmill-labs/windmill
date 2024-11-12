@@ -393,7 +393,8 @@ where
     match provider.as_str() {
         "anthropic" | "openai" | "mistral" => Ok(provider),
         _ => Err(serde::de::Error::custom(
-            "Only the following Ai providers are supported: openai, anthropic".to_string(),
+            "Only the following Ai providers are supported: openai, anthropic and mistral"
+                .to_string(),
         )),
     }
 }
@@ -425,12 +426,11 @@ async fn proxy(
             .await?;
 
             if ai_resource.is_none() {
-                return Err(Error::InternalErr(
-                    "OpenAI resource not configured".to_string(),
-                ));
+                return Err(Error::InternalErr("AI resource not configured".to_string()));
             }
 
-            let ai_resource = serde_json::from_value::<AiResource>(ai_resource.unwrap()).unwrap();
+            let ai_resource = serde_json::from_value::<AiResource>(ai_resource.unwrap())
+                .map_err(|e| Error::BadRequest(e.to_string()))?;
             let ai_resource_path = ai_resource.path;
 
             let resource = sqlx::query_scalar!(
@@ -444,7 +444,7 @@ async fn proxy(
             .await?
             .ok_or_else(|| {
                 Error::InternalErr(format!(
-                    "Could not find the OpenAI resource at path {ai_resource_path}, update the resource path in the workspace settings"
+                    "Could not find the {} resource at path {ai_resource_path}, update the resource path in the workspace settings", ai_resource.provider
                 ))
             })?;
 
