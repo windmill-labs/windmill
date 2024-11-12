@@ -802,7 +802,9 @@
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
 										{#if $appStore.grid}
-											<ComponentNavigation />
+											{#if !$connectingInput?.opened}
+												<ComponentNavigation />
+											{/if}
 
 											<div
 												on:pointerdown|stopPropagation

@@ -159,6 +159,7 @@
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						use:clickOutside={{
 							capture: true,
@@ -170,6 +171,7 @@
 							stopPropagation: !!$connectingInput?.opened,
 							exclude: getConnectionButtonElements
 						}}
+						on:keydown|preventDefault={(e) => e.key === 'Escape' && closeConnection()}
 						on:pointerdown_outside={closeConnection}
 						on:click_outside={closeConnection}
 					>
