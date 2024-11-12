@@ -9,6 +9,29 @@
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
 	export let muteSettings
+	let workspaceContext = false
+
+	$: {
+		setupApiFunctions(workspaceContext)
+	}
+
+	function setupApiFunctions(_ctx?) {
+		console.log('change')
+		getCriticalAlerts = withSuperadminLogic(
+			SettingService.getCriticalAlerts,
+			SettingService.workspaceGetCriticalAlerts
+		)
+
+		acknowledgeCriticalAlert = withSuperadminLogic(
+			SettingService.acknowledgeCriticalAlert,
+			SettingService.workspaceAcknowledgeCriticalAlert
+		)
+
+		acknowledgeAllCriticalAlerts = withSuperadminLogic(
+			SettingService.acknowledgeAllCriticalAlerts,
+			SettingService.workspaceAcknowledgeAllCriticalAlerts
+		)
+	}
 
 	$: isCriticalAlertsUIOpen.set(open)
 	$: if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
@@ -18,7 +41,7 @@
 
 	const withSuperadminLogic = (superadminFunction, workspaceFunction) => {
 		return async (params = {}) => {
-			if (!$superadmin) {
+			if (!$superadmin || workspaceContext) {
 				return workspaceFunction({
 					...params,
 					workspace: $workspaceStore
@@ -29,20 +52,11 @@
 		}
 	}
 
-	const getCriticalAlerts = withSuperadminLogic(
-		SettingService.getCriticalAlerts,
-		SettingService.workspaceGetCriticalAlerts
-	)
+	let getCriticalAlerts
+	let acknowledgeCriticalAlert
+	let acknowledgeAllCriticalAlerts
 
-	const acknowledgeCriticalAlert = withSuperadminLogic(
-		SettingService.acknowledgeCriticalAlert,
-		SettingService.workspaceAcknowledgeCriticalAlert
-	)
-
-	const acknowledgeAllCriticalAlerts = withSuperadminLogic(
-		SettingService.acknowledgeAllCriticalAlerts,
-		SettingService.workspaceAcknowledgeAllCriticalAlerts
-	)
+	setupApiFunctions()
 
 	onMount(async () => {
 		await updateHasUnacknowledgedCriticalAlerts(false)
@@ -111,5 +125,6 @@
 		{acknowledgeCriticalAlert}
 		{acknowledgeAllCriticalAlerts}
 		{muteSettings}
+		bind:workspaceContext
 	/>
 </Modal>

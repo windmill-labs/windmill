@@ -51,7 +51,7 @@
 		)
 
 		// Global
-		if ($superadmin) {
+		if ($superadmin && !workspaceContext) {
 			await SettingService.setGlobal({
 				key: 'critical_alert_mute_ui',
 				requestBody: { value: muteSettings.global }
@@ -152,6 +152,16 @@
 		goto('/#superadmin-settings')
 		instanceSettingsSelectedTab.set('Core')
 	}
+
+	export let workspaceContext = false
+
+	$: {
+		workspaceContextChanged(workspaceContext)
+	}
+
+	async function workspaceContextChanged(_ctx) {
+		await getAlerts(true)
+	}
 </script>
 
 <div>
@@ -183,6 +193,16 @@
 					Acknowledge All</Button
 				>
 			</div>
+
+			{#if $superadmin}
+				<div class="flex flex-row py-2 pb-3">
+					<Toggle
+						bind:checked={workspaceContext}
+						options={{ right: `Workspace: '${$workspaceStore}'`, left: "Context: 'Global'" }}
+						size="xs"
+					/>
+				</div>
+			{/if}
 
 			<Section
 				label="Mute Settings"
@@ -249,11 +269,14 @@
 					<th class="w-[60px] px-4 py-2 text-center">Type</th>
 					<th class="px-4 py-2 text-center">Message</th>
 					<th class="w-[150px] px-4 py-2 text-center">Created At</th>
+					{#if $superadmin}
+						<th class="w-[180px] px-4 py-2 text-center">Workspace</th>
+					{/if}
 					<th class="w-[180px] px-4 py-2 text-center">Acknowledge</th>
 				</tr>
 			</thead>
 			<tbody>
-				{#each alerts as { id, alert_type, message, created_at, acknowledged }}
+				{#each alerts as { id, alert_type, message, created_at, acknowledged, workspace_id }}
 					{#if !hideAcknowledged || !acknowledged}
 						<tr class="bg-gray-100 dark:bg-gray-700 dark:text-white text-center">
 							<td class="border px-4 py-2 w-[100px]">
@@ -270,6 +293,9 @@
 							<td class="border px-4 py-2">{message}</td>
 							<!-- Flexible width -->
 							<td class="border px-4 py-2 w-[150px]">{formatDate(created_at)}</td>
+							{#if $superadmin}
+								<td class="border px-4 py-2 w-[150px]">{workspace_id ? workspace_id : 'global'}</td>
+							{/if}
 							<td class="border px-4 py-2 w-[180px]">
 								<div class="flex justify-center items-center">
 									{#if !acknowledged}

@@ -1,6 +1,12 @@
 <script lang="ts">
 	import MenuLink from './MenuLink.svelte'
-	import { superadmin, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		usedTriggerKinds,
+		userStore,
+		workspaceStore,
+		isCriticalAlertsUIOpen
+	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -23,7 +29,8 @@
 		Settings,
 		UserCog,
 		Plus,
-		Unplug
+		Unplug,
+		AlertCircle
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -168,14 +175,8 @@
 			],
 			disabled: $userStore?.operator
 		},
-		!$superadmin
+		$superadmin || $userStore?.is_admin
 			? {
-					label: 'Audit Logs',
-					href: `${base}/audit_logs`,
-					icon: Eye,
-					disabled: $userStore?.operator
-			  }
-			: {
 					label: 'Logs',
 					icon: Logs,
 					subItems: [
@@ -184,12 +185,29 @@
 							href: `${base}/audit_logs`,
 							icon: Eye
 						},
+						...($superadmin
+							? [
+									{
+										label: 'Service Logs',
+										href: `${base}/service_logs`,
+										icon: Logs
+									}
+							  ]
+							: []),
 						{
-							label: 'Service Logs',
-							href: `${base}/service_logs`,
-							icon: Logs
+							label: 'Critical Alerts',
+							action: () => {
+								isCriticalAlertsUIOpen.set(true)
+							},
+							icon: AlertCircle
 						}
 					]
+			  }
+			: {
+					label: 'Audit Logs',
+					href: `${base}/audit_logs`,
+					icon: Eye,
+					disabled: $userStore?.operator
 			  }
 	]
 
@@ -315,7 +333,7 @@
 								<div class="py-1" role="none">
 									{#if subItem?.['action']}
 										<button
-											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+											class="text-secondary w-full block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
 											on:click={subItem?.['action']}
 										>
 											<div class="flex flex-row items-center gap-2">

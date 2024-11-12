@@ -1104,6 +1104,10 @@ paths:
                       description: >-
                         Acknowledgment status of the alert, can be true, false,
                         or null if not set
+                    workspace_id:
+                      type: string
+                      nullable: true
+                      description: Workspace id if the alert is in the scope of a workspace
   /settings/critical_alerts/{id}/acknowledge:
     post:
       summary: Acknowledge a critical alert
