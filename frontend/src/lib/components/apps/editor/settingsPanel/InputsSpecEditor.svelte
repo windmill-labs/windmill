@@ -170,12 +170,8 @@
 							stopPropagation: !!$connectingInput?.opened,
 							exclude: getConnectionButtonElements
 						}}
-						on:pointerdown_outside={() => {
-							closeConnection()
-						}}
-						on:click_outside={() => {
-							closeConnection()
-						}}
+						on:pointerdown_outside={closeConnection}
+						on:click_outside={closeConnection}
 					>
 						<AnimatedButton
 							animate={$connectingInput?.opened && selected}
