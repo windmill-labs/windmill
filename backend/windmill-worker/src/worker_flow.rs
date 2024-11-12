@@ -29,20 +29,20 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
+    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult, ParsedFlowStatusGetter,
 };
-use windmill_common::flows::add_virtual_items_if_necessary;
+use windmill_common::flows::{add_virtual_items_if_necessary, ParsedFlowValueGetter};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
     RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::worker::to_raw_value;
+use windmill_common::{add_time, fetch_one_with_fallback, fetch_optional_with_fallback};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -60,6 +60,19 @@ use windmill_queue::{
 type DB = sqlx::Pool<sqlx::Postgres>;
 
 use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTransaction};
+
+async fn get_args_from_job_id(db: &DB, id: &Uuid) -> Result<RowArgs, Error> {
+    let args = fetch_one_with_fallback!(
+        db,
+        query_as,
+        RowArgs,
+        "SELECT args FROM {} WHERE id = $1",
+        "job_args" || "queue",
+        id
+    );
+
+    args.map_err(|e| Error::InternalErr(format!("retrieval of args from state: {e:#}")))
+}
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion<
@@ -229,10 +242,10 @@ pub async fn update_flow_status_after_job_completion_internal<
         })?;
 
         let old_status = serde_json::from_str::<FlowStatus>(old_status_json.flow_status.get())
-            .or_else(|e| {
-                Err(Error::InternalErr(format!(
+            .map_err(|e| {
+                Error::InternalErr(format!(
                     "requiring status to be parsable as FlowStatus: {e:?}"
-                )))
+                ))
             })?;
 
         let current_module = if let Some(x) = old_status_json.current_module {
@@ -289,7 +302,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
         // 0 length flows are not failure steps
         let is_failure_step =
-            old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
+            old_status.step >= old_status.modules.len() as i32 && !old_status.modules.is_empty();
 
         let (mut stop_early, mut skip_if_stop_early, continue_on_error) = if let Some(se) =
             stop_early_override
@@ -302,14 +315,13 @@ pub async fn update_flow_status_after_job_completion_internal<
             };
 
             let is_flow = if let Some(step) = step {
-                sqlx::query_scalar!(
-                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM queue WHERE id = $2",
+                fetch_one_with_fallback!(db,
+                    query_scalar,
+                    Option<bool>,
+                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM {} WHERE id = $2",
+                    "job_params" || "queue",
                     step as i32,
-                    &flow
-                )
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
+                    &flow).map_err(|e| {
                         Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
                     })?
                     .unwrap_or(false)
@@ -342,19 +354,9 @@ pub async fn update_flow_status_after_job_completion_internal<
                         }
                         _ => None,
                     };
-                    let args = sqlx::query_as::<_, RowArgs>(
-                        "SELECT
-                                        args
-                                    FROM queue
-                                    WHERE id = $2",
-                    )
-                    .bind(old_status.step)
-                    .bind(flow)
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
-                    })?;
+
+                    let args = get_args_from_job_id(db, &flow).await?;
+
                     compute_bool_from_expr(
                         expr.to_string(),
                         Marc::new(args.args.unwrap_or_default().0),
@@ -442,7 +444,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             None
                         };
 
-                        let nindex = if let Some(position) = position { 
+                        let nindex = if let Some(position) = position {
                             sqlx::query_scalar!(
                             "UPDATE queue
                             SET flow_status = JSONB_SET(
@@ -489,7 +491,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             None
                         };
 
-                        let nindex = if let Some(position) = position { 
+                        let nindex = if let Some(position) = position {
                             sqlx::query_scalar!(
                                 "UPDATE queue
                                 SET flow_status = JSONB_SET(
@@ -658,7 +660,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 flow_jobs_success,
                 flow_jobs,
                 ..
-            } if branch.to_owned() < len - 1 && (success || skip_branch_failure) => {
+            } if *branch < len - 1 && (success || skip_branch_failure) => {
                 if let Some(jobs) = flow_jobs {
                     set_success_in_flow_job_success(
                         flow_jobs_success,
@@ -870,19 +872,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     .as_ref()
                     .and_then(|m| m.stop_after_all_iters_if.as_ref().map(|x| x.expr.clone()))
                 {
-                    let args = sqlx::query_as::<_, RowArgs>(
-                        "SELECT
-                            args
-                        FROM queue
-                        WHERE id = $2",
-                    )
-                    .bind(old_status.step)
-                    .bind(flow)
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("retrieval of args from state: {e:#}"))
-                    })?;
+                    let args = get_args_from_job_id(db, &flow).await?;
 
                     let should_stop = compute_bool_from_expr(
                         expr.to_string(),
@@ -1244,7 +1234,7 @@ fn get_module(flow_job: &QueuedJob, module_step: &Step) -> Option<FlowModule> {
     if let Some(raw_flow) = raw_flow {
         match module_step {
             Step::PreprocessorStep => raw_flow.preprocessor_module.map(|x| *x.clone()),
-            Step::Step(i) => raw_flow.modules.get(*i).map(|x| x.clone()),
+            Step::Step(i) => raw_flow.modules.get(*i).cloned(),
             Step::FailureStep => raw_flow.failure_module.map(|x| *x.clone()),
         }
     } else {
@@ -1269,8 +1259,7 @@ async fn compute_skip_branchall_failure<'c>(
             .map(|p| {
                 BRANCHALL_INDEX_RE
                     .captures(&p)
-                    .map(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
-                    .flatten()
+                    .and_then(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
                     .ok_or(Error::InternalErr(format!(
                         "could not parse branchall index from path: {p}"
                     )))
@@ -1291,14 +1280,14 @@ async fn compute_skip_branchall_failure<'c>(
 }
 
 async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
-    sqlx::query_scalar::<_, Option<bool>>(
-        "SELECT raw_flow->'failure_module' != 'null'::jsonb
-        FROM queue
-        WHERE id = $1",
+    fetch_one_with_fallback!(
+        db,
+        query_scalar,
+        Option<bool>,
+        "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM {} WHERE id = $1",
+        "job_params" || "queue",
+        flow
     )
-    .bind(flow)
-    .fetch_one(db)
-    .await
     .map_err(|e| {
         Error::InternalErr(format!(
             "error during retrieval of has_failure_module: {e:#}"
@@ -1610,6 +1599,7 @@ pub struct ResumeRow {
 
 #[derive(FromRow)]
 pub struct RawArgs {
+    #[allow(dead_code)]
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -1638,6 +1628,7 @@ fn potentially_crash_for_testing() {
 lazy_static::lazy_static! {
     pub static ref EHM: HashMap<String, Box<RawValue>> = HashMap::new();
 }
+
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -1725,7 +1716,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     flow_job.workspace_id.as_str(),
                     flow_job.id
                 ).fetch_all(db).await?;
-                if overlapping.len() > 0 {
+                if !overlapping.is_empty() {
                     let overlapping_str = overlapping
                         .iter()
                         .map(|x| x.to_string())
@@ -1804,8 +1795,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         // else pass the last job result. Either from the function arg if it's set, or manually fetch it from the previous job
         // having last_job_result empty can happen either when the job was suspended and is being restarted, or if it's a
         // flow restart from a specific step
-        if last_job_result.is_some() {
-            last_job_result.unwrap()
+        if let Some(last_job_result) = last_job_result {
+            last_job_result
         } else {
             match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status).await? {
                 None => Arc::new(to_raw_value(&json!("{}"))),
@@ -2260,17 +2251,18 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             );
             Ok(Marc::new(hm))
         } else if let Some(id) = get_args_from_id {
-            let row = sqlx::query_as::<_, RawArgs>(
-                "SELECT args FROM completed_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(id)
-            .bind(&flow_job.workspace_id)
-            .fetch_optional(db)
-            .await?;
+            let row = fetch_optional_with_fallback!(
+                db,
+                query_as,
+                RowArgs,
+                "SELECT args FROM {} WHERE id = $1 AND workspace_id = $2",
+                "job_args" || "completed_job",
+                id,
+                &flow_job.workspace_id
+            )?;
+
             if let Some(raw_args) = row {
-                Ok(Marc::new(
-                    raw_args.args.map(|x| x.0).unwrap_or_else(HashMap::new),
-                ))
+                Ok(Marc::new(raw_args.args.map(|x| x.0).unwrap_or_default()))
             } else {
                 Ok(Marc::new(HashMap::new()))
             }
@@ -2389,7 +2381,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let nargs = args.as_ref();
-    for i in (0..len).into_iter() {
+    for i in 0..len {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             sqlx::query!(
@@ -3902,13 +3894,15 @@ async fn get_previous_job_result(
             Ok(Some(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?))
         }
         Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
-            sqlx::query_scalar::<_, Json<Box<RawValue>>>(
-                "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(job)
-            .bind(w_id)
-            .fetch_one(db)
-            .await?
+            fetch_one_with_fallback!(
+                db,
+                query_scalar,
+                Json<Box<RawValue>>,
+                "SELECT result FROM {} WHERE id = $1 AND workspace_id = $2",
+                "completed_jobs_result" || "completed_job",
+                job,
+                w_id
+            )?
             .0,
         )),
         _ => Ok(None),

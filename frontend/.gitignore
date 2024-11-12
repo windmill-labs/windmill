@@ -10,3 +10,4 @@ storageState.json
 .env.production
 dist/
 static/tsdocs/
+!build/.gitkeep

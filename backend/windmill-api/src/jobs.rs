@@ -314,9 +314,14 @@ async fn get_result_by_id(
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let res =
-        windmill_queue::get_result_by_id(db.clone(), w_id.clone(), flow_id, node_id, json_path)
-            .await?;
+    let res = windmill_queue::get_result_by_id(
+        db.clone(),
+        &w_id,
+        flow_id,
+        &node_id,
+        json_path.as_deref(),
+    )
+    .await?;
 
     log_job_view(&db, Some(&authed), &w_id, &flow_id).await?;
 
@@ -1349,6 +1354,8 @@ async fn cancel_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
     let mut tx = db.begin().await?;
+
+    let result = serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}});
     let trivial_jobs =  sqlx::query!("INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -1412,9 +1419,18 @@ async fn cancel_jobs(
                    , tag
                    , priority FROM queue 
         WHERE id = any($2) AND running = false AND parent_job IS NULL AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED
-        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
+        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, &result)
         .fetch_all(&mut *tx)
         .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
+
+    sqlx::query!(
+        "INSERT INTO completed_jobs_result(id, result, tag, workspace_id) SELECT id, $1, tag, $2 FROM completed_job  WHERE id = any($3) ON CONFLICT (id) DO NOTHING",
+        result,
+        w_id,
+        &trivial_jobs,
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "DELETE FROM queue WHERE id = any($1) AND workspace_id = $2",
@@ -1423,6 +1439,7 @@ async fn cancel_jobs(
     )
     .execute(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     // sqlx::query!(
@@ -1436,18 +1453,10 @@ async fn cancel_jobs(
             continue;
         }
         let rsmq = rsmq.clone();
-        match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
+        if let Ok(result) = tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
             let (tx, _) = windmill_queue::cancel_job(
-                username,
-                None,
-                job_id.clone(),
-                w_id,
-                tx,
-                db,
-                rsmq,
-                false,
-                false,
+                username, None, job_id, w_id, tx, db, rsmq, false, false,
             )
             .await?;
             tx.commit().await?;
@@ -1455,20 +1464,19 @@ async fn cancel_jobs(
         })
         .await
         {
-            Ok(result) => match result {
+            match result {
                 Ok(_) => {
                     uuids.push(job_id);
                 }
                 Err(e) => {
                     tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
                 }
-            },
-            Err(_) => {
-                tracing::error!(
-                    "Timeout while trying to cancel job {:?} after 5 seconds",
-                    job_id
-                );
             }
+        } else {
+            tracing::error!(
+                "Timeout while trying to cancel job {:?} after 5 seconds",
+                job_id
+            );
         }
     }
 
@@ -3283,7 +3291,7 @@ async fn run_wait_result(
     };
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
-    let mut accumulated_delay = 0 as u64;
+    let mut accumulated_delay = 0_u64;
 
     loop {
         if let Some(node_id_for_empty_return) = node_id_for_empty_return.as_ref() {
@@ -3400,6 +3408,16 @@ async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Er
     )
     .execute(db)
     .await?;
+
+    sqlx::query!(
+        "UPDATE job_args
+        SET args = '{}'::jsonb
+        WHERE id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+
     sqlx::query!(
         "UPDATE job_logs
         SET logs = '##DELETED##'
@@ -4384,11 +4402,8 @@ async fn add_batch_jobs(
                 tx = PushIsolationLevel::Transaction(ntx);
                 uuids.push(uuid);
             }
-            match tx {
-                PushIsolationLevel::Transaction(tx) => {
-                    tx.commit().await?;
-                }
-                _ => (),
+            if let PushIsolationLevel::Transaction(tx) = tx {
+                tx.commit().await?;
             }
             return Ok(Json(uuids));
         }

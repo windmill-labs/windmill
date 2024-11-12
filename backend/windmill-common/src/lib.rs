@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub mod macros;
 use std::{
     net::SocketAddr,
     sync::{atomic::AtomicBool, Arc},

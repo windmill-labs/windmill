@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
-
 use anyhow::Context;
 use async_recursion::async_recursion;
 use axum::{
@@ -31,12 +29,14 @@ use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
+use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
+use windmill_common::{fetch_optional_with_fallback, flows::FlowValueGetter};
 
 use windmill_common::{
     add_time,
@@ -44,12 +44,15 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
     flow_status::{
-        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
-        Iterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusGetter, FlowStatusModule,
+        FlowStatusModuleWParent, Iterator, JobResult, ParsedFlowStatusGetter, RestartedFrom,
+        RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+        ParsedFlowValueGetter,
     },
+    impl_flow_status_getter, impl_flow_value_getter,
     jobs::{
         get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
         ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT,
@@ -142,6 +145,14 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct CompletedSubFlow {
+    pub id: Uuid,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+}
+
+impl_flow_status_getter!(CompletedSubFlow);
+
 pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
@@ -222,26 +233,23 @@ pub async fn cancel_job<'c>(
     force_cancel: bool,
     require_anonymous: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
-
-    if job.is_none() {
+    let Some(mut job) = get_queued_job_tx(id, w_id, &mut tx).await? else {
         return Ok((tx, None));
-    }
+    };
 
-    if require_anonymous && job.as_ref().unwrap().created_by != "anonymous" {
+    if require_anonymous && job.created_by != "anonymous" {
         return Err(Error::BadRequest(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
 
-    let mut job = job.unwrap();
     if force_cancel {
         // if force canceling a flow step, make sure we force cancel from the highest parent
         loop {
             if job.parent_job.is_none() {
                 break;
             }
-            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
+            match get_queued_job_tx(job.parent_job.unwrap(), w_id, &mut tx).await? {
                 Some(j) => {
                     job = j;
                 }
@@ -587,6 +595,8 @@ pub async fn add_completed_job<
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     add_time!(bench, "add_completed_job query START");
+
+    // On conflict (when id already exists), update the success and result fields.
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
@@ -623,8 +633,8 @@ pub async fn add_completed_job<
             VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000, $7, $8, $9,\
                     $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11 RETURNING duration_ms",
-        queued_job.workspace_id,
-        queued_job.id,
+        &queued_job.workspace_id,
+        &queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
@@ -633,7 +643,7 @@ pub async fn add_completed_job<
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
         &queued_job.args as &Option<Json<HashMap<String, Box<RawValue>>>>,
-        result as Json<&T>,
+        &result as &Json<&T>,
         queued_job.raw_code,
         queued_job.raw_lock,
         canceled_by.is_some(),
@@ -650,15 +660,31 @@ pub async fn add_completed_job<
         queued_job.email,
         queued_job.visible_to_owner,
         if mem_peak > 0 { Some(mem_peak) } else { None },
-        queued_job.tag,
+        &queued_job.tag,
         queued_job.priority,
     )
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
-    // tracing::error!("2 {:?}", start.elapsed());
-
     add_time!(bench, "add_completed_job query END");
+
+    add_time!(bench, "completed_jobs_result query START");
+    sqlx::query!(
+        "INSERT INTO completed_jobs_result(id, result, tag, workspace_id) VALUES($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET result = $2",
+        queued_job.id,
+        &result as &Json<&T>,
+        queued_job.tag,
+        queued_job.workspace_id,
+    )
+    .execute(&mut tx)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "Could not add completed job result {job_id}: {e:#}"
+        ))
+    })?;
+
+    add_time!(bench, "completed_jobs_result query END");
 
     if !queued_job.is_flow_step {
         if _duration > 500
@@ -864,10 +890,10 @@ pub async fn add_completed_job<
     tx.commit().await?;
     tracing::info!(
         %job_id,
-        root_job = ?queued_job.root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        root_job = ?queued_job.root_job.map(|x| x.to_string()).unwrap_or_default(),
         path = &queued_job.script_path(),
         job_kind = ?queued_job.job_kind,
-        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_default(),
         duration = ?_duration,
         permissioned_as = ?queued_job.permissioned_as,
         email = ?queued_job.email,
@@ -2267,55 +2293,48 @@ pub struct ResultWithId {
 
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
-    w_id: String,
+    w_id: &str,
     flow_id: Uuid,
-    node_id: String,
-    json_path: Option<String>,
+    node_id: &str,
+    json_path: Option<&str>,
 ) -> error::Result<Box<RawValue>> {
-    match get_result_by_id_from_running_flow(
-        &db,
-        w_id.as_str(),
-        &flow_id,
-        node_id.as_str(),
-        json_path.clone(),
-    )
-    .await
-    {
+    #[derive(sqlx::FromRow, Debug)]
+    struct RunningFlowJobResult {
+        pub id: Uuid,
+        pub flow_status: Option<Json<Box<RawValue>>>,
+    }
+    impl_flow_status_getter!(RunningFlowJobResult);
+
+    match get_result_by_id_from_running_flow(&db, w_id, &flow_id, node_id, json_path).await {
         Ok(res) => Ok(res),
         Err(_) => {
-            let running_flow_job =sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
+            let running_flow_job =sqlx::query_as::<_, RunningFlowJobResult>(
+                "SELECT id, flow_status FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
             ).bind(flow_id)
             .bind(&w_id)
             .fetch_optional(&db).await?;
+
             match running_flow_job {
                 Some(job) => {
                     let restarted_from = windmill_common::utils::not_found_if_none(
                         job.parse_flow_status()
-                            .map(|status| status.restarted_from)
-                            .flatten(),
+                            .and_then(|status| status.restarted_from),
                         "Id not found in the result's mapping of the root job and root job had no restarted from information",
                         format!("parent: {}, root: {}, id: {}", flow_id, job.id, node_id),
                     )?;
 
                     get_result_by_id_from_original_flow(
                         &db,
-                        w_id.as_str(),
+                        w_id,
                         &restarted_from.flow_job_id,
-                        node_id.as_str(),
-                        json_path.clone(),
+                        node_id,
+                        json_path,
                     )
                     .await
                 }
                 None => {
-                    get_result_by_id_from_original_flow(
-                        &db,
-                        w_id.as_str(),
-                        &flow_id,
-                        node_id.as_str(),
-                        json_path.clone(),
-                    )
-                    .await
+                    get_result_by_id_from_original_flow(&db, w_id, &flow_id, node_id, json_path)
+                        .await
                 }
             }
         }
@@ -2334,7 +2353,7 @@ pub async fn get_result_by_id_from_running_flow(
     w_id: &str,
     flow_id: &Uuid,
     node_id: &str,
-    json_path: Option<String>,
+    json_path: Option<&str>,
 ) -> error::Result<Box<RawValue>> {
     let flow_job_result = sqlx::query_as::<_, FlowJobResult>(
         "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3")
@@ -2352,8 +2371,7 @@ pub async fn get_result_by_id_from_running_flow(
 
     let job_result = flow_job_result
         .leaf_jobs
-        .map(|x| serde_json::from_str(x.get()).ok())
-        .flatten();
+        .and_then(|x| serde_json::from_str(x.get()).ok());
 
     if job_result.is_none() && flow_job_result.parent_job.is_some() {
         let parent_job = flow_job_result.parent_job.unwrap();
@@ -2378,9 +2396,9 @@ pub async fn get_result_by_id_from_running_flow(
 async fn get_completed_flow_node_result_rec(
     db: &Pool<Postgres>,
     w_id: &str,
-    subflows: Vec<CompletedJob>,
+    subflows: &[CompletedSubFlow],
     node_id: &str,
-    json_path: Option<String>,
+    json_path: Option<&str>,
 ) -> error::Result<Option<Box<RawValue>>> {
     for subflow in subflows {
         let flow_status = subflow.parse_flow_status().ok_or_else(|| {
@@ -2397,7 +2415,7 @@ async fn get_completed_flow_node_result_rec(
                     db,
                     w_id,
                     JobResult::SingleJob(leaf_job_uuid),
-                    json_path.clone(),
+                    json_path,
                 )
                 .await
                 .map(Some),
@@ -2405,7 +2423,7 @@ async fn get_completed_flow_node_result_rec(
                     db,
                     w_id,
                     JobResult::ListJob(jobs),
-                    json_path.clone(),
+                    json_path,
                 )
                 .await
                 .map(Some),
@@ -2416,10 +2434,11 @@ async fn get_completed_flow_node_result_rec(
                 ))),
             };
         } else {
-            let subflows = sqlx::query_as::<_, CompletedJob>(
-                "SELECT *, null as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
+            let subflows = sqlx::query_as::<_, CompletedSubFlow>(
+                "SELECT id, flow_status as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
             ).bind(subflow.id).bind(w_id).fetch_all(db).await?;
-            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id, json_path.clone())
+
+            match get_completed_flow_node_result_rec(db, w_id, &subflows, node_id, json_path)
                 .await?
             {
                 Some(res) => return Ok(Some(res)),
@@ -2436,10 +2455,10 @@ async fn get_result_by_id_from_original_flow(
     w_id: &str,
     completed_flow_id: &Uuid,
     node_id: &str,
-    json_path: Option<String>,
+    json_path: Option<&str>,
 ) -> error::Result<Box<RawValue>> {
-    let flow_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, null as labels FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    let flow_job = sqlx::query_as::<_, CompletedSubFlow>(
+        "SELECT id, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
     .bind(completed_flow_id)
     .bind(w_id)
@@ -2452,7 +2471,7 @@ async fn get_result_by_id_from_original_flow(
         format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
-    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id, json_path).await? {
+    match get_completed_flow_node_result_rec(db, w_id, &[flow_job], node_id, json_path).await? {
         Some(res) => Ok(res),
         None => Err(error::Error::NotFound(format!(
             "Flow result by id not found going top-down from {}, (id: {})",
@@ -2465,31 +2484,33 @@ async fn extract_result_from_job_result(
     db: &Pool<Postgres>,
     w_id: &str,
     job_result: JobResult,
-    json_path: Option<String>,
+    json_path: Option<&str>,
 ) -> error::Result<Box<RawValue>> {
     match job_result {
         JobResult::ListJob(job_ids) => match json_path {
             Some(json_path) => {
-                let mut parts = json_path.split(".");
+                let mut parts = json_path.split('.');
 
-                let Some(idx) = parts.next().map(|x| x.parse::<usize>().ok()).flatten() else {
+                let Some(ref idx) = parts.next().and_then(|x| x.parse::<usize>().ok()) else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
-                let Some(job_id) = job_ids.get(idx).cloned() else {
+                let Some(job_id) = job_ids.get(*idx) else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
-                Ok(sqlx::query_as::<_, ResultR>(
-                    "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-                )
-                .bind(job_id)
-                .bind(w_id)
-                .bind(
-                    parts.map(|x| x.to_string()).collect::<Vec<_>>()
-                )
-                .fetch_optional(db)
-                .await?
-                .map(|r| r.result.map(|x| x.0))
-                .flatten()
+
+                let parts = parts.map(|x| x.to_string()).collect_vec();
+
+                Ok(fetch_optional_with_fallback!(
+                    db,
+                    query_as,
+                    ResultR,
+                    "SELECT result #> $3 as result FROM {} WHERE id = $1 AND workspace_id = $2",
+                    "completed_jobs_result" || "completed_job",
+                    *job_id,
+                    w_id,
+                    &parts
+                )?
+                .and_then(|r| r.result.map(|x| x.0))
                 .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)))
             }
             None => {
@@ -2503,6 +2524,7 @@ async fn extract_result_from_job_result(
                 .into_iter()
                 .filter_map(|x| x.result.map(|y| (x.id, y)))
                 .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
+
                 let result = job_ids
                     .into_iter()
                     .map(|id| {
@@ -2510,25 +2532,31 @@ async fn extract_result_from_job_result(
                             .map(|x| x.0.clone())
                             .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
                     })
-                    .collect::<Vec<_>>();
+                    .collect_vec();
                 Ok(to_raw_value(&result))
             }
         },
-        JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
-            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(x)
-        .bind(w_id)
-        .bind(
-            json_path
+        // ici
+        JobResult::SingleJob(x) => {
+            let path = json_path
                 .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
-                .unwrap_or_default(),
-        )
-        .fetch_optional(db)
-        .await?
-        .map(|r| r.result.map(|x| x.0))
-        .flatten()
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
+                .unwrap_or_default();
+
+            let res = fetch_optional_with_fallback!(
+                db,
+                query_as,
+                ResultR,
+                "SELECT result #> $3 as result FROM {} WHERE id = $1 AND workspace_id = $2",
+                "completed_jobs_result" || "completed_job",
+                x,
+                w_id,
+                &path
+            )?
+            .and_then(|r| r.result.map(|x| x.0))
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+
+            Ok(res)
+        }
     }
 }
 
@@ -2643,7 +2671,7 @@ pub struct PushArgsOwned {
     pub args: HashMap<String, Box<RawValue>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PushArgs<'c> {
     pub extra: Option<HashMap<String, Box<RawValue>>>,
     pub args: &'c HashMap<String, Box<RawValue>>,
@@ -2754,7 +2782,7 @@ fn restructure_cloudevents_metadata(
         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
     let str = data.to_string();
 
-    let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+    let wrap_body = !str.is_empty() && !str.starts_with('{');
 
     if wrap_body {
         let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
@@ -2784,7 +2812,7 @@ impl PushArgsOwned {
             extra.insert("raw_string".to_string(), to_raw_value(&str));
         }
 
-        let wrap_body = force_wrap_body || str.len() > 0 && str.chars().next().unwrap() != '{';
+        let wrap_body = force_wrap_body || !str.is_empty() && !str.starts_with('{');
 
         if wrap_body {
             let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
@@ -3896,6 +3924,10 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     };
 
     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
+
+    let raw_flow = raw_flow.map(Json);
+    let args = Json(args);
+
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -3914,12 +3946,12 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         scheduled_for_o,
         script_hash,
         script_path.clone(),
-        raw_code,
+        raw_code.clone(),
         raw_lock,
-        Json(args) as Json<PushArgs>,
+        args.clone() as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        raw_flow.map(Json) as Option<Json<FlowValue>>,
+        raw_flow.clone() as Option<Json<FlowValue>>,
         flow_status.map(Json) as Option<Json<FlowStatus>>,
         is_flow_step,
         language as Option<ScriptLang>,
@@ -3928,7 +3960,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         email,
         visible_to_owner,
         root_job,
-        tag,
+        tag.clone(),
         concurrent_limit,
         if concurrent_limit.is_some() {  concurrency_time_window_s } else { None },
         custom_timeout,
@@ -3939,6 +3971,34 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
+
+    // insert into args queue
+    sqlx::query!(
+        r#"
+        INSERT INTO job_args (id, workspace_id, args, tag)
+        VALUES ($1, $2, $3, $4)
+        "#,
+        uuid,
+        workspace_id,
+        args as Json<PushArgs>,
+        &tag
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO job_params (id, workspace_id, raw_code, raw_flow, tag)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+        uuid,
+        workspace_id,
+        raw_code,
+        raw_flow as Option<Json<FlowValue>>,
+        tag
+    )
+    .execute(&mut tx)
+    .await?;
 
     tracing::debug!("Pushed {job_id}");
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
@@ -4060,11 +4120,8 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
 }
 
 pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
-    let reason = job
-        .canceled_reason
-        .as_deref()
-        .unwrap_or_else(|| "no reason given");
-    let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
+    let reason = job.canceled_reason.as_deref().unwrap_or("no reason given");
+    let canceler = job.canceled_by.as_deref().unwrap_or("unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
@@ -4087,8 +4144,19 @@ async fn restarted_flows_resolution(
     ),
     Error,
 > {
-    let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, null as labels FROM completed_job WHERE id = $1 and workspace_id = $2",
+    #[derive(Debug, sqlx::FromRow)]
+    struct QueryResults {
+        pub script_path: Option<String>,
+        pub priority: Option<i16>,
+        pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
+        pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    }
+
+    impl_flow_status_getter!(QueryResults);
+    impl_flow_value_getter!(QueryResults);
+
+    let completed_job = sqlx::query_as::<_, QueryResults>(
+        "SELECT script_path, priority, raw_flow, flow_status FROM completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(completed_flow_id)
     .bind(workspace_id)
@@ -4121,10 +4189,9 @@ async fn restarted_flows_resolution(
         if flow_value_if_any
             .clone()
             .map(|fv| {
-                fv.modules
+                !fv.modules
                     .iter()
-                    .find(|flow_value_module| flow_value_module.id == module.id())
-                    .is_none()
+                    .any(|flow_value_module| flow_value_module.id == module.id())
             })
             .unwrap_or(false)
         {
@@ -4240,7 +4307,7 @@ async fn restarted_flows_resolution(
             truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
         } else {
             // else we simply "transfer" the module from the completed flow to the new one if it's a success
-            step_n = step_n + 1;
+            step_n += 1;
             match module.clone() {
                 FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
                 _ => Err(Error::InternalErr(format!(
