@@ -44,8 +44,8 @@
 		SettingService.workspaceAcknowledgeAllCriticalAlerts
 	)
 
-	onMount(() => {
-		updateHasUnacknowledgedCriticalAlerts(true)
+	onMount(async () => {
+		await updateHasUnacknowledgedCriticalAlerts(false)
 		checkForNewAlertsInterval = setInterval(() => {
 			updateHasUnacknowledgedCriticalAlerts(true)
 		}, 15000)

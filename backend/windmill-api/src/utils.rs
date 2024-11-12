@@ -199,21 +199,72 @@ pub async fn get_critical_alerts(
     let page_size = params.page_size.unwrap_or(10).min(100) as i64;
     let offset = ((page - 1) * page_size as i32) as i64;
 
-    let alerts = sqlx::query_as!(
-        CriticalAlert,
-        "SELECT id, alert_type, message, created_at, acknowledged, workspace_id
-         FROM alerts 
-         WHERE ($1::boolean IS NULL OR acknowledged = $1)
-           AND ($2::text IS NULL OR workspace_id = $2)
-         ORDER BY created_at DESC 
-         LIMIT $3 OFFSET $4",
-        params.acknowledged,
-        workspace_id,
-        page_size,
-        offset
-    )
-    .fetch_all(&db)
-    .await?;
+    let alerts = if let Some(workspace_id) = workspace_id {
+        // `workspace_id` is provided => workspace admin
+        if params.acknowledged.is_none() {
+            // Case: return all rows where `workspace_id` matches
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_workspace, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 WHERE workspace_id = $1
+                 ORDER BY created_at DESC
+                 LIMIT $2 OFFSET $3",
+                workspace_id,
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        } else {
+            // Case: return rows where `acknowledged_workspace` matches `params.acknowledged`
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_workspace, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 WHERE workspace_id = $1 AND COALESCE(acknowledged_workspace, false) = $2
+                 ORDER BY created_at DESC
+                 LIMIT $3 OFFSET $4",
+                workspace_id,
+                params.acknowledged,
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        }
+    } else {
+        // `workspace_id` is not provided => superadmin
+        if params.acknowledged.is_none() {
+            // Case: Return all rows unfiltered with acknowledged_global as acknowledged
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_global, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 ORDER BY created_at DESC
+                 LIMIT $1 OFFSET $2",
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        } else {
+            // Case: Return rows where acknowledged_global matches params.acknowledged
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_global, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 WHERE COALESCE(acknowledged_global, false) = $1
+                 ORDER BY created_at DESC
+                 LIMIT $2 OFFSET $3",
+                params.acknowledged,
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        }
+    };
 
     Ok(Json(alerts))
 }
@@ -225,16 +276,20 @@ pub async fn acknowledge_critical_alert(
     id: i32,
 ) -> error::Result<String> {
     sqlx::query!(
-        "UPDATE alerts 
-         SET acknowledged = true 
-         WHERE id = $1 
-           AND ($2::text IS NULL OR workspace_id = $2)",
+        "UPDATE alerts
+         SET
+           acknowledged_global = true,
+           acknowledged_workspace = CASE
+             WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true
+             ELSE acknowledged_workspace
+           END
+         WHERE id = $1",
         id,
         workspace_id
     )
     .execute(&db)
     .await?;
-    
+
     tracing::info!(
         "Acknowledged critical alert with id: {}{}",
         id,
@@ -250,9 +305,14 @@ pub async fn acknowledge_all_critical_alerts(
 ) -> error::Result<String> {
     sqlx::query!(
         "UPDATE alerts 
-         SET acknowledged = true 
-         WHERE acknowledged = false 
-           AND ($1::text IS NULL OR workspace_id = $1)",
+         SET
+           acknowledged_global = true,
+           acknowledged_workspace = CASE
+             WHEN $1::text IS NOT NULL THEN true
+             ELSE acknowledged_workspace
+           END
+         WHERE ($1::text IS NOT NULL AND workspace_id = $1)
+            OR ($1::text IS NULL AND workspace_id IS NULL)",
         workspace_id
     )
     .execute(&db)

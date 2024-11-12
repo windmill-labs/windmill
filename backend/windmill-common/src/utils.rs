@@ -254,12 +254,12 @@ pub async fn report_critical_error(
 ) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
 
-    let mute = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+    let mute_global = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged, workspace_id) VALUES ('critical_error', $1, $2, $3)",
+        "INSERT INTO alerts (alert_type, message, acknowledged_global, workspace_id) VALUES ('critical_error', $1, $2, $3)",
         error_message,
-        mute,
+        mute_global,
         workspace_id,
     )
     .execute(&_db)
@@ -283,12 +283,12 @@ pub async fn report_recovered_critical_error(
 ) -> () {
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
-    let mute = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+    let mute_global = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged, workspace_id) VALUES ('recovered_critical_error', $1, $2, $3)",
+        "INSERT INTO alerts (alert_type, message, acknowledged_global, workspace_id) VALUES ('recovered_critical_error', $1, $2, $3)",
         message,
-        mute,
+        mute_global,
         workspace_id,
     )
     .execute(&_db)
