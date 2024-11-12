@@ -21,7 +21,6 @@
 				'/secret_arg/' +
 				generateRandomString(12)
 			let nvalue = '$var:' + npath
-			const passwordBefore = password
 			await VariableService.createVariable({
 				workspace: $workspaceStore!,
 				requestBody: {
