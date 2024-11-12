@@ -730,7 +730,7 @@
 										<div class="absolute top-0.5 left-0.5 z-50">
 											<HideButton
 												on:click={() => showLeftPanel()}
-												direction="right"
+												direction="left"
 												hidden
 												btnClasses="border bg-surface"
 											/>
@@ -740,7 +740,7 @@
 										<div class="absolute top-0.5 right-0.5 z-50">
 											<HideButton
 												on:click={() => showRightPanel()}
-												direction="left"
+												direction="right"
 												hidden
 												btnClasses="border bg-surface"
 											/>
