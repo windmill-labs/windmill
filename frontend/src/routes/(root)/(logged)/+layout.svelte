@@ -280,12 +280,14 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && ($superadmin || $userStore?.is_admin)) {
+		if ($enterpriseLicense && $workspaceStore && $superadmin !== undefined && $userStore) {
+			mountModal = true
 			loadCriticalAlertsMuted()
 		}
 	}
 
 	let numUnacknowledgedCriticalAlerts = 0
+	let mountModal = false
 	let isCriticalAlertsModalOpen = false
 	let isCriticalAlertsUiMuted = true
 	let muteSettings = {
@@ -331,7 +333,7 @@
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
-	{#if $enterpriseLicense && ($superadmin || $userStore?.is_admin)}
+	{#if mountModal}
 		<CriticalAlertModal
 			bind:muteSettings
 			bind:open={isCriticalAlertsModalOpen}
