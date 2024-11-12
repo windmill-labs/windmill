@@ -292,8 +292,6 @@
 		hasResult: writable<Record<string, boolean>>({})
 	})
 
-	$: $connectingInput.opened && secondaryMenuLeft.close()
-
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
@@ -314,28 +312,6 @@
 
 	let toggled = false
 	let cssToggled = false
-
-	$: if ($connectingInput.opened && !toggled) {
-		tmpRunnablePanelSize = runnablePanelSize
-		tmpGridPanelSize = gridPanelSize
-
-		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
-
-		toggled = true
-	} else if (!$connectingInput.opened && toggled) {
-		animateTo(
-			runnablePanelSize,
-			tmpRunnablePanelSize,
-			(newValue: number) => (runnablePanelSize = newValue)
-		)
-		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
-
-		tmpRunnablePanelSize = -1
-		tmpGridPanelSize = -1
-
-		toggled = false
-	}
 
 	// Animation logic for cssInput
 	$: animateCssInput($cssEditorOpen)
@@ -537,27 +513,58 @@
 
 	let centerPanelWidth = 0
 
-	function hideLeftPanel() {
+	function hideLeftPanel(animate: boolean = false) {
 		storedLeftPanelSize = leftPanelSize
-		leftPanelSize = 0
+		if (animate) {
+			animateTo(leftPanelSize, 0, (newValue: number) => (leftPanelSize = newValue))
+		} else {
+			leftPanelSize = 0
+		}
 		centerPanelSize = centerPanelSize + storedLeftPanelSize
+		if ($connectingInput.opened) {
+			$connectingInput.opened = false
+		}
 	}
 
 	function hideRightPanel() {
 		storedRightPanelSize = rightPanelSize
 		rightPanelSize = 0
 		centerPanelSize = centerPanelSize + storedRightPanelSize
+		if ($connectingInput.opened) {
+			$connectingInput.opened = false
+		}
 	}
 
-	function hideBottomPanel() {
+	function hideBottomPanel(animate: boolean = false) {
+		if (runnablePanelSize === 0) {
+			return
+		}
 		storedBottomPanelSize = runnablePanelSize
-		gridPanelSize = 99
-		runnablePanelSize = 0
+		if (animate) {
+			tmpRunnablePanelSize = runnablePanelSize
+			tmpGridPanelSize = gridPanelSize
+
+			animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+			animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+		} else {
+			runnablePanelSize = 0
+			gridPanelSize = 99
+		}
 	}
 
-	function showLeftPanel() {
-		leftPanelSize = storedLeftPanelSize
-		centerPanelSize = centerPanelSize - storedLeftPanelSize
+	function showLeftPanel(animate: boolean = false) {
+		if (leftPanelSize !== 0) {
+			return
+		}
+		if (animate) {
+			animateTo(
+				leftPanelSize,
+				storedLeftPanelSize,
+				(newValue: number) => (leftPanelSize = newValue)
+			)
+		} else {
+			leftPanelSize = storedLeftPanelSize
+		}
 		storedLeftPanelSize = 0
 	}
 
@@ -567,9 +574,25 @@
 		storedRightPanelSize = 0
 	}
 
-	function showBottomPanel() {
-		runnablePanelSize = storedBottomPanelSize
-		gridPanelSize = gridPanelSize - storedBottomPanelSize
+	function showBottomPanel(animate: boolean = false) {
+		if (runnablePanelSize !== 0) {
+			return
+		}
+		if (animate) {
+			animateTo(
+				runnablePanelSize,
+				storedBottomPanelSize,
+				(newValue: number) => (runnablePanelSize = newValue)
+			)
+			animateTo(
+				gridPanelSize,
+				gridPanelSize - storedBottomPanelSize,
+				(newValue: number) => (gridPanelSize = newValue)
+			)
+		} else {
+			runnablePanelSize = storedBottomPanelSize
+			gridPanelSize = gridPanelSize - storedBottomPanelSize
+		}
 		storedBottomPanelSize = 0
 	}
 
@@ -623,6 +646,34 @@
 			}
 		}
 	}
+
+	let previousLeftPanelHidden: boolean = false
+	let previousBottomPanelHidden: boolean = false
+
+	async function updatePannelInConnecting() {
+		if ($connectingInput.opened && !toggled) {
+			previousLeftPanelHidden = leftPanelSize === 0
+			previousBottomPanelHidden = runnablePanelSize === 0
+			if (previousLeftPanelHidden) {
+				showLeftPanel(true)
+			}
+			if (!previousBottomPanelHidden) {
+				hideBottomPanel(true)
+			}
+			toggled = true
+		} else if (!$connectingInput.opened && toggled) {
+			if (previousLeftPanelHidden) {
+				hideLeftPanel(true)
+			}
+			if (!previousBottomPanelHidden) {
+				showBottomPanel(true)
+			}
+			toggled = false
+		}
+	}
+
+	$: $connectingInput.opened, updatePannelInConnecting()
+
 	let testJob: Job | undefined = undefined
 	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 </script>
@@ -941,14 +992,7 @@
 										</Tab>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
-										<HideButton
-											on:click={() => {
-												storedRightPanelSize = rightPanelSize
-												rightPanelSize = 0
-												centerPanelSize = centerPanelSize + storedRightPanelSize
-											}}
-											direction="right"
-										/>
+										<HideButton on:click={() => hideRightPanel()} direction="right" />
 									</div>
 									<div slot="content" class="h-full overflow-y-auto">
 										<TabContent class="overflow-auto h-full" value="settings">

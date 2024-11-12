@@ -93,6 +93,16 @@
 			onConnect: () => {}
 		}
 	}
+
+	function openConnection() {
+		$connectingInput = {
+			opened: true,
+			input: undefined,
+			hoveredComponent: undefined,
+			onConnect: applyConnection
+		}
+		dispatch('select', true)
+	}
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
@@ -186,15 +196,7 @@
 								variant="border"
 								color="light"
 								title="Connect"
-								on:click={() => {
-									$connectingInput = {
-										opened: true,
-										input: undefined,
-										hoveredComponent: undefined,
-										onConnect: applyConnection
-									}
-									dispatch('select', true)
-								}}
+								on:click={openConnection}
 								id="schema-plug"
 								data-connection-button
 							>
