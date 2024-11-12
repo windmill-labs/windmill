@@ -896,14 +896,16 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
-							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-								<input type="text" bind:value />
-							{:else if onlyMaskPassword}
-								<Password
-									{disabled}
-									bind:password={value}
-									placeholder={placeholder ?? defaultValue ?? ''}
-								/>
+							{#if onlyMaskPassword}
+								{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+									<input type="text" bind:value />
+								{:else}
+									<Password
+										{disabled}
+										bind:password={value}
+										placeholder={placeholder ?? defaultValue ?? ''}
+									/>
+								{/if}
 							{:else}
 								<PasswordArgInput {disabled} bind:value />
 							{/if}

@@ -10,41 +10,54 @@
 	let path = ''
 	let password = value && !value.startsWith('$var:') ? value : ''
 
+	let isGenerating = false
 	async function generateValue() {
-		let npath =
-			'u/' +
-			($userStore?.username ?? $userStore?.email)?.split('@')[0] +
-			'/secret_arg/' +
-			generateRandomString(12)
-		let nvalue = '$var:' + npath
-		await VariableService.createVariable({
-			workspace: $workspaceStore!,
-			requestBody: {
-				value: password,
-				is_secret: true,
-				path: npath,
-				description: '',
-				expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString()
-			}
-		})
-		path = npath
-		value = nvalue
+		if (isGenerating) return
+		isGenerating = true
+		try {
+			let npath =
+				'u/' +
+				($userStore?.username ?? $userStore?.email)?.split('@')[0] +
+				'/secret_arg/' +
+				generateRandomString(12)
+			let nvalue = '$var:' + npath
+			const passwordBefore = password
+			await VariableService.createVariable({
+				workspace: $workspaceStore!,
+				requestBody: {
+					value: password,
+					is_secret: true,
+					path: npath,
+					description: 'Ephemeral secret variable',
+					expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString()
+				}
+			})
+			path = npath
+			value = nvalue
+			debouncedUpdate()
+		} finally {
+			isGenerating = false
+		}
 	}
 
 	async function updateValue() {
-		await VariableService.updateVariable({
-			workspace: $workspaceStore!,
-			path: path,
-			requestBody: {
-				value: password
-			}
-		})
+		try {
+			await VariableService.updateVariable({
+				workspace: $workspaceStore!,
+				path: path,
+				requestBody: {
+					value: password
+				}
+			})
+		} catch (e) {
+			generateValue()
+		}
 	}
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	function debouncedUpdate() {
 		timeout && clearTimeout(timeout)
-		setTimeout(updateValue, 500)
+		timeout = setTimeout(updateValue, 500)
 	}
 
 	$: password && debouncedUpdate()
