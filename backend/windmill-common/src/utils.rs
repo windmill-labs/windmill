@@ -251,6 +251,7 @@ pub async fn report_critical_error(
     error_message: String,
     _db: DB,
     workspace_id: Option<&str>,
+    resource: Option<&str>,
 ) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
 
@@ -273,12 +274,13 @@ pub async fn report_critical_error(
     let acknowledge_global = mute_global || mute_workspace;
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id)
-        VALUES ('critical_error', $1, $2, $3, $4)",
+        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id, resource)
+        VALUES ('critical_error', $1, $2, $3, $4, $5)",
         error_message,
         acknowledge_global,
         acknowledge_workspace,
         workspace_id,
+        resource,
     )
     .execute(&_db)
     .await
@@ -288,13 +290,7 @@ pub async fn report_critical_error(
 
     #[cfg(feature = "enterprise")]
     if !*CLOUD_HOSTED {
-        send_critical_alert(
-            error_message,
-            &_db,
-            CriticalAlertKind::CriticalError,
-            None,
-        )
-        .await;
+        send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
     } else {
         tracing::error!(error_message)
     }
@@ -304,39 +300,36 @@ pub async fn report_recovered_critical_error(
     message: String,
     _db: DB,
     workspace_id: Option<&str>,
+    resource: Option<&str>,
 ) -> () {
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
-    let mute_global = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
-    let mute_workspace = if let Some(workspace_id) = workspace_id {
-        match fetch_mute_workspace(&_db, workspace_id).await {
-            Ok(flag) => flag,
-            Err(err) => {
-                tracing::error!("Error fetching mute_workspace: {}", err);
-                false // Default to false on error
-            }
-        }
-    } else {
-        false
-    };
-
-    // we ack_global if mute_global is true, or if mute_workspace is true
-    // but we ignore global mute setting for ack_workspace
-    let acknowledge_workspace = mute_workspace;
-    let acknowledge_global = mute_global || mute_workspace;
-
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id)
-        VALUES ('recovered_critical_error', $1, $2, $3, $4)",
+        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id, resource)
+        VALUES ('recovered_critical_error', $1, $2, $3, $4, $5)",
         message,
-        acknowledge_global,
-        acknowledge_workspace,
+        true,
+        true,
         workspace_id,
+        resource,
     )
     .execute(&_db)
     .await
     {
         tracing::error!("Failed to save recovered critical error to database: {}", err);
+    }
+
+    // acknowledge all alerts with the same resource
+    if let Some(resource) = resource {
+        if let Err(err) = sqlx::query!(
+            "UPDATE alerts SET acknowledged_global = true, acknowledged_workspace = true WHERE resource = $1 AND alert_type = 'critical_error'",
+            resource,
+        )
+        .execute(&_db)
+        .await
+        {
+            tracing::error!("Failed to acknowledge critical error alerts for resource {}: {}", resource, err);
+        }
     }
 
     #[cfg(feature = "enterprise")]
@@ -361,9 +354,7 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
     .fetch_optional(_db)
     .await
     {
-        Ok(Some(record)) => {
-            Ok(record.mute_critical_alerts.unwrap_or(false))
-        }
+        Ok(Some(record)) => Ok(record.mute_critical_alerts.unwrap_or(false)),
         Ok(None) => {
             tracing::warn!(
                 "Workspace ID {} not found in workspace_settings table",
