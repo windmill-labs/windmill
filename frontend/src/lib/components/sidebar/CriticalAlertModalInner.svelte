@@ -2,14 +2,21 @@
 	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import { CheckCircle2, AlertCircle, RefreshCw, CheckSquare2, AlertTriangle } from 'lucide-svelte'
+	import {
+		CheckCircle2,
+		AlertCircle,
+		RefreshCw,
+		CheckSquare2,
+		AlertTriangle,
+		Save
+	} from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
 	import { goto } from '$app/navigation'
 	import { superadmin, workspaceStore } from '$lib/stores'
-	import Section from '$lib/components/Section.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import Section from '$lib/components/Section.svelte'
 
 	export let updateHasUnacknowledgedCriticalAlerts
 	export let getCriticalAlerts
@@ -148,80 +155,89 @@
 </script>
 
 <div>
-	{#if !hasCriticalAlertChannels && $superadmin}
-		<div class="flex flex-row pb-4">
-			<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
-			<p>
-				No critical alert channels are set up. Go to the
-				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance Settings</a>
-				page to configure critical alert channels.
-			</p>
-		</div>
-	{/if}
-	<Section
-		label="Mute Settings"
-		collapsable={true}
-		tooltip="Mute settings allow you to temporarily disable UI notifications for critical alerts."
-		eeOnly={false}
-	>
-		<div class="flex flex-col gap-2">
-			{#if $superadmin}
-				<Toggle
-					bind:checked={muteSettings.global}
-					options={{ right: 'Mute critical alerts instance wide' }}
-					size="xs"
-				/>
+	<div class="grid grid-cols-3 gap-4 col-start-3">
+		<div class="pt-1 col-span-2">
+			{#if !hasCriticalAlertChannels && $superadmin}
+				<div class="flex flex-row pb-4">
+					<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
+					<p>
+						No critical alert channels are set up. Go to the
+						<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}
+							>Instance Settings</a
+						>
+						page to configure critical alert channels.
+					</p>
+				</div>
 			{/if}
-			<Toggle
-				bind:checked={muteSettings.workspace}
-				options={{ right: 'Mute critical alerts for current workspace' }}
-				size="xs"
-			/>
-			<div class="flex flex-row">
+		</div>
+
+		<div class="flex flex-col justify-between col-start-3">
+			<div class="flex flex-row justify-end mt-[-38px] pb-3">
 				<Button
-					disabled={initialMuteSettings.global === muteSettings.global &&
-						initialMuteSettings.workspace === muteSettings.workspace}
-					size="sm"
-					on:click={saveMuteSettings}
+					color="green"
+					startIcon={{ icon: CheckSquare2 }}
+					size="xs"
+					disabled={numUnacknowledgedCriticalAlerts === 0}
+					on:click={acknowledgeAll}
 				>
-					Save
-				</Button>
+					Acknowledge All</Button
+				>
 			</div>
-		</div>
-	</Section>
-	<!-- Row of action buttons above the table -->
-	<div class="flex justify-between items-center mb-4 mt-4">
-		<div class="flex space-x-2">
-			<Button
-				color="green"
-				startIcon={{ icon: CheckSquare2 }}
-				size="sm"
-				disabled={numUnacknowledgedCriticalAlerts === 0}
-				on:click={acknowledgeAll}
-			>
-				Acknowledge All</Button
-			>
-		</div>
 
-		<button class="p-2 rounded-full hover:bg-gray-200" on:click={refreshAlerts} disabled={loading}>
-			<RefreshCw class={loading ? 'animate-spin ' : ''} size="20" />
-		</button>
-	</div>
+			<Section
+				label="Mute Settings"
+				collapsable={true}
+				tooltip="Show critical alert UI notifications"
+				small={true}
+			>
+				{#if $superadmin}
+					<div class="flex flex-row pb-1">
+						<Toggle
+							bind:checked={muteSettings.global}
+							options={{ right: 'Mute critical alerts instance wide' }}
+							size="xs"
+						/>
+					</div>
+				{/if}
 
-	<!-- Pagination controls above the table -->
-	<div class="flex justify-between items-center mb-2">
-		<div class="flex items-center space-x-4">
-			<Button size="xs2" on:click={goToPreviousPage} disabled={page <= 1}>Previous</Button>
-			<span>Page {page}</span>
-			<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
-		</div>
-		<div class="pr-3">
-			<Toggle
-				bind:checked={hideAcknowledged}
-				on:change={refreshAlerts}
-				options={{ right: 'Hide Acknowledged' }}
-				size="xs"
-			/>
+				<div class="flex flex-row pb-1">
+					<Toggle
+						bind:checked={muteSettings.workspace}
+						options={{ right: 'Mute critical alerts for current workspace' }}
+						size="xs"
+					/>
+				</div>
+				<div class="flex flex-row">
+					<Button
+						disabled={initialMuteSettings.global === muteSettings.global &&
+							initialMuteSettings.workspace === muteSettings.workspace}
+						size="xs2"
+						color="green"
+						on:click={saveMuteSettings}
+						startIcon={{ icon: Save }}
+					>
+						Save
+					</Button>
+				</div>
+			</Section>
+
+			<div class="pt-2 flex justify-between items-center">
+				<div class="pr-2">
+					<Toggle
+						bind:checked={hideAcknowledged}
+						on:change={refreshAlerts}
+						options={{ right: 'Hide Acknowledged' }}
+						size="xs"
+					/>
+				</div>
+				<button
+					class="mb-1 p-2 rounded-full hover:bg-gray-200"
+					on:click={refreshAlerts}
+					disabled={loading}
+				>
+					<RefreshCw class={loading ? 'animate-spin ' : ''} size="20" />
+				</button>
+			</div>
 		</div>
 	</div>
 
@@ -275,6 +291,11 @@
 				{/each}
 			</tbody>
 		</table>
+	</div>
+	<div class="flex flex-1 pt-2 gap-x-4 justify-end">
+		<Button size="xs2" on:click={goToPreviousPage} disabled={page <= 1}>Previous</Button>
+		<span>Page {page}</span>
+		<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
 	</div>
 
 	{#if alerts.length === 0}
