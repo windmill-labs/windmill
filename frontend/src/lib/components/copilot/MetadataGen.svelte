@@ -122,7 +122,7 @@ Generate a description for the flow below:
 			const response = await getCompletion(messages, abortController, aiProvider)
 			generatedContent = ''
 			for await (const chunk of response) {
-				generatedContent += getResponseFromEvent(chunk)
+				generatedContent += getResponseFromEvent(chunk, aiProvider)
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {

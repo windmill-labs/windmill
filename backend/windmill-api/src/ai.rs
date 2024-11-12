@@ -239,6 +239,7 @@ mod anthropic {
 
     #[derive(Clone, Deserialize, Debug)]
     pub struct AnthropicCache {
+        #[serde(rename = "apiKey")]
         pub api_key: String,
     }
 

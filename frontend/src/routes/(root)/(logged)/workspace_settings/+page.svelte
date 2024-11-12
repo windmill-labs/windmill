@@ -133,6 +133,9 @@
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
 	let selected: AiProviderTypes = 'openai'
+	$: if (selected) {
+		aiResourceInitialPath = ''
+	}
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -509,7 +512,7 @@
 	}
 
 	$: $workspaceStore && loadSettings()
-
+	
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
 			if (errorHandlerScriptPath !== undefined && isSlackHandler(errorHandlerScriptPath)) {
@@ -989,7 +992,7 @@
 				</div>
 			</div>
 			<ToggleButtonGroup bind:selected>
-				<ToggleButton value="openai" label="OpenAi" />
+				<ToggleButton value="openai" label="OpenAI" />
 				<ToggleButton value="anthropic" label="Anthropic" />
 				<ToggleButton value="mistral" label="Mistral" />
 			</ToggleButtonGroup>

@@ -48,7 +48,7 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import { AnthropicAi, MistralAi, OpenAi } from './copilot/lib'
+	import { initAllAiWorkspace } from './copilot/lib'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -108,9 +108,7 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			OpenAi.workspacedOpenai.init(workspace, token)
-			MistralAi.workspacedMistral.init(workspace, token)
-			AnthropicAi.workspacedAnthropic.init(workspace, token)
+			initAllAiWorkspace(workspace)
 			try {
 				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 			} catch (err) {
