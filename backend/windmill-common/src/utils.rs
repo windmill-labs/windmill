@@ -255,11 +255,29 @@ pub async fn report_critical_error(
     tracing::error!("CRITICAL ERROR: {error_message}");
 
     let mute_global = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+    let mute_workspace = if let Some(workspace_id) = workspace_id {
+        match fetch_mute_workspace(&_db, workspace_id).await {
+            Ok(flag) => flag,
+            Err(err) => {
+                tracing::error!("Error fetching mute_workspace: {}", err);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // we ack_global if mute_global is true, or if mute_workspace is true
+    // but we ignore global mute setting for ack_workspace
+    let acknowledge_workspace = mute_workspace;
+    let acknowledge_global = mute_global || mute_workspace;
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged_global, workspace_id) VALUES ('critical_error', $1, $2, $3)",
+        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id)
+        VALUES ('critical_error', $1, $2, $3, $4)",
         error_message,
-        mute_global,
+        acknowledge_global,
+        acknowledge_workspace,
         workspace_id,
     )
     .execute(&_db)
@@ -270,7 +288,13 @@ pub async fn report_critical_error(
 
     #[cfg(feature = "enterprise")]
     if !*CLOUD_HOSTED {
-        send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
+        send_critical_alert(
+            error_message,
+            &_db,
+            CriticalAlertKind::CriticalError,
+            None,
+        )
+        .await;
     } else {
         tracing::error!(error_message)
     }
@@ -279,33 +303,81 @@ pub async fn report_critical_error(
 pub async fn report_recovered_critical_error(
     message: String,
     _db: DB,
-    workspace_id: Option<&str>
+    workspace_id: Option<&str>,
 ) -> () {
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
     let mute_global = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+    let mute_workspace = if let Some(workspace_id) = workspace_id {
+        match fetch_mute_workspace(&_db, workspace_id).await {
+            Ok(flag) => flag,
+            Err(err) => {
+                tracing::error!("Error fetching mute_workspace: {}", err);
+                false // Default to false on error
+            }
+        }
+    } else {
+        false
+    };
+
+    // we ack_global if mute_global is true, or if mute_workspace is true
+    // but we ignore global mute setting for ack_workspace
+    let acknowledge_workspace = mute_workspace;
+    let acknowledge_global = mute_global || mute_workspace;
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged_global, workspace_id) VALUES ('recovered_critical_error', $1, $2, $3)",
+        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id)
+        VALUES ('recovered_critical_error', $1, $2, $3, $4)",
         message,
-        mute_global,
+        acknowledge_global,
+        acknowledge_workspace,
         workspace_id,
     )
     .execute(&_db)
     .await
     {
-        tracing::error!("Failed to save critical error to database: {}", err);
+        tracing::error!("Failed to save recovered critical error to database: {}", err);
     }
+
     #[cfg(feature = "enterprise")]
     if !*CLOUD_HOSTED {
-    send_critical_alert(
-        message,
-        &_db,
-        CriticalAlertKind::RecoveredCriticalError,
-        None,
-    )
-    .await;
+        send_critical_alert(
+            message,
+            &_db,
+            CriticalAlertKind::RecoveredCriticalError,
+            None,
+        )
+        .await;
     } else {
         tracing::error!(message);
+    }
+}
+
+pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
+    match sqlx::query!(
+        "SELECT mute_critical_alerts FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(_db)
+    .await
+    {
+        Ok(Some(record)) => {
+            Ok(record.mute_critical_alerts.unwrap_or(false))
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "Workspace ID {} not found in workspace_settings table",
+                workspace_id
+            );
+            Ok(false)
+        }
+        Err(err) => {
+            tracing::error!(
+                "Error querying workspace_settings for workspace_id {}: {}",
+                workspace_id,
+                err
+            );
+            Err(Error::SqlErr(err))
+        }
     }
 }
