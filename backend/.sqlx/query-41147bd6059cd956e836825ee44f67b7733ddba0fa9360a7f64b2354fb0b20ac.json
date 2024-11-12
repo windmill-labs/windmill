@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE alerts\n         SET\n           acknowledged_global = true,\n           acknowledged_workspace = CASE\n             WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true\n             ELSE acknowledged_workspace\n           END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "41147bd6059cd956e836825ee44f67b7733ddba0fa9360a7f64b2354fb0b20ac"
+}
