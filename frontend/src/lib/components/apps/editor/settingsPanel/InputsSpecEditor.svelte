@@ -193,7 +193,7 @@
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
 		{/if}
-		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && fieldType == 'object' && format?.startsWith('resource-')}
+		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">
 				<Toggle
 					size="xs"

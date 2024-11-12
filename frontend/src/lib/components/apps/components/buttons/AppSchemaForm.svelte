@@ -18,6 +18,9 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
+	import { defaultIfEmptyString } from '$lib/utils'
+	import { userStore } from '$lib/stores'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -26,8 +29,16 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
-	const { worldStore, connectingInput, app, selectedComponent, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		worldStore,
+		connectingInput,
+		app,
+		selectedComponent,
+		componentControl,
+		appPath,
+		isEditor,
+		workspace
+	} = getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
@@ -100,6 +111,14 @@
 		previousDefault = structuredClone(resolvedConfig.defaultValues)
 		args = previousDefault ?? {}
 	}
+
+	function computeS3ForceViewerPolicies() {
+		if (!isEditor) {
+			return undefined
+		}
+		const policy = computeWorkspaceS3FileInputPolicy()
+		return policy
+	}
 </script>
 
 {#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}
@@ -140,6 +159,9 @@
 					bind:this={schemaForm}
 					displayType={Boolean(resolvedConfig.displayType)}
 					largeGap={Boolean(resolvedConfig.largeGap)}
+					appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+					{computeS3ForceViewerPolicies}
+					{workspace}
 					{css}
 				/>
 			</div>

@@ -26,6 +26,7 @@
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import { ctxRegex } from '../../utils'
+	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 
 	// Component props
 	export let id: string
@@ -671,6 +672,14 @@
 			return undefined
 		}
 	}
+
+	function computeS3ForceViewerPolicies() {
+		if (!isEditor) {
+			return undefined
+		}
+		const policy = computeWorkspaceS3FileInputPolicy()
+		return policy
+	}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -754,6 +763,9 @@
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
+					appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+					{computeS3ForceViewerPolicies}
+					{workspace}
 					bind:this={schemaForm}
 					bind:args
 					on:inputClicked={handleInputClick}
