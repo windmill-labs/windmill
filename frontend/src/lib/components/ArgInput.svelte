@@ -418,6 +418,9 @@
 									bind:selected={value}
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -428,6 +431,9 @@
 									bind:selected={value}
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else}
@@ -816,6 +822,12 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						on:focus={() => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
 						enumLabels={extra['enumLabels']}
 					/>
 				</div>
@@ -884,9 +896,7 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
-							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-								<input type="text" bind:value />
-							{:else if onlyMaskPassword}
+							{#if onlyMaskPassword}
 								<Password
 									{disabled}
 									bind:password={value}

@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.422.0](https://github.com/windmill-labs/windmill/compare/v1.421.2...v1.422.0) (2024-11-11)
+
+
+### Features
+
+* expandable subflows in flows ([#4683](https://github.com/windmill-labs/windmill/issues/4683)) ([d44976f](https://github.com/windmill-labs/windmill/commit/d44976f35e45ade510d1ec220b5a1503e11f3db9))
+* **frontend:** critical alerts UI ([#4653](https://github.com/windmill-labs/windmill/issues/4653)) ([d9148ea](https://github.com/windmill-labs/windmill/commit/d9148eaa78680a93d81d71847a7df67e01f3c110))
+
+## [1.421.2](https://github.com/windmill-labs/windmill/compare/v1.421.1...v1.421.2) (2024-11-08)
+
+
+### Bug Fixes
+
+* **bash:** correctly propagate exit errors ([8bc9a02](https://github.com/windmill-labs/windmill/commit/8bc9a021a88391147c9170f56b5a0edddd55bc7d))
+
+## [1.421.1](https://github.com/windmill-labs/windmill/compare/v1.421.0...v1.421.1) (2024-11-08)
+
+
+### Bug Fixes
+
+* **python-client:** fix small break params of write_s3_file ([3ea12f1](https://github.com/windmill-labs/windmill/commit/3ea12f1821500e8b84549b892e3e1bb56a6ace4b))
+
 ## [1.421.0](https://github.com/windmill-labs/windmill/compare/v1.420.1...v1.421.0) (2024-11-07)
 
 

@@ -335,7 +335,15 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
+<svelte:window
+	on:focus={() => {
+		if ($isCtrlOrMetaPressedStore) {
+			$isCtrlOrMetaPressedStore = false
+		}
+	}}
+	on:keydown={handleKeyDown}
+	on:keyup={handleKeyUp}
+/>
 
 <div
 	class="svlt-grid-container"

@@ -20,6 +20,7 @@
 	export let allowCopy = true
 	export let collapseLevel: number | undefined = undefined
 	export let prefix = ''
+	export let expandedEvenOnLevel0: string | undefined = undefined
 
 	let s3FileViewer: S3FilePicker
 
@@ -124,7 +125,9 @@
 								{allowCopy}
 								on:select
 								{collapseLevel}
-								collapsed={collapseLevel !== undefined ? level + 1 >= collapseLevel : undefined}
+								collapsed={collapseLevel !== undefined
+									? level + 1 >= collapseLevel && key != expandedEvenOnLevel0
+									: undefined}
 							/>
 						{:else}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
