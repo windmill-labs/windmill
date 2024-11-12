@@ -4,7 +4,7 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
@@ -27,6 +27,17 @@
 	export let defaultValue: string | undefined = undefined
 	export let workspace: string | undefined = undefined
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
+	export let appPath: string | undefined = undefined
+	export let computeForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -115,6 +126,26 @@
 				params.append('content_type', fileToUpload.type)
 			}
 
+			if (computeForceViewerPolicies !== undefined) {
+				const forceViewerPolicies = computeForceViewerPolicies()
+
+				if (forceViewerPolicies) {
+					params.append(
+						'force_viewer_allowed_resources',
+						forceViewerPolicies.allowed_resources.join(',')
+					)
+					params.append(
+						'force_viewer_allow_user_resources',
+						JSON.stringify(forceViewerPolicies.allow_user_resources)
+					)
+					params.append(
+						'force_viewer_allow_workspace_resource',
+						JSON.stringify(forceViewerPolicies.allow_workspace_resource)
+					)
+					params.append('force_viewer_file_key_regex', forceViewerPolicies.file_key_regex)
+				}
+			}
+
 			// let response = await fetch(
 			// 	`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
 			// 	{
@@ -158,9 +189,16 @@
 						}
 					}
 				})
+
 				xhr?.open(
 					'POST',
-					`/api/w/${workspace ?? $workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
+					appPath
+						? `/api/w/${
+								workspace ?? $workspaceStore
+						  }/apps_u/upload_s3_file/${appPath}?${params.toString()}`
+						: `/api/w/${
+								workspace ?? $workspaceStore
+						  }/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -309,7 +347,7 @@
 									</Button>
 								{/if}
 
-								{#if fileUpload.progress === 100 && !fileUpload.cancelled}
+								{#if fileUpload.progress === 100 && !fileUpload.cancelled && $userStore}
 									<Button
 										size="xs2"
 										color="red"

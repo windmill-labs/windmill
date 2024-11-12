@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.422.0
+  version: 1.422.1
   title: Windmill API
 
   contact:
@@ -12293,6 +12293,10 @@ components:
         triggerables_v2:
           type: object
           additionalProperties:
+            type: object
+        s3_inputs:
+          type: array
+          items:
             type: object
         execution_mode:
           type: string
