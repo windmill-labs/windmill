@@ -181,7 +181,8 @@
 							stopPropagation: !!$connectingInput?.opened,
 							exclude: getConnectionButtonElements
 						}}
-						on:keydown|preventDefault={(e) => e.key === 'Escape' && closeConnection()}
+						on:keydown|preventDefault|stopPropagation={(e) =>
+							e.key === 'Escape' && closeConnection()}
 						on:pointerdown_outside={closeConnection}
 						on:click_outside={closeConnection}
 					>
