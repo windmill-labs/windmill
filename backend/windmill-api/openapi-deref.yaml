@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.417.2
+  version: 1.418.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -87,7 +87,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: &ref_30
+          schema: &ref_28
             type: integer
       responses:
         '200':
@@ -123,7 +123,7 @@ paths:
                       - jobs.disapproval
                       - jobs.delete
                       - account.delete
-                      - ai.request
+                      - openai.request
                       - resources.create
                       - resources.update
                       - resources.delete
@@ -233,24 +233,24 @@ paths:
         - name: before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: &ref_119
+          schema: &ref_118
             type: string
             format: date-time
         - name: after
           description: filter on created after (exclusive) timestamp
           in: query
-          schema: &ref_120
+          schema: &ref_119
             type: string
             format: date-time
         - name: username
           description: filter on exact username of user
           in: query
-          schema: &ref_129
+          schema: &ref_128
             type: string
         - name: operation
           description: filter on exact or prefix name of operation
           in: query
-          schema: &ref_130
+          schema: &ref_129
             type: string
         - name: operations
           in: query
@@ -265,12 +265,12 @@ paths:
         - name: resource
           description: filter on exact or prefix name of resource
           in: query
-          schema: &ref_131
+          schema: &ref_130
             type: string
         - name: action_kind
           description: filter on type of operation
           in: query
-          schema: &ref_132
+          schema: &ref_131
             type: string
             enum:
               - Create
@@ -302,12 +302,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_144
+              properties: &ref_143
                 email:
                   type: string
                 password:
                   type: string
-              required: &ref_145
+              required: &ref_144
                 - email
                 - password
       responses:
@@ -430,7 +430,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_146
+              properties: &ref_145
                 is_admin:
                   type: boolean
                 operator:
@@ -458,7 +458,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: &ref_23
+          schema: &ref_21
             type: string
       responses:
         '200':
@@ -784,7 +784,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_184
+                properties: &ref_183
                   email:
                     type: string
                   workspaces:
@@ -802,7 +802,7 @@ paths:
                         - id
                         - name
                         - username
-                required: &ref_185
+                required: &ref_184
                   - email
                   - workspaces
   /workspaces/list_as_superadmin:
@@ -844,14 +844,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_186
+              properties: &ref_185
                 id:
                   type: string
                 name:
                   type: string
                 username:
                   type: string
-              required: &ref_187
+              required: &ref_186
                 - id
                 - name
       responses:
@@ -1044,6 +1044,98 @@ paths:
             text/plain:
               schema:
                 type: string
+  /settings/critical_alerts:
+    get:
+      summary: Get all critical alerts
+      operationId: getCriticalAlerts
+      tags:
+        - setting
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            description: The page number to retrieve (minimum value is 1)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+            description: Number of alerts per page (maximum is 100)
+        - in: query
+          name: acknowledged
+          schema:
+            type: boolean
+            nullable: true
+            description: >-
+              Filter by acknowledgment status; true for acknowledged, false for
+              unacknowledged, and omit for all alerts
+      responses:
+        '200':
+          description: Successfully retrieved all critical alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties: &ref_228
+                    id:
+                      type: integer
+                      description: Unique identifier for the alert
+                    alert_type:
+                      type: string
+                      description: Type of alert (e.g., critical_error)
+                    message:
+                      type: string
+                      description: The message content of the alert
+                    created_at:
+                      type: string
+                      format: date-time
+                      description: Time when the alert was created
+                    acknowledged:
+                      type: boolean
+                      nullable: true
+                      description: >-
+                        Acknowledgment status of the alert, can be true, false,
+                        or null if not set
+  /settings/critical_alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge a critical alert
+      operationId: acknowledgeCriticalAlert
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: The ID of the critical alert to acknowledge
+      responses:
+        '200':
+          description: Successfully acknowledged the critical alert
+          content:
+            application/json:
+              schema:
+                type: string
+                example: Critical alert acknowledged
+  /settings/critical_alerts/acknowledge_all:
+    post:
+      summary: Acknowledge all unacknowledged critical alerts
+      operationId: acknowledgeAllCriticalAlerts
+      tags:
+        - setting
+      responses:
+        '200':
+          description: Successfully acknowledged all unacknowledged critical alerts.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: All unacknowledged critical alerts acknowledged
   /settings/test_license_key:
     post:
       summary: test license key
@@ -1199,12 +1291,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_222
+                  properties: &ref_221
                     name:
                       type: string
                     value:
                       type: object
-                  required: &ref_223
+                  required: &ref_222
                     - name
                     - value
   /users/email:
@@ -1869,28 +1961,20 @@ paths:
                     type: string
                   deploy_to:
                     type: string
-                  ai_resource:
-                    type: object
-                    properties: &ref_16
-                      path:
-                        type: string
-                      provider:
-                        type: string
-                    required: &ref_17
-                      - path
-                      - provider
+                  openai_resource_path:
+                    type: string
                   code_completion_enabled:
                     type: boolean
                   error_handler:
                     type: string
                   error_handler_extra_args:
                     type: object
-                    additionalProperties: &ref_18 {}
+                    additionalProperties: &ref_16 {}
                   error_handler_muted_on_cancel:
                     type: boolean
                   large_file_storage:
                     type: object
-                    properties: &ref_19
+                    properties: &ref_17
                       type:
                         type: string
                         enum:
@@ -1924,7 +2008,7 @@ paths:
                               type: boolean
                   git_sync:
                     type: object
-                    properties: &ref_20
+                    properties: &ref_18
                       include_path:
                         type: array
                         items:
@@ -1949,7 +2033,7 @@ paths:
                         type: array
                         items:
                           type: object
-                          properties: &ref_206
+                          properties: &ref_205
                             script_path:
                               type: string
                             git_repo_resource_path:
@@ -1974,12 +2058,12 @@ paths:
                                   - schedule
                                   - user
                                   - group
-                          required: &ref_207
+                          required: &ref_206
                             - script_path
                             - git_repo_resource_path
                   deploy_ui:
                     type: object
-                    properties: &ref_21
+                    properties: &ref_19
                       include_path:
                         type: array
                         items:
@@ -1999,7 +2083,7 @@ paths:
                     type: string
                   default_scripts:
                     type: object
-                    properties: &ref_22
+                    properties: &ref_20
                       order:
                         type: array
                         items:
@@ -2287,10 +2371,8 @@ paths:
               required:
                 - code_completion_enabled
               properties:
-                ai_resource:
-                  type: object
-                  properties: *ref_16
-                  required: *ref_17
+                openai_resource_path:
+                  type: string
                 code_completion_enabled:
                   type: boolean
       responses:
@@ -2319,15 +2401,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  ai_provider:
-                    type: string
-                  exists_ai_resource:
+                  exists_openai_resource_path:
                     type: boolean
                   code_completion_enabled:
                     type: boolean
                 required:
-                  - ai_provider
-                  - exists_ai_resource
+                  - exists_openai_resource_path
                   - code_completion_enabled
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -2352,7 +2431,7 @@ paths:
                   type: string
                 error_handler_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 error_handler_muted_on_cancel:
                   type: boolean
       responses:
@@ -2383,7 +2462,7 @@ paths:
               properties:
                 large_file_storage:
                   type: object
-                  properties: *ref_19
+                  properties: *ref_17
       responses:
         '200':
           description: status
@@ -2411,7 +2490,7 @@ paths:
               properties:
                 git_sync_settings:
                   type: object
-                  properties: *ref_20
+                  properties: *ref_18
       responses:
         '200':
           description: status
@@ -2439,7 +2518,7 @@ paths:
               properties:
                 deploy_ui_settings:
                   type: object
-                  properties: *ref_21
+                  properties: *ref_19
       responses:
         '200':
           description: status
@@ -2491,7 +2570,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: *ref_22
+              properties: *ref_20
       responses:
         '200':
           description: status
@@ -2516,7 +2595,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_22
+                properties: *ref_20
   /w/{workspace}/workspaces/set_environment_variable:
     post:
       summary: set environment variable
@@ -2642,7 +2721,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_19
+                properties: *ref_17
   /w/{workspace}/workspaces/usage:
     get:
       summary: get usage
@@ -2729,7 +2808,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_143
+                  properties: &ref_142
                     email:
                       type: string
                     executions:
@@ -2790,7 +2869,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_147
+              properties: &ref_146
                 label:
                   type: string
                 expiration:
@@ -2822,7 +2901,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_148
+              properties: &ref_147
                 label:
                   type: string
                 expiration:
@@ -2832,7 +2911,7 @@ paths:
                   type: string
                 workspace_id:
                   type: string
-              required: &ref_149
+              required: &ref_148
                 - impersonate_email
       responses:
         '201':
@@ -2888,7 +2967,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_40
+                  properties: &ref_38
                     label:
                       type: string
                     expiration:
@@ -2908,7 +2987,7 @@ paths:
                         type: string
                     email:
                       type: string
-                  required: &ref_41
+                  required: &ref_39
                     - token_prefix
                     - created_at
                     - last_used_at
@@ -2957,7 +3036,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_152
+              properties: &ref_151
                 path:
                   type: string
                 value:
@@ -2973,7 +3052,7 @@ paths:
                 expires_at:
                   type: string
                   format: date-time
-              required: &ref_153
+              required: &ref_152
                 - path
                 - value
                 - is_secret
@@ -3024,7 +3103,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: variable deleted
@@ -3046,7 +3125,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: already_encrypted
           in: query
           schema:
@@ -3058,7 +3137,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_154
+              properties: &ref_153
                 path:
                   type: string
                 value:
@@ -3088,7 +3167,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: decrypt_secret
           description: |
             ask to decrypt secret if this variable is secret
@@ -3110,7 +3189,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_24
+                properties: &ref_22
                   workspace_id:
                     type: string
                   path:
@@ -3140,7 +3219,7 @@ paths:
                   expires_at:
                     type: string
                     format: date-time
-                required: &ref_25
+                required: &ref_23
                   - workspace_id
                   - path
                   - is_secret
@@ -3159,7 +3238,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: variable
@@ -3181,7 +3260,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: variable
@@ -3221,8 +3300,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_24
-                  required: *ref_25
+                  properties: *ref_22
+                  required: *ref_23
   /w/{workspace}/variables/list_contextual:
     get:
       summary: list contextual variables
@@ -3243,7 +3322,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_150
+                  properties: &ref_149
                     name:
                       type: string
                     value:
@@ -3252,7 +3331,7 @@ paths:
                       type: string
                     is_custom:
                       type: boolean
-                  required: &ref_151
+                  required: &ref_150
                     - name
                     - value
                     - description
@@ -3268,7 +3347,7 @@ paths:
         - name: client_name
           in: path
           required: true
-          schema: &ref_26
+          schema: &ref_24
             type: string
       requestBody:
         description: Partially filled script
@@ -3369,7 +3448,7 @@ paths:
         - name: client_name
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_24
       requestBody:
         description: code endpoint
         required: true
@@ -3392,7 +3471,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_199
+                properties: &ref_198
                   access_token:
                     type: string
                   expires_in:
@@ -3403,7 +3482,7 @@ paths:
                     type: array
                     items:
                       type: string
-                required: &ref_200
+                required: &ref_199
                   - access_token
   /w/{workspace}/oauth/create_account:
     post:
@@ -3454,7 +3533,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: &ref_27
+          schema: &ref_25
             type: integer
       requestBody:
         description: variable path
@@ -3489,7 +3568,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_27
+          schema: *ref_25
       responses:
         '200':
           description: disconnected client
@@ -3608,7 +3687,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_161
+              properties: &ref_160
                 path:
                   type: string
                 value: {}
@@ -3616,7 +3695,7 @@ paths:
                   type: string
                 resource_type:
                   type: string
-              required: &ref_162
+              required: &ref_161
                 - path
                 - value
                 - resource_type
@@ -3641,7 +3720,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: resource deleted
@@ -3663,7 +3742,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated resource
         required: true
@@ -3671,7 +3750,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_163
+              properties: &ref_162
                 path:
                   type: string
                 description:
@@ -3698,7 +3777,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated resource
         required: true
@@ -3729,7 +3808,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: resource
@@ -3737,7 +3816,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_164
+                properties: &ref_163
                   workspace_id:
                     type: string
                   path:
@@ -3758,7 +3837,7 @@ paths:
                   edited_at:
                     type: string
                     format: date-time
-                required: &ref_165
+                required: &ref_164
                   - path
                   - resource_type
                   - is_oauth
@@ -3776,7 +3855,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: job_id
           description: job id
           in: query
@@ -3803,7 +3882,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: resource value
@@ -3824,7 +3903,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: does resource exists
@@ -3874,7 +3953,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_166
+                  properties: &ref_165
                     workspace_id:
                       type: string
                     path:
@@ -3905,7 +3984,7 @@ paths:
                     edited_at:
                       type: string
                       format: date-time
-                  required: &ref_167
+                  required: &ref_166
                     - path
                     - resource_type
                     - is_oauth
@@ -3952,7 +4031,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: &ref_102
+          schema: &ref_101
             type: string
       responses:
         '200':
@@ -3989,7 +4068,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_28
+              properties: &ref_26
                 workspace_id:
                   type: string
                 name:
@@ -4004,7 +4083,7 @@ paths:
                   format: date-time
                 format_extension:
                   type: string
-              required: &ref_29
+              required: &ref_27
                 - name
       responses:
         '201':
@@ -4044,7 +4123,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: resource_type deleted
@@ -4066,7 +4145,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated resource_type
         required: true
@@ -4074,7 +4153,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_168
+              properties: &ref_167
                 schema: {}
                 description:
                   type: string
@@ -4099,7 +4178,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: resource_type deleted
@@ -4107,8 +4186,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_28
-                required: *ref_29
+                properties: *ref_26
+                required: *ref_27
   /w/{workspace}/resources/type/exists/{path}:
     get:
       summary: does resource_type exists
@@ -4123,7 +4202,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: does resource_type exist
@@ -4151,8 +4230,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_28
-                  required: *ref_29
+                  properties: *ref_26
+                  required: *ref_27
   /w/{workspace}/resources/type/listnames:
     get:
       summary: list resource_types names
@@ -4291,7 +4370,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_30
+          schema: *ref_28
       responses:
         '200':
           description: flow
@@ -4302,51 +4381,51 @@ paths:
                 properties:
                   flow:
                     type: object
-                    properties: &ref_54
+                    properties: &ref_52
                       summary:
                         type: string
                       description:
                         type: string
                       value:
                         type: object
-                        properties: &ref_66
+                        properties: &ref_64
                           modules:
                             type: array
                             items:
                               type: object
-                              properties: &ref_33
+                              properties: &ref_31
                                 id:
                                   type: string
                                 value:
-                                  oneOf: &ref_248
+                                  oneOf: &ref_249
                                     - type: object
-                                      properties: &ref_232
+                                      properties: &ref_233
                                         input_transforms:
                                           type: object
                                           additionalProperties:
-                                            oneOf: &ref_31
+                                            oneOf: &ref_29
                                               - type: object
-                                                properties: &ref_228
+                                                properties: &ref_229
                                                   value: {}
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_229
+                                                required: &ref_230
                                                   - expr
                                                   - type
                                               - type: object
-                                                properties: &ref_230
+                                                properties: &ref_231
                                                   expr:
                                                     type: string
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_231
+                                                required: &ref_232
                                                   - expr
                                                   - type
-                                            discriminator: &ref_32
+                                            discriminator: &ref_30
                                               propertyName: type
                                               mapping:
                                                 static: '#/components/schemas/StaticTransform'
@@ -4386,18 +4465,20 @@ paths:
                                           type: number
                                         custom_concurrency_key:
                                           type: string
-                                      required: &ref_233
+                                        is_trigger:
+                                          type: boolean
+                                      required: &ref_234
                                         - type
                                         - content
                                         - language
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_234
+                                      properties: &ref_235
                                         input_transforms:
                                           type: object
                                           additionalProperties:
-                                            oneOf: *ref_31
-                                            discriminator: *ref_32
+                                            oneOf: *ref_29
+                                            discriminator: *ref_30
                                         path:
                                           type: string
                                         hash:
@@ -4408,40 +4489,42 @@ paths:
                                             - script
                                         tag_override:
                                           type: string
-                                      required: &ref_235
+                                        is_trigger:
+                                          type: boolean
+                                      required: &ref_236
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_236
+                                      properties: &ref_237
                                         input_transforms:
                                           type: object
                                           additionalProperties:
-                                            oneOf: *ref_31
-                                            discriminator: *ref_32
+                                            oneOf: *ref_29
+                                            discriminator: *ref_30
                                         path:
                                           type: string
                                         type:
                                           type: string
                                           enum:
                                             - flow
-                                      required: &ref_237
+                                      required: &ref_238
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_238
+                                      properties: &ref_239
                                         modules:
                                           type: array
                                           items:
                                             type: object
-                                            properties: *ref_33
-                                            required: &ref_34
+                                            properties: *ref_31
+                                            required: &ref_32
                                               - value
                                               - id
                                         iterator:
-                                          oneOf: *ref_31
-                                          discriminator: *ref_32
+                                          oneOf: *ref_29
+                                          discriminator: *ref_30
                                         skip_failures:
                                           type: boolean
                                         type:
@@ -4452,19 +4535,19 @@ paths:
                                           type: boolean
                                         parallelism:
                                           type: integer
-                                      required: &ref_239
+                                      required: &ref_240
                                         - modules
                                         - iterator
                                         - skip_failures
                                         - type
                                     - type: object
-                                      properties: &ref_240
+                                      properties: &ref_241
                                         modules:
                                           type: array
                                           items:
                                             type: object
-                                            properties: *ref_33
-                                            required: *ref_34
+                                            properties: *ref_31
+                                            required: *ref_32
                                         skip_failures:
                                           type: boolean
                                         type:
@@ -4475,12 +4558,12 @@ paths:
                                           type: boolean
                                         parallelism:
                                           type: integer
-                                      required: &ref_241
+                                      required: &ref_242
                                         - modules
                                         - skip_failures
                                         - type
                                     - type: object
-                                      properties: &ref_242
+                                      properties: &ref_243
                                         branches:
                                           type: array
                                           items:
@@ -4494,8 +4577,8 @@ paths:
                                                 type: array
                                                 items:
                                                   type: object
-                                                  properties: *ref_33
-                                                  required: *ref_34
+                                                  properties: *ref_31
+                                                  required: *ref_32
                                             required:
                                               - modules
                                               - expr
@@ -4503,20 +4586,20 @@ paths:
                                           type: array
                                           items:
                                             type: object
-                                            properties: *ref_33
-                                            required: *ref_34
+                                            properties: *ref_31
+                                            required: *ref_32
                                           required:
                                             - modules
                                         type:
                                           type: string
                                           enum:
                                             - branchone
-                                      required: &ref_243
+                                      required: &ref_244
                                         - branches
                                         - default
                                         - type
                                     - type: object
-                                      properties: &ref_244
+                                      properties: &ref_245
                                         branches:
                                           type: array
                                           items:
@@ -4530,8 +4613,8 @@ paths:
                                                 type: array
                                                 items:
                                                   type: object
-                                                  properties: *ref_33
-                                                  required: *ref_34
+                                                  properties: *ref_31
+                                                  required: *ref_32
                                             required:
                                               - modules
                                               - expr
@@ -4541,20 +4624,20 @@ paths:
                                             - branchall
                                         parallel:
                                           type: boolean
-                                      required: &ref_245
+                                      required: &ref_246
                                         - branches
                                         - type
                                     - type: object
-                                      properties: &ref_246
+                                      properties: &ref_247
                                         type:
                                           type: string
                                           enum:
                                             - identity
                                         flow:
                                           type: boolean
-                                      required: &ref_247
+                                      required: &ref_248
                                         - type
-                                  discriminator: &ref_249
+                                  discriminator: &ref_250
                                     propertyName: type
                                     mapping:
                                       rawscript: '#/components/schemas/RawScript'
@@ -4591,8 +4674,8 @@ paths:
                                   required:
                                     - expr
                                 sleep:
-                                  oneOf: *ref_31
-                                  discriminator: *ref_32
+                                  oneOf: *ref_29
+                                  discriminator: *ref_30
                                 cache_ttl:
                                   type: number
                                 timeout:
@@ -4622,8 +4705,8 @@ paths:
                                     user_auth_required:
                                       type: boolean
                                     user_groups_required:
-                                      oneOf: *ref_31
-                                      discriminator: *ref_32
+                                      oneOf: *ref_29
+                                      discriminator: *ref_30
                                     self_approval_disabled:
                                       type: boolean
                                     hide_cancel:
@@ -4636,7 +4719,7 @@ paths:
                                   type: boolean
                                 retry:
                                   type: object
-                                  properties: &ref_95
+                                  properties: &ref_93
                                     constant:
                                       type: object
                                       properties:
@@ -4657,15 +4740,15 @@ paths:
                                           type: integer
                                           minimum: 0
                                           maximum: 100
-                              required: *ref_34
+                              required: *ref_32
                           failure_module:
                             type: object
-                            properties: *ref_33
-                            required: *ref_34
+                            properties: *ref_31
+                            required: *ref_32
                           preprocessor_module:
                             type: object
-                            properties: *ref_33
-                            required: *ref_34
+                            properties: *ref_31
+                            required: *ref_32
                           same_worker:
                             type: boolean
                           concurrent_limit:
@@ -4682,11 +4765,11 @@ paths:
                             type: number
                           early_return:
                             type: string
-                        required: &ref_67
+                        required: &ref_65
                           - modules
                       schema:
                         type: object
-                    required: &ref_55
+                    required: &ref_53
                       - summary
                       - value
   /apps/hub/list:
@@ -4739,7 +4822,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_30
+          schema: *ref_28
       responses:
         '200':
           description: app
@@ -4769,7 +4852,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: &ref_35
+          schema: &ref_33
             type: string
       responses:
         '200':
@@ -4788,7 +4871,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script details
@@ -4859,7 +4942,7 @@ paths:
                           type: number
                         kind:
                           name: kind
-                          schema: &ref_36
+                          schema: &ref_34
                             type: string
                             enum:
                               - script
@@ -4932,7 +5015,7 @@ paths:
                       type: string
                     kind:
                       name: kind
-                      schema: *ref_36
+                      schema: *ref_34
                     score:
                       type: number
                   required:
@@ -4993,12 +5076,12 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: &ref_52
+          schema: &ref_50
             type: boolean
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: &ref_53
+          schema: &ref_51
             type: string
         - name: path_start
           description: mask to filter matching starting path
@@ -5112,7 +5195,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_37
+                  properties: &ref_35
                     workspace_id:
                       type: string
                     hash:
@@ -5220,7 +5303,7 @@ paths:
                       type: string
                     has_preprocessor:
                       type: boolean
-                  required: &ref_38
+                  required: &ref_36
                     - hash
                     - path
                     - summary
@@ -5318,7 +5401,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: draft deleted
@@ -5344,7 +5427,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_42
+              properties: &ref_40
                 path:
                   type: string
                 parent_hash:
@@ -5426,7 +5509,7 @@ paths:
                   type: string
                 has_preprocessor:
                   type: boolean
-              required: &ref_43
+              required: &ref_41
                 - path
                 - summary
                 - description
@@ -5453,7 +5536,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: Workspace error handler enabled
         required: true
@@ -5530,7 +5613,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script archived
@@ -5552,7 +5635,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: &ref_39
+          schema: &ref_37
             type: string
       responses:
         '200':
@@ -5561,8 +5644,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_37
-                required: *ref_38
+                properties: *ref_35
+                required: *ref_36
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
       summary: delete script by hash (erase content but keep hash, require admin)
@@ -5577,7 +5660,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_39
+          schema: *ref_37
       responses:
         '200':
           description: script details
@@ -5585,8 +5668,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_37
-                required: *ref_38
+                properties: *ref_35
+                required: *ref_36
   /w/{workspace}/scripts/delete/p/{path}:
     post:
       summary: delete all scripts at a given path (require admin)
@@ -5601,7 +5684,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script path
@@ -5623,7 +5706,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: with_starred_info
           in: query
           schema:
@@ -5635,8 +5718,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_37
-                required: *ref_38
+                properties: *ref_35
+                required: *ref_36
   /w/{workspace}/scripts/get_triggers_count/{path}:
     get:
       summary: get triggers count of script
@@ -5651,7 +5734,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: triggers count
@@ -5659,7 +5742,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_59
+                properties: &ref_57
                   primary_schedule:
                     type: object
                     properties:
@@ -5689,7 +5772,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: tokens list
@@ -5699,8 +5782,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_40
-                  required: *ref_41
+                  properties: *ref_38
+                  required: *ref_39
   /w/{workspace}/scripts/get/draft/{path}:
     get:
       summary: get script by path with draft
@@ -5715,23 +5798,23 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script details
           content:
             application/json:
               schema:
-                allOf: &ref_136
+                allOf: &ref_135
                   - type: object
-                    properties: *ref_42
-                    required: *ref_43
+                    properties: *ref_40
+                    required: *ref_41
                   - type: object
                     properties:
                       draft:
                         type: object
-                        properties: *ref_42
-                        required: *ref_43
+                        properties: *ref_40
+                        required: *ref_41
                       hash:
                         type: string
                     required:
@@ -5750,7 +5833,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script history
@@ -5760,12 +5843,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_44
+                  properties: &ref_42
                     script_hash:
                       type: string
                     deployment_msg:
                       type: string
-                  required: &ref_45
+                  required: &ref_43
                     - script_hash
   /w/{workspace}/scripts/get_latest_version/{path}:
     get:
@@ -5779,7 +5862,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       tags:
         - script
       responses:
@@ -5790,8 +5873,8 @@ paths:
               required: false
               schema:
                 type: object
-                properties: *ref_44
-                required: *ref_45
+                properties: *ref_42
+                required: *ref_43
   /w/{workspace}/scripts/history_update/h/{hash}/p/{path}:
     post:
       summary: update history of a script
@@ -5806,11 +5889,11 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_39
+          schema: *ref_37
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: Script deployment message
         required: true
@@ -5842,7 +5925,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script content
@@ -5866,12 +5949,12 @@ paths:
         - name: token
           in: path
           required: true
-          schema: &ref_125
+          schema: &ref_124
             type: string
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script content
@@ -5893,7 +5976,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: does it exists
@@ -5915,7 +5998,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_39
+          schema: *ref_37
         - name: with_starred_info
           in: query
           schema:
@@ -5927,8 +6010,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_37
-                required: *ref_38
+                properties: *ref_35
+                required: *ref_36
   /w/{workspace}/scripts/raw/h/{path}:
     get:
       summary: raw script by hash
@@ -5943,7 +6026,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: script content
@@ -5965,7 +6048,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_39
+          schema: *ref_37
       responses:
         '200':
           description: script details
@@ -5992,7 +6075,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -6014,20 +6097,20 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: &ref_46
+          schema: &ref_44
             type: string
             format: uuid
         - name: tag
           description: Override the tag to use
           in: query
-          schema: &ref_48
+          schema: &ref_46
             type: string
         - name: cache_ttl
           description: >-
             Override the cache time to live (in seconds). Can not be used to
             disable caching, only override with a new cache ttl
           in: query
-          schema: &ref_49
+          schema: &ref_47
             type: string
         - name: job_id
           description: >-
@@ -6036,7 +6119,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: &ref_47
+          schema: &ref_45
             type: string
             format: uuid
         - name: invisible_to_owner
@@ -6051,7 +6134,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '201':
           description: job created
@@ -6074,13 +6157,13 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -6088,7 +6171,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -6097,14 +6180,14 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: &ref_50
+          schema: &ref_48
             type: string
         - name: queue_limit
           description: >
             The maximum size of the queue for which the request would get
             rejected if that job would push it above that limit
           in: query
-          schema: &ref_51
+          schema: &ref_49
             type: string
       requestBody:
         description: script args
@@ -6113,7 +6196,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '200':
           description: job result
@@ -6134,23 +6217,23 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: tag
           description: Override the tag to use
           in: query
-          schema: *ref_48
+          schema: *ref_46
         - name: cache_ttl
           description: >-
             Override the cache time to live (in seconds). Can not be used to
             disable caching, only override with a new cache ttl
           in: query
-          schema: *ref_49
+          schema: *ref_47
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -6158,7 +6241,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -6167,13 +6250,13 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: queue_limit
           description: >
             The maximum size of the queue for which the request would get
             rejected if that job would push it above that limit
           in: query
-          schema: *ref_51
+          schema: *ref_49
       requestBody:
         description: script args
         required: true
@@ -6181,7 +6264,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '200':
           description: job result
@@ -6201,23 +6284,23 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: tag
           description: Override the tag to use
           in: query
-          schema: *ref_48
+          schema: *ref_46
         - name: cache_ttl
           description: >-
             Override the cache time to live (in seconds). Can not be used to
             disable caching, only override with a new cache ttl
           in: query
-          schema: *ref_49
+          schema: *ref_47
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -6225,7 +6308,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -6234,13 +6317,13 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: queue_limit
           description: >
             The maximum size of the queue for which the request would get
             rejected if that job would push it above that limit
           in: query
-          schema: *ref_51
+          schema: *ref_49
         - name: payload
           description: >
             The base64 encoded payload that has been encoded as a JSON. e.g how
@@ -6248,7 +6331,7 @@ paths:
 
             `encodeURIComponent(btoa(JSON.stringify({a: 2})))`
           in: query
-          schema: &ref_94
+          schema: &ref_92
             type: string
       responses:
         '200':
@@ -6270,7 +6353,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -6279,13 +6362,13 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: queue_limit
           description: >
             The maximum size of the queue for which the request would get
             rejected if that job would push it above that limit
           in: query
-          schema: *ref_51
+          schema: *ref_49
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -6293,7 +6376,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
       requestBody:
         description: script args
         required: true
@@ -6301,7 +6384,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '200':
           description: job result
@@ -6322,7 +6405,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -6331,13 +6414,13 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: queue_limit
           description: >
             The maximum size of the queue for which the request would get
             rejected if that job would push it above that limit
           in: query
-          schema: *ref_51
+          schema: *ref_49
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -6345,7 +6428,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
       requestBody:
         description: script args
         required: true
@@ -6353,7 +6436,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '200':
           description: job result
@@ -6456,11 +6539,11 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: *ref_52
+          schema: *ref_50
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: path_start
           description: mask to filter matching starting path
           in: query
@@ -6514,12 +6597,12 @@ paths:
                 type: array
                 items:
                   allOf:
-                    - allOf: &ref_58
+                    - allOf: &ref_56
                         - type: object
-                          properties: *ref_54
-                          required: *ref_55
+                          properties: *ref_52
+                          required: *ref_53
                         - type: object
-                          properties: &ref_189
+                          properties: &ref_188
                             workspace_id:
                               type: string
                             path:
@@ -6533,7 +6616,7 @@ paths:
                               type: boolean
                             extra_perms:
                               type: object
-                              additionalProperties: &ref_188
+                              additionalProperties: &ref_187
                                 type: boolean
                             starred:
                               type: boolean
@@ -6551,7 +6634,7 @@ paths:
                               type: number
                             visible_to_runner_only:
                               type: boolean
-                          required: &ref_190
+                          required: &ref_189
                             - path
                             - edited_by
                             - edited_at
@@ -6575,7 +6658,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       tags:
         - flow
       responses:
@@ -6587,7 +6670,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_56
+                  properties: &ref_54
                     id:
                       type: integer
                     created_at:
@@ -6595,7 +6678,7 @@ paths:
                       format: date-time
                     deployment_msg:
                       type: string
-                  required: &ref_57
+                  required: &ref_55
                     - id
                     - created_at
   /w/{workspace}/flows/get_latest_version/{path}:
@@ -6610,7 +6693,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       tags:
         - flow
       responses:
@@ -6621,8 +6704,8 @@ paths:
               required: false
               schema:
                 type: object
-                properties: *ref_56
-                required: *ref_57
+                properties: *ref_54
+                required: *ref_55
   /w/{workspace}/flows/get/v/{version}/p/{path}:
     get:
       summary: get flow version
@@ -6641,7 +6724,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       tags:
         - flow
       responses:
@@ -6650,7 +6733,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf: *ref_58
+                allOf: *ref_56
   /w/{workspace}/flows/history_update/v/{version}/p/{path}:
     post:
       summary: update flow history
@@ -6669,7 +6752,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: Flow deployment message
         required: true
@@ -6705,7 +6788,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: with_starred_info
           in: query
           schema:
@@ -6716,7 +6799,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf: *ref_58
+                allOf: *ref_56
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
       summary: get triggers count of flow
@@ -6731,7 +6814,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: triggers count
@@ -6739,7 +6822,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_59
+                properties: *ref_57
   /w/{workspace}/flows/list_tokens/{path}:
     get:
       summary: get tokens with flow scope
@@ -6754,7 +6837,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: tokens list
@@ -6764,8 +6847,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_40
-                  required: *ref_41
+                  properties: *ref_38
+                  required: *ref_39
   /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
     post:
       summary: Toggle ON and OFF the workspace error handler for a given flow
@@ -6780,7 +6863,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: Workspace error handler enabled
         required: true
@@ -6812,7 +6895,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: flow details with draft
@@ -6820,11 +6903,11 @@ paths:
             application/json:
               schema:
                 allOf:
-                  - allOf: *ref_58
+                  - allOf: *ref_56
                   - type: object
                     properties:
                       draft:
-                        allOf: *ref_58
+                        allOf: *ref_56
   /w/{workspace}/flows/exists/{path}:
     get:
       summary: exists flow by path
@@ -6839,7 +6922,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: flow details
@@ -6865,10 +6948,10 @@ paths:
           application/json:
             schema:
               allOf:
-                - allOf: &ref_60
+                - allOf: &ref_58
                     - type: object
-                      properties: *ref_54
-                      required: *ref_55
+                      properties: *ref_52
+                      required: *ref_53
                     - type: object
                       properties:
                         path:
@@ -6914,7 +6997,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: Partially filled flow
         required: true
@@ -6922,7 +7005,7 @@ paths:
           application/json:
             schema:
               allOf:
-                - allOf: *ref_60
+                - allOf: *ref_58
                 - type: object
                   properties:
                     deployment_message:
@@ -6948,7 +7031,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: archiveFlow
         required: true
@@ -6980,7 +7063,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: flow delete
@@ -7010,11 +7093,11 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: *ref_52
+          schema: *ref_50
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: path_start
           description: mask to filter matching starting path
           in: query
@@ -7041,7 +7124,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_196
+                  properties: &ref_195
                     workspace_id:
                       type: string
                     path:
@@ -7059,7 +7142,7 @@ paths:
                     edited_at:
                       type: string
                       format: date-time
-                  required: &ref_197
+                  required: &ref_196
                     - workspace_id
                     - path
                     - summary
@@ -7080,7 +7163,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: app exists
@@ -7102,12 +7185,12 @@ paths:
         - name: version
           in: path
           required: true
-          schema: &ref_124
+          schema: &ref_123
             type: number
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: app details
@@ -7164,11 +7247,11 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: *ref_52
+          schema: *ref_50
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: path_start
           description: mask to filter matching starting path
           in: query
@@ -7209,7 +7292,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_194
+                  properties: &ref_193
                     id:
                       type: integer
                     workspace_id:
@@ -7235,7 +7318,7 @@ paths:
                         - viewer
                         - publisher
                         - anonymous
-                  required: &ref_195
+                  required: &ref_194
                     - id
                     - workspace_id
                     - path
@@ -7270,7 +7353,7 @@ paths:
                   type: string
                 policy:
                   type: object
-                  properties: &ref_61
+                  properties: &ref_59
                     triggerables:
                       type: object
                       additionalProperties:
@@ -7319,7 +7402,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: app exists
@@ -7341,7 +7424,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: with_starred_info
           in: query
           schema:
@@ -7353,7 +7436,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_62
+                properties: &ref_60
                   id:
                     type: integer
                   workspace_id:
@@ -7375,7 +7458,7 @@ paths:
                     type: object
                   policy:
                     type: object
-                    properties: *ref_61
+                    properties: *ref_59
                   execution_mode:
                     type: string
                     enum:
@@ -7386,7 +7469,7 @@ paths:
                     type: object
                     additionalProperties:
                       type: boolean
-                required: &ref_63
+                required: &ref_61
                   - id
                   - workspace_id
                   - path
@@ -7412,17 +7495,17 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: app details with draft
           content:
             application/json:
               schema:
-                allOf: &ref_198
+                allOf: &ref_197
                   - type: object
-                    properties: *ref_62
-                    required: *ref_63
+                    properties: *ref_60
+                    required: *ref_61
                   - type: object
                     properties:
                       draft_only:
@@ -7442,7 +7525,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       responses:
         '200':
           description: app history
@@ -7452,12 +7535,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_64
+                  properties: &ref_62
                     version:
                       type: integer
                     deployment_msg:
                       type: string
-                  required: &ref_65
+                  required: &ref_63
                     - version
   /w/{workspace}/apps/get_latest_version/{path}:
     get:
@@ -7471,7 +7554,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       tags:
         - app
       responses:
@@ -7482,8 +7565,8 @@ paths:
               required: false
               schema:
                 type: object
-                properties: *ref_64
-                required: *ref_65
+                properties: *ref_62
+                required: *ref_63
   /w/{workspace}/apps/history_update/a/{id}/v/{version}:
     post:
       summary: update app history
@@ -7498,11 +7581,11 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_30
+          schema: *ref_28
         - name: version
           in: path
           required: true
-          schema: &ref_126
+          schema: &ref_125
             type: integer
       requestBody:
         description: App deployment message
@@ -7535,7 +7618,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: app details
@@ -7543,8 +7626,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_62
-                required: *ref_63
+                properties: *ref_60
+                required: *ref_61
   /w/{workspace}/apps_u/public_resource/{path}:
     get:
       summary: get public resource
@@ -7559,7 +7642,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: resource value
@@ -7580,7 +7663,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: app secret
@@ -7602,7 +7685,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_30
+          schema: *ref_28
       responses:
         '200':
           description: app details
@@ -7610,8 +7693,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_62
-                required: *ref_63
+                properties: *ref_60
+                required: *ref_61
   /w/{workspace}/raw_apps/create:
     post:
       summary: create raw app
@@ -7662,7 +7745,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: updateraw  app
         required: true
@@ -7698,7 +7781,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: app deleted
@@ -7720,7 +7803,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: app deleted
@@ -7742,7 +7825,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: update app
         required: true
@@ -7758,7 +7841,7 @@ paths:
                 value: {}
                 policy:
                   type: object
-                  properties: *ref_61
+                  properties: *ref_59
                 deployment_message:
                   type: string
       responses:
@@ -7782,7 +7865,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
       requestBody:
         description: update app
         required: true
@@ -7844,7 +7927,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_35
+          schema: *ref_33
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -7866,11 +7949,11 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: tag
           description: Override the tag to use
           in: query
-          schema: *ref_48
+          schema: *ref_46
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -7878,7 +7961,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -7887,7 +7970,7 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: invisible_to_owner
           description: make the run invisible to the the flow owner (default false)
           in: query
@@ -7900,7 +7983,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '201':
           description: job created
@@ -7923,7 +8006,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: &ref_91
+          schema: &ref_89
             type: string
             format: uuid
         - name: step_id
@@ -7956,11 +8039,11 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: tag
           description: Override the tag to use
           in: query
-          schema: *ref_48
+          schema: *ref_46
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -7968,7 +8051,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -7977,7 +8060,7 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: invisible_to_owner
           description: make the run invisible to the the flow owner (default false)
           in: query
@@ -7990,7 +8073,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_18
+              additionalProperties: *ref_16
       responses:
         '201':
           description: job created
@@ -8013,7 +8096,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_39
+          schema: *ref_37
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -8035,17 +8118,17 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: tag
           description: Override the tag to use
           in: query
-          schema: *ref_48
+          schema: *ref_46
         - name: cache_ttl
           description: >-
             Override the cache time to live (in seconds). Can not be used to
             disable caching, only override with a new cache ttl
           in: query
-          schema: *ref_49
+          schema: *ref_47
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -8053,7 +8136,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -8062,7 +8145,7 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -8102,7 +8185,7 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -8115,7 +8198,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
       requestBody:
         description: preview
         required: true
@@ -8123,14 +8206,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_155
+              properties: &ref_154
                 content:
                   type: string
                 path:
                   type: string
                 args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 language:
                   type: string
                   enum:
@@ -8162,7 +8245,7 @@ paths:
                   type: boolean
                 lock:
                   type: string
-              required: &ref_156
+              required: &ref_155
                 - args
       responses:
         '201':
@@ -8200,11 +8283,11 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_157
+              properties: &ref_156
                 args:
                   type: object
-                  additionalProperties: *ref_18
-              required: &ref_158
+                  additionalProperties: *ref_16
+              required: &ref_157
                 - args
       responses:
         '201':
@@ -8237,7 +8320,7 @@ paths:
                   type: array
                   items:
                     type: object
-                    properties: &ref_216
+                    properties: &ref_215
                       raw_code:
                         type: string
                       path:
@@ -8261,7 +8344,7 @@ paths:
                           - php
                           - rust
                           - ansible
-                    required: &ref_217
+                    required: &ref_216
                       - raw_code
                       - path
                       - language
@@ -8301,7 +8384,7 @@ paths:
             Header's key lowercased and '-'' replaced to '_' such that
             'Content-Type' becomes the 'content_type' arg key
           in: query
-          schema: *ref_50
+          schema: *ref_48
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -8314,7 +8397,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_47
+          schema: *ref_45
       requestBody:
         description: preview
         required: true
@@ -8322,21 +8405,21 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_191
+              properties: &ref_190
                 value:
                   type: object
-                  properties: *ref_66
-                  required: *ref_67
+                  properties: *ref_64
+                  required: *ref_65
                 path:
                   type: string
                 args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 tag:
                   type: string
                 restarted_from:
                   type: object
-                  properties: &ref_193
+                  properties: &ref_192
                     flow_job_id:
                       type: string
                       format: uuid
@@ -8344,7 +8427,7 @@ paths:
                       type: string
                     branch_or_iteration_n:
                       type: integer
-              required: &ref_192
+              required: &ref_191
                 - value
                 - content
                 - args
@@ -8370,94 +8453,94 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: *ref_52
+          schema: *ref_50
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
-          schema: &ref_70
+          schema: &ref_68
             type: string
         - name: script_path_start
           description: mask to filter matching starting path
           in: query
-          schema: &ref_71
+          schema: &ref_69
             type: string
         - name: schedule_path
           description: mask to filter by schedule path
           in: query
-          schema: &ref_72
+          schema: &ref_70
             type: string
         - name: script_hash
           description: mask to filter exact matching path
           in: query
-          schema: &ref_73
+          schema: &ref_71
             type: string
         - name: started_before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: &ref_74
+          schema: &ref_72
             type: string
             format: date-time
         - name: started_after
           description: filter on started after (exclusive) timestamp
           in: query
-          schema: &ref_75
+          schema: &ref_73
             type: string
             format: date-time
         - name: success
           description: filter on successful jobs
           in: query
-          schema: &ref_76
+          schema: &ref_74
             type: boolean
         - name: scheduled_for_before_now
           description: filter on jobs scheduled_for before now (hence waitinf for a worker)
           in: query
-          schema: &ref_77
+          schema: &ref_75
             type: boolean
         - name: job_kinds
           description: >-
             filter on job kind (values 'preview', 'script', 'dependencies',
             'flow') separated by,
           in: query
-          schema: &ref_78
+          schema: &ref_76
             type: string
         - name: suspended
           description: filter on suspended jobs
           in: query
-          schema: &ref_79
+          schema: &ref_77
             type: boolean
         - name: running
           description: filter on running jobs
           in: query
-          schema: &ref_80
+          schema: &ref_78
             type: boolean
         - name: args
           description: >-
             filter on jobs containing those args as a json subset (@> in
             postgres)
           in: query
-          schema: &ref_81
+          schema: &ref_79
             type: string
         - name: result
           description: >-
             filter on jobs containing those result as a json subset (@> in
             postgres)
           in: query
-          schema: &ref_82
+          schema: &ref_80
             type: string
         - name: tag
           description: filter on jobs with a given tag/worker group
           in: query
-          schema: &ref_83
+          schema: &ref_81
             type: string
         - name: page
           description: which page to return (start at 1, default 1)
@@ -8488,7 +8571,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_89
+                  properties: &ref_87
                     workspace_id:
                       type: string
                     id:
@@ -8516,7 +8599,7 @@ paths:
                       type: string
                     args:
                       type: object
-                      additionalProperties: *ref_18
+                      additionalProperties: *ref_16
                     logs:
                       type: string
                     raw_code:
@@ -8555,14 +8638,14 @@ paths:
                         by extension its DT_TOKEN.
                     flow_status:
                       type: object
-                      properties: &ref_84
+                      properties: &ref_82
                         step:
                           type: integer
                         modules:
                           type: array
                           items:
                             type: object
-                            properties: &ref_68
+                            properties: &ref_66
                               type:
                                 type: string
                                 enum:
@@ -8639,20 +8722,20 @@ paths:
                                   format: uuid
                               skipped:
                                 type: boolean
-                            required: &ref_69
+                            required: &ref_67
                               - type
                         user_states:
                           additionalProperties: true
                         preprocessor_module:
                           allOf:
                             - type: object
-                              properties: *ref_68
-                              required: *ref_69
+                              properties: *ref_66
+                              required: *ref_67
                         failure_module:
                           allOf:
                             - type: object
-                              properties: *ref_68
-                              required: *ref_69
+                              properties: *ref_66
+                              required: *ref_67
                             - type: object
                               properties:
                                 parent_module:
@@ -8667,14 +8750,14 @@ paths:
                               items:
                                 type: string
                                 format: uuid
-                      required: &ref_85
+                      required: &ref_83
                         - step
                         - modules
                         - failure_module
                     raw_flow:
                       type: object
-                      properties: *ref_66
-                      required: *ref_67
+                      properties: *ref_64
+                      required: *ref_65
                     is_flow_step:
                       type: boolean
                     language:
@@ -8712,7 +8795,7 @@ paths:
                       type: number
                     suspend:
                       type: number
-                  required: &ref_90
+                  required: &ref_88
                     - id
                     - running
                     - canceled
@@ -8791,79 +8874,79 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: *ref_52
+          schema: *ref_50
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
-          schema: *ref_70
+          schema: *ref_68
         - name: script_path_start
           description: mask to filter matching starting path
           in: query
-          schema: *ref_71
+          schema: *ref_69
         - name: schedule_path
           description: mask to filter by schedule path
           in: query
-          schema: *ref_72
+          schema: *ref_70
         - name: script_hash
           description: mask to filter exact matching path
           in: query
-          schema: *ref_73
+          schema: *ref_71
         - name: started_before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: *ref_74
+          schema: *ref_72
         - name: started_after
           description: filter on started after (exclusive) timestamp
           in: query
-          schema: *ref_75
+          schema: *ref_73
         - name: success
           description: filter on successful jobs
           in: query
-          schema: *ref_76
+          schema: *ref_74
         - name: scheduled_for_before_now
           description: filter on jobs scheduled_for before now (hence waitinf for a worker)
           in: query
-          schema: *ref_77
+          schema: *ref_75
         - name: job_kinds
           description: >-
             filter on job kind (values 'preview', 'script', 'dependencies',
             'flow') separated by,
           in: query
-          schema: *ref_78
+          schema: *ref_76
         - name: suspended
           description: filter on suspended jobs
           in: query
-          schema: *ref_79
+          schema: *ref_77
         - name: running
           description: filter on running jobs
           in: query
-          schema: *ref_80
+          schema: *ref_78
         - name: args
           description: >-
             filter on jobs containing those args as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_81
+          schema: *ref_79
         - name: result
           description: >-
             filter on jobs containing those result as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_82
+          schema: *ref_80
         - name: tag
           description: filter on jobs with a given tag/worker group
           in: query
-          schema: *ref_83
+          schema: *ref_81
         - name: page
           description: which page to return (start at 1, default 1)
           in: query
@@ -8941,75 +9024,75 @@ paths:
         - name: order_desc
           description: order by desc order (default true)
           in: query
-          schema: *ref_52
+          schema: *ref_50
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: label
           description: >-
             mask to filter exact matching job's label (job labels are completed
             jobs with as a result an object containing a string in the array at
             key 'wm_labels')
           in: query
-          schema: &ref_86
+          schema: &ref_84
             type: string
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
-          schema: *ref_70
+          schema: *ref_68
         - name: script_path_start
           description: mask to filter matching starting path
           in: query
-          schema: *ref_71
+          schema: *ref_69
         - name: schedule_path
           description: mask to filter by schedule path
           in: query
-          schema: *ref_72
+          schema: *ref_70
         - name: script_hash
           description: mask to filter exact matching path
           in: query
-          schema: *ref_73
+          schema: *ref_71
         - name: started_before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: *ref_74
+          schema: *ref_72
         - name: started_after
           description: filter on started after (exclusive) timestamp
           in: query
-          schema: *ref_75
+          schema: *ref_73
         - name: success
           description: filter on successful jobs
           in: query
-          schema: *ref_76
+          schema: *ref_74
         - name: job_kinds
           description: >-
             filter on job kind (values 'preview', 'script', 'dependencies',
             'flow') separated by,
           in: query
-          schema: *ref_78
+          schema: *ref_76
         - name: args
           description: >-
             filter on jobs containing those args as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_81
+          schema: *ref_79
         - name: result
           description: >-
             filter on jobs containing those result as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_82
+          schema: *ref_80
         - name: tag
           description: filter on jobs with a given tag/worker group
           in: query
-          schema: *ref_83
+          schema: *ref_81
         - name: page
           description: which page to return (start at 1, default 1)
           in: query
@@ -9047,7 +9130,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_87
+                  properties: &ref_85
                     workspace_id:
                       type: string
                     id:
@@ -9074,7 +9157,7 @@ paths:
                       type: string
                     args:
                       type: object
-                      additionalProperties: *ref_18
+                      additionalProperties: *ref_16
                     result: {}
                     logs:
                       type: string
@@ -9113,12 +9196,12 @@ paths:
                         by extension its DT_TOKEN.
                     flow_status:
                       type: object
-                      properties: *ref_84
-                      required: *ref_85
+                      properties: *ref_82
+                      required: *ref_83
                     raw_flow:
                       type: object
-                      properties: *ref_66
-                      required: *ref_67
+                      properties: *ref_64
+                      required: *ref_65
                     is_flow_step:
                       type: boolean
                     language:
@@ -9160,7 +9243,7 @@ paths:
                       type: number
                     aggregate_wait_time_ms:
                       type: number
-                  required: &ref_88
+                  required: &ref_86
                     - id
                     - created_by
                     - duration_ms
@@ -9189,54 +9272,54 @@ paths:
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: label
           description: >-
             mask to filter exact matching job's label (job labels are completed
             jobs with as a result an object containing a string in the array at
             key 'wm_labels')
           in: query
-          schema: *ref_86
+          schema: *ref_84
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
-          schema: *ref_70
+          schema: *ref_68
         - name: script_path_start
           description: mask to filter matching starting path
           in: query
-          schema: *ref_71
+          schema: *ref_69
         - name: schedule_path
           description: mask to filter by schedule path
           in: query
-          schema: *ref_72
+          schema: *ref_70
         - name: script_hash
           description: mask to filter exact matching path
           in: query
-          schema: *ref_73
+          schema: *ref_71
         - name: started_before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: *ref_74
+          schema: *ref_72
         - name: started_after
           description: filter on started after (exclusive) timestamp
           in: query
-          schema: *ref_75
+          schema: *ref_73
         - name: created_before
           description: filter on created before (inclusive) timestamp
           in: query
-          schema: &ref_127
+          schema: &ref_126
             type: string
             format: date-time
         - name: created_after
           description: filter on created after (exclusive) timestamp
           in: query
-          schema: &ref_128
+          schema: &ref_127
             type: string
             format: date-time
         - name: created_or_started_before
@@ -9244,23 +9327,23 @@ paths:
             filter on created_at for non non started job and started_at
             otherwise before (inclusive) timestamp
           in: query
-          schema: &ref_121
+          schema: &ref_120
             type: string
             format: date-time
         - name: running
           description: filter on running jobs
           in: query
-          schema: *ref_80
+          schema: *ref_78
         - name: scheduled_for_before_now
           description: filter on jobs scheduled_for before now (hence waitinf for a worker)
           in: query
-          schema: *ref_77
+          schema: *ref_75
         - name: created_or_started_after
           description: >-
             filter on created_at for non non started job and started_at
             otherwise after (exclusive) timestamp
           in: query
-          schema: &ref_122
+          schema: &ref_121
             type: string
             format: date-time
         - name: created_or_started_after_completed_jobs
@@ -9269,7 +9352,7 @@ paths:
             otherwise after (exclusive) timestamp but only for the completed
             jobs
           in: query
-          schema: &ref_123
+          schema: &ref_122
             type: string
             format: date-time
         - name: job_kinds
@@ -9277,27 +9360,27 @@ paths:
             filter on job kind (values 'preview', 'script', 'dependencies',
             'flow') separated by,
           in: query
-          schema: *ref_78
+          schema: *ref_76
         - name: suspended
           description: filter on suspended jobs
           in: query
-          schema: *ref_79
+          schema: *ref_77
         - name: args
           description: >-
             filter on jobs containing those args as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_81
+          schema: *ref_79
         - name: tag
           description: filter on jobs with a given tag/worker group
           in: query
-          schema: *ref_83
+          schema: *ref_81
         - name: result
           description: >-
             filter on jobs containing those result as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_82
+          schema: *ref_80
         - name: page
           description: which page to return (start at 1, default 1)
           in: query
@@ -9346,7 +9429,17 @@ paths:
               schema:
                 type: array
                 items:
-                  oneOf: &ref_92
+                  oneOf: &ref_90
+                    - allOf:
+                        - type: object
+                          properties: *ref_85
+                          required: *ref_86
+                        - type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - CompletedJob
                     - allOf:
                         - type: object
                           properties: *ref_87
@@ -9356,18 +9449,8 @@ paths:
                             type:
                               type: string
                               enum:
-                                - CompletedJob
-                    - allOf:
-                        - type: object
-                          properties: *ref_89
-                          required: *ref_90
-                        - type: object
-                          properties:
-                            type:
-                              type: string
-                              enum:
                                 - QueuedJob
-                  discriminator: &ref_93
+                  discriminator: &ref_91
                     propertyName: type
   /jobs/db_clock:
     get:
@@ -9434,7 +9517,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: no_logs
           in: query
           schema:
@@ -9445,8 +9528,8 @@ paths:
           content:
             application/json:
               schema:
-                oneOf: *ref_92
-                discriminator: *ref_93
+                oneOf: *ref_90
+                discriminator: *ref_91
   /w/{workspace}/jobs_u/get_root_job_id/{id}:
     get:
       summary: get root job id
@@ -9461,7 +9544,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: get root job id
@@ -9483,7 +9566,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: job details
@@ -9505,7 +9588,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: job args
@@ -9526,7 +9609,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: running
           in: query
           schema:
@@ -9561,9 +9644,9 @@ paths:
                     type: integer
                   flow_status:
                     type: object
-                    additionalProperties: &ref_159
+                    additionalProperties: &ref_158
                       type: object
-                      properties: &ref_160
+                      properties: &ref_159
                         scheduled_for:
                           type: string
                           format: date-time
@@ -9610,7 +9693,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: flow debug info details
@@ -9631,7 +9714,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: job details
@@ -9639,8 +9722,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_87
-                required: *ref_88
+                properties: *ref_85
+                required: *ref_86
   /w/{workspace}/jobs_u/completed/get_result/{id}:
     get:
       summary: get completed job result
@@ -9655,7 +9738,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: suspended_job
           in: query
           schema:
@@ -9692,10 +9775,10 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: get_started
           in: query
-          schema: &ref_134
+          schema: &ref_133
             type: boolean
       responses:
         '200':
@@ -9729,7 +9812,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: job details
@@ -9737,8 +9820,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_87
-                required: *ref_88
+                properties: *ref_85
+                required: *ref_86
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
       summary: cancel queued or running job
@@ -9753,7 +9836,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       requestBody:
         description: reason
         required: true
@@ -9785,7 +9868,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: reason
         required: true
@@ -9817,7 +9900,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       requestBody:
         description: reason
         required: true
@@ -9849,7 +9932,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: resume_id
           in: path
           required: true
@@ -9880,7 +9963,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: resume_id
           in: path
           required: true
@@ -9922,7 +10005,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: payload
           description: >
             The base64 encoded payload that has been encoded as a JSON. e.g how
@@ -9930,7 +10013,7 @@ paths:
 
             `encodeURIComponent(btoa(JSON.stringify({a: 2})))`
           in: query
-          schema: *ref_94
+          schema: *ref_92
         - name: resume_id
           in: path
           required: true
@@ -9965,7 +10048,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: resume_id
           in: path
           required: true
@@ -10007,7 +10090,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: key
           in: path
           required: true
@@ -10039,7 +10122,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: key
           in: path
           required: true
@@ -10065,7 +10148,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       requestBody:
         required: true
         content:
@@ -10093,7 +10176,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: resume_id
           in: path
           required: true
@@ -10128,7 +10211,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: resume_id
           in: path
           required: true
@@ -10170,7 +10253,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
         - name: resume_id
           in: path
           required: true
@@ -10194,8 +10277,8 @@ paths:
                 type: object
                 properties:
                   job:
-                    oneOf: *ref_92
-                    discriminator: *ref_93
+                    oneOf: *ref_90
+                    discriminator: *ref_91
                   approvers:
                     type: array
                     items:
@@ -10260,7 +10343,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_170
+              properties: &ref_169
                 path:
                   type: string
                 schedule:
@@ -10273,7 +10356,7 @@ paths:
                   type: boolean
                 args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 enabled:
                   type: boolean
                 on_failure:
@@ -10284,24 +10367,24 @@ paths:
                   type: boolean
                 on_failure_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 on_recovery:
                   type: string
                 on_recovery_times:
                   type: number
                 on_recovery_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 on_success:
                   type: string
                 on_success_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 ws_error_handler_muted:
                   type: boolean
                 retry:
                   type: object
-                  properties: *ref_95
+                  properties: *ref_93
                 no_flow_overlap:
                   type: boolean
                 summary:
@@ -10311,7 +10394,7 @@ paths:
                 paused_until:
                   type: string
                   format: date-time
-              required: &ref_171
+              required: &ref_170
                 - path
                 - schedule
                 - timezone
@@ -10339,7 +10422,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated schedule
         required: true
@@ -10347,14 +10430,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_172
+              properties: &ref_171
                 schedule:
                   type: string
                 timezone:
                   type: string
                 args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 on_failure:
                   type: string
                 on_failure_times:
@@ -10363,24 +10446,24 @@ paths:
                   type: boolean
                 on_failure_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 on_recovery:
                   type: string
                 on_recovery_times:
                   type: number
                 on_recovery_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 on_success:
                   type: string
                 on_success_extra_args:
                   type: object
-                  additionalProperties: *ref_18
+                  additionalProperties: *ref_16
                 ws_error_handler_muted:
                   type: boolean
                 retry:
                   type: object
-                  properties: *ref_95
+                  properties: *ref_93
                 no_flow_overlap:
                   type: boolean
                 summary:
@@ -10390,7 +10473,7 @@ paths:
                 paused_until:
                   type: string
                   format: date-time
-              required: &ref_173
+              required: &ref_172
                 - schedule
                 - timezone
                 - script_path
@@ -10417,7 +10500,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated schedule enable
         required: true
@@ -10451,7 +10534,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: schedule deleted
@@ -10473,7 +10556,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: schedule deleted
@@ -10481,7 +10564,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_96
+                properties: &ref_94
                   path:
                     type: string
                   edited_by:
@@ -10501,7 +10584,7 @@ paths:
                     type: boolean
                   args:
                     type: object
-                    additionalProperties: *ref_18
+                    additionalProperties: *ref_16
                   extra_perms:
                     type: object
                     additionalProperties:
@@ -10518,24 +10601,24 @@ paths:
                     type: boolean
                   on_failure_extra_args:
                     type: object
-                    additionalProperties: *ref_18
+                    additionalProperties: *ref_16
                   on_recovery:
                     type: string
                   on_recovery_times:
                     type: number
                   on_recovery_extra_args:
                     type: object
-                    additionalProperties: *ref_18
+                    additionalProperties: *ref_16
                   on_success:
                     type: string
                   on_success_extra_args:
                     type: object
-                    additionalProperties: *ref_18
+                    additionalProperties: *ref_16
                   ws_error_handler_muted:
                     type: boolean
                   retry:
                     type: object
-                    properties: *ref_95
+                    properties: *ref_93
                   summary:
                     type: string
                   no_flow_overlap:
@@ -10545,7 +10628,7 @@ paths:
                   paused_until:
                     type: string
                     format: date-time
-                required: &ref_97
+                required: &ref_95
                   - path
                   - edited_by
                   - edited_at
@@ -10570,7 +10653,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: schedule exists
@@ -10602,7 +10685,7 @@ paths:
             filter on jobs containing those args as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_81
+          schema: *ref_79
         - name: path
           description: filter by path
           in: query
@@ -10625,8 +10708,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_96
-                  required: *ref_97
+                  properties: *ref_94
+                  required: *ref_95
   /w/{workspace}/schedules/list_with_jobs:
     get:
       summary: list schedules with last 20 jobs
@@ -10654,10 +10737,10 @@ paths:
               schema:
                 type: array
                 items:
-                  allOf: &ref_169
+                  allOf: &ref_168
                     - type: object
-                      properties: *ref_96
-                      required: *ref_97
+                      properties: *ref_94
+                      required: *ref_95
                     - type: object
                       properties:
                         jobs:
@@ -10736,7 +10819,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_174
+              properties: &ref_173
                 path:
                   type: string
                 script_path:
@@ -10757,7 +10840,7 @@ paths:
                   type: boolean
                 requires_auth:
                   type: boolean
-              required: &ref_175
+              required: &ref_174
                 - path
                 - script_path
                 - route_path
@@ -10786,7 +10869,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated trigger
         required: true
@@ -10794,7 +10877,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_176
+              properties: &ref_175
                 path:
                   type: string
                 script_path:
@@ -10815,7 +10898,7 @@ paths:
                   type: boolean
                 requires_auth:
                   type: boolean
-              required: &ref_177
+              required: &ref_176
                 - path
                 - script_path
                 - is_flow
@@ -10844,7 +10927,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: http trigger deleted
@@ -10866,7 +10949,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: http trigger deleted
@@ -10874,7 +10957,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_98
+                properties: &ref_96
                   path:
                     type: string
                   edited_by:
@@ -10908,7 +10991,7 @@ paths:
                     type: boolean
                   requires_auth:
                     type: boolean
-                required: &ref_99
+                required: &ref_97
                   - path
                   - edited_by
                   - edited_at
@@ -10962,8 +11045,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_98
-                  required: *ref_99
+                  properties: *ref_96
+                  required: *ref_97
   /w/{workspace}/http_triggers/exists/{path}:
     get:
       summary: does http trigger exists
@@ -10978,7 +11061,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: http trigger exists
@@ -11044,7 +11127,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_178
+              properties: &ref_177
                 path:
                   type: string
                 script_path:
@@ -11066,12 +11149,45 @@ paths:
                     required:
                       - key
                       - value
-              required: &ref_179
+                initial_messages:
+                  type: array
+                  items:
+                    anyOf: &ref_98
+                      - type: object
+                        properties:
+                          raw_message:
+                            type: string
+                        required:
+                          - raw_message
+                      - type: object
+                        properties:
+                          runnable_result:
+                            type: object
+                            properties:
+                              path:
+                                type: string
+                              args:
+                                type: object
+                                additionalProperties: *ref_16
+                              is_flow:
+                                type: boolean
+                            required:
+                              - path
+                              - args
+                              - is_flow
+                        required:
+                          - runnable_result
+                url_runnable_args:
+                  type: object
+                  additionalProperties: *ref_16
+              required: &ref_178
                 - path
                 - script_path
                 - url
                 - is_flow
                 - filters
+                - initial_messages
+                - url_runnable_args
       responses:
         '201':
           description: websocket trigger created
@@ -11093,7 +11209,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated trigger
         required: true
@@ -11101,7 +11217,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_180
+              properties: &ref_179
                 url:
                   type: string
                 path:
@@ -11121,12 +11237,21 @@ paths:
                     required:
                       - key
                       - value
-              required: &ref_181
+                initial_messages:
+                  type: array
+                  items:
+                    anyOf: *ref_98
+                url_runnable_args:
+                  type: object
+                  additionalProperties: *ref_16
+              required: &ref_180
                 - path
                 - script_path
                 - url
                 - is_flow
                 - filters
+                - initial_messages
+                - url_runnable_args
       responses:
         '200':
           description: websocket trigger updated
@@ -11148,7 +11273,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: websocket trigger deleted
@@ -11170,7 +11295,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: websocket trigger deleted
@@ -11178,7 +11303,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_100
+                properties: &ref_99
                   path:
                     type: string
                   edited_by:
@@ -11220,7 +11345,14 @@ paths:
                       required:
                         - key
                         - value
-                required: &ref_101
+                  initial_messages:
+                    type: array
+                    items:
+                      anyOf: *ref_98
+                  url_runnable_args:
+                    type: object
+                    additionalProperties: *ref_16
+                required: &ref_100
                   - path
                   - edited_by
                   - edited_at
@@ -11232,6 +11364,8 @@ paths:
                   - workspace_id
                   - enabled
                   - filters
+                  - initial_messages
+                  - url_runnable_args
   /w/{workspace}/websocket_triggers/list:
     get:
       summary: list websocket triggers
@@ -11273,8 +11407,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_100
-                  required: *ref_101
+                  properties: *ref_99
+                  required: *ref_100
   /w/{workspace}/websocket_triggers/exists/{path}:
     get:
       summary: does websocket trigger exists
@@ -11289,7 +11423,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: websocket trigger exists
@@ -11311,7 +11445,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       requestBody:
         description: updated websocket trigger enable
         required: true
@@ -11346,7 +11480,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_103
+                  properties: &ref_102
                     name:
                       type: string
                     summary:
@@ -11355,7 +11489,7 @@ paths:
                       type: array
                       items:
                         type: string
-                  required: &ref_104
+                  required: &ref_103
                     - name
   /groups/get/{name}:
     get:
@@ -11367,7 +11501,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: instance group
@@ -11375,8 +11509,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_103
-                required: *ref_104
+                properties: *ref_102
+                required: *ref_103
   /groups/create:
     post:
       summary: create instance group
@@ -11414,7 +11548,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: update instance group
         required: true
@@ -11444,7 +11578,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: instance group deleted
@@ -11462,7 +11596,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: user to add to instance group
         required: true
@@ -11492,7 +11626,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: user to remove from instance group
         required: true
@@ -11527,7 +11661,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_105
+                  properties: &ref_104
                     name:
                       type: string
                     summary:
@@ -11542,7 +11676,7 @@ paths:
                       type: string
                     external_id:
                       type: string
-                  required: &ref_106
+                  required: &ref_105
                     - name
   /groups/overwrite:
     post:
@@ -11559,8 +11693,8 @@ paths:
               type: array
               items:
                 type: object
-                properties: *ref_105
-                required: *ref_106
+                properties: *ref_104
+                required: *ref_105
       responses:
         '200':
           description: success message
@@ -11596,7 +11730,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_107
+                  properties: &ref_106
                     name:
                       type: string
                     summary:
@@ -11609,7 +11743,7 @@ paths:
                       type: object
                       additionalProperties:
                         type: boolean
-                  required: &ref_108
+                  required: &ref_107
                     - name
   /w/{workspace}/groups/listnames:
     get:
@@ -11682,7 +11816,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: updated group
         required: true
@@ -11714,7 +11848,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: group deleted
@@ -11736,7 +11870,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: group
@@ -11744,8 +11878,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_107
-                required: *ref_108
+                properties: *ref_106
+                required: *ref_107
   /w/{workspace}/groups/adduser/{name}:
     post:
       summary: add user to group
@@ -11760,7 +11894,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: added user to group
         required: true
@@ -11792,7 +11926,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: added user to group
         required: true
@@ -11838,7 +11972,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_109
+                  properties: &ref_108
                     name:
                       type: string
                     owners:
@@ -11856,7 +11990,7 @@ paths:
                     edited_at:
                       type: string
                       format: date-time
-                  required: &ref_110
+                  required: &ref_109
                     - name
                     - owners
                     - extra_perms
@@ -11938,7 +12072,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: update folder
         required: true
@@ -11977,7 +12111,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: folder deleted
@@ -11999,7 +12133,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: folder
@@ -12007,8 +12141,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_109
-                required: *ref_110
+                properties: *ref_108
+                required: *ref_109
   /w/{workspace}/folders/getusage/{name}:
     get:
       summary: get folder usage
@@ -12023,7 +12157,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: folder
@@ -12065,7 +12199,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: owner user to folder
         required: true
@@ -12099,7 +12233,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: added owner to folder
         required: true
@@ -12153,7 +12287,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_182
+                  properties: &ref_181
                     worker:
                       type: string
                     worker_instance:
@@ -12195,7 +12329,7 @@ paths:
                       type: number
                     wm_memory_usage:
                       type: number
-                  required: &ref_183
+                  required: &ref_182
                     - worker
                     - worker_instance
                     - ping_at
@@ -12288,7 +12422,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: a config
@@ -12305,7 +12439,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       requestBody:
         description: worker group
         required: true
@@ -12328,7 +12462,7 @@ paths:
         - name: name
           in: path
           required: true
-          schema: *ref_102
+          schema: *ref_101
       responses:
         '200':
           description: Delete config
@@ -12351,12 +12485,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_224
+                  properties: &ref_223
                     name:
                       type: string
                     config:
                       type: object
-                  required: &ref_225
+                  required: &ref_224
                     - name
   /configs/list_autoscaling_events/{worker_group}:
     get:
@@ -12408,7 +12542,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: kind
           in: path
           required: true
@@ -12449,7 +12583,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: kind
           in: path
           required: true
@@ -12502,7 +12636,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: kind
           in: path
           required: true
@@ -12553,7 +12687,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '204':
           description: flow preview captured
@@ -12571,7 +12705,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '201':
           description: flow preview capture created
@@ -12588,7 +12722,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: captured flow preview
@@ -12668,13 +12802,13 @@ paths:
           schema: *ref_0
         - name: runnable_id
           in: query
-          schema: &ref_111
+          schema: &ref_110
             type: string
         - name: runnable_type
           in: query
-          schema: &ref_112
+          schema: &ref_111
             type: string
-            enum: &ref_141
+            enum: &ref_140
               - ScriptHash
               - ScriptPath
               - FlowPath
@@ -12695,7 +12829,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_113
+                  properties: &ref_112
                     id:
                       type: string
                     name:
@@ -12709,7 +12843,7 @@ paths:
                       type: boolean
                     success:
                       type: boolean
-                  required: &ref_114
+                  required: &ref_113
                     - id
                     - name
                     - args
@@ -12759,10 +12893,10 @@ paths:
           schema: *ref_0
         - name: runnable_id
           in: query
-          schema: *ref_111
+          schema: *ref_110
         - name: runnable_type
           in: query
-          schema: *ref_112
+          schema: *ref_111
         - name: page
           description: which page to return (start at 1, default 1)
           in: query
@@ -12780,8 +12914,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_113
-                  required: *ref_114
+                  properties: *ref_112
+                  required: *ref_113
   /w/{workspace}/inputs/create:
     post:
       summary: Create an Input for future use in a script or flow
@@ -12795,10 +12929,10 @@ paths:
           schema: *ref_0
         - name: runnable_id
           in: query
-          schema: *ref_111
+          schema: *ref_110
         - name: runnable_type
           in: query
-          schema: *ref_112
+          schema: *ref_111
       requestBody:
         description: Input
         required: true
@@ -12806,12 +12940,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_137
+              properties: &ref_136
                 name:
                   type: string
                 args:
                   type: object
-              required: &ref_138
+              required: &ref_137
                 - name
                 - args
                 - created_by
@@ -12841,14 +12975,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_139
+              properties: &ref_138
                 id:
                   type: string
                 name:
                   type: string
                 is_public:
                   type: boolean
-              required: &ref_140
+              required: &ref_139
                 - id
                 - name
                 - is_public
@@ -12874,7 +13008,7 @@ paths:
         - name: input
           in: path
           required: true
-          schema: &ref_133
+          schema: &ref_132
             type: string
       responses:
         '200':
@@ -12907,7 +13041,7 @@ paths:
               properties:
                 s3_resource:
                   type: object
-                  properties: &ref_115
+                  properties: &ref_114
                     bucket:
                       type: string
                     region:
@@ -12922,7 +13056,7 @@ paths:
                       type: string
                     pathStyle:
                       type: boolean
-                  required: &ref_116
+                  required: &ref_115
                     - bucket
                     - region
                     - endPoint
@@ -12998,8 +13132,8 @@ paths:
               properties:
                 s3_resource:
                   type: object
-                  properties: *ref_115
-                  required: *ref_116
+                  properties: *ref_114
+                  required: *ref_115
       responses:
         '200':
           description: Connection settings
@@ -13020,10 +13154,10 @@ paths:
                     type: boolean
                   client_kwargs:
                     type: object
-                    properties: &ref_117
+                    properties: &ref_116
                       region_name:
                         type: string
-                    required: &ref_118
+                    required: &ref_117
                       - region_name
                 required:
                   - endpoint_url
@@ -13078,8 +13212,8 @@ paths:
                         type: boolean
                       client_kwargs:
                         type: object
-                        properties: *ref_117
-                        required: *ref_118
+                        properties: *ref_116
+                        required: *ref_117
                     required:
                       - endpoint_url
                       - use_ssl
@@ -13137,8 +13271,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_115
-                required: *ref_116
+                properties: *ref_114
+                required: *ref_115
   /w/{workspace}/job_helpers/test_connection:
     get:
       summary: Test connection to the workspace object storage
@@ -13202,10 +13336,10 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_201
+                      properties: &ref_200
                         s3:
                           type: string
-                      required: &ref_202
+                      required: &ref_201
                         - s3
                   restricted_access:
                     type: boolean
@@ -13238,7 +13372,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_203
+                properties: &ref_202
                   mime_type:
                     type: string
                   size_in_bytes:
@@ -13302,7 +13436,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_204
+                properties: &ref_203
                   msg:
                     type: string
                   content:
@@ -13314,7 +13448,7 @@ paths:
                       - Csv
                       - Parquet
                       - Unknown
-                required: &ref_205
+                required: &ref_204
                   - content_type
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
@@ -13330,7 +13464,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: offset
           in: query
           schema:
@@ -13379,7 +13513,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: search_col
           in: query
           schema:
@@ -13416,7 +13550,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
         - name: offset
           in: query
           schema:
@@ -13652,7 +13786,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       requestBody:
         description: parameters for statistics retrieval
         required: true
@@ -13681,46 +13815,46 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_208
+                      properties: &ref_207
                         id:
                           type: string
                         name:
                           type: string
-                      required: &ref_209
+                      required: &ref_208
                         - id
                   scalar_metrics:
                     type: array
                     items:
                       type: object
-                      properties: &ref_210
+                      properties: &ref_209
                         metric_id:
                           type: string
                         value:
                           type: number
-                      required: &ref_211
+                      required: &ref_210
                         - id
                         - value
                   timeseries_metrics:
                     type: array
                     items:
                       type: object
-                      properties: &ref_212
+                      properties: &ref_211
                         metric_id:
                           type: string
                         values:
                           type: array
                           items:
                             type: object
-                            properties: &ref_214
+                            properties: &ref_213
                               timestamp:
                                 type: string
                                 format: date-time
                               value:
                                 type: number
-                            required: &ref_215
+                            required: &ref_214
                               - timestamp
                               - value
-                      required: &ref_213
+                      required: &ref_212
                         - id
                         - values
   /w/{workspace}/job_metrics/set_progress/{id}:
@@ -13737,7 +13871,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       requestBody:
         description: parameters for statistics retrieval
         required: true
@@ -13771,7 +13905,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: job progress between 0 and 99
@@ -13789,11 +13923,11 @@ paths:
         - name: before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: *ref_119
+          schema: *ref_118
         - name: after
           description: filter on created after (exclusive) timestamp
           in: query
-          schema: *ref_120
+          schema: *ref_119
         - name: with_error
           in: query
           required: false
@@ -13842,7 +13976,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_23
+          schema: *ref_21
       responses:
         '200':
           description: log stream
@@ -13865,12 +13999,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_218
+                  properties: &ref_217
                     concurrency_key:
                       type: string
                     total_running:
                       type: number
-                  required: &ref_219
+                  required: &ref_218
                     - concurrency_key
                     - total_running
   /concurrency_groups/prune/{concurrency_id}:
@@ -13883,7 +14017,7 @@ paths:
         - name: concurrency_id
           in: path
           required: true
-          schema: &ref_135
+          schema: &ref_134
             type: string
       responses:
         '200':
@@ -13903,7 +14037,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_91
+          schema: *ref_89
       responses:
         '200':
           description: concurrency key for given job
@@ -13936,93 +14070,93 @@ paths:
         - name: created_by
           description: mask to filter exact matching user creator
           in: query
-          schema: *ref_53
+          schema: *ref_51
         - name: label
           description: >-
             mask to filter exact matching job's label (job labels are completed
             jobs with as a result an object containing a string in the array at
             key 'wm_labels')
           in: query
-          schema: *ref_86
+          schema: *ref_84
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_46
+          schema: *ref_44
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
-          schema: *ref_70
+          schema: *ref_68
         - name: script_path_start
           description: mask to filter matching starting path
           in: query
-          schema: *ref_71
+          schema: *ref_69
         - name: schedule_path
           description: mask to filter by schedule path
           in: query
-          schema: *ref_72
+          schema: *ref_70
         - name: script_hash
           description: mask to filter exact matching path
           in: query
-          schema: *ref_73
+          schema: *ref_71
         - name: started_before
           description: filter on started before (inclusive) timestamp
           in: query
-          schema: *ref_74
+          schema: *ref_72
         - name: started_after
           description: filter on started after (exclusive) timestamp
           in: query
-          schema: *ref_75
+          schema: *ref_73
         - name: created_or_started_before
           description: >-
             filter on created_at for non non started job and started_at
             otherwise before (inclusive) timestamp
           in: query
-          schema: *ref_121
+          schema: *ref_120
         - name: running
           description: filter on running jobs
           in: query
-          schema: *ref_80
+          schema: *ref_78
         - name: scheduled_for_before_now
           description: filter on jobs scheduled_for before now (hence waitinf for a worker)
           in: query
-          schema: *ref_77
+          schema: *ref_75
         - name: created_or_started_after
           description: >-
             filter on created_at for non non started job and started_at
             otherwise after (exclusive) timestamp
           in: query
-          schema: *ref_122
+          schema: *ref_121
         - name: created_or_started_after_completed_jobs
           description: >-
             filter on created_at for non non started job and started_at
             otherwise after (exclusive) timestamp but only for the completed
             jobs
           in: query
-          schema: *ref_123
+          schema: *ref_122
         - name: job_kinds
           description: >-
             filter on job kind (values 'preview', 'script', 'dependencies',
             'flow') separated by,
           in: query
-          schema: *ref_78
+          schema: *ref_76
         - name: args
           description: >-
             filter on jobs containing those args as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_81
+          schema: *ref_79
         - name: tag
           description: filter on jobs with a given tag/worker group
           in: query
-          schema: *ref_83
+          schema: *ref_81
         - name: result
           description: >-
             filter on jobs containing those result as a json subset (@> in
             postgres)
           in: query
-          schema: *ref_82
+          schema: *ref_80
         - name: page
           description: which page to return (start at 1, default 1)
           in: query
@@ -14070,17 +14204,17 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_220
+                properties: &ref_219
                   jobs:
                     type: array
                     items:
-                      oneOf: *ref_92
-                      discriminator: *ref_93
+                      oneOf: *ref_90
+                      discriminator: *ref_91
                   obscured_jobs:
                     type: array
                     items:
                       type: object
-                      properties: &ref_142
+                      properties: &ref_141
                         typ:
                           type: string
                         started_at:
@@ -14093,7 +14227,7 @@ paths:
                       Obscured jobs omitted for security because of too specific
                       filtering
                     type: boolean
-                required: &ref_221
+                required: &ref_220
                   - jobs
                   - obscured_jobs
   /srch/w/{workspace}/index/search/job:
@@ -14135,9 +14269,118 @@ paths:
                     type: array
                     items:
                       type: object
+                      properties: &ref_225
+                        dancer:
+                          type: string
+  /srch/index/search/service_logs:
+    get:
+      summary: Search through service logs with a string query
+      operationId: searchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: mode
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: worker_group
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: hostname
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: >-
+                      a list of the terms that couldn't be parsed (and thus
+                      ignored)
+                    type: array
+                    items:
+                      type: string
+                  hits:
+                    description: log files that matched the query
+                    type: array
+                    items:
+                      type: object
                       properties: &ref_226
                         dancer:
                           type: string
+  /srch/index/search/count_service_logs:
+    get:
+      summary: Search and count the log line hits on every provided host
+      operationId: countSearchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: hosts
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: >-
+                      a list of the terms that couldn't be parsed (and thus
+                      ignored)
+                    type: array
+                    items:
+                      type: string
+                  count_per_host:
+                    description: count of log lines that matched the query per hostname
+                    type: object
 components:
   securitySchemes:
     bearerAuth:
@@ -14162,57 +14405,57 @@ components:
       name: version
       in: path
       required: true
-      schema: *ref_124
+      schema: *ref_123
     Token:
       name: token
       in: path
       required: true
-      schema: *ref_125
+      schema: *ref_124
     AccountId:
       name: id
       in: path
       required: true
-      schema: *ref_27
+      schema: *ref_25
     ClientName:
       name: client_name
       in: path
       required: true
-      schema: *ref_26
+      schema: *ref_24
     ScriptPath:
       name: path
       in: path
       required: true
-      schema: *ref_35
+      schema: *ref_33
     ScriptHash:
       name: hash
       in: path
       required: true
-      schema: *ref_39
+      schema: *ref_37
     JobId:
       name: id
       in: path
       required: true
-      schema: *ref_91
+      schema: *ref_89
     Path:
       name: path
       in: path
       required: true
-      schema: *ref_23
+      schema: *ref_21
     PathId:
       name: id
       in: path
       required: true
-      schema: *ref_30
+      schema: *ref_28
     PathVersion:
       name: version
       in: path
       required: true
-      schema: *ref_126
+      schema: *ref_125
     Name:
       name: name
       in: path
       required: true
-      schema: *ref_102
+      schema: *ref_101
     Page:
       name: page
       description: which page to return (start at 1, default 1)
@@ -14227,12 +14470,12 @@ components:
       name: order_desc
       description: order by desc order (default true)
       in: query
-      schema: *ref_52
+      schema: *ref_50
     CreatedBy:
       name: created_by
       description: mask to filter exact matching user creator
       in: query
-      schema: *ref_53
+      schema: *ref_51
     Label:
       name: label
       description: >-
@@ -14240,26 +14483,26 @@ components:
         with as a result an object containing a string in the array at key
         'wm_labels')
       in: query
-      schema: *ref_86
+      schema: *ref_84
     ParentJob:
       name: parent_job
       description: >-
         The parent job that is at the origin and responsible for the execution
         of this script if any
       in: query
-      schema: *ref_46
+      schema: *ref_44
     WorkerTag:
       name: tag
       description: Override the tag to use
       in: query
-      schema: *ref_48
+      schema: *ref_46
     CacheTtl:
       name: cache_ttl
       description: >-
         Override the cache time to live (in seconds). Can not be used to disable
         caching, only override with a new cache ttl
       in: query
-      schema: *ref_49
+      schema: *ref_47
     NewJobId:
       name: job_id
       description: >-
@@ -14267,7 +14510,7 @@ components:
         randomly using the ULID scheme. If a job id already exists in the queue
         or as a completed job, the request to create one will fail (Bad Request)
       in: query
-      schema: *ref_47
+      schema: *ref_45
     IncludeHeader:
       name: include_header
       description: >
@@ -14277,14 +14520,14 @@ components:
         Header's key lowercased and '-'' replaced to '_' such that
         'Content-Type' becomes the 'content_type' arg key
       in: query
-      schema: *ref_50
+      schema: *ref_48
     QueueLimit:
       name: queue_limit
       description: >
         The maximum size of the queue for which the request would get rejected
         if that job would push it above that limit
       in: query
-      schema: *ref_51
+      schema: *ref_49
     Payload:
       name: payload
       description: >
@@ -14293,253 +14536,249 @@ components:
 
         `encodeURIComponent(btoa(JSON.stringify({a: 2})))`
       in: query
-      schema: *ref_94
+      schema: *ref_92
     ScriptStartPath:
       name: script_path_start
       description: mask to filter matching starting path
       in: query
-      schema: *ref_71
+      schema: *ref_69
     SchedulePath:
       name: schedule_path
       description: mask to filter by schedule path
       in: query
-      schema: *ref_72
+      schema: *ref_70
     ScriptExactPath:
       name: script_path_exact
       description: mask to filter exact matching path
       in: query
-      schema: *ref_70
+      schema: *ref_68
     ScriptExactHash:
       name: script_hash
       description: mask to filter exact matching path
       in: query
-      schema: *ref_73
+      schema: *ref_71
     CreatedBefore:
       name: created_before
       description: filter on created before (inclusive) timestamp
       in: query
-      schema: *ref_127
+      schema: *ref_126
     CreatedAfter:
       name: created_after
       description: filter on created after (exclusive) timestamp
       in: query
-      schema: *ref_128
+      schema: *ref_127
     StartedBefore:
       name: started_before
       description: filter on started before (inclusive) timestamp
       in: query
-      schema: *ref_74
+      schema: *ref_72
     StartedAfter:
       name: started_after
       description: filter on started after (exclusive) timestamp
       in: query
-      schema: *ref_75
+      schema: *ref_73
     Before:
       name: before
       description: filter on started before (inclusive) timestamp
       in: query
-      schema: *ref_119
+      schema: *ref_118
     CreatedOrStartedAfter:
       name: created_or_started_after
       description: >-
         filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
       in: query
-      schema: *ref_122
+      schema: *ref_121
     CreatedOrStartedAfterCompletedJob:
       name: created_or_started_after_completed_jobs
       description: >-
         filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp but only for the completed jobs
       in: query
-      schema: *ref_123
+      schema: *ref_122
     CreatedOrStartedBefore:
       name: created_or_started_before
       description: >-
         filter on created_at for non non started job and started_at otherwise
         before (inclusive) timestamp
       in: query
-      schema: *ref_121
+      schema: *ref_120
     Success:
       name: success
       description: filter on successful jobs
       in: query
-      schema: *ref_76
+      schema: *ref_74
     ScheduledForBeforeNow:
       name: scheduled_for_before_now
       description: filter on jobs scheduled_for before now (hence waitinf for a worker)
       in: query
-      schema: *ref_77
+      schema: *ref_75
     Suspended:
       name: suspended
       description: filter on suspended jobs
       in: query
-      schema: *ref_79
+      schema: *ref_77
     Running:
       name: running
       description: filter on running jobs
       in: query
-      schema: *ref_80
+      schema: *ref_78
     ArgsFilter:
       name: args
       description: filter on jobs containing those args as a json subset (@> in postgres)
       in: query
-      schema: *ref_81
+      schema: *ref_79
     Tag:
       name: tag
       description: filter on jobs with a given tag/worker group
       in: query
-      schema: *ref_83
+      schema: *ref_81
     ResultFilter:
       name: result
       description: filter on jobs containing those result as a json subset (@> in postgres)
       in: query
-      schema: *ref_82
+      schema: *ref_80
     After:
       name: after
       description: filter on created after (exclusive) timestamp
       in: query
-      schema: *ref_120
+      schema: *ref_119
     Username:
       name: username
       description: filter on exact username of user
       in: query
-      schema: *ref_129
+      schema: *ref_128
     Operation:
       name: operation
       description: filter on exact or prefix name of operation
       in: query
-      schema: *ref_130
+      schema: *ref_129
     ResourceName:
       name: resource
       description: filter on exact or prefix name of resource
       in: query
-      schema: *ref_131
+      schema: *ref_130
     ActionKind:
       name: action_kind
       description: filter on type of operation
       in: query
-      schema: *ref_132
+      schema: *ref_131
     JobKinds:
       name: job_kinds
       description: >-
         filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
         separated by,
       in: query
-      schema: *ref_78
+      schema: *ref_76
     RunnableId:
       name: runnable_id
       in: query
-      schema: *ref_111
+      schema: *ref_110
     RunnableTypeQuery:
       name: runnable_type
       in: query
-      schema: *ref_112
+      schema: *ref_111
     InputId:
       name: input
       in: path
       required: true
-      schema: *ref_133
+      schema: *ref_132
     GetStarted:
       name: get_started
       in: query
-      schema: *ref_134
+      schema: *ref_133
     ConcurrencyId:
       name: concurrency_id
       in: path
       required: true
-      schema: *ref_135
+      schema: *ref_134
   schemas:
-    AiResource:
-      type: object
-      properties: *ref_16
-      required: *ref_17
     Script:
       type: object
-      properties: *ref_37
-      required: *ref_38
+      properties: *ref_35
+      required: *ref_36
     NewScript:
+      type: object
+      properties: *ref_40
+      required: *ref_41
+    NewScriptWithDraft:
+      allOf: *ref_135
+    ScriptHistory:
       type: object
       properties: *ref_42
       required: *ref_43
-    NewScriptWithDraft:
-      allOf: *ref_136
-    ScriptHistory:
-      type: object
-      properties: *ref_44
-      required: *ref_45
     ScriptArgs:
       type: object
-      additionalProperties: *ref_18
+      additionalProperties: *ref_16
     Input:
       type: object
-      properties: *ref_113
-      required: *ref_114
+      properties: *ref_112
+      required: *ref_113
     CreateInput:
       type: object
-      properties: *ref_137
-      required: *ref_138
+      properties: *ref_136
+      required: *ref_137
     UpdateInput:
       type: object
-      properties: *ref_139
-      required: *ref_140
+      properties: *ref_138
+      required: *ref_139
     RunnableType:
       type: string
-      enum: *ref_141
+      enum: *ref_140
     QueuedJob:
-      type: object
-      properties: *ref_89
-      required: *ref_90
-    CompletedJob:
       type: object
       properties: *ref_87
       required: *ref_88
+    CompletedJob:
+      type: object
+      properties: *ref_85
+      required: *ref_86
     ObscuredJob:
       type: object
-      properties: *ref_142
+      properties: *ref_141
     Job:
-      oneOf: *ref_92
-      discriminator: *ref_93
+      oneOf: *ref_90
+      discriminator: *ref_91
     User:
       type: object
       properties: *ref_10
       required: *ref_11
     UserUsage:
       type: object
-      properties: *ref_143
+      properties: *ref_142
     Login:
       type: object
-      properties: *ref_144
-      required: *ref_145
+      properties: *ref_143
+      required: *ref_144
     EditWorkspaceUser:
       type: object
-      properties: *ref_146
+      properties: *ref_145
     TruncatedToken:
       type: object
-      properties: *ref_40
-      required: *ref_41
+      properties: *ref_38
+      required: *ref_39
     NewToken:
       type: object
-      properties: *ref_147
+      properties: *ref_146
     NewTokenImpersonate:
       type: object
-      properties: *ref_148
-      required: *ref_149
+      properties: *ref_147
+      required: *ref_148
     ListableVariable:
       type: object
-      properties: *ref_24
-      required: *ref_25
+      properties: *ref_22
+      required: *ref_23
     ContextualVariable:
       type: object
-      properties: *ref_150
-      required: *ref_151
+      properties: *ref_149
+      required: *ref_150
     CreateVariable:
       type: object
-      properties: *ref_152
-      required: *ref_153
+      properties: *ref_151
+      required: *ref_152
     EditVariable:
       type: object
-      properties: *ref_154
+      properties: *ref_153
     AuditLog:
       type: object
       properties: *ref_1
@@ -14671,105 +14910,107 @@ components:
         - has_preprocessor
     Preview:
       type: object
-      properties: *ref_155
-      required: *ref_156
+      properties: *ref_154
+      required: *ref_155
     WorkflowTask:
       type: object
-      properties: *ref_157
-      required: *ref_158
+      properties: *ref_156
+      required: *ref_157
     WorkflowStatusRecord:
       type: object
-      additionalProperties: *ref_159
+      additionalProperties: *ref_158
     WorkflowStatus:
       type: object
-      properties: *ref_160
+      properties: *ref_159
     CreateResource:
       type: object
-      properties: *ref_161
-      required: *ref_162
+      properties: *ref_160
+      required: *ref_161
     EditResource:
       type: object
-      properties: *ref_163
+      properties: *ref_162
     Resource:
       type: object
-      properties: *ref_164
-      required: *ref_165
+      properties: *ref_163
+      required: *ref_164
     ListableResource:
       type: object
-      properties: *ref_166
-      required: *ref_167
+      properties: *ref_165
+      required: *ref_166
     ResourceType:
       type: object
-      properties: *ref_28
-      required: *ref_29
+      properties: *ref_26
+      required: *ref_27
     EditResourceType:
       type: object
-      properties: *ref_168
+      properties: *ref_167
     Schedule:
+      type: object
+      properties: *ref_94
+      required: *ref_95
+    ScheduleWJobs:
+      allOf: *ref_168
+    NewSchedule:
+      type: object
+      properties: *ref_169
+      required: *ref_170
+    EditSchedule:
+      type: object
+      properties: *ref_171
+      required: *ref_172
+    HttpTrigger:
       type: object
       properties: *ref_96
       required: *ref_97
-    ScheduleWJobs:
-      allOf: *ref_169
-    NewSchedule:
-      type: object
-      properties: *ref_170
-      required: *ref_171
-    EditSchedule:
-      type: object
-      properties: *ref_172
-      required: *ref_173
-    HttpTrigger:
-      type: object
-      properties: *ref_98
-      required: *ref_99
     NewHttpTrigger:
       type: object
-      properties: *ref_174
-      required: *ref_175
+      properties: *ref_173
+      required: *ref_174
     EditHttpTrigger:
       type: object
-      properties: *ref_176
-      required: *ref_177
+      properties: *ref_175
+      required: *ref_176
     TriggersCount:
       type: object
-      properties: *ref_59
+      properties: *ref_57
     WebsocketTrigger:
       type: object
-      properties: *ref_100
-      required: *ref_101
+      properties: *ref_99
+      required: *ref_100
     NewWebsocketTrigger:
       type: object
-      properties: *ref_178
-      required: *ref_179
+      properties: *ref_177
+      required: *ref_178
     EditWebsocketTrigger:
       type: object
-      properties: *ref_180
-      required: *ref_181
+      properties: *ref_179
+      required: *ref_180
+    WebsocketTriggerInitialMessage:
+      anyOf: *ref_98
     Group:
       type: object
-      properties: *ref_107
-      required: *ref_108
+      properties: *ref_106
+      required: *ref_107
     InstanceGroup:
       type: object
-      properties: *ref_103
-      required: *ref_104
+      properties: *ref_102
+      required: *ref_103
     Folder:
       type: object
-      properties: *ref_109
-      required: *ref_110
+      properties: *ref_108
+      required: *ref_109
     WorkerPing:
       type: object
-      properties: *ref_182
-      required: *ref_183
+      properties: *ref_181
+      required: *ref_182
     UserWorkspaceList:
       type: object
-      properties: *ref_184
-      required: *ref_185
+      properties: *ref_183
+      required: *ref_184
     CreateWorkspace:
       type: object
-      properties: *ref_186
-      required: *ref_187
+      properties: *ref_185
+      required: *ref_186
     Workspace:
       type: object
       properties: *ref_7
@@ -14783,48 +15024,48 @@ components:
       properties: *ref_12
       required: *ref_13
     Flow:
-      allOf: *ref_58
+      allOf: *ref_56
     ExtraPerms:
       type: object
-      additionalProperties: *ref_188
+      additionalProperties: *ref_187
     FlowMetadata:
       type: object
-      properties: *ref_189
-      required: *ref_190
+      properties: *ref_188
+      required: *ref_189
     OpenFlowWPath:
-      allOf: *ref_60
+      allOf: *ref_58
     FlowPreview:
       type: object
-      properties: *ref_191
-      required: *ref_192
+      properties: *ref_190
+      required: *ref_191
     RestartedFrom:
       type: object
-      properties: *ref_193
+      properties: *ref_192
     Policy:
       type: object
-      properties: *ref_61
+      properties: *ref_59
     ListableApp:
       type: object
-      properties: *ref_194
-      required: *ref_195
+      properties: *ref_193
+      required: *ref_194
     ListableRawApp:
       type: object
-      properties: *ref_196
-      required: *ref_197
+      properties: *ref_195
+      required: *ref_196
     AppWithLastVersion:
+      type: object
+      properties: *ref_60
+      required: *ref_61
+    AppWithLastVersionWDraft:
+      allOf: *ref_197
+    AppHistory:
       type: object
       properties: *ref_62
       required: *ref_63
-    AppWithLastVersionWDraft:
-      allOf: *ref_198
-    AppHistory:
-      type: object
-      properties: *ref_64
-      required: *ref_65
     FlowVersion:
       type: object
-      properties: *ref_56
-      required: *ref_57
+      properties: *ref_54
+      required: *ref_55
     SlackToken:
       type: object
       properties:
@@ -14846,46 +15087,46 @@ components:
         - bot
     TokenResponse:
       type: object
-      properties: *ref_199
-      required: *ref_200
+      properties: *ref_198
+      required: *ref_199
     HubScriptKind:
       name: kind
-      schema: *ref_36
+      schema: *ref_34
     PolarsClientKwargs:
       type: object
-      properties: *ref_117
-      required: *ref_118
+      properties: *ref_116
+      required: *ref_117
     LargeFileStorage:
       type: object
-      properties: *ref_19
+      properties: *ref_17
     WindmillLargeFile:
       type: object
-      properties: *ref_201
-      required: *ref_202
+      properties: *ref_200
+      required: *ref_201
     WindmillFileMetadata:
       type: object
-      properties: *ref_203
+      properties: *ref_202
     WindmillFilePreview:
       type: object
-      properties: *ref_204
-      required: *ref_205
+      properties: *ref_203
+      required: *ref_204
     S3Resource:
       type: object
-      properties: *ref_115
-      required: *ref_116
+      properties: *ref_114
+      required: *ref_115
     WorkspaceGitSyncSettings:
       type: object
-      properties: *ref_20
+      properties: *ref_18
     WorkspaceDeployUISettings:
       type: object
-      properties: *ref_21
+      properties: *ref_19
     WorkspaceDefaultScripts:
       type: object
-      properties: *ref_22
+      properties: *ref_20
     GitRepositorySettings:
       type: object
-      properties: *ref_206
-      required: *ref_207
+      properties: *ref_205
+      required: *ref_206
     UploadFilePart:
       type: object
       properties:
@@ -14898,120 +15139,126 @@ components:
         - tag
     MetricMetadata:
       type: object
-      properties: *ref_208
-      required: *ref_209
+      properties: *ref_207
+      required: *ref_208
     ScalarMetric:
       type: object
-      properties: *ref_210
-      required: *ref_211
+      properties: *ref_209
+      required: *ref_210
     TimeseriesMetric:
       type: object
-      properties: *ref_212
-      required: *ref_213
+      properties: *ref_211
+      required: *ref_212
     MetricDataPoint:
       type: object
-      properties: *ref_214
-      required: *ref_215
+      properties: *ref_213
+      required: *ref_214
     RawScriptForDependencies:
       type: object
-      properties: *ref_216
-      required: *ref_217
+      properties: *ref_215
+      required: *ref_216
     ConcurrencyGroup:
       type: object
-      properties: *ref_218
-      required: *ref_219
+      properties: *ref_217
+      required: *ref_218
     ExtendedJobs:
       type: object
-      properties: *ref_220
-      required: *ref_221
+      properties: *ref_219
+      required: *ref_220
     ExportedUser:
       type: object
       properties: *ref_3
       required: *ref_4
     GlobalSetting:
       type: object
-      properties: *ref_222
-      required: *ref_223
+      properties: *ref_221
+      required: *ref_222
     Config:
       type: object
-      properties: *ref_224
-      required: *ref_225
+      properties: *ref_223
+      required: *ref_224
     ExportedInstanceGroup:
       type: object
-      properties: *ref_105
-      required: *ref_106
+      properties: *ref_104
+      required: *ref_105
     JobSearchHit:
+      type: object
+      properties: *ref_225
+    LogSearchHit:
       type: object
       properties: *ref_226
     AutoscalingEvent:
       type: object
       properties: *ref_227
-    StaticTransform:
+    CriticalAlert:
       type: object
       properties: *ref_228
-      required: *ref_229
+    StaticTransform:
+      type: object
+      properties: *ref_229
+      required: *ref_230
     JavascriptTransform:
       type: object
-      properties: *ref_230
-      required: *ref_231
+      properties: *ref_231
+      required: *ref_232
     InputTransform:
-      oneOf: *ref_31
-      discriminator: *ref_32
+      oneOf: *ref_29
+      discriminator: *ref_30
     RawScript:
       type: object
-      properties: *ref_232
-      required: *ref_233
+      properties: *ref_233
+      required: *ref_234
     PathScript:
       type: object
-      properties: *ref_234
-      required: *ref_235
+      properties: *ref_235
+      required: *ref_236
     PathFlow:
       type: object
-      properties: *ref_236
-      required: *ref_237
+      properties: *ref_237
+      required: *ref_238
     FlowModule:
       type: object
-      properties: *ref_33
-      required: *ref_34
+      properties: *ref_31
+      required: *ref_32
     ForloopFlow:
       type: object
-      properties: *ref_238
-      required: *ref_239
+      properties: *ref_239
+      required: *ref_240
     WhileloopFlow:
       type: object
-      properties: *ref_240
-      required: *ref_241
+      properties: *ref_241
+      required: *ref_242
     BranchOne:
       type: object
-      properties: *ref_242
-      required: *ref_243
+      properties: *ref_243
+      required: *ref_244
     BranchAll:
       type: object
-      properties: *ref_244
-      required: *ref_245
+      properties: *ref_245
+      required: *ref_246
     Identity:
       type: object
-      properties: *ref_246
-      required: *ref_247
+      properties: *ref_247
+      required: *ref_248
     FlowModuleValue:
-      oneOf: *ref_248
-      discriminator: *ref_249
+      oneOf: *ref_249
+      discriminator: *ref_250
     Retry:
       type: object
-      properties: *ref_95
+      properties: *ref_93
     FlowValue:
+      type: object
+      properties: *ref_64
+      required: *ref_65
+    OpenFlow:
+      type: object
+      properties: *ref_52
+      required: *ref_53
+    FlowStatusModule:
       type: object
       properties: *ref_66
       required: *ref_67
-    OpenFlow:
-      type: object
-      properties: *ref_54
-      required: *ref_55
-    FlowStatusModule:
-      type: object
-      properties: *ref_68
-      required: *ref_69
     FlowStatus:
       type: object
-      properties: *ref_84
-      required: *ref_85
+      properties: *ref_82
+      required: *ref_83
