@@ -50,7 +50,6 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
-	import CriticalAlertButton from '$lib/components/sidebar/CriticalAlertButton.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -288,7 +287,6 @@
 
 	let numUnacknowledgedCriticalAlerts = 0
 	let mountModal = false
-	let isCriticalAlertsModalOpen = false
 	let isCriticalAlertsUiMuted = true
 	let muteSettings = {
 		global: true,
@@ -311,10 +309,6 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
-
-	function openCriticalAlertsModal(text?: string): void {
-		isCriticalAlertsModalOpen = true
-	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -334,11 +328,7 @@
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	{#if mountModal}
-		<CriticalAlertModal
-			bind:muteSettings
-			bind:open={isCriticalAlertsModalOpen}
-			bind:numUnacknowledgedCriticalAlerts
-		/>
+		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div>
 		{#if !menuHidden}
@@ -403,17 +393,6 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-									{#if !isCriticalAlertsUiMuted}
-										<CriticalAlertButton
-											stopPropagationOnClick={true}
-											on:click={() => openCriticalAlertsModal()}
-											{numUnacknowledgedCriticalAlerts}
-											{isCollapsed}
-											label="Critical Alerts"
-											class="!text-xs"
-											disabled={numUnacknowledgedCriticalAlerts === 0}
-										/>
-									{/if}
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
@@ -428,7 +407,12 @@
 										/>
 									</div>
 
-									<SidebarContent isCollapsed={false} />
+									<SidebarContent
+										isCollapsed={false}
+										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+											? 0
+											: numUnacknowledgedCriticalAlerts}
+									/>
 								</div>
 							</div>
 						</div>
@@ -462,17 +446,6 @@
 									{/if}
 								</div>
 							</button>
-							{#if !isCriticalAlertsUiMuted}
-								<CriticalAlertButton
-									stopPropagationOnClick={true}
-									on:click={() => openCriticalAlertsModal()}
-									{numUnacknowledgedCriticalAlerts}
-									{isCollapsed}
-									label="Critical Alerts"
-									class="!text-xs"
-									disabled={numUnacknowledgedCriticalAlerts === 0}
-								/>
-							{/if}
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
@@ -487,7 +460,12 @@
 								/>
 							</div>
 
-							<SidebarContent {isCollapsed} />
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
@@ -575,7 +553,12 @@
 								/>
 							</div>
 
-							<SidebarContent {isCollapsed} />
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 						</div>
 					</div>
 				</div>
