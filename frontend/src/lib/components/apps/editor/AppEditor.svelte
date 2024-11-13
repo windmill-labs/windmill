@@ -677,6 +677,12 @@
 
 	let testJob: Job | undefined = undefined
 	let jobToWatch: { componentId: string; job: string } | undefined = undefined
+
+	$: updateCursorStyle(!!$connectingInput.opened)
+
+	function updateCursorStyle(disabled: boolean) {
+		document.documentElement.style.setProperty('--global-cursor', disabled ? 'not-allowed' : '')
+	}
 </script>
 
 <svelte:head>
@@ -1071,5 +1077,14 @@
 	}
 	#o2 > .splitpanes__pane {
 		overflow: visible !important;
+	}
+
+	/* Conditionally apply the disabled cursor globally */
+	:global(*) {
+		cursor: var(--element-cursor, var(--global-cursor, auto)) !important;
+	}
+
+	:global(.connection-access) {
+		--element-cursor: pointer;
 	}
 </style>

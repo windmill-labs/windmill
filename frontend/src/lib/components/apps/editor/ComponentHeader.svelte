@@ -62,7 +62,7 @@
 
 {#if connecting}
 	<div
-		class="absolute z-50 overflow-auto -top-[18px]"
+		class="absolute z-50 overflow-auto -top-[18px] connection-access"
 		style="left: {id_width}px;"
 		data-connection-button
 	>

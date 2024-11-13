@@ -43,7 +43,7 @@
 	>
 		<div
 			class={twMerge(
-				'bg-surface w-full h-full z-30 overflow-auto',
+				'bg-surface w-full h-full z-30 overflow-auto connection-access',
 				$connectingInput.opened ? 'z-50 dark:bg-frost-900' : ''
 			)}
 			data-connection-button
