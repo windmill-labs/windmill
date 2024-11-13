@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.423.2](https://github.com/windmill-labs/windmill/compare/v1.423.1...v1.423.2) (2024-11-13)
+
+
+### Bug Fixes
+
+* fix intempestive expr type change in flow transform ([84bd06e](https://github.com/windmill-labs/windmill/commit/84bd06e90650e949c11e2b09447a7bad1ab60a95))
+
 ## [1.423.1](https://github.com/windmill-labs/windmill/compare/v1.423.0...v1.423.1) (2024-11-12)
 
 
