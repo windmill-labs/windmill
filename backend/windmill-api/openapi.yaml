@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.417.2
+  version: 1.423.1
   title: Windmill API
 
   contact:
@@ -724,6 +724,8 @@ paths:
                       type: string
                     tls_implicit:
                       type: boolean
+                    disable_tls:
+                      type: boolean
                   required:
                     - host
                     - username
@@ -731,6 +733,7 @@ paths:
                     - port
                     - from
                     - tls_implicit
+                    - disable_tls
               required:
                 - to
                 - smtp
@@ -770,6 +773,78 @@ paths:
               schema:
                 type: string
 
+  /settings/critical_alerts:
+    get:
+      summary: Get all critical alerts
+      operationId: getCriticalAlerts
+      tags:
+        - setting
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            description: The page number to retrieve (minimum value is 1)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+            description: Number of alerts per page (maximum is 100)
+        - in: query
+          name: acknowledged
+          schema:
+            type: boolean
+            nullable: true
+            description: Filter by acknowledgment status; true for acknowledged, false for unacknowledged, and omit for all alerts
+      responses:
+        "200":
+          description: Successfully retrieved all critical alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CriticalAlert'
+
+  /settings/critical_alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge a critical alert
+      operationId: acknowledgeCriticalAlert
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: The ID of the critical alert to acknowledge
+      responses:
+        "200":
+          description: Successfully acknowledged the critical alert
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Critical alert acknowledged"
+
+  /settings/critical_alerts/acknowledge_all:
+    post:
+      summary: Acknowledge all unacknowledged critical alerts
+      operationId: acknowledgeAllCriticalAlerts
+      tags:
+        - setting
+      responses:
+        "200":
+          description: Successfully acknowledged all unacknowledged critical alerts.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "All unacknowledged critical alerts acknowledged"
 
   /settings/test_license_key:
     post:
@@ -9146,6 +9221,14 @@ paths:
           in: query
           schema:
             type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
       requestBody:
         description: File content
         required: true
@@ -9549,6 +9632,109 @@ paths:
                     items:
                       $ref: "#/components/schemas/JobSearchHit"
 
+  /srch/index/search/service_logs:
+    get:
+      summary: Search through service logs with a string query
+      operationId: searchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: mode
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: worker_group
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: hostname
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: string
+                  hits:
+                    description: log files that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogSearchHit"
+
+  /srch/index/search/count_service_logs:
+    get:
+      summary: Search and count the log line hits on every provided host
+      operationId: countSearchLogsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: hosts
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: min_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: max_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: string
+                  count_per_host:
+                    description: count of log lines that matched the query per hostname
+                    type: object
 
 components:
   securitySchemes:
@@ -11370,6 +11556,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         extra_perms:
@@ -11416,6 +11613,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -11449,6 +11657,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -11535,6 +11754,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11548,6 +11773,8 @@ components:
         - workspace_id
         - enabled
         - filters
+        - initial_messages
+        - url_runnable_args
 
     NewWebsocketTrigger:
       type: object
@@ -11573,6 +11800,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11580,6 +11813,8 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
 
     EditWebsocketTrigger:
       type: object
@@ -11603,6 +11838,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
               
       required:
         - path
@@ -11610,6 +11851,34 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
+
+    WebsocketTriggerInitialMessage:
+      anyOf:
+        - type: object
+          properties:
+            raw_message: 
+              type: string
+          required:
+            - raw_message
+        - type: object
+          properties:
+            runnable_result:
+              type: object
+              properties:
+                path: 
+                  type: string
+                args:
+                  $ref: "#/components/schemas/ScriptArgs"
+                is_flow:
+                  type: boolean
+              required:
+                - path
+                - args
+                - is_flow
+          required: 
+            - runnable_result
 
     Group:
       type: object
@@ -11929,6 +12198,10 @@ components:
         triggerables_v2:
           type: object
           additionalProperties:
+            type: object
+        s3_inputs:
+          type: array
+          items:
             type: object
         execution_mode:
           type: string
@@ -12513,6 +12786,12 @@ components:
         dancer:
           type: string
 
+    LogSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string
+
     AutoscalingEvent:
       type: object
       properties:
@@ -12530,3 +12809,24 @@ components:
         applied_at:
           type: string
           format: date-time
+
+    CriticalAlert:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Unique identifier for the alert
+        alert_type:
+          type: string
+          description: Type of alert (e.g., critical_error)
+        message:
+          type: string
+          description: The message content of the alert
+        created_at:
+          type: string
+          format: date-time
+          description: Time when the alert was created
+        acknowledged:
+          type: boolean
+          nullable: true
+          description: Acknowledgment status of the alert, can be true, false, or null if not set

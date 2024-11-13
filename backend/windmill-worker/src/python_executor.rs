@@ -199,8 +199,11 @@ pub async fn uv_pip_compile(
             .clone()
             .map(handle_ephemeral_token);
         if let Some(url) = pip_extra_index_url.as_ref() {
-            args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
-            pip_args.push(format!("--extra-index-url {}", url));
+            url.split(",").for_each(|url| {
+                args.extend(["--extra-index-url", url]);
+                pip_args.push(format!("--extra-index-url {}", url));
+            });
+            args.push("--no-emit-index-url");
         }
         let pip_index_url = PIP_INDEX_URL
             .read()
@@ -279,7 +282,9 @@ pub async fn uv_pip_compile(
             .clone()
             .map(handle_ephemeral_token);
         if let Some(url) = pip_extra_index_url.as_ref() {
-            args.extend(["--extra-index-url", url]);
+            url.split(",").for_each(|url| {
+                args.extend(["--extra-index-url", url]);
+            });
         }
         let pip_index_url = PIP_INDEX_URL
             .read()
@@ -1167,7 +1172,9 @@ pub async fn handle_python_reqs(
                 .map(handle_ephemeral_token);
 
             if let Some(url) = pip_extra_index_url.as_ref() {
-                command_args.extend(["--extra-index-url", url]);
+                url.split(",").for_each(|url| {
+                    command_args.extend(["--extra-index-url", url]);
+                });
             }
             let pip_index_url = PIP_INDEX_URL
                 .read()

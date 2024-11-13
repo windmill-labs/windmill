@@ -1,12 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, edited_by = $5, email = $6, is_async = $7, requires_auth = $8, edited_at = now() \n                WHERE workspace_id = $9 AND path = $10",
+  "query": "INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, is_async, requires_auth, http_method, static_asset_config, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
         "Varchar",
         "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
         "Bool",
         {
           "Custom": {
@@ -22,15 +27,12 @@
             }
           }
         },
+        "Jsonb",
         "Varchar",
-        "Varchar",
-        "Bool",
-        "Bool",
-        "Text",
-        "Text"
+        "Varchar"
       ]
     },
     "nullable": []
   },
-  "hash": "55d44f569f8ebfccddf975e1a330ef0dc286f4138efe923832371cdbac7157b0"
+  "hash": "333b484ffa030dee08e7b1161fcbc48af411377d2d9f58f92fc9d5eacdf0fba1"
 }

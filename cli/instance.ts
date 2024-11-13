@@ -575,13 +575,14 @@ async function getLocalWorkspaces(
   }
   if (folderPerInstance) {
     for await (const dir of Deno.readDir(rootDir + "/" + localPrefix)) {
-      const dirName = dir.name;
-      localWorkspaces.push({
-        dir: localPrefix + "/" + dirName,
-        id: dirName,
-      });
+      if (dir.isDirectory) {
+        const dirName = dir.name;
+        localWorkspaces.push({
+          dir: localPrefix + "/" + dirName,
+          id: dirName,
+        });
+      }
     }
-    log.info(localWorkspaces);
   } else {
     for await (const dir of Deno.readDir(rootDir)) {
       const dirName = dir.name;
@@ -593,6 +594,9 @@ async function getLocalWorkspaces(
       }
     }
   }
+  log.info(
+    "Local workspaces found: " + localWorkspaces.map((x) => x.id).join(", ")
+  );
   return localWorkspaces;
 }
 

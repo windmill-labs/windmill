@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.417.2",
+	"version": "1.423.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -118,7 +118,7 @@
 		"graphql": "^16.7.1",
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
-		"lucide-svelte": "^0.293.0",
+		"lucide-svelte": "^0.399.0",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~8.0.2",
 		"monaco-editor-wrapper": "^5.5.2",
@@ -183,6 +183,11 @@
 			"types": "./package/components/icons/WindmillIcon2.d.ts",
 			"svelte": "./package/components/icons/WindmillIcon2.svelte",
 			"default": "./package/components/icons/WindmillIcon2.svelte"
+		},
+		"./components/icons/SchedulePollIcon.svelte": {
+			"types": "./package/components/icons/SchedulePollIcon.d.ts",
+			"svelte": "./package/components/icons/SchedulePollIcon.svelte",
+			"default": "./package/components/icons/SchedulePollIcon.svelte"
 		},
 		"./components/IconedResourceType.svelte": {
 			"types": "./package/components/IconedResourceType.svelte.d.ts",

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, onMount, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, setContext } from 'svelte'
 
-	import { writable, type Writable } from 'svelte/store'
+	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
 	import type { FlowInput } from '../flows/types'
 	import {
@@ -15,7 +15,7 @@
 		ControlButton,
 		type Viewport
 	} from '@xyflow/svelte'
-	import graphBuilder from './graphBuilder'
+	import { graphBuilder, isTriggerStep, type SimplifiableFlow } from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
@@ -38,6 +38,10 @@
 	import Button from '../common/button/Button.svelte'
 	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
+	import type { TriggerContext } from '../triggers'
+	import { workspaceStore } from '$lib/stores'
+	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
+
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -63,6 +67,7 @@
 		undefined
 	)
 	export let triggerNode = false
+	export let workspace: string = $workspaceStore ?? 'NO_WORKSPACE'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -72,10 +77,47 @@
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
 
+	const triggerContext = getContext<TriggerContext>('TriggerContext')
+
 	const dispatch = createEventDispatcher()
 
 	let fullWidth = 0
 	let width = 0
+
+	export let allowSimplifiedPoll: boolean = true
+
+	let simplifiableFlow: SimplifiableFlow | undefined = undefined
+
+	export let expandedSubflows: Record<string, FlowModule[]> = {}
+
+	if (triggerContext && allowSimplifiedPoll) {
+		if (isSimplifiable(modules)) {
+			triggerContext?.simplifiedPoll?.set(true)
+		}
+		triggerContext?.simplifiedPoll.subscribe((value) => {
+			computeSimplifiableFlow(modules ?? [], value ?? false)
+		})
+	}
+
+	function computeSimplifiableFlow(modules: FlowModule[], simplifiedFlow: boolean) {
+		const isSimplif = isSimplifiable(modules)
+		simplifiableFlow = isSimplif ? { simplifiedFlow } : undefined
+	}
+
+	onDestroy(() => {
+		if (isSimplifiable(modules)) {
+			triggerContext?.simplifiedPoll?.set(undefined)
+		}
+	})
+
+	function onModulesChange(modules: FlowModule[]) {
+		computeSimplifiableFlow(
+			modules,
+			triggerContext?.simplifiedPoll ? get(triggerContext.simplifiedPoll) ?? false : false
+		)
+	}
+
+	$: allowSimplifiedPoll && onModulesChange(modules ?? [])
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -129,6 +171,53 @@
 		return newNodes
 	}
 
+	let eventHandler = {
+		deleteBranch: (detail, label) => {
+			$selectedId = label
+			dispatch('deleteBranch', detail)
+		},
+		insert: (detail) => {
+			dispatch('insert', detail)
+		},
+		select: (modId) => {
+			if (!notSelectable) {
+				if ($selectedId != modId) {
+					$selectedId = modId
+				}
+				dispatch('select', modId)
+			}
+		},
+		changeId: (detail) => {
+			dispatch('changeId', detail)
+		},
+		delete: (detail, label) => {
+			$selectedId = label
+
+			dispatch('delete', detail)
+		},
+		newBranch: (module) => {
+			dispatch('newBranch', { module })
+		},
+		move: (module, modules) => {
+			dispatch('move', { module, modules })
+		},
+		selectedIteration: (detail, moduleId) => {
+			dispatch('selectedIteration', { ...detail, moduleId: moduleId })
+		},
+		simplifyFlow: (detail) => {
+			triggerContext?.simplifiedPoll.set(detail)
+		},
+		expandSubflow: async (id: string, path: string) => {
+			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			expandedSubflows[id] = flow.value.modules
+			expandedSubflows = expandedSubflows
+		},
+		minimizeSubflow: (id: string) => {
+			delete expandedSubflows[id]
+			expandedSubflows = expandedSubflows
+		}
+	}
+
 	$: graph = graphBuilder(
 		modules,
 		{
@@ -141,50 +230,14 @@
 		},
 		failureModule,
 		preprocessorModule,
-		{
-			deleteBranch: (detail, label) => {
-				$selectedId = label
-
-				dispatch('deleteBranch', detail)
-			},
-			insert: (detail) => {
-				dispatch('insert', detail)
-			},
-			select: (modId) => {
-				if (!notSelectable) {
-					if ($selectedId != modId) {
-						$selectedId = modId
-					}
-					dispatch('select', modId)
-				}
-			},
-			changeId: (detail) => {
-				dispatch('changeId', detail)
-			},
-			delete: (detail, label) => {
-				$selectedId = label
-
-				dispatch('delete', detail)
-			},
-			newBranch: (module) => {
-				dispatch('newBranch', { module })
-			},
-			move: (module, modules) => {
-				dispatch('move', { module, modules })
-			},
-			selectedIteration: (detail, moduleId) => {
-				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
-			}
-		},
+		eventHandler,
 		success,
 		$useDataflow,
 		$selectedId,
 		moving,
-		triggerNode
-			? {
-					path
-			  }
-			: undefined
+		simplifiableFlow,
+		triggerNode ? path : undefined,
+		expandedSubflows
 	)
 
 	const nodes = writable<Node[]>([])
@@ -192,18 +245,30 @@
 
 	let height = 0
 
+	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
+		if (!modules || modules?.length !== 2) {
+			return false
+		}
+		if (isTriggerStep(modules?.[0])) {
+			let secondValue = modules?.[1].value
+			return secondValue.type == 'forloopflow'
+		}
+
+		return false
+	}
+
 	function updateStores() {
 		if (graph.error) {
 			return
 		}
+		let newGraph = graph
 
-		$nodes = layoutNodes(graph?.nodes)
-		$edges = graph.edges
-
-		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
+		$nodes = layoutNodes(newGraph.nodes)
+		$edges = newGraph.edges
+		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
 
-	$: graph && updateStores()
+	$: (graph || allowSimplifiedPoll) && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -217,6 +282,7 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
+		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode
 	} as any

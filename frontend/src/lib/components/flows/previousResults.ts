@@ -74,7 +74,10 @@ function getFlowInput(
 	if (parentState && parentModule) {
 		if (
 			parentState.previewArgs &&
-			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1)
+			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1) &&
+			parentState &&
+			typeof parentState.previewArgs == 'object' &&
+			`iter` in parentState.previewArgs
 		) {
 			return { ...topFlowInput, ...parentState.previewArgs }
 		} else {
@@ -259,4 +262,38 @@ declare const approvers: string
 		: ''
 }
 `
+}
+
+export function buildPrefixRegex(words: string[]): Array<{ regex: RegExp; word: string }> {
+	return words.map((word) => {
+		const prefixes: string[] = []
+		for (let i = 1; i <= word.length; i++) {
+			prefixes.push(word.slice(0, i) + '$')
+		}
+		prefixes.push(word + '\\.')
+		prefixes.push(word + '\\[')
+
+		return {
+			regex: new RegExp(`^(${prefixes.join('|')}).*`),
+			word
+		}
+	})
+}
+
+export function filterNestedObject(obj: any, nestedKeys: string[]) {
+	if (nestedKeys.length === 0) return {}
+	if (nestedKeys.length === 1) {
+		if (nestedKeys[0] === '') {
+			return obj
+		}
+
+		return Object.fromEntries(Object.entries(obj).filter(([key]) => key.startsWith(nestedKeys[0])))
+	}
+	const [key, ...rest] = nestedKeys
+	if (obj && typeof obj === 'object' && key in obj) {
+		const result = {}
+		result[key] = filterNestedObject(obj[key], rest)
+		return result
+	}
+	return {}
 }

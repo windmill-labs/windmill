@@ -108,9 +108,24 @@
 		loading = false
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
+
+		// populate snowflake account identifier from db
+		const account_identifier =
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
+		if (account_identifier) {
+			snowflakeAccountIdentifier = account_identifier
+		}
 	}
 
 	export async function saveSettings() {
+		if (
+			oauths?.snowflake_oauth &&
+			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
+				snowflakeAccountIdentifier
+		) {
+			setupSnowflakeUrls()
+		}
+
 		let shouldReloadPage = false
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
@@ -217,7 +232,8 @@
 		'linkedin',
 		'quickbooks',
 		'visma',
-		'spotify'
+		'spotify',
+		'snowflake_oauth'
 	]
 
 	let oauth_name = undefined
@@ -268,6 +284,23 @@
 			}
 		}
 		return true
+	}
+
+	let snowflakeAccountIdentifier = ''
+
+	function setupSnowflakeUrls() {
+		// strip all whitespaces from account identifier
+		snowflakeAccountIdentifier = snowflakeAccountIdentifier.replace(/\s/g, '')
+
+		const connect_config = {
+			scopes: [],
+			auth_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/authorize`,
+			token_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/token-request`,
+			req_body_auth: false,
+			extra_params: { account_identifier: snowflakeAccountIdentifier },
+			extra_params_callback: {}
+		}
+		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 </script>
 
@@ -512,6 +545,22 @@
 													</label>
 													{#if !windmillBuiltins.includes(k) && k != 'slack'}
 														<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
+													{/if}
+													{#if k == 'snowflake_oauth'}
+														<label class="block pb-2">
+															<span class="text-primary font-semibold text-sm"
+																><a
+																	href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
+																	target="_blank">Snowflake Account Identifier</a
+																></span
+															>
+															<input
+																type="text"
+																placeholder="<orgname>-<account_name>"
+																required={true}
+																bind:value={snowflakeAccountIdentifier}
+															/>
+														</label>
 													{/if}
 												</div>
 											</div>
@@ -965,10 +1014,24 @@
 														</div>
 														<div>
 															<Toggle
+																disabled={values[setting.key].smtp_disable_tls}
 																id="smtp_tls_implicit"
 																bind:checked={values[setting.key].smtp_tls_implicit}
 																options={{ right: 'Implicit TLS' }}
 																label="Implicit TLS"
+															/>
+														</div>
+														<div>
+															<Toggle
+																id="smtp_disable_tls"
+																bind:checked={values[setting.key].smtp_disable_tls}
+																on:change={() => {
+																	if (values[setting.key].smtp_disable_tls) {
+																		values[setting.key].smtp_tls_implicit = false
+																	}
+																}}
+																options={{ right: 'Disable TLS' }}
+																label="Disable TLS"
 															/>
 														</div>
 													{/if}
@@ -1033,7 +1096,8 @@
 												password: smtp['smtp_password'],
 												port: smtp['smtp_port'],
 												from: smtp['smtp_from'],
-												tls_implicit: smtp['smtp_tls_implicit']
+												tls_implicit: smtp['smtp_tls_implicit'],
+												disable_tls: smtp['smtp_disable_tls']
 											}
 										}
 									})

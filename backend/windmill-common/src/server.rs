@@ -10,6 +10,7 @@ pub struct Smtp {
     pub port: u16,
     pub from: String,
     pub tls_implicit: Option<bool>,
+    pub disable_tls: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -20,6 +21,7 @@ pub struct SmtpConfigOpt {
     pub smtp_port: Option<u16>,
     pub smtp_from: Option<String>,
     pub smtp_tls_implicit: Option<bool>,
+    pub smtp_disable_tls: Option<bool>,
 }
 
 pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
@@ -39,6 +41,7 @@ pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
             username,
             password,
             tls_implicit: config.smtp_tls_implicit,
+            disable_tls: config.smtp_disable_tls,
             port: config.smtp_port.unwrap_or(587),
             from: config
                 .smtp_from
@@ -58,6 +61,9 @@ pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
                 username,
                 password,
                 tls_implicit: std::env::var("SMTP_TLS_IMPLICIT")
+                    .ok()
+                    .and_then(|p| p.parse().ok()),
+                disable_tls: std::env::var("SMTP_DISABLE_TLS")
                     .ok()
                     .and_then(|p| p.parse().ok()),
                 port: std::env::var("SMTP_PORT")
@@ -87,6 +93,7 @@ impl Default for SmtpConfigOpt {
             smtp_port: None,
             smtp_tls_implicit: None,
             smtp_username: None,
+            smtp_disable_tls: None,
         }
     }
 }

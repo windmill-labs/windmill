@@ -10,6 +10,7 @@
 		leftTooltip?: string
 		right?: string
 		rightTooltip?: string
+		rightDocumentationLink?: string
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
@@ -20,7 +21,7 @@
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
 
-	export let size: 'sm' | 'xs' = 'sm'
+	export let size: 'sm' | 'xs' | '2xs' = 'sm'
 
 	const dispatch = createEventDispatcher()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
@@ -39,7 +40,7 @@
 			class={twMerge(
 				'mr-2 font-medium duration-50 select-none',
 				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
-				size === 'xs' ? 'text-xs' : 'text-sm',
+				size === 'xs' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}
@@ -76,6 +77,8 @@
 					: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-400',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
+					: size === '2xs'
+					? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
 					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
 			)}
 		/>
@@ -92,7 +95,9 @@
 		>
 			{options?.right}
 			{#if options?.rightTooltip}
-				<Tooltip light={lightMode}>{options?.rightTooltip}</Tooltip>
+				<Tooltip documentationLink={options.rightDocumentationLink}>
+					{options.rightTooltip}
+				</Tooltip>
 			{/if}
 		</span>
 	{/if}

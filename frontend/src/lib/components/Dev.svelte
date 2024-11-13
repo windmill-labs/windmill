@@ -477,7 +477,7 @@
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
@@ -485,7 +485,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		triggersCount: triggersCount
+		triggersCount: triggersCount,
+		simplifiedPoll: writable(false)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -503,7 +504,10 @@
 		customUi: {},
 		insertButtonOpen: writable(false)
 	})
-
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined
