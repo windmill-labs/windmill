@@ -4276,10 +4276,18 @@ async fn run_flow_dependencies_job(
 }
 
 #[derive(Deserialize)]
+struct BatchRawScript {
+    content: String,
+    language: Option<ScriptLang>,
+    lock: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct BatchInfo {
     kind: String,
     flow_value: Option<FlowValue>,
     path: Option<String>,
+    rawscript: Option<BatchRawScript>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4302,6 +4310,9 @@ async fn add_batch_jobs(
         concurrent_limit,
         concurrent_time_window_s,
         timeout,
+        raw_code,
+        raw_lock,
+        raw_flow
     ) = match batch_info.kind.as_str() {
         "script" => {
             if let Some(path) = batch_info.path {
@@ -4329,10 +4340,35 @@ async fn add_batch_jobs(
                     concurrent_limit,
                     concurrency_time_window_s,
                     timeout,
+                    None,
+                    None,
+                    None,
                 )
             } else {
                 Err(anyhow::anyhow!(
                     "Path is required if no value is not provided"
+                ))?
+            }
+        }
+        "rawscript" => {
+            if let Some(rawscript) = batch_info.rawscript {
+                (
+                    None,
+                    None,
+                    JobKind::Preview,
+                    rawscript.language,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(rawscript.content),
+                    rawscript.lock,
+                    None,
+                )
+            } else {
+                Err(anyhow::anyhow!(
+                    "rawscript is required for `rawscript` kind"
                 ))?
             }
         }
@@ -4402,6 +4438,9 @@ async fn add_batch_jobs(
             None,
             None,
             None,
+            None,
+            None,
+            None,
         ),
         _ => {
             return Err(error::Error::BadRequest(format!(
@@ -4428,8 +4467,8 @@ async fn add_batch_jobs(
             select gen_random_uuid() as uuid from generate_series(1, $11)
         )
         INSERT INTO queue 
-            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout)
-            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14 FROM uuid_table) 
+            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, raw_code, raw_lock, raw_flow)
+            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15, $16, $17 FROM uuid_table) 
         RETURNING id"#,
             hash.map(|h| h.0),
             path,
@@ -4444,7 +4483,10 @@ async fn add_batch_jobs(
             n,
             concurrent_limit,
             concurrent_time_window_s,
-            timeout
+            timeout,
+            raw_code,
+            raw_lock,
+            raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>
         )
         .fetch_all(&db)
         .await?;
