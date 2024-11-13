@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.423.1](https://github.com/windmill-labs/windmill/compare/v1.423.0...v1.423.1) (2024-11-12)
+
+
+### Bug Fixes
+
+* **autoscaling:** autoscaling thresholds to be &gt;= and not > ([de00944](https://github.com/windmill-labs/windmill/commit/de00944f09699ff33a382f5a14f515ccf90b2454))
+
 ## [1.423.0](https://github.com/windmill-labs/windmill/compare/v1.422.1...v1.423.0) (2024-11-12)
 
 
