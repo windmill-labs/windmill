@@ -16,9 +16,9 @@
 		Eye,
 		File,
 		FileJson,
-		FileUp,
+		FolderOpen,
 		GitFork,
-		Globe,
+		ChevronUpSquare,
 		History,
 		Pen,
 		Share,
@@ -162,7 +162,7 @@
 					},
 					{
 						displayName: 'Move/Rename',
-						icon: FileUp,
+						icon: FolderOpen,
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'app')
 						},
@@ -173,7 +173,7 @@
 						? [
 								{
 									displayName: 'Deploy to staging/prod',
-									icon: Globe,
+									icon: ChevronUpSquare,
 									action: () => {
 										deploymentDrawer.openDrawer(path, 'app')
 									},

@@ -533,7 +533,7 @@
 	>
 {:else if notSet == true}
 	<Alert type="error" title="Staging/Prod deploy not set up"
-		>As an admin, go to "Workspace {'->'} Dev/Staging/Prod"</Alert
+		>As an admin, go to Settings {'->'} Workspace {'->'} Deployment UI</Alert
 	>
 {:else}
 	<Alert type="info" title="Shareable page"

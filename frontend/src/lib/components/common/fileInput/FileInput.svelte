@@ -4,6 +4,7 @@
 	import Button from '../../common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { ReadFileAs } from './model'
+	import { sendUserToast } from '$lib/toast'
 
 	type ConvertedFile = string | ArrayBuffer | null
 
@@ -89,7 +90,12 @@
 		event.preventDefault()
 		if (event.dataTransfer) {
 			if (event.dataTransfer.files && event.dataTransfer.files.length) {
-				onChange(event.dataTransfer.files)
+				if (!multiple && event.dataTransfer.files.length > 1) {
+					sendUserToast('Only one file can be uploaded at a time')
+					return
+				} else {
+					onChange(event.dataTransfer.files)
+				}
 			}
 		}
 	}

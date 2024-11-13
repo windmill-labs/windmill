@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value::BOOLEAN as value FROM global_settings WHERE name = 'critical_alert_mute_ui'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "33cfb00f61dbae09467bd3732ce8e83c9835ccd30c90cb24788cdb54d1ceb575"
+}

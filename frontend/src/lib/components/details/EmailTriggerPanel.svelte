@@ -39,7 +39,13 @@
 
 	let requestType: 'hash' | 'path' = 'path'
 
-	function emailAddress() {
+	function emailAddress(
+		requestType: 'hash' | 'path',
+		path: string,
+		hash: string | undefined,
+		isFlow: boolean,
+		token: string
+	) {
 		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
 		const plainPrefix = `${$workspaceStore}+${
 			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
@@ -54,7 +60,7 @@
 
 	export let email: string = ''
 
-	$: email = emailAddress()
+	$: email = emailAddress(requestType, path, hash, isFlow, token)
 
 	let triggerTokens: TriggerTokens | undefined = undefined
 </script>

@@ -5,10 +5,12 @@
 	import {
 		Bed,
 		Database,
+		ExternalLink,
 		Gauge,
 		GitFork,
 		Pen,
 		PhoneIncoming,
+		RefreshCcw,
 		Repeat,
 		Save,
 		Square,
@@ -138,6 +140,32 @@
 				Fork
 			</Button>
 		{/if}
+	{/if}
+	{#if module.value.type === 'flow'}
+		<Button
+			size="xs"
+			color="light"
+			on:click={async () => {
+				if (module.value.type == 'flow') {
+					window.open(`/flows/edit/${module.value.path}`, '_blank', 'noopener,noreferrer')
+				}
+			}}
+			startIcon={{ icon: Pen }}
+			iconOnly={false}
+		>
+			Edit <ExternalLink size={12} />
+		</Button>
+		<Button
+			size="xs"
+			color="light"
+			on:click={async () => {
+				dispatch('reload')
+			}}
+			startIcon={{
+				icon: RefreshCcw
+			}}
+			iconOnly={true}
+		/>
 	{/if}
 	<div class="px-0.5" />
 	{#if module.value.type === 'rawscript'}

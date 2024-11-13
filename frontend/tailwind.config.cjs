@@ -463,7 +463,8 @@ const config = {
 				height: 'height'
 			},
 			fontSize: {
-				'2xs': '0.7rem'
+				'2xs': '0.7rem',
+				'3xs': '0.65rem'
 			},
 			screens: {
 				fhd: '1900px',

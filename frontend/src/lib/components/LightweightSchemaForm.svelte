@@ -16,6 +16,18 @@
 	export let defaultValues: Record<string, any> = {}
 	export let dynamicEnums: Record<string, any> = {}
 	export let disabled: boolean = false
+	export let appPath: string | undefined = undefined
+	export let computeS3ForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 	let errors: { [id: string]: string } = {}
@@ -104,6 +116,9 @@
 				{displayType}
 				{css}
 				disabled={disabled || schema.properties[argName].disabled}
+				{appPath}
+				{computeS3ForceViewerPolicies}
+				{workspace}
 			/>
 		{/if}
 	{/each}

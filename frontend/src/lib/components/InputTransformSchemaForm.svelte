@@ -67,24 +67,26 @@
 
 <div class="w-full {clazz}">
 	{#if enableAi}
-		<StepInputsGen
-			{pickableProperties}
-			argNames={keys
-				? keys.filter(
-						(argName) =>
-							Object.keys(schema.properties ?? {}).includes(argName) &&
-							Object.keys(args ?? {}).includes(argName) &&
-							((args[argName].type === 'static' && !args[argName].value) ||
-								(args[argName].type === 'javascript' && !args[argName].expr))
-				  )
-				: []}
-			{schema}
-		/>
+		<div class="px-0.5 pt-0.5">
+			<StepInputsGen
+				{pickableProperties}
+				argNames={keys
+					? keys.filter(
+							(argName) =>
+								Object.keys(schema.properties ?? {}).includes(argName) &&
+								Object.keys(args ?? {}).includes(argName) &&
+								((args[argName].type === 'static' && !args[argName].value) ||
+									(args[argName].type === 'javascript' && !args[argName].expr))
+					  )
+					: []}
+				{schema}
+			/>
+		</div>
 	{/if}
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="z-10 pt-4">
+				<div class="pt-2 relative">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -128,7 +130,7 @@
 >
 	<div
 		slot="submission"
-		class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+		class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
 		<Button
 			variant="border"

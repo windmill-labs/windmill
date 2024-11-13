@@ -129,7 +129,8 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         Some(label)
             if label.starts_with("webhook-")
                 || label.starts_with("http-")
-                || label.starts_with("email-") =>
+                || label.starts_with("email-")
+                || label.starts_with("ws-") =>
         {
             Some(label)
         }
@@ -745,10 +746,20 @@ pub async fn fetch_api_authed(
     username_override: String,
 ) -> error::Result<ApiAuthed> {
     let permissioned_as = username_to_permissioned_as(username.as_str());
+    fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
+}
+
+pub async fn fetch_api_authed_from_permissioned_as(
+    permissioned_as: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: String,
+) -> error::Result<ApiAuthed> {
     let authed =
         fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
     Ok(ApiAuthed {
-        username: username,
+        username: authed.username,
         email: email,
         is_admin: authed.is_admin,
         is_operator: authed.is_operator,

@@ -65,7 +65,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
-    flows::FlowValue,
+    flows::{add_virtual_items_if_necessary, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
@@ -4276,17 +4276,25 @@ async fn run_flow_dependencies_job(
 }
 
 #[derive(Deserialize)]
+struct BatchRawScript {
+    content: String,
+    language: Option<ScriptLang>,
+    lock: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct BatchInfo {
     kind: String,
     flow_value: Option<FlowValue>,
     path: Option<String>,
+    rawscript: Option<BatchRawScript>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn add_batch_jobs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Extension(_rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, n)): Path<(String, i32)>,
     Json(batch_info): Json<BatchInfo>,
 ) -> error::JsonResult<Vec<Uuid>> {
@@ -4302,6 +4310,10 @@ async fn add_batch_jobs(
         concurrent_limit,
         concurrent_time_window_s,
         timeout,
+        raw_code,
+        raw_lock,
+        raw_flow,
+        flow_status
     ) = match batch_info.kind.as_str() {
         "script" => {
             if let Some(path) = batch_info.path {
@@ -4329,6 +4341,10 @@ async fn add_batch_jobs(
                     concurrent_limit,
                     concurrency_time_window_s,
                     timeout,
+                    None,
+                    None,
+                    None,
+                    None,
                 )
             } else {
                 Err(anyhow::anyhow!(
@@ -4336,66 +4352,81 @@ async fn add_batch_jobs(
                 ))?
             }
         }
-        "flow" => {
-            let mut uuids: Vec<Uuid> = Vec::new();
-            let payload = if let Some(ref fv) = batch_info.flow_value {
-                JobPayload::RawFlow { value: fv.clone(), path: None, restarted_from: None }
-            } else {
-                if let Some(path) = batch_info.path.as_ref() {
-                    JobPayload::Flow {
-                        path: path.to_string(),
-                        dedicated_worker: None,
-                        apply_preprocessor: false,
-                    }
-                } else {
-                    Err(anyhow::anyhow!(
-                        "Path is required if no value is not provided"
-                    ))?
-                }
-            };
-            let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
-            for _ in 0..n {
-                let ehm = HashMap::new();
-                let (uuid, ntx) = push(
-                    &db,
-                    tx,
-                    &w_id,
-                    payload.clone(),
-                    PushArgs::from(&ehm),
-                    authed.display_username(),
-                    &authed.email,
-                    username_to_permissioned_as(&authed.username),
+        "rawscript" => {
+            if let Some(rawscript) = batch_info.rawscript {
+                (
+                    None,
+                    None,
+                    JobKind::Preview,
+                    rawscript.language,
                     None,
                     None,
                     None,
                     None,
                     None,
-                    false,
-                    false,
-                    None,
-                    true,
+                    Some(rawscript.content),
+                    rawscript.lock,
                     None,
                     None,
-                    None,
-                    None,
-                    Some(&authed.clone().into()),
                 )
-                .await?;
-                tx = PushIsolationLevel::Transaction(ntx);
-                uuids.push(uuid);
+            } else {
+                Err(anyhow::anyhow!(
+                    "rawscript is required for `rawscript` kind"
+                ))?
             }
-            match tx {
-                PushIsolationLevel::Transaction(tx) => {
-                    tx.commit().await?;
-                }
-                _ => (),
-            }
-            return Ok(Json(uuids));
+        }
+        "flow" => {
+            let (mut value, job_kind, path) = if let Some(value) = batch_info.flow_value {
+                (value, JobKind::FlowPreview, None)
+            } else if let Some(path) = batch_info.path {
+                let value_json = sqlx::query!(
+                    "SELECT flow_version.value AS \"value: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                    LEFT JOIN flow_version
+                        ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                    WHERE flow.path = $1 AND flow.workspace_id = $2",
+                    &path, &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+                let value =
+                    serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                        Error::InternalErr(format!(
+                            "could not convert json to flow for {path}: {err:?}"
+                        ))
+                    })?;
+                (value, JobKind::Flow, Some(path))
+            } else {
+                Err(anyhow::anyhow!(
+                    "Path is required if no value is not provided"
+                ))?
+            };
+            add_virtual_items_if_necessary(&mut value.modules);
+            let flow_status = FlowStatus::new(&value);
+            (
+                None,                             // script_hash
+                path,                             // script_path
+                job_kind,                         // job_kind
+                None,                             // language
+                None,                             // dedicated_worker
+                value.concurrency_key.clone(),    // custom_concurrency_key
+                value.concurrent_limit.clone(),   // concurrent_limit
+                value.concurrency_time_window_s,  // concurrency_time_window_s
+                None,                             // timeout
+                None,                             // raw_code
+                None,                             // raw_lock
+                Some(value),                      // raw_flow
+                Some(flow_status),                // flow_status
+            )
         }
         "noop" => (
             None,
             None,
             JobKind::Noop,
+            None,
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -4428,8 +4459,8 @@ async fn add_batch_jobs(
             select gen_random_uuid() as uuid from generate_series(1, $11)
         )
         INSERT INTO queue 
-            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout)
-            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14 FROM uuid_table) 
+            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, raw_code, raw_lock, raw_flow, flow_status)
+            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15, $16, $17, $18 FROM uuid_table) 
         RETURNING id"#,
             hash.map(|h| h.0),
             path,
@@ -4444,7 +4475,11 @@ async fn add_batch_jobs(
             n,
             concurrent_limit,
             concurrent_time_window_s,
-            timeout
+            timeout,
+            raw_code,
+            raw_lock,
+            raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
+            flow_status.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowStatus>>
         )
         .fetch_all(&db)
         .await?;

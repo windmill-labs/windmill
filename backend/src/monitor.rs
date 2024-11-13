@@ -39,7 +39,7 @@ use windmill_common::{
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -55,7 +55,7 @@ use windmill_common::{
         WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, CRITICAL_ALERT_MUTE_UI_ENABLED
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -111,6 +111,9 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
+
+    static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+
 }
 
 pub async fn initial_load(
@@ -126,6 +129,10 @@ pub async fn initial_load(
 
     if let Err(e) = load_metrics_debug_enabled(db).await {
         tracing::error!("Error loading expose debug metrics: {e:#}");
+    }
+
+    if let Err(e) = reload_critical_alert_mute_ui_setting(db).await {
+        tracing::error!("Error loading critical alert mute ui setting: {e:#}");
     }
 
     if let Err(e) = load_tag_per_workspace_enabled(db).await {
@@ -217,6 +224,17 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
         Ok(None) => {
             let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
             *w = None;
+        }
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn reload_critical_alert_mute_ui_setting(db: &DB) -> error::Result<()> {
+    let mute = load_value_from_global_settings(db, CRITICAL_ALERT_MUTE_UI_SETTING).await;
+    match mute {
+        Ok(Some(serde_json::Value::Bool(t))) => {
+            CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
         }
         _ => (),
     };
@@ -1089,12 +1107,23 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     if metrics_enabled || save_metrics {
         let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
+        if metrics_enabled {
+            for q in QUEUE_COUNT_TAGS.read().await.iter() {
+                if queue_counts.get(q).is_none() {
+                    (*QUEUE_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+        }
+
+        let mut tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
+
             if metrics_enabled {
                 let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);
+                tags_to_watch.push(tag.to_string());
             }
 
             // save queue_count and delay metrics per tag
@@ -1118,6 +1147,10 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                         ).execute(db).await.ok();
                 }
             }
+        }
+        if metrics_enabled {
+            let mut w = QUEUE_COUNT_TAGS.write().await;
+            *w = tags_to_watch;
         }
     }
 

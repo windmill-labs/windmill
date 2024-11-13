@@ -187,6 +187,7 @@
 						<div class="border">
 							<PropPickerWrapper
 								{result}
+								noFlowPlugConnect
 								displayContext={false}
 								pickableProperties={undefined}
 								on:select={({ detail }) => {
@@ -200,6 +201,7 @@
 									argName="groups"
 									{schema}
 									{previousModuleId}
+									bind:editor
 								/>
 							</PropPickerWrapper>
 						</div>
