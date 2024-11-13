@@ -190,7 +190,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/{username}:
+  /w/{workspace}/users/get/{username}:
     get:
       summary: get user (require admin privilege)
       operationId: getUser
