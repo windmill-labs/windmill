@@ -34,6 +34,7 @@
 	let maxWidth = 10
 	let isManuallySelected = false
 	let componentIsDebugging = false
+	let id_width = 0
 
 	$: maxWidth = Math.max(Math.round(0.2 * componentContainerWidth), MINIMUM_WIDTH)
 
@@ -60,7 +61,11 @@
 </script>
 
 {#if connecting}
-	<div class="absolute z-50 left-4 -top-[12px] overflow-auto" data-connection-button>
+	<div
+		class="absolute z-50 overflow-auto -top-[18px]"
+		style="left: {id_width}px;"
+		data-connection-button
+	>
 		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button">
 				<AnimatedButton
@@ -108,7 +113,11 @@
 					: 'bg-blue-500/90 border-blue-600 text-white'
 			)}
 		>
-			<div class={`px-1 text-2xs w-full min-w-4 h-full truncate`} style="max-width: {maxWidth}px;">
+			<div
+				class={`px-1 text-2xs w-full min-w-4 h-full truncate`}
+				style="max-width: {maxWidth}px;"
+				bind:clientWidth={id_width}
+			>
 				{component.id}
 			</div>
 			{#if !connecting}
