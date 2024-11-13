@@ -235,6 +235,23 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
         ],
       },
     };
+  } else if (flowPattern == "bigscriptinflow") {
+    return {
+      path: "bigscriptinflow",
+      args: {},
+      value: {
+        modules: [
+          {
+            value: {
+              input_transforms: {},
+              language: api.RawScript.language.BASH,
+              type: "rawscript",
+              content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+            },
+          }
+        ],
+      }
+    };
   } else {
     return {
       path: "2steps",
