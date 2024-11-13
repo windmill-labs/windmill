@@ -105,12 +105,12 @@
 			draggable="false"
 			title={`Id: ${component.id}`}
 			class={twMerge(
-				'py-0.5 text-2xs w-fit h-full min-h-5 border rounded z-50 cursor-move flex flex-row flex-nowrap font-semibold items-center shadow',
+				'py-0.5 text-2xs w-fit h-full min-h-5 rounded z-50 cursor-move flex flex-row flex-nowrap font-semibold items-center shadow',
 				selected
-					? 'bg-indigo-500/90 border-indigo-500 text-white'
+					? 'bg-blue-600/90 text-white'
 					: $connectingInput.opened
-					? 'bg-red-500/90 border-red-600 text-white'
-					: 'bg-blue-500/90 border-blue-600 text-white'
+					? 'bg-[#f8aa4b]/90  text-white'
+					: 'bg-blue-400/90 text-white'
 			)}
 		>
 			<div
@@ -127,8 +127,8 @@
 						class={twMerge(
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							fullHeight
-								? ' bg-indigo-800 text-indigo-200'
-								: 'text-white hover:bg-indigo-700 hover:text-indigo-200'
+								? 'bg-blue-300 text-blue-800'
+								: 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						on:click={() => dispatch('fillHeight')}
 						on:pointerdown|stopPropagation
@@ -140,9 +140,7 @@
 						title="Lock Position"
 						class={twMerge(
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
-							locked
-								? ' bg-indigo-800 text-indigo-200'
-								: 'text-white hover:bg-indigo-700 hover:text-indigo-200'
+							locked ? 'bg-blue-300 text-blue-800' : 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						on:click={() => dispatch('lock')}
 						on:pointerdown|stopPropagation
@@ -159,10 +157,10 @@
 		{#if selected && !connecting && checkComponentOptions()}
 			<div
 				class={twMerge(
-					'px-1 py-0.5 text-2xs font-semibold w-fit min-h-5 border shadow rounded z-50 flex flex-row items-center flex-nowrap',
+					'px-1 py-0.5 text-2xs font-semibold w-fit min-h-5 shadow rounded z-50 flex flex-row items-center flex-nowrap',
 					isManuallySelected || componentIsDebugging
 						? 'bg-red-100 text-red-600 border-red-500'
-						: 'bg-indigo-100/90 border-indigo-200 text-indigo-600'
+						: 'bg-blue-100/90 border-blue-200 text-blue-600'
 				)}
 			>
 				{#if hasInlineEditor}
@@ -171,8 +169,8 @@
 						class={twMerge(
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							inlineEditorOpened
-								? 'bg-indigo-300 text-indigo-800'
-								: 'text-indigo-600 hover:bg-indigo-300 hover:text-indigo-800'
+								? 'bg-blue-300 text-blue-800'
+								: 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						on:click={() => dispatch('triggerInlineEditor')}
 						on:pointerdown|stopPropagation
@@ -203,10 +201,10 @@
 					<button
 						title={'Open Decision Tree Editor'}
 						class={twMerge(
-							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full center-center',
 							componentIsDebugging
 								? 'text-red-600 hover:bg-red-300 hover:text-red-800'
-								: 'text-indigo-600 hover:bg-indigo-300 hover:text-indigo-800'
+								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
 						on:click={() => {
 							const element = document.getElementById(`decision-tree-graph-editor`)

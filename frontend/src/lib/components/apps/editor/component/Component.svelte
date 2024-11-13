@@ -237,10 +237,10 @@
 			$mode === 'dnd' ? 'bg-surface/40' : '',
 			$hoverStore === component.id && $mode !== 'preview'
 				? $connectingInput.opened
-					? 'outline outline-orange-600'
-					: 'outline outline-blue-600'
+					? 'outline outline-[#f8aa4b]'
+					: 'outline outline-blue-400'
 				: '',
-			selected && $mode !== 'preview' ? 'outline outline-indigo-600' : '',
+			selected && $mode !== 'preview' ? 'outline outline-blue-600' : '',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class,
