@@ -30,5 +30,13 @@
   {
     "kind": "nativets",
     "jobs": 2000
+  },
+  {
+    "kind": "bigrawscript",
+    "jobs": 10000
+  },
+  {
+    "kind": "bigscriptinflow",
+    "jobs": 10000
   }
 ]

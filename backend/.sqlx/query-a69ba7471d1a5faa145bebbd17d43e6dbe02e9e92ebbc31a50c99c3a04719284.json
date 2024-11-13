@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH uuid_table as (\n            select gen_random_uuid() as uuid from generate_series(1, $11)\n        )\n        INSERT INTO queue \n            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, raw_code, raw_lock, raw_flow, flow_status)\n            (SELECT uuid, $1, $2, $3, $4, ('{ \"uuid\": \"' || uuid || '\" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15, $16, $17, $18 FROM uuid_table) \n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlescriptflow"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Varchar",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a69ba7471d1a5faa145bebbd17d43e6dbe02e9e92ebbc31a50c99c3a04719284"
+}
