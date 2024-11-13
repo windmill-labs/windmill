@@ -1,16 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+  "query": "SELECT value\n                FROM resource\n                WHERE path = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "large_file_storage",
+        "name": "value",
         "type_info": "Jsonb"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -18,5 +19,5 @@
       true
     ]
   },
-  "hash": "5e4e0740e1cff4b2a7c620da3758604a47f81b505fa9a713efa3519b050b546a"
+  "hash": "286fa00c088df146c08c1934556f06a4243c66787ab8759a8045e60effd2fb77"
 }
