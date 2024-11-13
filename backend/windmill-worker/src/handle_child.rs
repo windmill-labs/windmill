@@ -339,8 +339,6 @@ pub async fn handle_child(
                         if line.is_empty() {
                             continue;
                         }
-                        #[cfg(feature = "enterprise")]
-                        crate::job_logger_ee::export_job_lines_externally(&line,  &w_id).await;
                         append_with_limit(&mut joined, &line, &mut log_remaining);
                         if log_remaining == 0 {
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");

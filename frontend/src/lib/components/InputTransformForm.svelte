@@ -238,7 +238,7 @@
 			setPropertyType(arg?.value)
 			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
 		} else if (propertyType == 'javascript' && focused) {
-			setPropertyType(arg?.expr)
+			// setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
 		}
 	}

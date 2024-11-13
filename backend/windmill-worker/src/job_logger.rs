@@ -38,7 +38,7 @@ pub(crate) async fn append_job_logs(
 ) -> () {
     if must_compact_logs {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        s3_storage(job_id, &w_id, &db, logs, &total_size, &worker_name).await;
+        s3_storage(job_id, &w_id, &db, logs, total_size, &worker_name).await;
 
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         {
