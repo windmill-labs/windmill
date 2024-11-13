@@ -77,7 +77,7 @@
 				>
 					<button
 						id={`connect-output-${component.id}`}
-						class="h-[20px] w-[20px] bg-blue-800 rounded-full center-center text-white"
+						class="h-[20px] w-[20px] bg-surface rounded-full center-center text-primary"
 						title="Outputs"
 						aria-label="Open output"><Plug size={12} /></button
 					>
