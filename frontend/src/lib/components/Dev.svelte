@@ -49,6 +49,8 @@
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
 	import { initAllAiWorkspace } from './copilot/lib'
+	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
+	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
