@@ -52,6 +52,7 @@ mod concurrency_groups;
 mod configs;
 mod db;
 mod drafts;
+mod database_triggers;
 pub mod ee;
 pub mod embeddings;
 mod favorite;
@@ -298,7 +299,7 @@ pub async fn run_server(
                         .nest(
                             "/websocket_triggers",
                             websocket_triggers::workspaced_service(),
-                        ),
+                        ).nest("/database_triggers", database_triggers::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
