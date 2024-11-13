@@ -1211,8 +1211,8 @@ pub async fn handle_python_reqs(
                     &req,
                     "--no-deps",
                     "--no-color",
-                    "-p",
-                    "3.11",
+                    // "-p",
+                    // "3.11",
                     // Prevent uv from discovering configuration files.
                     "--no-config",
                     "--link-mode=copy",
@@ -1286,17 +1286,21 @@ pub async fn handle_python_reqs(
 
             #[cfg(windows)]
             {
-                let python_path = &command_args[0];
-                let mut cmd = Command::new(&python_path);
-                pip_cmd
-                    .env_clear()
+                let installer_path = if no_uv_install { command_args[0] } else { "uv" };
+                let mut cmd: Command = Command::new(&installer_path);
+                cmd.env_clear()
                     .envs(envs)
                     .envs(PROXY_ENVS.clone())
                     .env("SystemRoot", SYSTEM_ROOT.as_str())
+                    .env("TMP", "C:\\Users\\alex\\AppData\\Local\\Temp")
+                    .env(
+                        "TMP",
+                        std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                    )
                     .args(&command_args[1..])
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
-                start_child_process(cmd, python_path).await?
+                start_child_process(cmd, installer_path).await?
             }
         };
 
