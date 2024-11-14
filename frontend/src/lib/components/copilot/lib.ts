@@ -1,42 +1,147 @@
 import { OpenAI } from 'openai'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import type { Writable } from 'svelte/store'
-
+import { Anthropic } from '@anthropic-ai/sdk'
 import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
-
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-
+import { Mistral } from '@mistralai/mistralai'
 import { buildClientSchema, printSchema } from 'graphql'
 import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
 
+import type { MessageCreateParams, MessageParam } from '@anthropic-ai/sdk/resources/messages.mjs'
+import type { ChatCompletionRequest } from '@mistralai/mistralai/models/components/chatcompletionrequest'
+import type {
+	SystemMessage,
+	UserMessage,
+	AssistantMessage,
+	ToolMessage,
+	CompletionEvent,
+	ContentChunk
+} from '@mistralai/mistralai/models/components'
+
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
-const openaiConfig: ChatCompletionCreateParamsStreaming = {
-	temperature: 0,
-	max_tokens: 16384,
-	model: 'gpt-4o-2024-08-06',
-	seed: 42,
-	stream: true,
-	messages: []
+export type AiProviderTypes = 'openai' | 'anthropic' | 'mistral'
+
+interface AiProvider {
+	init: (workspace: string, updateClient: boolean, token?: string) => void
 }
 
-class WorkspacedOpenai {
+class WorkspacedMistral implements AiProvider {
+	private client: Mistral | undefined
+
+	init(workspace: string, updateClient: boolean, token?: string) {
+		if (!this.client || updateClient) {
+			this.client = initWorkspaceAiProvider(workspace, 'mistral', token) as unknown as Mistral
+		}
+	}
+
+	getClient() {
+		if (!this.client) {
+			throw new Error('AnthropicAi not initialized')
+		}
+		return this.client
+	}
+}
+
+export namespace MistralAi {
+	export let workspace = new WorkspacedMistral()
+
+	export const mistralConfig: ChatCompletionRequest = {
+		temperature: 0,
+		model: null,
+		maxTokens: 32000,
+		messages: []
+	}
+
+	export type MistralParamsMessage =
+		| (SystemMessage & { role: 'system' })
+		| (UserMessage & { role: 'user' })
+		| (AssistantMessage & { role: 'assistant' })
+		| (ToolMessage & { role: 'tool' })
+
+	export function retrieveTextValue(chunks: string | ContentChunk[] | null | undefined): string {
+		let response = ''
+		if (Array.isArray(chunks)) {
+			for (const chunk of chunks) {
+				if (chunk.type === 'text') {
+					response += chunk.text
+				}
+			}
+			return response
+		}
+		return chunks as string
+	}
+}
+
+class WorkspacedAnthropic implements AiProvider {
+	private client: Anthropic | undefined
+
+	init(workspace: string, updateClient: boolean, token: string | undefined = undefined) {
+		if (!this.client || updateClient) {
+			this.client = initWorkspaceAiProvider(workspace, 'anthropic', token) as unknown as Anthropic
+		}
+	}
+
+	getClient() {
+		if (!this.client) {
+			throw new Error('AnthropicAi not initialized')
+		}
+		return this.client
+	}
+}
+
+export namespace AnthropicAi {
+	export let workspace = new WorkspacedAnthropic()
+
+	export const config: MessageCreateParams = {
+		temperature: 0,
+		max_tokens: 8192,
+		model: 'claude-3-5-sonnet-20241022',
+		messages: []
+	}
+
+	export function getSystemPromptAndArrayMessages(
+		messages: ChatCompletionMessageParam[]
+	): [string, MessageParam[]] {
+		let system: string | undefined = undefined
+		if (messages[0].role == 'system') {
+			system = messages[0].content as string
+			messages.shift()
+		}
+		const anthropicMessages: MessageParam[] = messages.map((message) => {
+			return {
+				role: message.role == 'user' ? 'user' : 'assistant',
+				content: message.content as string
+			}
+		})
+		return [system as string, anthropicMessages ?? []]
+	}
+
+	export function retrieveTextValue(part: Anthropic.Messages.RawMessageStreamEvent) {
+		let response = ''
+		if (part.type == 'content_block_delta') {
+			if (part.delta.type == 'text_delta') {
+				response = part.delta.text
+			} else {
+				response = part.delta.partial_json
+			}
+		}
+		return response
+	}
+}
+
+class WorkspacedOpenai implements AiProvider {
 	private client: OpenAI | undefined
 
-	init(workspace: string, token: string | undefined = undefined) {
-		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
-		this.client = new OpenAI({
-			baseURL,
-			apiKey: 'fakekey',
-			defaultHeaders: {
-				Authorization: token ? `Bearer ${token}` : ''
-			},
-			dangerouslyAllowBrowser: true
-		})
+	init(workspace: string, updateClient: boolean, token: string | undefined = undefined) {
+		if (!this.client || updateClient) {
+			this.client = initWorkspaceAiProvider(workspace, 'openai', token) as unknown as OpenAI
+		}
 	}
 
 	getClient() {
@@ -47,34 +152,141 @@ class WorkspacedOpenai {
 	}
 }
 
-export let workspacedOpenai = new WorkspacedOpenai()
+export namespace OpenAi {
+	export let workspace = new WorkspacedOpenai()
+
+	export const openaiConfig: ChatCompletionCreateParamsStreaming = {
+		temperature: 0,
+		max_tokens: 16384,
+		model: 'gpt-4o-2024-08-06',
+		seed: 42,
+		stream: true,
+		messages: []
+	}
+
+	export function retrieveTextValue(part: OpenAI.Chat.Completions.ChatCompletionChunk) {
+		return part.choices[0]?.delta?.content || ''
+	}
+}
+
+export function initAllAiWorkspace(workspace: string, updateClient: boolean = false) {
+	OpenAi.workspace.init(workspace, updateClient)
+	AnthropicAi.workspace.init(workspace, updateClient)
+	MistralAi.workspace.init(workspace, updateClient)
+}
+
+function initWorkspaceAiProvider(
+	workspace: string,
+	aiProvider: AiProviderTypes,
+	token: string | undefined = undefined
+): Anthropic | OpenAI | Mistral {
+	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
+	let client
+	switch (aiProvider) {
+		case 'openai': {
+			client = new OpenAI({
+				baseURL,
+				apiKey: 'fake-key',
+				defaultHeaders: {
+					Authorization: token ? `Bearer ${token}` : ''
+				},
+				dangerouslyAllowBrowser: true
+			})
+			break
+		}
+		case 'anthropic': {
+			client = new Anthropic({
+				baseURL,
+				apiKey: 'fake-key',
+				defaultHeaders: {
+					Authorization: token ? `Bearer ${token}` : ''
+				},
+				dangerouslyAllowBrowser: true
+			})
+			break
+		}
+		case 'mistral': {
+			client = new Mistral({
+				serverURL: baseURL
+			})
+		}
+	}
+	return client
+}
 
 export async function testKey({
 	apiKey,
 	abortController,
-	messages
+	messages,
+	aiProvider
 }: {
 	apiKey?: string
 	messages: ChatCompletionMessageParam[]
 	abortController: AbortController
+	aiProvider: AiProviderTypes
 }) {
 	if (apiKey) {
-		const openai = new OpenAI({
-			apiKey,
-			dangerouslyAllowBrowser: true
-		})
-		await openai.chat.completions.create(
-			{
-				...openaiConfig,
-				messages,
-				stream: false
-			},
-			{
-				signal: abortController.signal
+		switch (aiProvider) {
+			case 'openai': {
+				const openai = new OpenAI({
+					apiKey,
+					dangerouslyAllowBrowser: true
+				})
+				await openai.chat.completions.create(
+					{
+						...OpenAi.openaiConfig,
+						messages,
+						stream: false
+					},
+					{
+						signal: abortController.signal
+					}
+				)
+				break
 			}
-		)
+			case 'anthropic': {
+				const anthropic = new Anthropic({
+					apiKey,
+					dangerouslyAllowBrowser: true
+				})
+				const [, anthropicMessages] = AnthropicAi.getSystemPromptAndArrayMessages(messages)
+				await anthropic.messages.create(
+					{
+						...AnthropicAi.config,
+						messages: anthropicMessages,
+						stream: false
+					},
+					{
+						signal: abortController.signal
+					}
+				)
+				break
+			}
+			case 'mistral': {
+				const mistral = new Mistral({
+					apiKey
+				})
+				await mistral.chat.complete(
+					{
+						...MistralAi.mistralConfig,
+						model: 'codestral-latest',
+						stream: false,
+						messages: messages as MistralAi.MistralParamsMessage[]
+					},
+					{
+						fetchOptions: {
+							signal: abortController.signal,
+							headers: {
+								'content-type': 'application/json'
+							}
+						}
+					}
+				)
+				break
+			}
+		}
 	} else {
-		await getNonStreamingCompletion(messages, abortController, undefined, true)
+		await getNonStreamingCompletion(messages, abortController, aiProvider, undefined, true)
 	}
 }
 
@@ -255,57 +467,154 @@ const PROMPTS_CONFIGS = {
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	model = openaiConfig.model,
+	aiProvider: AiProviderTypes,
+	model = OpenAi.openaiConfig.model,
 	noCache?: boolean
 ) {
-	const openaiClient = workspacedOpenai.getClient()
-	const completion = await openaiClient.chat.completions.create(
-		{
-			...openaiConfig,
-			messages,
-			stream: false,
-			model
+	let response: string | undefined = ''
+	const queryOptions = {
+		query: {
+			no_cache: noCache
 		},
-		{
-			query: {
-				no_cache: noCache
-			},
-			signal: abortController.signal
+		signal: abortController.signal
+	}
+	switch (aiProvider) {
+		case 'openai': {
+			const openaiClient = OpenAi.workspace.getClient()
+			const completion = await openaiClient.chat.completions.create(
+				{
+					...OpenAi.openaiConfig,
+					messages,
+					stream: false,
+					model
+				},
+				queryOptions
+			)
+			response = completion.choices[0]?.message.content || ''
+			break
 		}
-	)
-
-	// if (completion.usage) {
-	// 	const { prompt_tokens, completion_tokens } = completion.usage
-	// 	console.log('Cost: ', (prompt_tokens * 0.0015 + completion_tokens * 0.002) / 1000)
-	// }
-
-	return completion.choices[0]?.message.content || ''
+		case 'anthropic': {
+			const anthropicClient = AnthropicAi.workspace.getClient()
+			const [system, anthropicMessages] = AnthropicAi.getSystemPromptAndArrayMessages(messages)
+			const message = await anthropicClient.messages.create(
+				{
+					...AnthropicAi.config,
+					system,
+					messages: anthropicMessages,
+					stream: false
+				},
+				queryOptions
+			)
+			response = message.content[0].type === 'text' ? message.content[0].text : ''
+			break
+		}
+		case 'mistral': {
+			const mistralClient = MistralAi.workspace.getClient()
+			const message = await mistralClient.chat.complete(
+				{
+					...MistralAi.mistralConfig,
+					model: 'codestral-latest',
+					stream: false,
+					messages: messages as MistralAi.MistralParamsMessage[]
+				},
+				{
+					fetchOptions: {
+						signal: abortController.signal,
+						cache: 'no-store'
+					}
+				}
+			)
+			response = MistralAi.retrieveTextValue(message.choices && message.choices[0].message.content)
+			break
+		}
+	}
+	return response
 }
 
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	model = openaiConfig.model
+	aiProvider: AiProviderTypes,
+	model = OpenAi.openaiConfig.model
 ) {
-	const openaiClient = workspacedOpenai.getClient()
-	const completion = await openaiClient.chat.completions.create(
-		{
-			...openaiConfig,
-			messages,
-			model
-		},
-		{
-			signal: abortController.signal
-		}
-	)
+	switch (aiProvider) {
+		case 'anthropic': {
+			const anthropicClient = AnthropicAi.workspace.getClient()
+			const [system, anthropicMessages] = AnthropicAi.getSystemPromptAndArrayMessages(messages)
 
-	return completion
+			const completion = await anthropicClient.messages.create(
+				{
+					...AnthropicAi.config,
+					system,
+					messages: anthropicMessages,
+					stream: true
+				},
+				{ signal: abortController.signal }
+			)
+			return completion
+		}
+		case 'openai': {
+			const openaiClient = OpenAi.workspace.getClient()
+			const completion = await openaiClient.chat.completions.create(
+				{
+					...OpenAi.openaiConfig,
+					messages,
+					model
+				},
+				{
+					signal: abortController.signal
+				}
+			)
+			return completion
+		}
+		case 'mistral': {
+			const mistralClient = MistralAi.workspace.getClient()
+			const message = await mistralClient.chat.stream(
+				{
+					...MistralAi.mistralConfig,
+					model: 'codestral-latest',
+					messages: messages as MistralAi.MistralParamsMessage[]
+				},
+				{
+					fetchOptions: {
+						signal: abortController.signal,
+						cache: 'no-store'
+					}
+				}
+			)
+			return message
+		}
+	}
+}
+
+export function getResponseFromEvent(
+	part:
+		| Anthropic.Messages.RawMessageStreamEvent
+		| OpenAI.Chat.Completions.ChatCompletionChunk
+		| CompletionEvent,
+	aiProvider: AiProviderTypes
+): string {
+	switch (aiProvider) {
+		case 'openai': {
+			const messages = part as OpenAI.Chat.Completions.ChatCompletionChunk
+			return OpenAi.retrieveTextValue(messages)
+		}
+		case 'anthropic': {
+			const messages = part as Anthropic.Messages.RawMessageStreamEvent
+			return AnthropicAi.retrieveTextValue(messages)
+		}
+		case 'mistral': {
+			const messages = part as CompletionEvent
+			return MistralAi.retrieveTextValue(messages.data.choices[0].delta.content)
+		}
+	}
 }
 
 export async function copilot(
 	scriptOptions: CopilotOptions,
 	generatedCode: Writable<string>,
 	abortController: AbortController,
+	aiProvider: AiProviderTypes,
 	generatedExplanation?: Writable<string>
 ) {
 	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
@@ -321,13 +630,14 @@ export async function copilot(
 				content: prompt
 			}
 		],
-		abortController
+		abortController,
+		aiProvider
 	)
 
 	let response = ''
 	let code = ''
 	for await (const part of completion) {
-		response += part.choices[0]?.delta?.content || ''
+		response += getResponseFromEvent(part, aiProvider)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {
@@ -393,15 +703,16 @@ function getStringEndDelta(prev: string, now: string) {
 export async function deltaCodeCompletion(
 	messages: ChatCompletionMessageParam[],
 	generatedCodeDelta: Writable<string>,
-	abortController: AbortController
+	abortController: AbortController,
+	aiProvider: AiProviderTypes
 ) {
-	const completion = await getCompletion(messages, abortController)
+	const completion = await getCompletion(messages, abortController, aiProvider)
 
 	let response = ''
 	let code = ''
 	let delta = ''
 	for await (const part of completion) {
-		response += part.choices[0]?.delta?.content || ''
+		response += getResponseFromEvent(part, aiProvider)
 		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 		if (match) {

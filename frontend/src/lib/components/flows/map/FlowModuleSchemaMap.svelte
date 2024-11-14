@@ -91,10 +91,7 @@
 				kind
 			)
 		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(
-				module.id,
-				!disableAi && $copilotInfo.exists_openai_resource_path
-			)
+			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.exists_ai_resource)
 		} else if (kind == 'whileloop') {
 			;[module, state] = await createWhileLoop(module.id)
 		} else if (kind == 'branchone') {
