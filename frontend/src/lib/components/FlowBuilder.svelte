@@ -288,18 +288,18 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		await compareVersions()
-		if (
-			onLatest ||
-			initialPath == '' ||
-			savedFlow?.draft_only
-		) {
+		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
 			// We need it for diff
 			await syncWithDeployed()
 
-			if (deployedValue && savedFlow && orderedJsonStringify(deployedValue) === orderedJsonStringify(savedFlow)){
+			if (
+				deployedValue &&
+				savedFlow &&
+				(orderedJsonStringify(deployedValue) === orderedJsonStringify(savedFlow))
+			) {
 				await saveFlow(deploymentMsg)
 			} else {
 				// Handle through confirmation modal
@@ -309,7 +309,6 @@
 				// Open confirmation modal
 				open = true
 			}
-
 		}
 	}
 	async function syncWithDeployed() {
