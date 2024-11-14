@@ -206,6 +206,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
+        .route("/completed/count_jobs", get(count_completed_jobs_detail))
         .route(
             "/completed/list",
             get(list_completed_jobs).layer(cors.clone()),
@@ -1591,6 +1592,50 @@ async fn count_queue_jobs(
         .await?,
     ))
 }
+
+#[derive(Deserialize)]
+pub struct CountCompletedJobsQuery {
+    completed_after_s_ago: Option<i64>,
+    success: Option<bool>,
+    tags: Option<String>,
+    all_workspaces: Option<bool>,
+}
+
+async fn count_completed_jobs_detail(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<CountCompletedJobsQuery>,
+) -> error::JsonResult<i64> {
+    let mut sqlb = SqlBuilder::select_from("completed_job");
+    sqlb
+        .field("COUNT(*) as count");
+
+    if !query.all_workspaces.unwrap_or(false) {
+        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+    }
+
+    if let Some(after_s_ago) = query.completed_after_s_ago {
+        let after = Utc::now() - chrono::Duration::seconds(after_s_ago);
+        sqlb.and_where_gt("started_at + duration_ms / 1000 * interval '1 second'", "?".bind(&after.to_rfc3339()));
+    }
+
+    if let Some(success) = query.success {
+        sqlb.and_where_eq("success", "?".bind(&success));
+    }
+
+    if let Some(tags) = query.tags {
+        sqlb.and_where_in("tag", &tags.split(",").map(|t| format!("'{}'", t)).collect::<Vec<_>>());
+    }
+
+    let sql = sqlb.sql()?;
+    let stats = sqlx::query_scalar::<_, i64>(&sql)
+        .fetch_one(&db)
+        .await?;
+
+    Ok(Json(stats))
+}
+
+
 
 async fn count_completed_jobs(
     Extension(db): Extension<DB>,
