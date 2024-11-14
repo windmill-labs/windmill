@@ -307,7 +307,7 @@
 		{/if}
 
 		{#if inlineScripts?.length > 0}
-			<div class="pb-0 flex flex-row items-center gap-2">
+			<div class="pb-0 flex flex-row items-center gap-2 -mt-[3px]">
 				<div class=" text-2xs font-light text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>

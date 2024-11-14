@@ -253,6 +253,10 @@
 							forceReload++
 							await reload(flowModule)
 						}
+						if (flowModule.value.type == 'flow') {
+							forceReload++
+							await reload(flowModule)
+						}
 					}}
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
@@ -361,7 +365,9 @@
 								</div>
 							{/if}
 						{:else if flowModule.value.type === 'flow'}
-							<FlowPathViewer path={flowModule.value.path} />
+							{#key forceReload}
+								<FlowPathViewer path={flowModule.value.path} />
+							{/key}
 						{/if}
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
@@ -378,13 +384,14 @@
 							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
-								<div class="h-full overflow-auto px-2 bg-surface" id="flow-editor-step-input">
+								<div class="h-full overflow-auto bg-surface" id="flow-editor-step-input">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
 										noPadding
 									>
 										<InputTransformSchemaForm
+											class="px-1 xl:px-2"
 											bind:this={inputTransformSchemaForm}
 											pickableProperties={stepPropPicker.pickableProperties}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}

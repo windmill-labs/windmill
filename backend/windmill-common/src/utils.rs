@@ -28,6 +28,9 @@ pub const DEFAULT_PER_PAGE: usize = 1000;
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
+use std::sync::atomic::Ordering;
+use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
+
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -244,9 +247,12 @@ pub fn generate_lock_id(database_name: &str) -> i64 {
 pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
 
+    let mute = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message) VALUES ('critical_error', $1)",
-        error_message
+        "INSERT INTO alerts (alert_type, message, acknowledged) VALUES ('critical_error', $1, $2)",
+        error_message,
+        mute
     )
     .execute(&_db)
     .await
@@ -261,9 +267,12 @@ pub async fn report_critical_error(error_message: String, _db: DB) -> () {
 pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
+    let mute = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message) VALUES ('recovered_critical_error', $1)",
-        message
+        "INSERT INTO alerts (alert_type, message, acknowledged) VALUES ('recovered_critical_error', $1, $2)",
+        message,
+        mute
     )
     .execute(&_db)
     .await

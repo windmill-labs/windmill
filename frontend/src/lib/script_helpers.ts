@@ -602,7 +602,7 @@ class Websocket(TypedDict):
 class WmTrigger(TypedDict):
     kind: Literal["http", "email", "webhook", "websocket"]
     http: Http | None
-		websocket: Websocket | None
+    websocket: Websocket | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,

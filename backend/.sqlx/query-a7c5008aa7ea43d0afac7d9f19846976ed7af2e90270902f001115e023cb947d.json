@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE alerts SET acknowledged = true WHERE acknowledged = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a7c5008aa7ea43d0afac7d9f19846976ed7af2e90270902f001115e023cb947d"
+}

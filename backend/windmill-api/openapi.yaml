@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.419.0
+  version: 1.423.2
   title: Windmill API
 
   contact:
@@ -190,7 +190,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/{username}:
+  /w/{workspace}/users/get/{username}:
     get:
       summary: get user (require admin privilege)
       operationId: getUser
@@ -773,6 +773,78 @@ paths:
               schema:
                 type: string
 
+  /settings/critical_alerts:
+    get:
+      summary: Get all critical alerts
+      operationId: getCriticalAlerts
+      tags:
+        - setting
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            description: The page number to retrieve (minimum value is 1)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+            description: Number of alerts per page (maximum is 100)
+        - in: query
+          name: acknowledged
+          schema:
+            type: boolean
+            nullable: true
+            description: Filter by acknowledgment status; true for acknowledged, false for unacknowledged, and omit for all alerts
+      responses:
+        "200":
+          description: Successfully retrieved all critical alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CriticalAlert'
+
+  /settings/critical_alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge a critical alert
+      operationId: acknowledgeCriticalAlert
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: The ID of the critical alert to acknowledge
+      responses:
+        "200":
+          description: Successfully acknowledged the critical alert
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Critical alert acknowledged"
+
+  /settings/critical_alerts/acknowledge_all:
+    post:
+      summary: Acknowledge all unacknowledged critical alerts
+      operationId: acknowledgeAllCriticalAlerts
+      tags:
+        - setting
+      responses:
+        "200":
+          description: Successfully acknowledged all unacknowledged critical alerts.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "All unacknowledged critical alerts acknowledged"
 
   /settings/test_license_key:
     post:
@@ -9146,6 +9218,14 @@ paths:
           in: query
           schema:
             type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
       requestBody:
         description: File content
         required: true
@@ -11463,6 +11543,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         extra_perms:
@@ -11509,6 +11600,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -11542,6 +11644,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -12072,6 +12185,10 @@ components:
         triggerables_v2:
           type: object
           additionalProperties:
+            type: object
+        s3_inputs:
+          type: array
+          items:
             type: object
         execution_mode:
           type: string
@@ -12680,3 +12797,23 @@ components:
           type: string
           format: date-time
 
+    CriticalAlert:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Unique identifier for the alert
+        alert_type:
+          type: string
+          description: Type of alert (e.g., critical_error)
+        message:
+          type: string
+          description: The message content of the alert
+        created_at:
+          type: string
+          format: date-time
+          description: Time when the alert was created
+        acknowledged:
+          type: boolean
+          nullable: true
+          description: Acknowledgment status of the alert, can be true, false, or null if not set

@@ -1,5 +1,88 @@
 # Changelog
 
+## [1.423.2](https://github.com/windmill-labs/windmill/compare/v1.423.1...v1.423.2) (2024-11-13)
+
+
+### Bug Fixes
+
+* fix intempestive expr type change in flow transform ([84bd06e](https://github.com/windmill-labs/windmill/commit/84bd06e90650e949c11e2b09447a7bad1ab60a95))
+
+## [1.423.1](https://github.com/windmill-labs/windmill/compare/v1.423.0...v1.423.1) (2024-11-12)
+
+
+### Bug Fixes
+
+* **autoscaling:** autoscaling thresholds to be &gt;= and not > ([de00944](https://github.com/windmill-labs/windmill/commit/de00944f09699ff33a382f5a14f515ccf90b2454))
+
+## [1.423.0](https://github.com/windmill-labs/windmill/compare/v1.422.1...v1.423.0) (2024-11-12)
+
+
+### Features
+
+* s3 input available for public apps ([#4685](https://github.com/windmill-labs/windmill/issues/4685)) ([1671005](https://github.com/windmill-labs/windmill/commit/167100510032ab53cd609fb2c7629e67faceb093))
+
+
+### Bug Fixes
+
+* prevent underflow for autoscaling scalein ([5e9870a](https://github.com/windmill-labs/windmill/commit/5e9870a8a993032ec7d45c62e0023008da42c74a))
+* support multiple pip-extra-index-url with commas ([50861fc](https://github.com/windmill-labs/windmill/commit/50861fccc0cd86d4c76120c3306adf94f375330e))
+
+## [1.422.1](https://github.com/windmill-labs/windmill/compare/v1.422.0...v1.422.1) (2024-11-12)
+
+
+### Bug Fixes
+
+* fix password inputs ([e5e174a](https://github.com/windmill-labs/windmill/commit/e5e174ae9516f4c6b94ceb6e258b467f5c9a1f1a))
+
+## [1.422.0](https://github.com/windmill-labs/windmill/compare/v1.421.2...v1.422.0) (2024-11-11)
+
+
+### Features
+
+* expandable subflows in flows ([#4683](https://github.com/windmill-labs/windmill/issues/4683)) ([d44976f](https://github.com/windmill-labs/windmill/commit/d44976f35e45ade510d1ec220b5a1503e11f3db9))
+* **frontend:** critical alerts UI ([#4653](https://github.com/windmill-labs/windmill/issues/4653)) ([d9148ea](https://github.com/windmill-labs/windmill/commit/d9148eaa78680a93d81d71847a7df67e01f3c110))
+
+## [1.421.2](https://github.com/windmill-labs/windmill/compare/v1.421.1...v1.421.2) (2024-11-08)
+
+
+### Bug Fixes
+
+* **bash:** correctly propagate exit errors ([8bc9a02](https://github.com/windmill-labs/windmill/commit/8bc9a021a88391147c9170f56b5a0edddd55bc7d))
+
+## [1.421.1](https://github.com/windmill-labs/windmill/compare/v1.421.0...v1.421.1) (2024-11-08)
+
+
+### Bug Fixes
+
+* **python-client:** fix small break params of write_s3_file ([3ea12f1](https://github.com/windmill-labs/windmill/commit/3ea12f1821500e8b84549b892e3e1bb56a6ace4b))
+
+## [1.421.0](https://github.com/windmill-labs/windmill/compare/v1.420.1...v1.421.0) (2024-11-07)
+
+
+### Features
+
+* http custom routes for static assets ([#4666](https://github.com/windmill-labs/windmill/issues/4666)) ([dc8bd6d](https://github.com/windmill-labs/windmill/commit/dc8bd6d2b5d6f5cd8521f9034853175ec78d5639))
+
+
+### Bug Fixes
+
+* improve nested schema editor field change ([a3feca7](https://github.com/windmill-labs/windmill/commit/a3feca719799ea2bf08f2b49350e6b732a24abf4))
+
+## [1.420.1](https://github.com/windmill-labs/windmill/compare/v1.420.0...v1.420.1) (2024-11-07)
+
+
+### Bug Fixes
+
+* improve prop filtering on flow prop picker ([0501ad8](https://github.com/windmill-labs/windmill/commit/0501ad8a99f6f7d9fd26c996b754e8afe8f958b1))
+
+## [1.420.0](https://github.com/windmill-labs/windmill/compare/v1.419.0...v1.420.0) (2024-11-07)
+
+
+### Features
+
+* **frontend:** detect expr in flow input transform + filter right panel based on expr ([#4651](https://github.com/windmill-labs/windmill/issues/4651)) ([e9b7dca](https://github.com/windmill-labs/windmill/commit/e9b7dca20387e775fa50aaecd832890251582cf9))
+* **frontend:** nodes from flow can be connected directly in expr input through a plug icon ([#4652](https://github.com/windmill-labs/windmill/issues/4652)) ([ceaf56c](https://github.com/windmill-labs/windmill/commit/ceaf56c21ee2e548bc93859f9e0303e53b25b241))
+
 ## [1.419.0](https://github.com/windmill-labs/windmill/compare/v1.418.0...v1.419.0) (2024-11-06)
 
 

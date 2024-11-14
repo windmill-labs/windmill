@@ -299,7 +299,7 @@
 
 	let storage: string | undefined = undefined
 	export async function open(
-		preSelectedFileKey: { s3: string; storage: string | undefined } | undefined = undefined
+		preSelectedFileKey: { s3: string; storage?: string } | undefined = undefined
 	) {
 		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {

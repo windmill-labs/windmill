@@ -173,11 +173,8 @@
 	{:else}
 		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
 			<div class="w-full">
-				<h2 class="mt-4">Approvers:</h2>
-				<p class="text-xs italic"
-					>Each approver can only approve once and cannot change their approver name set by the
-					approval sender</p
-				>
+				<h2 class="mt-4">Approvers</h2>
+
 				<div class="my-4">
 					{#if currentApprovers.length > 0}
 						<ul>
@@ -287,6 +284,7 @@
 			<h2 class="mt-10">Flow details</h2>
 			<div class="border border-gray-700">
 				<FlowGraphV2
+					workspace={job.workspace_id}
 					triggerNode={false}
 					modules={job.raw_flow?.modules}
 					failureModule={job.raw_flow?.failure_module}

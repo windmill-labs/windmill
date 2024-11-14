@@ -87,7 +87,9 @@
 	let mounted = false
 	let firstOnContentChange = true
 	onMount(() => {
-		mounted = true
+		setTimeout(() => {
+			mounted = true
+		}, 500)
 	})
 
 	$: extra && mounted && onContentChange()

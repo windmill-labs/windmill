@@ -2,7 +2,7 @@
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
-	import { Button } from '../common'
+	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
@@ -11,14 +11,15 @@
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import { filterNestedObject } from '../flows/previousResults'
 	import type { PropPickerContext } from '../prop_picker'
+	import Scrollable from '../Scrollable.svelte'
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
 	export let alwaysOn = false
+	export let previousId: string | undefined = undefined
 
-	$: previousId = pickableProperties?.previousId
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
@@ -44,8 +45,8 @@
 	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
 	$: $pickablePropertiesFiltered = pickableProperties
 
-	let flowInputsFiltered = pickableProperties.flow_input
-	let resultByIdFiltered = pickableProperties.priorIds
+	let flowInputsFiltered: any = pickableProperties.flow_input
+	let resultByIdFiltered: any = pickableProperties.priorIds
 
 	let timeout: NodeJS.Timeout
 	function onSearch(search: string) {
@@ -90,18 +91,23 @@
 		)
 	}
 
+	let filteringFlowInputsOrResult = ''
 	async function filterPickableProperties() {
-		if (!filterActive) {
+		if (!$propPickerConfig || !filterActive) {
+			flowInputsFiltered = pickableProperties.flow_input
+			resultByIdFiltered = pickableProperties.priorIds
+			filteringFlowInputsOrResult = ''
 			return
 		}
 
 		if (!$inputMatches?.some((match) => match.word === 'flow_input')) {
-			flowInputsFiltered = []
+			flowInputsFiltered = {}
 		}
 		if (!$inputMatches?.some((match) => match.word === 'results')) {
-			resultByIdFiltered = []
+			resultByIdFiltered = {}
 		}
 		if ($inputMatches?.length == 1) {
+			filteringFlowInputsOrResult = $inputMatches[0].value
 			if ($inputMatches[0].word === 'flow_input') {
 				flowInputsFiltered = pickableProperties.flow_input
 				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
@@ -117,12 +123,14 @@
 					resultByIdFiltered = filtered
 				}
 			}
+		} else {
+			filteringFlowInputsOrResult = ''
 		}
 
-		if ($pickablePropertiesFiltered) {
-			resultByIdFiltered && ($pickablePropertiesFiltered.priorIds = resultByIdFiltered)
-			flowInputsFiltered && ($pickablePropertiesFiltered.flow_input = flowInputsFiltered)
-		}
+		// if ($pickablePropertiesFiltered) {
+		// 	resultByIdFiltered && ($pickablePropertiesFiltered.priorIds = resultByIdFiltered)
+		// 	flowInputsFiltered && ($pickablePropertiesFiltered.flow_input = flowInputsFiltered)
+		// }
 	}
 
 	async function updateCollapsable() {
@@ -184,17 +192,35 @@
 	$: search, $inputMatches, $propPickerConfig, updateState()
 </script>
 
-<div class="flex flex-col h-full rounded overflow-hidden">
-	<div class="px-2 py-2">
+<div class="flex flex-col h-full rounded">
+	<div class="px-1 py-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
-	<div
-		class="overflow-y-auto px-2 pt-2 grow"
-		class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
+	<!-- <div
+	class="px-2 pt-2 grow relative"
+	class:bg-surface-secondary={!$propPickerConfig && !alwaysOn} -->
+	<Scrollable
+		scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink {!$propPickerConfig && !alwaysOn
+			? 'bg-surface-secondary'
+			: ''}"
 	>
-		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered).length > 0 || !filterActive)}
+		<!-- <div
+			class="px-2 pt-2 grow relative"
+			class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
+		> -->
+		<!-- <pre class="text-2xs w-full"
+			>{JSON.stringify({ pickableProperties, resultByIdFiltered }, null, 2)}</pre
+		> -->
+		{#if filteringFlowInputsOrResult}
+			<div class="absolute bottom-0 right-0">
+				<Badge small>filter: {filteringFlowInputsOrResult}</Badge>
+			</div>
+		{/if}
+		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered ?? {}).length > 0 || !filterActive)}
 			<div class="flex justify-between items-center space-x-1">
-				<span class="font-normal text-sm text-secondary">Flow Input</span>
+				<span class="font-normal text-sm text-secondary"
+					><span class="font-mono">flow_input</span></span
+				>
 				<div class="flex space-x-2 items-center" />
 			</div>
 			<div class="overflow-y-auto pb-2">
@@ -238,9 +264,10 @@
 						/>
 					</div>
 				{/if}
-				<span class="font-normal text-sm text-secondary">All Results</span>
+				<span class="font-normal text-sm text-tertiary font-mono">results</span>
 				<div class="overflow-y-auto pb-2">
 					<ObjectViewer
+						expandedEvenOnLevel0={previousId}
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
 						collapseLevel={allResultsCollapsed ? 1 : undefined}
@@ -251,23 +278,6 @@
 				</div>
 			{/if}
 		{:else}
-			{@const json = Object.fromEntries(
-				Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
-			)}
-			{#if previousId && Object.keys(json).length > 0}
-				<span class="font-normal text-sm text-secondary">Previous Result</span>
-				<div class="overflow-y-auto pb-2">
-					<ObjectViewer
-						{allowCopy}
-						pureViewer={!$propPickerConfig}
-						json={Object.fromEntries(
-							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
-						)}
-						prefix="results"
-						on:select
-					/>
-				</div>
-			{/if}
 			{#if pickableProperties.hasResume}
 				<span class="font-normal text-sm text-secondary">Resume payloads</span>
 				<div class="overflow-y-auto pb-2">
@@ -297,15 +307,16 @@
 						/>
 					</div>
 				{/if}
-				{#if Object.keys(resultByIdFiltered).length > 0}
-					<div class="overflow-y-auto pb-2">
-						<span class="font-normal text-sm text-secondary">All Results</span>
+				{#if Object.keys(resultByIdFiltered ?? {}).length > 0}
+					<div class="overflow-y-auto pb-2 pt-2">
+						<span class="font-normal text-sm text-tertiary font-mono">results</span>
 
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							collapseLevel={allResultsCollapsed ? 1 : undefined}
 							json={resultByIdFiltered}
+							expandedEvenOnLevel0={previousId}
 							prefix="results"
 							on:select
 						/>
@@ -316,8 +327,8 @@
 
 		{#if displayContext}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
-				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-sm text-secondary">Variables:</span>
+				<div class="overflow-y-auto pb-2 pt-4">
+					<span class="font-normal text-xs text-secondary">Variables:</span>
 
 					{#if displayVariable}
 						<Button
@@ -358,7 +369,7 @@
 			{/if}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
 				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-sm text-secondary">Resources:</span>
+					<span class="font-normal text-xs text-secondary">Resources:</span>
 
 					{#if displayResources}
 						<Button
@@ -397,5 +408,6 @@
 				</div>
 			{/if}
 		{/if}
-	</div>
+		<!-- </div> -->
+	</Scrollable>
 </div>
