@@ -27,6 +27,7 @@ pub async fn set_password(
     _db: DB,
     _argon2: Arc<Argon2<'_>>,
     _authed: ApiAuthed,
+    _user_email: &str,
     _ep: EditPassword,
 ) -> Result<String> {
     Err(Error::InternalErr(

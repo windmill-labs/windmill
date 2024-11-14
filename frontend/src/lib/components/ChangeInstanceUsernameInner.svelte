@@ -72,11 +72,13 @@
 </script>
 
 <div class="flex flex-col max-w-2xl p-2">
+	{#if isConflict} 
 	<span class="text-sm mb-2 leading-6 font-semibold"
-		>{isConflict ? 'Fix username conflict' : 'Change username'}</span
+		>Fix username conflict</span
 	>
+	{/if}
 
-	<span class="text-xs mb-1 leading-6"
+	<span class="text-sm font-semibold mb-1 leading-6"
 		>{isConflict ? 'Auto-generated instance username' : 'New username'}</span
 	>
 	<input
