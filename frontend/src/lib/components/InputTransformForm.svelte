@@ -238,7 +238,7 @@
 			setPropertyType(arg?.value)
 			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
 		} else if (propertyType == 'javascript' && focused) {
-			setPropertyType(arg?.expr)
+			// setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
 		}
 	}
@@ -279,7 +279,7 @@
 		class={twMerge(
 			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
 			$propPickerConfig?.propName == argName
-				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-2000'
+				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-50 '
 				: 'hover:rounded-md',
 			$$props.class
 		)}
@@ -565,10 +565,13 @@
 				</div>
 
 				{#if $propPickerConfig?.propName == argName}
-					<div class="text-blue-500 mt-2" in:fade={{ duration: 200 }}>
+					<div
+						class="text-blue-500 absolute top-2 lg:-right-2.5 -right-1"
+						in:fade={{ duration: 200 }}
+					>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
-							width="14"
+							width="16"
 							height="24"
 							viewBox="0 0 24 24"
 							fill="currentColor"

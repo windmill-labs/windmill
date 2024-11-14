@@ -142,6 +142,7 @@
 						{alwaysOn}
 						{displayContext}
 						{error}
+						previousId={pickableProperties?.previousId}
 						{pickableProperties}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {

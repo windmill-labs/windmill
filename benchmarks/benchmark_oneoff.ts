@@ -8,6 +8,7 @@ import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upg
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
+import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
 import { VERSION, createBenchScript, getFlowPayload, login } from "./lib.ts";
 
@@ -172,8 +173,8 @@ export async function main({
       kind: "script",
       path: "f/benchmarks/" + kind,
     });
-  } else if (["2steps"].includes(kind)) {
-    nStepsFlow = 2;
+  } else if (["2steps", "bigscriptinflow"].includes(kind)) {
+    nStepsFlow = kind == "2steps" ? 2 : 1;
     const payload = getFlowPayload(kind);
     body = JSON.stringify({
       kind: "flow",
@@ -193,6 +194,15 @@ export async function main({
     body = JSON.stringify({
       kind: "script",
       path: kind.substr(7),
+    });
+  } else if (kind == "bigrawscript") {
+    noVerify = true;
+    body = JSON.stringify({
+      kind: "rawscript",
+      rawscript: {
+        language: api.RawScript.language.BASH,
+        content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+      },
     });
   } else {
     throw new Error("Unknown script pattern " + kind);
@@ -246,7 +256,7 @@ export async function main({
     } else {
       const elapsed = start ? Date.now() - start : 0;
       completedJobs = await getCompletedJobsCount();
-      if (kind === "2steps" || kind.startsWith("flow:")) {
+      if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }
       const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);

@@ -58,7 +58,10 @@ pub fn global_service() -> Router {
         )
         .route("/renew_license_key", post(renew_license_key))
         .route("/customer_portal", post(create_customer_portal_session))
-        .route("/test_critical_channels", post(test_critical_channels));
+        .route("/test_critical_channels", post(test_critical_channels))
+        .route("/critical_alerts", get(get_critical_alerts))
+        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
+        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts));
 
     #[cfg(feature = "parquet")]
     {
@@ -429,4 +432,118 @@ pub async fn test_critical_channels(
 #[cfg(not(feature = "enterprise"))]
 pub async fn test_critical_channels() -> Result<String> {
     Ok("Critical channels require EE".to_string())
+}
+
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct CriticalAlert {
+    id: i32,
+    alert_type: String,
+    message: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    acknowledged: Option<bool>,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct AlertQueryParams {
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub acknowledged: Option<bool>,
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Query(params): Query<AlertQueryParams>,
+) -> JsonResult<Vec<CriticalAlert>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    // Default pagination values if not provided
+    let page = params.page.unwrap_or(1).max(1);
+    let page_size = params.page_size.unwrap_or(10).min(100) as i64;
+    let offset = ((page - 1) * page_size as i32) as i64;
+
+    let alerts = if let Some(acknowledged) = params.acknowledged {
+        sqlx::query_as!(
+            CriticalAlert,
+            "SELECT id, alert_type, message, created_at, acknowledged 
+             FROM alerts 
+             WHERE acknowledged = $1
+             ORDER BY created_at DESC 
+             LIMIT $2 OFFSET $3",
+            acknowledged,
+            page_size,
+            offset
+        )
+        .fetch_all(&db)
+        .await?
+    } else {
+        sqlx::query_as!(
+            CriticalAlert,
+            "SELECT id, alert_type, message, created_at, acknowledged 
+             FROM alerts 
+             ORDER BY created_at DESC 
+             LIMIT $1 OFFSET $2",
+            page_size,
+            offset
+        )
+        .fetch_all(&db)
+        .await?
+    };
+
+    Ok(Json(alerts))
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_critical_alerts() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(id): Path<i32>,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    
+    sqlx::query!(
+        "UPDATE alerts SET acknowledged = true WHERE id = $1",
+        id
+    )
+    .execute(&db)
+    .await?;
+    
+    tracing::info!("Acknowledged critical alert with id: {}", id);
+    Ok("Critical alert acknowledged".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_critical_alert() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    sqlx::query!(
+        "UPDATE alerts SET acknowledged = true WHERE acknowledged = false"
+    )
+    .execute(&db)
+    .await?;
+
+    tracing::info!("Acknowledged all unacknowledged critical alerts");
+    Ok("All unacknowledged critical alerts acknowledged".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_all_critical_alerts() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
 }
