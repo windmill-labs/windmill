@@ -15,7 +15,7 @@
 	let abortController = new AbortController()
 	$: instructionsField && setTimeout(() => instructionsField?.focus(), 100)
 	const SYSTEM =
-		"You are a helpful assitant for creating CRON schedules. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Weekdays are Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). You only return the CRON string without any wrapping characters. If it is invalid, you will return an error message preceeded by 'ERROR:'."
+		"You are a helpful assistant for creating CRON schedules using both standard and extended Croner patterns. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Supported modifiers: ? (wildcard), L (last day/weekday), # (nth occurrence of a weekday), and W (closest weekday). Weekdays are Sunday (1 or 7), Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). Ensure syntax is valid, including optional seconds and special modifiers. You only return the CRON string or an error message prefixed with 'ERROR:'."
 	const USER = 'CRON schedule instructions: {instructions}'
 	async function generateCron() {
 		genLoading = true
