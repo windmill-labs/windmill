@@ -7,7 +7,6 @@
  */
 
 use anyhow::Context;
-use git_version::git_version;
 use monitor::{
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store,
@@ -42,7 +41,7 @@ use windmill_common::{
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
-    utils::{hostname, rd_string, Mode},
+    utils::{hostname, rd_string, Mode, GIT_VERSION},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
@@ -84,7 +83,6 @@ use crate::monitor::{
 #[cfg(feature = "parquet")]
 use crate::monitor::reload_s3_cache_setting;
 
-const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
