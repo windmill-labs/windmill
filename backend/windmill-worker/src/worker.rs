@@ -1919,8 +1919,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
     };
     if job.is_flow() {
+        let flow = job.parse_raw_flow();
         handle_flow(
             job,
+            flow,
             db,
             &client.get_authed().await,
             None,

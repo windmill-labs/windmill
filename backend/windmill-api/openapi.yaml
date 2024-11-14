@@ -283,6 +283,71 @@ paths:
             text/plain:
               schema:
                 type: string
+                
+  /users/set_password_of/{user}:
+    post:
+      summary: set password for a specific user (require super admin)
+      operationId: setPasswordForUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: set password
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+                - password
+      responses:
+        "200":
+          description: password set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/set_login_type/{user}:
+    post:
+      summary: set login type for a specific user (require super admin)
+      operationId: setLoginTypeForUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: set login type
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                login_type:
+                  type: string
+              required:
+                - login_type
+      responses:
+        "200":
+          description: login type set
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /users/create:
     post:

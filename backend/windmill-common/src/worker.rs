@@ -1,6 +1,7 @@
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{
@@ -88,6 +89,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -548,6 +550,31 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     {
         None
     }
+}
+
+pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(executor: E) -> bool {
+    use crate::utils::{GIT_VERSION, GIT_SEM_VERSION};
+
+    // fetch all pings with a different version than self from the last 5 minutes.
+    let pings = sqlx::query_scalar!(
+        "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
+        GIT_VERSION
+    ).fetch_all(executor).await.unwrap_or_default();
+
+    let cur_version = GIT_SEM_VERSION.clone();
+    let min_version = pings
+        .iter()
+        .filter(|x| !x.is_empty())
+        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
+        .min()
+        .unwrap_or_else(|| cur_version.clone());
+
+    if min_version != cur_version {
+        tracing::info!("Minimal worker version: {min_version}");
+    }
+
+    *MIN_VERSION.write().await = min_version.clone();
+    min_version >= cur_version
 }
 
 pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
