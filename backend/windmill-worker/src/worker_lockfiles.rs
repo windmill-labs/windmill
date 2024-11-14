@@ -1312,6 +1312,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
+            false,
+            false,
         )
         .await;
 
