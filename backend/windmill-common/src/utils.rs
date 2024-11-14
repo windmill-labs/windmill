@@ -289,10 +289,10 @@ pub async fn report_critical_error(
     }
 
     #[cfg(feature = "enterprise")]
-    if !*CLOUD_HOSTED {
-        send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
-    } else {
+    if *CLOUD_HOSTED && workspace_id.is_some() {
         tracing::error!(error_message)
+    } else {
+        send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
     }
 }
 
@@ -333,7 +333,9 @@ pub async fn report_recovered_critical_error(
     }
 
     #[cfg(feature = "enterprise")]
-    if !*CLOUD_HOSTED {
+    if *CLOUD_HOSTED && workspace_id.is_some() {
+        tracing::error!(message);
+    } else {
         send_critical_alert(
             message,
             &_db,
@@ -341,8 +343,6 @@ pub async fn report_recovered_critical_error(
             None,
         )
         .await;
-    } else {
-        tracing::error!(message);
     }
 }
 

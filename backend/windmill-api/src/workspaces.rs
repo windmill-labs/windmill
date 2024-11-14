@@ -3119,9 +3119,20 @@ async fn mute_critical_alerts(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    let mute_alerts = m_r.mute_critical_alerts.unwrap_or(false);
+
+    if mute_alerts {
+        sqlx::query!(
+            "UPDATE alerts SET acknowledged_workspace = true WHERE workspace_id = $1",
+            &w_id
+        )
+    .execute(&db)
+    .await?;
+    }
+
     sqlx::query!(
         "UPDATE workspace_settings SET mute_critical_alerts = $1 WHERE workspace_id = $2",
-        m_r.mute_critical_alerts.unwrap_or(false),
+        mute_alerts,
         &w_id
     )
     .execute(&db)
