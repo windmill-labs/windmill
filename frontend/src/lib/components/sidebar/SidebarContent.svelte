@@ -365,7 +365,7 @@
 									{:else}
 										<a
 											href={subItem.href}
-											class="text-secondary fonnt-normal block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
+											class="text-secondary font-normal block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
 											role="menuitem"
 											tabindex="-1"
 										>
