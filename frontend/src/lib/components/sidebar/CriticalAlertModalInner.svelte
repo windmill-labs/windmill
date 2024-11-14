@@ -8,7 +8,6 @@
 		RefreshCw,
 		CheckSquare2,
 		AlertTriangle,
-		Save
 	} from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
@@ -35,35 +34,38 @@
 	}
 
 	$: muteSettings
+	$: {
+		if (initialMuteSettings.workspace !== muteSettings.workspace || initialMuteSettings.global !== muteSettings.global) {
+			saveMuteSettings()
+		}
+	}
 
-	$: numUnacknowledgedCriticalAlerts &&  getAlerts(true)
+	$: numUnacknowledgedCriticalAlerts >= 0 && getAlerts(true)
 
 	let initialMuteSettings = muteSettings
 
 	async function saveMuteSettings() {
-		// Workspace
-		await SettingService.workspaceMuteCriticalAlertsUi({
-			workspace: $workspaceStore!,
-			requestBody: {
-				mute_critical_alerts: muteSettings.workspace
-			}
-		})
-		sendUserToast(
-			`Critical alert UI mute setting for workspace is set to ${muteSettings.workspace}\nreloading page...`
-		)
-
-		// Global
-		if ($superadmin && !workspaceContext) {
+		if (initialMuteSettings.workspace !== muteSettings.workspace) {
+			// Workspace
+			await SettingService.workspaceMuteCriticalAlertsUi({
+				workspace: $workspaceStore!,
+				requestBody: {
+					mute_critical_alerts: muteSettings.workspace
+				}
+			})
+		}
+		if ($superadmin && initialMuteSettings.global !== muteSettings.global) {
+			// Global
 			await SettingService.setGlobal({
 				key: 'critical_alert_mute_ui',
 				requestBody: { value: muteSettings.global }
 			})
 		}
-
-		// reload page after change of setting
-		setTimeout(() => {
-			window.location.reload()
-		}, 3000)
+		sendUserToast(
+			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
+		)
+		getAlerts(true)
+		initialMuteSettings = { ...muteSettings }
 	}
 
 	$: loading = isRefreshing
@@ -107,6 +109,7 @@
 
 	async function getAlerts(reset?: boolean) {
 		if (reset) page = 1
+		updateHasUnacknowledgedCriticalAlerts()
 		await fetchAlerts(page)
 	}
 
@@ -209,7 +212,6 @@
 			<Section
 				label="Mute Settings"
 				collapsable={true}
-				tooltip="Show critical alert UI notifications"
 				small={true}
 			>
 				{#if $superadmin}
@@ -228,18 +230,6 @@
 						options={{ right: 'Mute critical alerts for current workspace' }}
 						size="xs"
 					/>
-				</div>
-				<div class="flex flex-row">
-					<Button
-						disabled={initialMuteSettings.global === muteSettings.global &&
-							initialMuteSettings.workspace === muteSettings.workspace}
-						size="xs2"
-						color="green"
-						on:click={saveMuteSettings}
-						startIcon={{ icon: Save }}
-					>
-						Save
-					</Button>
 				</div>
 			</Section>
 
