@@ -54,8 +54,26 @@
 		diffViewer.closeDrawer()
 	}
 
+	function replaceFalseWithUndefined(obj: any) {
+    // Check if the input is an object and not null
+    if (obj && typeof obj === 'object') {
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                // If the value is false, replace it with undefined
+                if (obj[key] === false) {
+                    obj[key] = undefined;
+                } else {
+                    // If the value is an object, call the function recursively
+                    replaceFalseWithUndefined(obj[key]);
+                }
+            }
+        }
+    }
+    return obj;
+	}
+
 	function prepareDiff(data: Value) {
-		const metadata = structuredClone(cleanValueProperties(data))
+		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
 		const content = metadata['content']
 		if (metadata['content'] !== undefined) {
 			metadata['content'] = 'check content diff'
