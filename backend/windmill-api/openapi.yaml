@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.422.0
+  version: 1.423.2
   title: Windmill API
 
   contact:
@@ -190,7 +190,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/{username}:
+  /w/{workspace}/users/get/{username}:
     get:
       summary: get user (require admin privilege)
       operationId: getUser
@@ -283,6 +283,71 @@ paths:
             text/plain:
               schema:
                 type: string
+                
+  /users/set_password_of/{user}:
+    post:
+      summary: set password for a specific user (require super admin)
+      operationId: setPasswordForUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: set password
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+                - password
+      responses:
+        "200":
+          description: password set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/set_login_type/{user}:
+    post:
+      summary: set login type for a specific user (require super admin)
+      operationId: setLoginTypeForUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: set login type
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                login_type:
+                  type: string
+              required:
+                - login_type
+      responses:
+        "200":
+          description: login type set
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /users/create:
     post:
@@ -1616,8 +1681,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
-                  openai_resource_path:
-                    type: string
+                  ai_resource:
+                    $ref: "#/components/schemas/AiResource"
                   code_completion_enabled:
                     type: boolean
                   error_handler:
@@ -1901,8 +1966,8 @@ paths:
               required:
                 - code_completion_enabled
               properties:
-                openai_resource_path:
-                  type: string
+                ai_resource:
+                  $ref: "#/components/schemas/AiResource"
                 code_completion_enabled:
                   type: boolean
       responses:
@@ -1930,12 +1995,15 @@ paths:
               schema:
                 type: object
                 properties:
-                  exists_openai_resource_path:
+                  ai_provider:
+                    type: string
+                  exists_ai_resource:
                     type: boolean
                   code_completion_enabled:
                     type: boolean
                 required:
-                  - exists_openai_resource_path
+                  - ai_provider
+                  - exists_ai_resource
                   - code_completion_enabled
 
   /w/{workspace}/workspaces/edit_error_handler:
@@ -5989,6 +6057,39 @@ paths:
                 required:
                   - database_length
 
+  /w/{workspace}/jobs/completed/count_jobs:
+    get:
+      summary: count number of completed jobs with filter
+      operationId: countCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: completed_after_s_ago
+          in: query
+          schema:
+            type: integer
+        - name: success
+          in: query
+          schema:
+            type: boolean
+        - name: tags
+          in: query
+          schema:
+            type: string
+        - name: all_workspaces
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Count of completed jobs
+          content:
+            application/json:
+              schema:
+                type: integer
+
+
   /w/{workspace}/jobs/queue/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
@@ -8354,6 +8455,23 @@ paths:
                     - id
                     - values
 
+  /workers/queue_counts:
+    get:
+      summary: get counts of jobs waiting for an executor per tag
+      operationId: getCountsOfJobsWaitingPerTag
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue counts
+          content:
+            application/json:
+              schema: 
+                type: object
+                additionalProperties:
+                  type: integer
+
+              
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -10281,6 +10399,16 @@ components:
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
 
+    AiResource:
+      type: object
+      properties:
+        path:
+          type: string
+        provider:
+          type: string
+      required:
+        - path
+        - provider
     Script:
       type: object
       properties:
@@ -11099,7 +11227,7 @@ components:
             - "jobs.disapproval"
             - "jobs.delete"
             - "account.delete"
-            - "openai.request"
+            - "ai.request"
             - "resources.create"
             - "resources.update"
             - "resources.delete"
@@ -12464,6 +12592,10 @@ components:
         triggerables_v2:
           type: object
           additionalProperties:
+            type: object
+        s3_inputs:
+          type: array
+          items:
             type: object
         execution_mode:
           type: string

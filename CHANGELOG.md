@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.423.2](https://github.com/windmill-labs/windmill/compare/v1.423.1...v1.423.2) (2024-11-13)
+
+
+### Bug Fixes
+
+* fix intempestive expr type change in flow transform ([84bd06e](https://github.com/windmill-labs/windmill/commit/84bd06e90650e949c11e2b09447a7bad1ab60a95))
+
+## [1.423.1](https://github.com/windmill-labs/windmill/compare/v1.423.0...v1.423.1) (2024-11-12)
+
+
+### Bug Fixes
+
+* **autoscaling:** autoscaling thresholds to be &gt;= and not > ([de00944](https://github.com/windmill-labs/windmill/commit/de00944f09699ff33a382f5a14f515ccf90b2454))
+
+## [1.423.0](https://github.com/windmill-labs/windmill/compare/v1.422.1...v1.423.0) (2024-11-12)
+
+
+### Features
+
+* s3 input available for public apps ([#4685](https://github.com/windmill-labs/windmill/issues/4685)) ([1671005](https://github.com/windmill-labs/windmill/commit/167100510032ab53cd609fb2c7629e67faceb093))
+
+
+### Bug Fixes
+
+* prevent underflow for autoscaling scalein ([5e9870a](https://github.com/windmill-labs/windmill/commit/5e9870a8a993032ec7d45c62e0023008da42c74a))
+* support multiple pip-extra-index-url with commas ([50861fc](https://github.com/windmill-labs/windmill/commit/50861fccc0cd86d4c76120c3306adf94f375330e))
+
+## [1.422.1](https://github.com/windmill-labs/windmill/compare/v1.422.0...v1.422.1) (2024-11-12)
+
+
+### Bug Fixes
+
+* fix password inputs ([e5e174a](https://github.com/windmill-labs/windmill/commit/e5e174ae9516f4c6b94ceb6e258b467f5c9a1f1a))
+
 ## [1.422.0](https://github.com/windmill-labs/windmill/compare/v1.421.2...v1.422.0) (2024-11-11)
 
 

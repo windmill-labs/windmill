@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use crate::ai::{AiResource, AI_KEY_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_ee::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
@@ -168,7 +169,7 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
-    pub openai_resource_path: Option<String>,
+    pub ai_resource: Option<serde_json::Value>,
     pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
@@ -234,7 +235,7 @@ struct EditWebhook {
 
 #[derive(Deserialize)]
 struct EditCopilotConfig {
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
 }
 
@@ -645,23 +646,33 @@ async fn edit_copilot_config(
 
     let mut tx = db.begin().await?;
 
-    if let Some(openai_resource_path) = &eo.openai_resource_path {
+    if let Some(ai_resource) = &eo.ai_resource {
+        let path = serde_json::from_value::<AiResource>(ai_resource.clone())
+            .map_err(|e| Error::BadRequest(e.to_string()))?
+            .path;
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
-            openai_resource_path,
+            "UPDATE workspace_settings SET ai_resource = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
+            ai_resource,
             eo.code_completion_enabled,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
+
+        if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
+            if cached.path != path {
+                AI_KEY_CACHE.remove(&w_id);
+            }
+        }
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
             eo.code_completion_enabled,
             &w_id,
         )
         .execute(&mut *tx)
         .await?;
+        AI_KEY_CACHE.remove(&w_id);
     }
     audit_log(
         &mut *tx,
@@ -672,10 +683,7 @@ async fn edit_copilot_config(
         Some(&authed.email),
         Some(
             [
-                (
-                    "openai_resource_path",
-                    &format!("{:?}", eo.openai_resource_path)[..],
-                ),
+                ("ai_resource", &format!("{:?}", eo.ai_resource)[..]),
                 (
                     "code_completion_enabled",
                     &format!("{:?}", eo.code_completion_enabled)[..],
@@ -692,7 +700,8 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
-    pub exists_openai_resource_path: bool,
+    pub ai_provider: String,
+    pub exists_ai_resource: bool,
     pub code_completion_enabled: bool,
 }
 async fn get_copilot_info(
@@ -701,16 +710,32 @@ async fn get_copilot_info(
 ) -> JsonResult<CopilotInfo> {
     let mut tx = db.begin().await?;
     let record = sqlx::query!(
-        "SELECT openai_resource_path, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT ai_resource, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e:#}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
+    let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
+        let ai_resource = serde_json::from_value::<AiResource>(ai_resource);
+        let exist = ai_resource.is_ok();
+        (
+            if exist {
+                ai_resource.unwrap().provider
+            } else {
+                "".to_string()
+            },
+            exist,
+        )
+    } else {
+        ("".to_string(), false)
+    };
+
     Ok(Json(CopilotInfo {
-        exists_openai_resource_path: record.openai_resource_path.is_some(),
+        ai_provider,
+        exists_ai_resource,
         code_completion_enabled: record.code_completion_enabled,
     }))
 }
@@ -2227,7 +2252,7 @@ struct SimplifiedSettings {
     error_handler: Option<String>,
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -2592,7 +2617,7 @@ async fn tarball_workspace(
                 webhook, 
                 deploy_to, 
                 error_handler, 
-                openai_resource_path, 
+                ai_resource, 
                 code_completion_enabled, 
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
