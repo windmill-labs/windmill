@@ -25,7 +25,6 @@ use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
-use git_version::git_version;
 use http::HeaderValue;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -40,7 +39,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
-use windmill_common::{BASE_URL, INSTANCE_NAME};
+use windmill_common::{BASE_URL, INSTANCE_NAME, utils::GIT_VERSION};
 
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
@@ -93,9 +92,6 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
-
-pub const GIT_VERSION: &str =
-    git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
