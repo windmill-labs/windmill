@@ -757,7 +757,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
     email: String,
     w_id: &str,
     db: &DB,
-    username_override: String,
+    username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
     let authed =
         fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
