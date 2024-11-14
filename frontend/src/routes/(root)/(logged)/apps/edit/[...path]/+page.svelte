@@ -3,7 +3,7 @@
 	import { AppService, type AppWithLastVersion, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
+	import { cleanValueProperties, decodeState, replaceFalseWithUndefined, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
     import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'

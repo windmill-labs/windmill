@@ -25,6 +25,7 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
+		replaceFalseWithUndefined,
 		sleep,
 		type Value
 	} from '$lib/utils'
@@ -287,19 +288,28 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
+		if (
+			onLatest ||
+			initialPath == '' ||
+			savedFlow?.draft_only
+		) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
 			// We need it for diff
 			await syncWithDeployed()
 
-			// Handle through confirmation modal
-			confirmCallback = async () => {
+			if (deployedValue && savedFlow && orderedJsonStringify(deployedValue) === orderedJsonStringify(savedFlow)){
 				await saveFlow(deploymentMsg)
+			} else {
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					await saveFlow(deploymentMsg)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
+
 		}
 	}
 	async function syncWithDeployed() {
@@ -312,8 +322,9 @@
 			...flow,
 			edited_at: undefined,
 			edited_by: undefined,
-			workspace_id: undefined,
+			workspace_id: undefined
 		}
+		replaceFalseWithUndefined(deployedValue)
 		deployedBy = flow.edited_by
 	}
 

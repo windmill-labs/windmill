@@ -799,6 +799,26 @@ export type Value = {
 	[key: string]: any
 }
 
+export	function replaceFalseWithUndefined(obj: any) {
+  // Check if the input is an object and not null
+  if (obj !== null && typeof obj === 'object') {
+      for (const key in obj) {
+          if (obj.hasOwnProperty(key)) {
+              // If the value is false, replace it with undefined
+              if (obj[key] === false) {
+                  obj[key] = undefined;
+                  // delete obj[key];
+
+              } else {
+                  // If the value is an object, call the function recursively
+                  replaceFalseWithUndefined(obj[key]);
+              }
+          }
+      }
+  }
+  return obj;
+}
+
 export function cleanValueProperties(obj: Value) {
 	if (typeof obj !== 'object') {
 		return obj

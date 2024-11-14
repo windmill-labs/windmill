@@ -41,7 +41,8 @@
 		copyToClipboard,
 		truncateRev,
 		orderedJsonStringify,
-		type Value
+		type Value,
+		replaceFalseWithUndefined
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -422,13 +423,20 @@
 			// We need it to show diff
 			// Handle through confirmation modal
 			await syncWithDeployed()
-
-			confirmCallback = async () => {
-				open = false
+			if (
+				deployedValue &&
+				savedApp &&
+				orderedJsonStringify(deployedValue) === orderedJsonStringify(savedApp)
+			) {
 				await updateApp(npath)
+			} else {
+				confirmCallback = async () => {
+					open = false
+					await updateApp(npath)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
 		}
 	}
 
@@ -450,6 +458,8 @@
 			versions: undefined,
 			extra_perms: undefined
 		}
+
+		replaceFalseWithUndefined(deployedValue)
 	}
 
 	async function updateApp(npath: string) {
@@ -860,12 +870,12 @@
 <UnsavedConfirmationModal
 	{diffDrawer}
 	savedValue={savedApp}
-	modifiedValue={{
+	modifiedValue={(replaceFalseWithUndefined( {
 		summary: $summary,
 		value: $app,
 		path: newPath || savedApp?.draft?.path || savedApp?.path,
 		policy
-	}}
+	}))}
 />
 
 <DeployOverrideConfirmationModal

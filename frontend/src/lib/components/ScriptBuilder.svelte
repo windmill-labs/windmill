@@ -18,6 +18,7 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
+		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
@@ -278,17 +279,29 @@
 			// Fetch entire script, since we need it to show Diff
 			await syncWithDeployed()
 
-			// Handle through confirmation modal
-			confirmCallback = async () => {
-				open = false
-				if (actual_parent_hash) {
-					await editScript(stay, actual_parent_hash, deployMsg)
-				} else {
-					sendUserToast('Could not fetch latest version of the script', true)
+			if (
+				deployedValue &&
+				savedScript &&
+				orderedJsonStringify({ ...deployedValue, hash: undefined }) ===
+					orderedJsonStringify({ ...savedScript, hash: undefined })
+			) {
+				await editScript(stay, actual_parent_hash, deployMsg)
+
+			} else {
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					open = false
+					if (actual_parent_hash) {
+						await editScript(stay, actual_parent_hash, deployMsg)
+					} else {
+						sendUserToast('Could not fetch latest version of the script', true)
+					}
 				}
+				// Open confirmation modal
+				open = true
+				
 			}
-			// Open confirmation modal
-			open = true
+
 		}
 	}
 
@@ -310,6 +323,7 @@
 			parent_hashes: undefined
 		}
 
+		replaceFalseWithUndefined(deployedValue)
 		deployedBy = latestScript.created_by
 	}
 
@@ -687,8 +701,11 @@
 										</Label>
 										<Label label="Path">
 											<svelte:fragment slot="header">
-												<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path">
-													The unique identifier of the script in the workspace that defines permissions
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path"
+												>
+													The unique identifier of the script in the workspace that defines
+													permissions
 												</Tooltip>
 											</svelte:fragment>
 											<Path
