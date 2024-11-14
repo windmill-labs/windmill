@@ -109,8 +109,11 @@
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
+<<<<<<< HEAD
 	let criticalAlertUIMuted: boolean | undefined = undefined
 	let initialCriticalAlertUIMuted: boolean | undefined = undefined
+=======
+>>>>>>> f8c9237f8 (feat: Support mistral anthropic for ai (#4692))
 	let aiResourceInitialPath: string | undefined = undefined
 	let aiResourceInitialProvider: string | undefined = undefined
 
