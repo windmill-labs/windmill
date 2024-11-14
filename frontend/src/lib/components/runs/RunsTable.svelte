@@ -186,17 +186,20 @@
 			}
 		}
 	}
+
+	let batchModalIsOpen = false
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
 
-<RunnableBatchModal {jobs} />
+<RunnableBatchModal {jobs} bind:modalIsOpen={batchModalIsOpen} />
 
 <div
 	class="divide-y min-w-[640px] h-full"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
+	<button on:click={() => (batchModalIsOpen = !batchModalIsOpen)}>Batch execution</button>
 	<div bind:clientHeight={header}>
 		{#if isSelectingJobsToCancel && cancelableJobCount != 0}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
