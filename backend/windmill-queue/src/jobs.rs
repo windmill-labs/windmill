@@ -3678,7 +3678,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
             None,
-            Some(format!("{workspace_id}:{path}")),
+            Some(format!("{workspace_id}:git_sync")),
             Some(1),
             Some(0),
             None,
