@@ -202,6 +202,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         should_continue_flow,
         flow_job,
         flow_value,
+        raw_flow,
         stop_early,
         skip_if_stop_early,
         nresult,
@@ -214,7 +215,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             "SELECT
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
                 raw_flow->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"
-            FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
             flow, w_id
         )
         .fetch_one(db)
@@ -291,7 +292,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
             let is_flow = if let Some(step) = step {
                 sqlx::query_scalar!(
-                    "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM queue WHERE id = $2 LIMIT 1",
+                    "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM queue_view WHERE id = $2 LIMIT 1",
                     step as i32, flow
                 )
                 .fetch_one(db)
@@ -925,7 +926,17 @@ pub async fn update_flow_status_after_job_completion_internal<
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
-        let flow_value = flow_job.parse_raw_flow();
+        let raw_flow = sqlx::query_scalar!(
+            "SELECT raw_flow AS \"raw_flow!: Json<Box<sqlx::types::JsonRawValue>>\"
+            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            &flow_job.id, w_id
+        )
+        .fetch_one(db)
+        .await
+        .ok();
+        let flow_value = raw_flow
+            .as_ref()
+            .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok());
 
         let should_continue_flow = match success {
             _ if stop_early => false,
@@ -967,6 +978,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             should_continue_flow,
             flow_job,
             flow_value,
+            raw_flow,
             stop_early,
             skip_if_stop_early,
             nresult,
@@ -1034,7 +1046,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     let args_hash =
                         hash_args(db, client, w_id, job_id_for_status, &flow_job.args).await;
                     let flow_path = flow_job.script_path();
-                    let version_hash = if let Some(sqlx::types::Json(s)) = flow_job.raw_flow.as_ref() {
+                    let version_hash = if let Some(sqlx::types::Json(s)) = raw_flow.as_ref() {
                         use std::hash::{Hash, Hasher};
                         let mut h = DefaultHasher::new();
                         s.get().hash(&mut h);
