@@ -237,7 +237,7 @@ pub async fn reload_critical_alert_mute_ui_setting(db: &DB) -> error::Result<()>
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
 
         if t {
-            if let Err(e) = sqlx::query!("UPDATE alerts SET acknowledged_global = true")
+            if let Err(e) = sqlx::query!("UPDATE alerts SET acknowledged = true")
                 .execute(db)
                 .await
             {

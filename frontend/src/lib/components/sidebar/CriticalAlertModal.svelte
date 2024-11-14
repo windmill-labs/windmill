@@ -16,7 +16,6 @@
 	}
 
 	function setupApiFunctions(_ctx?) {
-		console.log('change')
 		getCriticalAlerts = withSuperadminLogic(
 			SettingService.getCriticalAlerts,
 			SettingService.workspaceGetCriticalAlerts

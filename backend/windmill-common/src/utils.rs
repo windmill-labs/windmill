@@ -279,7 +279,7 @@ pub async fn report_critical_error(
     let acknowledge_global = mute_global || mute_workspace;
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id, resource)
+        "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
         VALUES ('critical_error', $1, $2, $3, $4, $5)",
         error_message,
         acknowledge_global,
@@ -310,7 +310,7 @@ pub async fn report_recovered_critical_error(
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message, acknowledged_global, acknowledged_workspace, workspace_id, resource)
+        "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
         VALUES ('recovered_critical_error', $1, $2, $3, $4, $5)",
         message,
         true,
@@ -327,7 +327,7 @@ pub async fn report_recovered_critical_error(
     // acknowledge all alerts with the same resource
     if let Some(resource) = resource {
         if let Err(err) = sqlx::query!(
-            "UPDATE alerts SET acknowledged_global = true, acknowledged_workspace = true WHERE resource = $1 AND alert_type = 'critical_error'",
+            "UPDATE alerts SET acknowledged = true, acknowledged_workspace = true WHERE resource = $1 AND alert_type = 'critical_error'",
             resource,
         )
         .execute(&_db)

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_global, false) AS acknowledged, workspace_id\n                 FROM alerts\n                 WHERE COALESCE(acknowledged_global, false) = $1\n                 ORDER BY created_at DESC\n                 LIMIT $2 OFFSET $3",
+  "query": "SELECT id, alert_type, message, created_at, COALESCE(acknowledged, false) AS acknowledged, workspace_id\n                 FROM alerts\n                 WHERE COALESCE(acknowledged, false) = $1\n                 ORDER BY created_at DESC\n                 LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -50,5 +50,5 @@
       true
     ]
   },
-  "hash": "3c756332176cf73ad2ce958d436c606ab607d591c34f6bd8fd89705f9d726829"
+  "hash": "344b3a5d9683273a956b5156fed5ab9fdff1a7252198e4ae290d8c8f937ff177"
 }

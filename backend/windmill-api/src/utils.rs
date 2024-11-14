@@ -236,10 +236,10 @@ pub async fn get_critical_alerts(
     } else {
         // `workspace_id` is not provided => superadmin
         if params.acknowledged.is_none() {
-            // Case: Return all rows unfiltered with acknowledged_global as acknowledged
+            // Case: Return all rows unfiltered with global acknowledged as acknowledged
             sqlx::query_as!(
                 CriticalAlert,
-                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_global, false) AS acknowledged, workspace_id
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged, false) AS acknowledged, workspace_id
                  FROM alerts
                  ORDER BY created_at DESC
                  LIMIT $1 OFFSET $2",
@@ -249,12 +249,12 @@ pub async fn get_critical_alerts(
             .fetch_all(&db)
             .await?
         } else {
-            // Case: Return rows where acknowledged_global matches params.acknowledged
+            // Case: Return rows where global acknowledged matches params.acknowledged
             sqlx::query_as!(
                 CriticalAlert,
-                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_global, false) AS acknowledged, workspace_id
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged, false) AS acknowledged, workspace_id
                  FROM alerts
-                 WHERE COALESCE(acknowledged_global, false) = $1
+                 WHERE COALESCE(acknowledged, false) = $1
                  ORDER BY created_at DESC
                  LIMIT $2 OFFSET $3",
                 params.acknowledged,
@@ -278,7 +278,7 @@ pub async fn acknowledge_critical_alert(
     sqlx::query!(
         "UPDATE alerts
          SET
-           acknowledged_global = true,
+           acknowledged = true,
            acknowledged_workspace = CASE
              WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true
              ELSE acknowledged_workspace
@@ -306,13 +306,13 @@ pub async fn acknowledge_all_critical_alerts(
     sqlx::query!(
         "UPDATE alerts 
          SET
-           acknowledged_global = true,
+           acknowledged = true,
            acknowledged_workspace = CASE
              WHEN $1::text IS NOT NULL THEN true
              ELSE acknowledged_workspace
            END
          WHERE ($1::text IS NOT NULL AND workspace_id = $1)
-            OR ($1::text IS NULL AND workspace_id IS NULL)",
+            OR ($1::text IS NULL)",
         workspace_id
     )
     .execute(&db)
