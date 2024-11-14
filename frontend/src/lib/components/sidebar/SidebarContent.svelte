@@ -40,6 +40,7 @@
 	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/stores'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: `${base}/`, icon: Home },
@@ -86,6 +87,13 @@
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws'
+		},
+		{
+			label: 'Kafka',
+			href: '/kafka_triggers',
+			icon: KafkaIcon,
+			disabled: $userStore?.operator,
+			kind: 'kafka'
 		}
 	]
 

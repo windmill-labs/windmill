@@ -2262,9 +2262,12 @@ paths:
                     type: boolean
                   websocket_used:
                     type: boolean
+                  kafka_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
+                  - kafka_used
 
   /w/{workspace}/users/list:
     get:
@@ -7476,6 +7479,169 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/kafka_triggers/create:
+    post:
+      summary: create kafka trigger
+      operationId: createKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new kafka trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewKafkaTrigger"
+      responses:
+        "201":
+          description: kafka trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/update/{path}:
+    post:
+      summary: update kafka trigger
+      operationId: updateKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditKafkaTrigger"
+      responses:
+        "200":
+          description: kafka trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/delete/{path}:
+    delete:
+      summary: delete kafka trigger
+      operationId: deleteKafkaTrigger
+      tags:
+        -  kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/get/{path}:
+    get:
+      summary: get kafka trigger
+      operationId: getKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KafkaTrigger"
+
+  
+  /w/{workspace}/kafka_triggers/list:
+    get:
+      summary: list kafka triggers
+      operationId: listKafkaTriggers
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: kafka trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KafkaTrigger"
+
+  
+  /w/{workspace}/kafka_triggers/exists/{path}:
+    get:
+      summary: does kafka trigger exists
+      operationId: existsKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/kafka_triggers/setenabled/{path}:
+    post:
+      summary: set enabled kafka trigger
+      operationId: setKafkaTriggerEnabled
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated kafka trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: kafka trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /groups/list:
     get:
@@ -8328,6 +8494,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
               ]
       responses:
         "200":
@@ -8366,6 +8533,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8415,6 +8583,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
               ]
       requestBody:
         description: acl to add
@@ -11696,6 +11865,8 @@ components:
           type: number
         websocket_count:
           type: number
+        kafka_count:
+          type: number
 
     WebsocketTrigger:
       type: object
@@ -11866,6 +12037,114 @@ components:
                 - is_flow
           required: 
             - runnable_result
+
+    KafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+
+    NewKafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - is_flow
+        - kafka_resource_path
+        - group_id
+        - topics
+
+    EditKafkaTrigger:
+      type: object
+      properties:
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+              
+      required:
+        - path
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - is_flow
 
     Group:
       type: object

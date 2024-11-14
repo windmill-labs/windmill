@@ -67,6 +67,8 @@ mod integration;
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+mod kafka_triggers_ee;
 pub mod oauth2_ee;
 mod oidc_ee;
 mod openai;
@@ -237,6 +239,9 @@ pub async fn run_server(
         }
     }
 
+    // #[cfg(feature = "kafka")]
+    // start_listening().await;
+
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
         {
@@ -249,9 +254,27 @@ pub async fn run_server(
         }
     };
 
+    let kafka_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            kafka_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
+        {
+            Router::new()
+        }
+    };
+
     if !*CLOUD_HOSTED {
         let ws_killpill_rx = rx.resubscribe();
-        websocket_triggers::start_websockets(db.clone(), rsmq, ws_killpill_rx).await;
+        websocket_triggers::start_websockets(db.clone(), rsmq.clone(), ws_killpill_rx).await;
+
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            let kafka_killpill_rx = rx.resubscribe();
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), rsmq, kafka_killpill_rx).await;
+        }
     }
 
     // build our application with a route
@@ -298,7 +321,8 @@ pub async fn run_server(
                         .nest(
                             "/websocket_triggers",
                             websocket_triggers::workspaced_service(),
-                        ),
+                        )
+                        .nest("/kafka_triggers", kafka_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -323,10 +347,7 @@ pub async fn run_server(
                     "/srch/w/:workspace_id/index",
                     indexer_ee::workspaced_service(),
                 )
-                .nest(
-                    "/srch/index",
-                    indexer_ee::global_service(),
-                )
+                .nest("/srch/index", indexer_ee::global_service())
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",
