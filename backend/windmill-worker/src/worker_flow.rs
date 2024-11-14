@@ -210,8 +210,11 @@ pub async fn update_flow_status_after_job_completion_internal<
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let old_status = sqlx::query_scalar!(
-            "SELECT flow_status AS \"_id!: Json<Box<RawValue>>\" FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+        let (old_status, current_module) = sqlx::query!(
+            "SELECT
+                flow_status AS \"flow_status!: Json<Box<RawValue>>\",
+                raw_flow->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"
+            FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
             flow, w_id
         )
         .fetch_one(db)
@@ -219,28 +222,16 @@ pub async fn update_flow_status_after_job_completion_internal<
         .map_err(|e| Error::InternalErr(
             format!("fetching flow status {flow} while reporting {success} {result:?}: {e:#}")
         ))
-        .and_then(|json|
-            serde_json::from_str::<FlowStatus>(json.0.get()).map_err(|e| Error::InternalErr(
+        .and_then(|record| Ok((
+            serde_json::from_str::<FlowStatus>(record.flow_status.0.get()).map_err(|e| Error::InternalErr(
                 format!("requiring current module to be parsable as FlowStatus: {e:?}")
-            ))
-        )?;
-        
-        let current_module = sqlx::query_scalar!(
-            "SELECT raw_flow->'modules'->($1)::int AS \"_id: Json<Box<RawValue>>\" FROM queue WHERE id = $2 AND workspace_id = $3 LIMIT 1",
-            old_status.step, flow, w_id
-        )
-        .fetch_one(db)
-        .await
-        .map_err(|e| Error::InternalErr(
-            format!("fetching current module {flow} while reporting {success} {result:?}: {e:#}")
-        ))
-        .and_then(|json|
-            json.map(|json| {
+            ))?,
+            record.module.map(|json| {
                 serde_json::from_str::<FlowModule>(json.0.get()).map_err(|e| Error::InternalErr(format!(
                     "requiring current module to be parsable as FlowModule: {e:?}"
                 )))
-            }).transpose()
-        )?;
+            }).transpose()?,
+        )))?;
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
 
