@@ -85,6 +85,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
+	import type { AiProviderTypes } from './copilot/lib'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -789,6 +790,7 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -918,7 +920,8 @@
 						  })
 						: undefined,
 					isFirstInLoop,
-					abortController
+					abortController,
+					aiProvider
 				)
 				unsubscribe()
 			}
@@ -934,7 +937,7 @@
 						pastModule.value.type === 'script')
 				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_openai_resource_path) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const { inputs, allExprs } = await glueCopilot(
@@ -944,7 +947,8 @@
 								value: RawScript | PathScript
 							},
 							isFirstInLoop,
-							abortController
+							abortController,
+							aiProvider
 						)
 
 						// create flow inputs used by AI for autocompletion
@@ -992,11 +996,7 @@
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
-						if (
-							isHubStep &&
-							pastModule !== undefined &&
-							!$copilotInfo.exists_openai_resource_path
-						) {
+						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true

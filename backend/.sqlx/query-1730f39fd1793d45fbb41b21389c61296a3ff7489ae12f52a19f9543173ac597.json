@@ -65,8 +65,8 @@
       },
       {
         "ordinal": 12,
-        "name": "openai_resource_path",
-        "type_info": "Varchar"
+        "name": "ai_resource",
+        "type_info": "Jsonb"
       },
       {
         "ordinal": 13,

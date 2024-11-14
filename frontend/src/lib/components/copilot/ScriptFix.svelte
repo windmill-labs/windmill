@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { SUPPORTED_LANGUAGES, copilot } from './lib'
+	import { SUPPORTED_LANGUAGES, copilot, type AiProviderTypes } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -40,6 +40,7 @@
 		try {
 			genLoading = true
 			abortController = new AbortController()
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 			await copilot(
 				{
 					language: lang,
@@ -51,7 +52,8 @@
 				},
 				generatedCode,
 				abortController,
-				generatedExplanation
+				aiProvider,
+				generatedExplanation,
 			)
 			setupDiff()
 			diffEditor?.setModified($generatedCode)
@@ -186,12 +188,12 @@
 					</Button>
 				</svelte:fragment>
 				{@const fixAction = (_) => {
-					if ($copilotInfo.exists_openai_resource_path) {
+					if ($copilotInfo.exists_ai_resource) {
 						onFix(() => close(null))
 					}
 				}}
 				<div use:fixAction>
-					{#if $copilotInfo.exists_openai_resource_path}
+					{#if $copilotInfo.exists_ai_resource}
 						<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
 							{#if $generatedCode.length > 0}
 								<div class="overflow-x-scroll">
@@ -211,7 +213,7 @@
 							<p class="text-sm"
 								>Enable Windmill AI in the <a
 									class="inline-flex flex-row items-center gap-1"
-									href="{base}/workspace_settings?tab=openai"
+									href="{base}/workspace_settings?tab=ai"
 									target="_blank">workspace settings</a
 								></p
 							></div

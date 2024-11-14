@@ -1681,8 +1681,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
-                  openai_resource_path:
-                    type: string
+                  ai_resource:
+                    $ref: "#/components/schemas/AiResource"
                   code_completion_enabled:
                     type: boolean
                   error_handler:
@@ -1966,8 +1966,8 @@ paths:
               required:
                 - code_completion_enabled
               properties:
-                openai_resource_path:
-                  type: string
+                ai_resource:
+                  $ref: "#/components/schemas/AiResource"
                 code_completion_enabled:
                   type: boolean
       responses:
@@ -1995,12 +1995,15 @@ paths:
               schema:
                 type: object
                 properties:
-                  exists_openai_resource_path:
+                  ai_provider:
+                    type: string
+                  exists_ai_resource:
                     type: boolean
                   code_completion_enabled:
                     type: boolean
                 required:
-                  - exists_openai_resource_path
+                  - ai_provider
+                  - exists_ai_resource
                   - code_completion_enabled
 
   /w/{workspace}/workspaces/edit_error_handler:
@@ -10194,6 +10197,16 @@ components:
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
 
+    AiResource:
+      type: object
+      properties:
+        path:
+          type: string
+        provider:
+          type: string
+      required:
+        - path
+        - provider
     Script:
       type: object
       properties:
@@ -11012,7 +11025,7 @@ components:
             - "jobs.disapproval"
             - "jobs.delete"
             - "account.delete"
-            - "openai.request"
+            - "ai.request"
             - "resources.create"
             - "resources.update"
             - "resources.delete"

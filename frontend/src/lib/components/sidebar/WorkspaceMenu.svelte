@@ -19,6 +19,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { isCloudHosted } from '$lib/cloud'
+	import { initAllAiWorkspace } from '../copilot/lib'
 
 	export let isCollapsed: boolean = false
 
@@ -26,7 +27,7 @@
 		if ($workspaceStore === id) {
 			return
 		}
-
+		initAllAiWorkspace(id, true)
 		const editPages = [
 			'/scripts/edit/',
 			'/flows/edit/',

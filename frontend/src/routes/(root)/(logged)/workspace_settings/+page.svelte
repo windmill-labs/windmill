@@ -43,7 +43,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -56,6 +56,9 @@
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
 	import { hubPaths } from '$lib/hub'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type { AiProviderTypes } from '$lib/components/copilot/lib'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -99,7 +102,8 @@
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
-	let openaiResourceInitialPath: string | undefined = undefined
+	let aiResourceInitialPath: string | undefined = undefined
+	let aiResourceInitialProvider: string | undefined = undefined
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -128,6 +132,7 @@
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
+	let selected: AiProviderTypes = 'openai'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -175,31 +180,37 @@
 		}
 	}
 
-	async function editCopilotConfig(openaiResourcePath: string): Promise<void> {
+	async function editCopilotConfig(aiResourcePath: string, aiProvider: string): Promise<void> {
 		// in JS, an empty string is also falsy
-		openaiResourceInitialPath = openaiResourcePath
-		if (openaiResourcePath) {
+		aiResourceInitialPath = aiResourcePath
+		aiResourceInitialProvider = aiProvider
+		if (aiResourcePath) {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					openai_resource_path: openaiResourcePath,
+					ai_resource: {
+						path: aiResourcePath,
+						provider: aiProvider
+					},
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
 			copilotInfo.set({
-				exists_openai_resource_path: true,
+				ai_provider: aiProvider,
+				exists_ai_resource: true,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					openai_resource_path: undefined,
+					ai_resource: undefined,
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
 			copilotInfo.set({
-				exists_openai_resource_path: true,
+				ai_provider: '',
+				exists_ai_resource: false,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		}
@@ -373,7 +384,9 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		openaiResourceInitialPath = settings.openai_resource_path
+		aiResourceInitialPath = settings.ai_resource?.path
+		aiResourceInitialProvider = settings.ai_resource?.provider
+		selected = aiResourceInitialProvider as AiProviderTypes ?? 'openai'
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
@@ -631,7 +644,7 @@
 				<Tab size="xs" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
-				<Tab size="xs" value="openai">
+				<Tab size="xs" value="ai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
@@ -959,7 +972,7 @@
 					Save
 				</Button>
 			</div>
-		{:else if tab == 'openai'}
+		{:else if tab == 'ai'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Windmill AI</div>
@@ -967,7 +980,7 @@
 						Select an OpenAI resource to unlock Windmill AI features.
 					</div>
 					<div class="text-tertiary text-xs">
-						Windmill AI uses OpenAI's GPT-4o for all AI features.
+						Windmill AI supports integration with your preferred AI provider for all AI features.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
 							target="_blank"
@@ -976,19 +989,32 @@
 					</div>
 				</div>
 			</div>
+			<ToggleButtonGroup
+				bind:selected
+				on:selected={() => {
+					aiResourceInitialPath = ''
+				}}
+			>
+				<ToggleButton value="openai" label="OpenAI" />
+				<ToggleButton value="anthropic" label="Anthropic" />
+				<ToggleButton value="mistral" label="Mistral" />
+			</ToggleButtonGroup>
 			<div class="mt-5 flex gap-1">
-				{#key [openaiResourceInitialPath, usingOpenaiClientCredentialsOauth]}
+				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}
 					<ResourcePicker
 						resourceType={usingOpenaiClientCredentialsOauth
 							? 'openai_client_credentials_oauth'
-							: 'openai'}
-						initialValue={openaiResourceInitialPath}
+							: selected}
+						initialValue={aiResourceInitialPath}
 						on:change={(ev) => {
-							editCopilotConfig(ev.detail)
+							editCopilotConfig(ev.detail, selected)
 						}}
 					/>
+					<TestAiKey
+						disabled={!aiResourceInitialPath || aiResourceInitialProvider != selected}
+						aiProvider={selected}
+					/>
 				{/key}
-				<TestOpenaiKey disabled={!openaiResourceInitialPath} />
 			</div>
 			<div class="mt-3">
 				<Toggle
@@ -996,7 +1022,7 @@
 					bind:checked={codeCompletionEnabled}
 					options={{ right: 'Enable code completion' }}
 					on:change={() => {
-						editCopilotConfig(openaiResourceInitialPath || '')
+						editCopilotConfig(aiResourceInitialPath || '', aiResourceInitialProvider || '')
 					}}
 				/>
 			</div>

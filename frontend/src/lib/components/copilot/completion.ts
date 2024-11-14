@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/index.mjs'
-import { getNonStreamingCompletion } from './lib'
+import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 import { codeCompletionLoading } from '$lib/stores'
 
 const systemPrompt = `You are a code completion assistant, return the code that should go instead of the <completion_tokens>.
@@ -73,7 +73,8 @@ export async function editorCodeCompletion(
 	before: string,
 	after: string,
 	lang: string,
-	abortController: AbortController
+	abortController: AbortController,
+	aiProvider: AiProviderTypes
 ) {
 	codeCompletionLoading.set(true)
 	const messages: ChatCompletionMessageParam[] = [
@@ -91,7 +92,7 @@ export async function editorCodeCompletion(
 	]
 
 	try {
-		const result = await getNonStreamingCompletion(messages, abortController)
+		const result = await getNonStreamingCompletion(messages, abortController, aiProvider)
 
 		const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 

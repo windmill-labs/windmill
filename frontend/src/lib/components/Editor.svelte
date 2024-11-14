@@ -171,6 +171,7 @@
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
+	import type { AiProviderTypes } from './copilot/lib'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -593,11 +594,13 @@
 							token.onCancellationRequested(() => {
 								abortController?.abort()
 							})
+							const aiProvider = $copilotInfo.ai_provider
 							const insertText = await editorCodeCompletion(
 								textUntilPosition,
 								textAfterPosition,
 								lang,
-								abortController
+								abortController,
+								aiProvider as AiProviderTypes
 							)
 							if (insertText) {
 								items = [
@@ -624,7 +627,7 @@
 		)
 	}
 
-	$: $copilotInfo.exists_openai_resource_path &&
+	$: $copilotInfo.exists_ai_resource &&
 		$copilotInfo.code_completion_enabled &&
 		$codeCompletionSessionEnabled &&
 		initialized &&

@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Popup from '../common/popup/Popup.svelte'
 	import { copilotInfo } from '$lib/stores'
@@ -25,6 +25,7 @@
 		savePrompt()
 		genLoading = true
 		abortController = new AbortController()
+		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const res = await getNonStreamingCompletion(
 				[
@@ -38,7 +39,8 @@
 						content: funcDesc
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
 			funcDesc = ''
@@ -114,7 +116,7 @@
 		/>
 	</svelte:fragment>
 	<div class="block text-primary z-[2000]">
-		{#if $copilotInfo.exists_openai_resource_path}
+		{#if $copilotInfo.exists_ai_resource}
 			<div class="flex flex-col gap-4">
 				<div class="flex w-96">
 					<input
@@ -167,7 +169,7 @@
 		{:else}
 			<p class="text-sm">
 				Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=openai"
+					href="{base}/workspace_settings?tab=ai"
 					target="_blank"
 					class="inline-flex flex-row items-center gap-1"
 				>
