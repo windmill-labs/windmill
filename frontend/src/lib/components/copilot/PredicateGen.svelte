@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -59,7 +59,7 @@ Here's a summary of the available data:
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-
+			const aiProvider = $copilotInfo.ai_provider
 			const result = await getNonStreamingCompletion(
 				[
 					{
@@ -67,7 +67,8 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 
 			dispatch('setExpr', result)
@@ -82,7 +83,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 	<Popup
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
