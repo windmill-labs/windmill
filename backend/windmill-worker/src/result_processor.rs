@@ -295,6 +295,7 @@ pub async fn process_result(
                     message: format!("error during execution of the script:\n{}", err),
                     name: "ExecutionErr".to_string(),
                     step_id: job.flow_step_id.clone(),
+                    exit_code: None,
                 }),
             };
 
@@ -608,6 +609,8 @@ pub struct SerializedError {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
 }
 pub fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
     return to_raw_value(&SerializedError {
@@ -617,5 +620,6 @@ pub fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> 
         ),
         name: "ExecutionErr".to_string(),
         step_id,
+        exit_code: Some(i),
     });
 }

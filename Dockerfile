@@ -1,4 +1,3 @@
-# trigger CI
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.80-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
@@ -176,9 +175,9 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:2.0.2 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.0.4 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.32 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.34 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer

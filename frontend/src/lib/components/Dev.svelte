@@ -49,6 +49,8 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
+	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -476,7 +478,7 @@
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
@@ -484,7 +486,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		triggersCount: triggersCount
+		triggersCount: triggersCount,
+		simplifiedPoll: writable(false)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -502,7 +505,10 @@
 		customUi: {},
 		insertButtonOpen: writable(false)
 	})
-
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined

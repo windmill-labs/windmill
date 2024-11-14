@@ -12,15 +12,16 @@
 
 	let flow: Flow | undefined = undefined
 
-	const selectedTriggerStore = writable<'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes'>(
-		'webhooks'
-	)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'scheduledPoll'
+	>('webhooks')
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		triggersCount: triggersCount
+		triggersCount: triggersCount,
+		simplifiedPoll: writable(false)
 	})
 
 	async function loadFlow(path: string) {

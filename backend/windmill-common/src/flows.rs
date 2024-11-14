@@ -16,6 +16,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
+    error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
 };
@@ -426,6 +427,8 @@ pub enum FlowModuleValue {
         hash: Option<ScriptHash>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tag_override: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
     },
     Flow {
         #[serde(default)]
@@ -474,6 +477,8 @@ pub enum FlowModuleValue {
         concurrent_limit: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
     },
     Identity,
 }
@@ -505,6 +510,7 @@ struct UntaggedFlowModuleValue {
     custom_concurrency_key: Option<String>,
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
+    is_trigger: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -522,6 +528,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
                 hash: untagged.hash,
                 tag_override: untagged.tag_override,
+                is_trigger: untagged.is_trigger,
             }),
             "flow" => Ok(FlowModuleValue::Flow {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -574,6 +581,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 custom_concurrency_key: untagged.custom_concurrency_key,
                 concurrent_limit: untagged.concurrent_limit,
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
+                is_trigger: untagged.is_trigger,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
             other => Err(serde::de::Error::unknown_variant(
@@ -643,4 +651,30 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             skip_if: None,
         });
     }
+}
+
+pub async fn has_failure_module<'c>(flow: sqlx::types::Uuid, db: &sqlx::Pool<sqlx::Postgres>, completed: bool) -> Result<bool, Error> {
+    if completed {
+        sqlx::query_scalar!(
+            "SELECT raw_flow->'failure_module' != 'null'::jsonb
+            FROM completed_job
+            WHERE id = $1",
+            flow
+        )
+    } else {
+        sqlx::query_scalar!(
+            "SELECT raw_flow->'failure_module' != 'null'::jsonb
+            FROM queue
+            WHERE id = $1",
+            flow
+        )
+    }
+    .fetch_one(db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error during retrieval of has_failure_module: {e:#}"
+        ))
+    })
+    .map(|v| v.unwrap_or(false))
 }

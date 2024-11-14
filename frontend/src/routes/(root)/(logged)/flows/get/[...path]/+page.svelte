@@ -27,7 +27,7 @@
 		FolderOpen,
 		Archive,
 		Trash,
-		Server,
+		ChevronUpSquare,
 		Share,
 		Badge,
 		Loader2,
@@ -294,7 +294,7 @@
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
-				Icon: Server
+				Icon: ChevronUpSquare
 			})
 		}
 

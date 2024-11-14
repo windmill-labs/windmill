@@ -49,7 +49,7 @@ use windmill_common::{
         Approval, BranchAllStatus, BranchChosen, FlowStatus, FlowStatusModule, RetryStatus,
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
+    flows::{has_failure_module, FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
@@ -963,7 +963,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             false
                 if !is_failure_step
                     && !skip_error_handler
-                    && has_failure_module(flow, db).await? =>
+                    && has_failure_module(flow, db, false).await? =>
             {
                 true
             }
@@ -1288,23 +1288,6 @@ async fn compute_skip_branchall_failure<'c>(
                 .get(branch as usize)
                 .map(|x| x.skip_failure.unwrap_or(false))
         }))
-}
-
-async fn has_failure_module<'c>(flow: Uuid, db: &DB) -> Result<bool, Error> {
-    sqlx::query_scalar::<_, Option<bool>>(
-        "SELECT raw_flow->'failure_module' != 'null'::jsonb
-        FROM queue
-        WHERE id = $1",
-    )
-    .bind(flow)
-    .fetch_one(db)
-    .await
-    .map_err(|e| {
-        Error::InternalErr(format!(
-            "error during retrieval of has_failure_module: {e:#}"
-        ))
-    })
-    .map(|v| v.unwrap_or(false))
 }
 
 // async fn retrieve_cleanup_module<'c>(flow_uuid: Uuid, db: &DB) -> Result<FlowCleanupModule, Error> {

@@ -17,6 +17,8 @@
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
+	import type { PickableProperties } from '$lib/components/flows/previousResults'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -74,12 +76,13 @@
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		triggersCount: triggersCount
+		triggersCount: triggersCount,
+		simplifiedPoll: writable(false)
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
@@ -98,7 +101,10 @@
 		customUi: {},
 		insertButtonOpen: writable(false)
 	})
-
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 	type LastEdit = {
 		content: string
 		path: string

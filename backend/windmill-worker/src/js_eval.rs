@@ -754,9 +754,9 @@ pub async fn eval_fetch_timeout(
     _w_id: &str,
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
-) -> anyhow::Result<(Box<RawValue>, String)> {
+) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
-    Ok((to_raw_value("require deno_core").unwrap(), "".to_string()))
+    Ok(to_raw_value("require deno_core").unwrap())
 }
 
 #[cfg(feature = "deno_core")]
@@ -774,7 +774,9 @@ pub async fn eval_fetch_timeout(
     w_id: &str,
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
-) -> anyhow::Result<(Box<RawValue>, String)> {
+) -> anyhow::Result<Box<RawValue>> {
+    use windmill_queue::append_logs;
+
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
     let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, None)?.args;
@@ -805,6 +807,8 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
+    let db_ = db.clone();
+    let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
@@ -892,28 +896,31 @@ pub async fn eval_fetch_timeout(
             .build()?;
 
         let future = async {
-            tokio::select! {
+            let r = tokio::select! {
                 r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
-            }
+            };
+
+            append_logs(
+                &job_id,
+                w_id_.as_str(),
+                format!(
+                    "{extra_logs}{}",
+                    js_runtime.op_state().borrow().borrow::<LogString>().s
+                ),
+                db_,
+            )
+            .await;
+
+            r
         };
         let r = runtime.block_on(future)?;
         // tracing::info!("total: {:?}", instant.elapsed());
 
-        (r as anyhow::Result<Box<RawValue>>).map(|x| {
-            (
-                x,
-                js_runtime
-                    .op_state()
-                    .borrow()
-                    .borrow::<LogString>()
-                    .s
-                    .clone(),
-            )
-        })
+        r
     });
 
-    let (res, logs) = run_future_with_polling_update_job_poller(
+    let res = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
         db,
@@ -932,7 +939,7 @@ pub async fn eval_fetch_timeout(
         e
     })?;
     *mem_peak = (res.get().len() / 1000) as i32;
-    Ok((res, format!("{extra_logs}{logs}")))
+    Ok(res)
 }
 
 #[cfg(feature = "deno_core")]

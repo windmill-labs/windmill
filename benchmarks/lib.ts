@@ -2,7 +2,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-export const VERSION = "v1.416.2";
+export const VERSION = "v1.423.2";
 
 export async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
@@ -234,6 +234,23 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
           },
         ],
       },
+    };
+  } else if (flowPattern == "bigscriptinflow") {
+    return {
+      path: "bigscriptinflow",
+      args: {},
+      value: {
+        modules: [
+          {
+            value: {
+              input_transforms: {},
+              language: api.RawScript.language.BASH,
+              type: "rawscript",
+              content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+            },
+          }
+        ],
+      }
     };
   } else {
     return {

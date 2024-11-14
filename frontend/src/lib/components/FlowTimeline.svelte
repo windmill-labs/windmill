@@ -178,7 +178,7 @@
 				{/if}
 
 				<div class="px-2 py-2 grid grid-cols-6 w-full">
-					<div class="truncate">{k}</div>
+					<div class="truncate">{k.startsWith('subflow:') ? k.substring(8) : k}</div>
 					<div class="col-span-5 flex min-h-6">
 						{#if min && total}
 							<div class="flex flex-col gap-2 w-full p-2 ml-4">

@@ -522,6 +522,9 @@ export async function preprocessor(
 			params: Record<string, string>
 			query: Record<string, string>
 			headers: Record<string, string>
+		},
+		websocket?: {
+			url: string // The websocket url
 		}
 	},
 	/* your other args */ 
@@ -543,6 +546,9 @@ export async function preprocessor(
 			params: Record<string, string>
 			query: Record<string, string>
 			headers: Record<string, string>
+		},
+		websocket?: {
+			url: string // The websocket url
 		}
 	},
 	/* your other args */ 
@@ -590,9 +596,13 @@ class Http(TypedDict):
 	query: dict[str, str]
 	headers: dict[str, str]
 
+class Websocket(TypedDict):
+	url: str # The websocket url
+
 class WmTrigger(TypedDict):
     kind: Literal["http", "email", "webhook", "websocket"]
     http: Http | None
+    websocket: Websocket | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
