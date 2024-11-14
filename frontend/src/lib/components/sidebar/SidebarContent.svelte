@@ -5,7 +5,8 @@
 		usedTriggerKinds,
 		userStore,
 		workspaceStore,
-		isCriticalAlertsUIOpen
+		isCriticalAlertsUIOpen,
+		enterpriseLicense
 	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -197,14 +198,18 @@
 									}
 							  ]
 							: []),
-						{
-							label: 'Critical Alerts',
-							action: () => {
-								isCriticalAlertsUIOpen.set(true)
-							},
+						...($enterpriseLicense
+							? [
+									{
+										label: 'Critical Alerts',
+										action: () => {
+											isCriticalAlertsUIOpen.set(true)
+										},
 							icon: AlertCircle,
 							notificationCount: numUnacknowledgedCriticalAlerts
 						}
+					]
+							: [])
 					]
 			  }
 			: {
