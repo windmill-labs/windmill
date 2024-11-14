@@ -6162,6 +6162,39 @@ paths:
                 required:
                   - database_length
 
+  /w/{workspace}/jobs/completed/count_jobs:
+    get:
+      summary: count number of completed jobs with filter
+      operationId: countCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: completed_after_s_ago
+          in: query
+          schema:
+            type: integer
+        - name: success
+          in: query
+          schema:
+            type: boolean
+        - name: tags
+          in: query
+          schema:
+            type: string
+        - name: all_workspaces
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Count of completed jobs
+          content:
+            application/json:
+              schema:
+                type: integer
+
+
   /w/{workspace}/jobs/queue/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
