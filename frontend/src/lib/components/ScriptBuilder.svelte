@@ -301,14 +301,10 @@
 
 		deployedValue = {
 			...latestScript,
-			// starred: undefined,
 			workspace_id: undefined,
-			// archived: undefined,
 			created_at: undefined,
 			created_by: undefined,
-			// deleted: undefined,
 			extra_perms: undefined,
-			// is_template: undefined,
 			lock: undefined,
 			lock_error_logs: undefined,
 			parent_hashes: undefined

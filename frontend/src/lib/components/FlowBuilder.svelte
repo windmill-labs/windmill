@@ -310,8 +310,6 @@
 		})
 		deployedValue = {
 			...flow,
-			// starred: undefined,
-			// id: undefined,
 			edited_at: undefined,
 			edited_by: undefined,
 			workspace_id: undefined,

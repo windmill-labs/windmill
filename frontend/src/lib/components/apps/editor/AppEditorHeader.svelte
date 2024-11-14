@@ -444,12 +444,11 @@
 		// Strip off extra information
 		deployedValue = {
 			...deployedApp,
-			starred: undefined,
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
 			versions: undefined,
-			extra_perms: undefined //
+			extra_perms: undefined
 		}
 	}
 
