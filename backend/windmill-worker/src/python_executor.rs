@@ -1292,7 +1292,6 @@ pub async fn handle_python_reqs(
                     .envs(envs)
                     .envs(PROXY_ENVS.clone())
                     .env("SystemRoot", SYSTEM_ROOT.as_str())
-                    .env("TMP", "C:\\Users\\alex\\AppData\\Local\\Temp")
                     .env(
                         "TMP",
                         std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
