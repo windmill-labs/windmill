@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.422.0",
+    "version": "1.418.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -1105,9 +1105,6 @@
                       },
                       "tls_implicit": {
                         "type": "boolean"
-                      },
-                      "disable_tls": {
-                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -1116,8 +1113,7 @@
                       "password",
                       "port",
                       "from",
-                      "tls_implicit",
-                      "disable_tls"
+                      "tls_implicit"
                     ]
                   }
                 },
@@ -2493,9 +2489,6 @@
                     },
                     "default_scripts": {
                       "$ref": "#/components/schemas/WorkspaceDefaultScripts"
-                    },
-                    "mute_critical_alerts": {
-                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -4103,171 +4096,6 @@
                   "items": {
                     "$ref": "#/components/schemas/ContextualVariable"
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/workspaces/critical_alerts": {
-      "get": {
-        "summary": "Get all critical alerts for this workspace",
-        "operationId": "workspaceGetCriticalAlerts",
-        "tags": [
-          "setting"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "schema": {
-              "type": "integer",
-              "default": 1,
-              "description": "The page number to retrieve (minimum value is 1)"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "schema": {
-              "type": "integer",
-              "default": 10,
-              "maximum": 100,
-              "description": "Number of alerts per page (maximum is 100)"
-            }
-          },
-          {
-            "in": "query",
-            "name": "acknowledged",
-            "schema": {
-              "type": "boolean",
-              "nullable": true,
-              "description": "Filter by acknowledgment status; true for acknowledged, false for unacknowledged, and omit for all alerts"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully retrieved all critical alerts",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CriticalAlert"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/workspaces/critical_alerts/{id}/acknowledge": {
-      "post": {
-        "summary": "Acknowledge a critical alert for this workspace",
-        "operationId": "workspaceAcknowledgeCriticalAlert",
-        "tags": [
-          "setting"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            },
-            "description": "The ID of the critical alert to acknowledge"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully acknowledged the critical alert",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string",
-                  "example": "Critical alert acknowledged"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/workspaces/critical_alerts/acknowledge_all": {
-      "post": {
-        "summary": "Acknowledge all unacknowledged critical alerts for this workspace",
-        "operationId": "workspaceAcknowledgeAllCriticalAlerts",
-        "tags": [
-          "setting"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully acknowledged all unacknowledged critical alerts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string",
-                  "example": "All unacknowledged critical alerts acknowledged"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/workspaces/critical_alerts/mute": {
-      "post": {
-        "summary": "Mute critical alert UI for this workspace",
-        "operationId": "workspaceMuteCriticalAlertsUI",
-        "tags": [
-          "setting"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          }
-        ],
-        "requestBody": {
-          "description": "Boolean flag to mute critical alerts.",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "mute_critical_alerts": {
-                    "type": "boolean",
-                    "description": "Whether critical alerts should be muted.",
-                    "example": true
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successfully updated mute critical alert settings.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string",
-                  "example": "Updated mute critical alert UI settings for workspace: workspace_id"
                 }
               }
             }
@@ -14982,20 +14810,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "content_type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "content_disposition",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "requestBody": {
@@ -18253,23 +18067,6 @@
           "route_path": {
             "type": "string"
           },
-          "static_asset_config": {
-            "type": "object",
-            "properties": {
-              "s3": {
-                "type": "string"
-              },
-              "storage": {
-                "type": "string"
-              },
-              "filename": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "s3"
-            ]
-          },
           "is_flow": {
             "type": "boolean"
           },
@@ -18329,23 +18126,6 @@
           "route_path": {
             "type": "string"
           },
-          "static_asset_config": {
-            "type": "object",
-            "properties": {
-              "s3": {
-                "type": "string"
-              },
-              "storage": {
-                "type": "string"
-              },
-              "filename": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "s3"
-            ]
-          },
           "is_flow": {
             "type": "boolean"
           },
@@ -18387,23 +18167,6 @@
           },
           "route_path": {
             "type": "string"
-          },
-          "static_asset_config": {
-            "type": "object",
-            "properties": {
-              "s3": {
-                "type": "string"
-              },
-              "storage": {
-                "type": "string"
-              },
-              "filename": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "s3"
-            ]
           },
           "is_flow": {
             "type": "boolean"
@@ -20019,11 +19782,6 @@
             "type": "boolean",
             "nullable": true,
             "description": "Acknowledgment status of the alert, can be true, false, or null if not set"
-          },
-          "workspace_id": {
-            "type": "string",
-            "nullable": true,
-            "description": "Workspace id if the alert is in the scope of a workspace"
           }
         }
       },
