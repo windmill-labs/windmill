@@ -11034,6 +11034,7 @@ dependencies = [
  "chrono",
  "chrono-tz 0.10.0",
  "cron",
+ "croner",
  "futures-core",
  "hex",
  "hmac",
