@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT openai_resource_path FROM workspace_settings WHERE workspace_id = $1",
+  "query": "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "openai_resource_path",
+        "name": "wm_version",
         "type_info": "Varchar"
       }
     ],
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "f8b689ec3e09f14dc02ac9e9f98d252a14d3a2acfadcd9cd6ba27ca9799f4706"
+  "hash": "ad03e5acf10ef94abc37cb9f56b1775c67f075c8bc83458e8be2e242347218d6"
 }

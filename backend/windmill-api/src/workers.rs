@@ -36,6 +36,7 @@ pub fn global_service() -> Router {
         )
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
+        .route("/queue_counts", get(get_queue_counts))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -175,4 +176,13 @@ async fn get_queue_metrics(
     .await?;
 
     Ok(Json(queue_metrics))
+}
+
+async fn get_queue_counts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<std::collections::HashMap<String, u32>> {
+    require_super_admin(&db, &authed.email).await?;
+    let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
+    Ok(Json(queue_counts))
 }

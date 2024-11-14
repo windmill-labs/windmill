@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT openai_resource_path, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
+  "query": "SELECT ai_resource, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "openai_resource_path",
-        "type_info": "Varchar"
+        "name": "ai_resource",
+        "type_info": "Jsonb"
       },
       {
         "ordinal": 1,
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "ceb97024ebf1a1c00ea1ed4952f66b229ca4622c537cc252d8ed52b4d24270ee"
+  "hash": "0230bd64d2b6719c3536a106e18a68c7b43b3a9a9efa92b5517132e9c0d8a25b"
 }

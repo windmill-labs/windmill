@@ -43,7 +43,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { workspacedOpenai } from '$lib/components/copilot/lib'
+	import { initAllAiWorkspace } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
@@ -229,12 +229,14 @@
 	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
-		workspacedOpenai.init(workspace)
+		initAllAiWorkspace(workspace)
 		try {
 			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 		} catch (err) {
+			console.log(err)
 			copilotInfo.set({
-				exists_openai_resource_path: false,
+				ai_provider: '',
+				exists_ai_resource: false,
 				code_completion_enabled: false
 			})
 			console.error('Could not get copilot info')
