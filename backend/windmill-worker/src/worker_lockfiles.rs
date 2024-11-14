@@ -1313,6 +1313,7 @@ async fn python_dep(
             worker_dir,
             occupancy_metrics,
             false,
+            false,
         )
         .await;
 

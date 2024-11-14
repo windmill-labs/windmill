@@ -71,9 +71,9 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, PROXY_ENVS,
-    LOCK_CACHE_DIR, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, LOCK_CACHE_DIR,
+    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
+    PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
 #[cfg(windows)]
@@ -962,6 +962,7 @@ async fn handle_python_deps(
             worker_dir,
             occupancy_metrics,
             annotations.no_uv || annotations.no_uv_install,
+            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -987,6 +988,7 @@ pub async fn handle_python_reqs(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
+    is_ansible: bool,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
@@ -995,7 +997,7 @@ pub async fn handle_python_reqs(
 
     no_uv_install |= *USE_PIP_INSTALL;
 
-    if no_uv_install {
+    if no_uv_install && !is_ansible {
         append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
         tracing::warn!("Fallback to pip");
     }
