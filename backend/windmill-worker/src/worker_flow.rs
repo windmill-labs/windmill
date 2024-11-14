@@ -8,7 +8,6 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -177,11 +176,6 @@ struct RecoveryObject {
     recover: Option<bool>,
 }
 
-#[derive(sqlx::FromRow, Deserialize)]
-pub struct RowFlowStatus {
-    pub flow_status: sqlx::types::Json<Box<serde_json::value::RawValue>>,
-    pub current_module: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-}
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal<
     R: rsmq_async::RsmqConnection + Send + Sync + Clone,
@@ -207,6 +201,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     let (
         should_continue_flow,
         flow_job,
+        flow_value,
         stop_early,
         skip_if_stop_early,
         nresult,
@@ -215,35 +210,28 @@ pub async fn update_flow_status_after_job_completion_internal<
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let old_status_json = sqlx::query_as::<_, RowFlowStatus>(
-            "SELECT flow_status, raw_flow->'modules'->(flow_status->'step')::int as current_module FROM queue WHERE id = $1 AND workspace_id = $2",
+        let (old_status, current_module) = sqlx::query!(
+            "SELECT
+                flow_status AS \"flow_status!: Json<Box<RawValue>>\",
+                raw_flow->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"
+            FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            flow, w_id
         )
-        .bind(flow)
-        .bind(w_id)
         .fetch_one(db)
         .await
-        .map_err(|e| {
-            Error::InternalErr(format!(
-                "fetching flow status {flow} while reporting {success} {result:?}: {e:#}"
-            ))
-        })?;
-
-        let old_status = serde_json::from_str::<FlowStatus>(old_status_json.flow_status.get())
-            .or_else(|e| {
-                Err(Error::InternalErr(format!(
-                    "requiring status to be parsable as FlowStatus: {e:?}"
-                )))
-            })?;
-
-        let current_module = if let Some(x) = old_status_json.current_module {
-            Some(serde_json::from_str::<FlowModule>(x.0.get()).or_else(|e| {
-                Err(Error::InternalErr(format!(
+        .map_err(|e| Error::InternalErr(
+            format!("fetching flow status {flow} while reporting {success} {result:?}: {e:#}")
+        ))
+        .and_then(|record| Ok((
+            serde_json::from_str::<FlowStatus>(record.flow_status.0.get()).map_err(|e| Error::InternalErr(
+                format!("requiring current module to be parsable as FlowStatus: {e:?}")
+            ))?,
+            record.module.map(|json| {
+                serde_json::from_str::<FlowModule>(json.0.get()).map_err(|e| Error::InternalErr(format!(
                     "requiring current module to be parsable as FlowModule: {e:?}"
                 )))
-            })?)
-        } else {
-            None
-        };
+            }).transpose()?,
+        )))?;
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
 
@@ -303,16 +291,15 @@ pub async fn update_flow_status_after_job_completion_internal<
 
             let is_flow = if let Some(step) = step {
                 sqlx::query_scalar!(
-                    "SELECT raw_flow->'modules'->($1)->'value'->>'type' = 'flow' FROM queue WHERE id = $2",
-                    step as i32,
-                    &flow
+                    "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM queue WHERE id = $2 LIMIT 1",
+                    step as i32, flow
                 )
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
-                    })?
-                    .unwrap_or(false)
+                .fetch_one(db)
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
+                })?
+                .unwrap_or(false)
             } else {
                 false
             };
@@ -938,10 +925,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
-        let module = get_module(&flow_job, &module_step);
-        // tracing::error!(
-        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler} is_failure_step {is_failure_step}", flow_job.canceled
-        // );
+        let flow_value = flow_job.parse_raw_flow();
 
         let should_continue_flow = match success {
             _ if stop_early => false,
@@ -953,7 +937,14 @@ pub async fn update_flow_status_after_job_completion_internal<
             }
             false
                 if next_retry(
-                    &module.and_then(|m| m.retry.clone()).unwrap_or_default(),
+                    flow_value
+                        .as_ref()
+                        .and_then(|value| match module_step {
+                            Step::PreprocessorStep => value.preprocessor_module.as_ref().and_then(|m| m.retry.as_ref()),
+                            Step::Step(i) => value.modules.get(i).as_ref().and_then(|m| m.retry.as_ref()),
+                            Step::FailureStep => value.failure_module.as_ref().and_then(|m| m.retry.as_ref()),
+                        })
+                        .unwrap_or(&Retry::default()),
                     &old_status.retry,
                 )
                 .is_some() =>
@@ -975,6 +966,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         (
             should_continue_flow,
             flow_job,
+            flow_value,
             stop_early,
             skip_if_stop_early,
             nresult,
@@ -1042,13 +1034,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                     let args_hash =
                         hash_args(db, client, w_id, job_id_for_status, &flow_job.args).await;
                     let flow_path = flow_job.script_path();
-                    let version_hash = if let Some(rc) = flow_job.raw_flow.as_ref() {
-                        use std::hash::Hasher;
-                        let mut s = DefaultHasher::new();
-                        serde_json::to_string(&rc.0)
-                            .unwrap_or_default()
-                            .hash(&mut s);
-                        format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
+                    let version_hash = if let Some(sqlx::types::Json(s)) = flow_job.raw_flow.as_ref() {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = DefaultHasher::new();
+                        s.get().hash(&mut h);
+                        format!("flow_{}", hex::encode(h.finish().to_be_bytes()))
                     } else {
                         "flow_unknown".to_string()
                     };
@@ -1107,6 +1097,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         tracing::debug!(id = %flow_job.id,  "start handle flow");
         match handle_flow(
             flow_job.clone(),
+            flow_value,
             db,
             client,
             Some(nresult.clone()),
@@ -1237,19 +1228,6 @@ async fn retrieve_flow_jobs_results(
 
     tracing::debug!("Retrieved results for flow jobs {:?}", results);
     Ok(to_raw_value(&results))
-}
-
-fn get_module(flow_job: &QueuedJob, module_step: &Step) -> Option<FlowModule> {
-    let raw_flow = flow_job.parse_raw_flow();
-    if let Some(raw_flow) = raw_flow {
-        match module_step {
-            Step::PreprocessorStep => raw_flow.preprocessor_module.map(|x| *x.clone()),
-            Step::Step(i) => raw_flow.modules.get(*i).map(|x| x.clone()),
-            Step::FailureStep => raw_flow.failure_module.map(|x| *x.clone()),
-        }
-    } else {
-        None
-    }
 }
 
 async fn compute_skip_branchall_failure<'c>(
@@ -1506,6 +1484,7 @@ async fn transform_input(
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: Arc<QueuedJob>,
+    flow_value: Option<FlowValue>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_result: Option<Arc<Box<RawValue>>>,
@@ -1514,8 +1493,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     rsmq: Option<R>,
     job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
-    let flow = flow_job
-        .parse_raw_flow()
+    let flow = flow_value
         .with_context(|| "Unable to parse flow definition")?;
     let status = flow_job
         .parse_flow_status()

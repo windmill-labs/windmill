@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT flow_status AS \"_id!: Json<Box<RawValue>>\" FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "_id!: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0f04f42a596b6759a84ba7d26ea76f06c6077c619c0ab1ac4edf633b22df98c3"
+}
