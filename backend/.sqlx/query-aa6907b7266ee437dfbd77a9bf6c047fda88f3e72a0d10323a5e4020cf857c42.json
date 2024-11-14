@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT raw_flow->'failure_module' != 'null'::jsonb\n            FROM queue\n            WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "aa6907b7266ee437dfbd77a9bf6c047fda88f3e72a0d10323a5e4020cf857c42"
+}
