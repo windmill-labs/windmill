@@ -26,7 +26,7 @@ JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 class Windmill:
     def __init__(self, base_url=None, token=None, workspace=None, verify=True):
-        base = base_url or os.environ.get("BASE_INTERNAL_URL")
+        base = base_url or os.environ.get("BASE_INTERNAL_URL") or os.environ.get("WM_BASE_URL")
 
         self.base_url = f"{base}/api"
         self.token = token or os.environ.get("WM_TOKEN")
