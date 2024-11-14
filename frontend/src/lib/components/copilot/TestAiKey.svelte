@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
-	import { testKey } from './lib'
+	import { testKey, type AiProviderTypes } from './lib'
 	export let disabled = false
 	export let apiKey: string | undefined = undefined
+	export let aiProvider: AiProviderTypes
 	let loading = false
 </script>
 
@@ -28,7 +29,8 @@
 						content: "this is a test, simply reply with 'ok'"
 					}
 				],
-				abortController
+				abortController,
+				aiProvider
 			})
 			sendUserToast('Valid key')
 		} catch (err) {
