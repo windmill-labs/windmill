@@ -72,6 +72,9 @@ use windmill_common::BASE_URL;
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
 #[cfg(feature = "enterprise")]
+use windmill_common::flows::has_failure_module;
+
+#[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
 
 use crate::{
@@ -480,13 +483,6 @@ where
     } else {
         None
     }
-}
-
-#[cfg(feature = "enterprise")]
-#[derive(Deserialize)]
-struct RawFlowFailureModule {
-    #[cfg(feature = "enterprise")]
-    failure_module: Option<Box<RawValue>>,
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -952,15 +948,7 @@ pub async fn add_completed_job<
         } else if !skip_downstream_error_handlers
             && (matches!(queued_job.job_kind, JobKind::Script)
                 || matches!(queued_job.job_kind, JobKind::Flow)
-                    && queued_job
-                        .raw_flow
-                        .as_ref()
-                        .and_then(|v| {
-                            serde_json::from_str::<RawFlowFailureModule>((**v).get())
-                                .ok()
-                                .and_then(|v| v.failure_module)
-                        })
-                        .is_none())
+                    && !has_failure_module(job_id, db, true).await.unwrap_or(false))
             && queued_job.parent_job.is_none()
         {
             let result = serde_json::from_str(
