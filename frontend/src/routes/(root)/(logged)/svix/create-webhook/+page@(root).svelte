@@ -12,7 +12,7 @@
 
 	let itemPath: string | undefined = undefined
 	let itemKind: 'script' | 'flow' | 'app' = 'script'
-	let clientName = $page.url.searchParams.get('name') ?? undefined
+	let clientName = $page.url.searchParams.get('domain') ?? undefined
 	let redirectURI = $page.url.searchParams.get('redirect_uri')
 
 	let userSettings: UserSettings
