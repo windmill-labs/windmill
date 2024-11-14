@@ -3148,7 +3148,7 @@ async fn mute_critical_alerts(
 
     if mute_alerts {
         sqlx::query!(
-            "UPDATE alerts SET acknowledged_workspace = true WHERE workspace_id = $1",
+            "UPDATE alerts SET acknowledged_workspace = true, acknowledged = true WHERE workspace_id = $1",
             &w_id
         )
     .execute(&db)
