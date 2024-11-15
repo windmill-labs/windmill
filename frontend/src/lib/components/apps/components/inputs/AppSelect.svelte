@@ -57,11 +57,11 @@
 	)
 	let options: (ObjectOption & { created?: boolean })[] = []
 	let outputs = initOutput($worldStore, id, {
-		result: undefined as string | undefined
+		result: undefined as any
 	})
 
 	// The library expects double quotes around the value
-	let selectedValue: string | undefined
+	let selectedValue: any | undefined
 
 	$: if (resolvedConfig.items) {
 		options = parseConfigOptions(resolvedConfig.items)
@@ -78,7 +78,7 @@
 		if (selectedValue != undefined && options.some((x) => x.value === selectedValue)) {
 			return
 		}
-		let newValue: string | undefined
+		let newValue: any | undefined
 		if (resolvedConfig.defaultValue !== undefined) {
 			newValue = resolvedConfig.defaultValue
 		} else if (options.length > 0 && resolvedConfig?.preselectFirst) {

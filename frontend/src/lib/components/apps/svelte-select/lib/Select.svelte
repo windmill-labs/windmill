@@ -95,13 +95,20 @@
 	let prev_filterText
 	let hasClicked = false
 
+	function deepEqual(x, y) {
+		const ok = Object.keys,
+			tx = typeof x,
+			ty = typeof y
+		return x && y && tx === 'object' && tx === ty
+			? ok(x).length === ok(y).length && ok(x).every((key) => deepEqual(x[key], y[key]))
+			: x === y
+	}
+
 	function setValue() {
-		if (typeof value === 'string') {
-			let item = (items || []).find((item) => item[itemId] === value)
-			value = item || {
-				[itemId]: value,
-				label: value
-			}
+		let item = (items || []).find((item) => deepEqual(item, value))
+		value = item || {
+			[itemId]: value,
+			label: value
 		}
 	}
 
@@ -661,7 +668,7 @@
 		{#if hasValue}
 			<div class="selected-item" class:hide-selected-item={hideSelectedItem}>
 				<slot name="selection" selection={value}>
-					{value[label]}
+					{value[label] === '' ? '(empty string)' : value[label]}
 				</slot>
 			</div>
 		{/if}
