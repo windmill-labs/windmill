@@ -267,9 +267,7 @@ tokio-native-tls = "^0"
 openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
-
-# requires librdkafka v2.3.0
-rdkafka = { version = "0.36.2", features = ["dynamic-linking"] }
+rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl"] }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
