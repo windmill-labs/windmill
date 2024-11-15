@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.425.0](https://github.com/windmill-labs/windmill/compare/v1.424.0...v1.425.0) (2024-11-15)
+
+
+### Features
+
+* Handle `pip install` by `uv` ([#4517](https://github.com/windmill-labs/windmill/issues/4517)) ([f240d13](https://github.com/windmill-labs/windmill/commit/f240d1322a3c1669dfb69ebda6d05effcca26ae3))
+* **monitoring:** workspace critical alerts ([#4684](https://github.com/windmill-labs/windmill/issues/4684)) ([c32038a](https://github.com/windmill-labs/windmill/commit/c32038a76d9d00703d8b865af72f083ac43414e3))
+
 ## [1.424.0](https://github.com/windmill-labs/windmill/compare/v1.423.2...v1.424.0) (2024-11-14)
 
 
