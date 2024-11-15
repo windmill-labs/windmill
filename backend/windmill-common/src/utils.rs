@@ -276,7 +276,7 @@ pub async fn report_critical_error(
     // we ack_global if mute_global is true, or if mute_workspace is true
     // but we ignore global mute setting for ack_workspace
     let acknowledge_workspace = mute_workspace;
-    let acknowledge_global = mute_global || mute_workspace;
+    let acknowledge_global = mute_global || mute_workspace || ( workspace_id.is_some() && *CLOUD_HOSTED);
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
