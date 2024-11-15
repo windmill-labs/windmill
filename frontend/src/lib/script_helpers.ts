@@ -615,10 +615,10 @@ class Kafka(TypedDict):
 	group_id: str
 
 class WmTrigger(TypedDict):
-    kind: Literal["http", "email", "webhook", "websocket", "kafka"]
-    http: Http | None
-    websocket: Websocket | None
-		kafka: Kafka | None
+	kind: Literal["http", "email", "webhook", "websocket", "kafka"]
+	http: Http | None
+	websocket: Websocket | None
+	kafka: Kafka | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
