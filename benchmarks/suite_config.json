@@ -33,10 +33,10 @@
   },
   {
     "kind": "bigrawscript",
-    "jobs": 10000
+    "jobs": 4000
   },
   {
     "kind": "bigscriptinflow",
-    "jobs": 10000
+    "jobs": 4000
   }
 ]
