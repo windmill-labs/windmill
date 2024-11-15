@@ -1,6 +1,13 @@
 <script lang="ts">
 	import MenuLink from './MenuLink.svelte'
-	import { superadmin, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		usedTriggerKinds,
+		userStore,
+		workspaceStore,
+		isCriticalAlertsUIOpen,
+		enterpriseLicense
+	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -23,7 +30,8 @@
 		Settings,
 		UserCog,
 		Plus,
-		Unplug
+		Unplug,
+		AlertCircle
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -40,6 +48,9 @@
 	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/stores'
+	import SideBarNotification from './SideBarNotification.svelte'
+
+	export let numUnacknowledgedCriticalAlerts = 0
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: `${base}/`, icon: Home },
@@ -168,14 +179,8 @@
 			],
 			disabled: $userStore?.operator
 		},
-		!$superadmin
+		$superadmin || $userStore?.is_admin
 			? {
-					label: 'Audit Logs',
-					href: `${base}/audit_logs`,
-					icon: Eye,
-					disabled: $userStore?.operator
-			  }
-			: {
 					label: 'Logs',
 					icon: Logs,
 					subItems: [
@@ -184,12 +189,34 @@
 							href: `${base}/audit_logs`,
 							icon: Eye
 						},
-						{
-							label: 'Service Logs',
-							href: `${base}/service_logs`,
-							icon: Logs
+						...($superadmin
+							? [
+									{
+										label: 'Service Logs',
+										href: `${base}/service_logs`,
+										icon: Logs
+									}
+							  ]
+							: []),
+						...($enterpriseLicense
+							? [
+									{
+										label: 'Critical Alerts',
+										action: () => {
+											isCriticalAlertsUIOpen.set(true)
+										},
+							icon: AlertCircle,
+							notificationCount: numUnacknowledgedCriticalAlerts
 						}
 					]
+							: [])
+					]
+			  }
+			: {
+					label: 'Audit Logs',
+					href: `${base}/audit_logs`,
+					icon: Eye,
+					disabled: $userStore?.operator
 			  }
 	]
 
@@ -243,6 +270,14 @@
 	export let noGap: boolean = false
 
 	let leaveWorkspaceModal = false
+
+	function computeAllNotificationsCount(menuItems: any[]) {
+		let count = 0
+		for (const menuItem of menuItems) {
+			count += menuItem?.['notificationCount'] ?? 0
+		}
+		return count
+	}
 </script>
 
 <nav
@@ -306,16 +341,17 @@
 			<UserMenu {isCollapsed} />
 			{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				{#if menuLink.subItems}
+					{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
 					<Menu>
 						<div slot="trigger">
-							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {notificationsCount} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
 								<div class="py-1" role="none">
 									{#if subItem?.['action']}
 										<button
-											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+											class="text-secondary font-normal w-full block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
 											on:click={subItem?.['action']}
 										>
 											<div class="flex flex-row items-center gap-2">
@@ -324,14 +360,17 @@
 												{/if}
 
 												{subItem.label}
+												{#if subItem?.['notificationCount']}
+													<div class="ml-auto">
+														<SideBarNotification notificationCount={subItem['notificationCount']} />
+													</div>
+												{/if}
 											</div>
 										</button>
 									{:else}
 										<a
 											href={subItem.href}
-											class={twMerge(
-												'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
-											)}
+											class="text-secondary font-normal block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
 											role="menuitem"
 											tabindex="-1"
 										>
@@ -341,6 +380,12 @@
 												{/if}
 
 												{subItem.label}
+
+												{#if subItem?.['notificationCount']}
+													<div class="ml-auto">
+														<SideBarNotification notificationCount={subItem['notificationCount']} />
+													</div>
+												{/if}
 											</div>
 										</a>
 									{/if}

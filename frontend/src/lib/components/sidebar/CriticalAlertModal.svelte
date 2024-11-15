@@ -3,16 +3,62 @@
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { superadmin, workspaceStore, isCriticalAlertsUIOpen } from '$lib/stores'
 	import Modal from '../common/modal/Modal.svelte'
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
+	export let muteSettings
+	let workspaceContext = false
+
+	$: {
+		setupApiFunctions(workspaceContext)
+	}
+
+	function setupApiFunctions(_ctx?) {
+		getCriticalAlerts = withSuperadminLogic(
+			SettingService.getCriticalAlerts,
+			SettingService.workspaceGetCriticalAlerts
+		)
+
+		acknowledgeCriticalAlert = withSuperadminLogic(
+			SettingService.acknowledgeCriticalAlert,
+			SettingService.workspaceAcknowledgeCriticalAlert
+		)
+
+		acknowledgeAllCriticalAlerts = withSuperadminLogic(
+			SettingService.acknowledgeAllCriticalAlerts,
+			SettingService.workspaceAcknowledgeAllCriticalAlerts
+		)
+	}
+
+	$: isCriticalAlertsUIOpen.set(open)
+	$: if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
 
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 
-	onMount(() => {
-		updateHasUnacknowledgedCriticalAlerts(true)
+	const withSuperadminLogic = (superadminFunction, workspaceFunction) => {
+		return async (params = {}) => {
+			if (!$superadmin || workspaceContext) {
+				return workspaceFunction({
+					...params,
+					workspace: $workspaceStore
+				})
+			} else {
+				return superadminFunction(params)
+			}
+		}
+	}
+
+	let getCriticalAlerts
+	let acknowledgeCriticalAlert
+	let acknowledgeAllCriticalAlerts
+
+	setupApiFunctions()
+
+	onMount(async () => {
+		await updateHasUnacknowledgedCriticalAlerts(false)
 		checkForNewAlertsInterval = setInterval(() => {
 			updateHasUnacknowledgedCriticalAlerts(true)
 		}, 15000)
@@ -25,15 +71,18 @@
 	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
 		if (checkingForNewAlerts) return
 		checkingForNewAlerts = true
-
 		try {
-			const unacknowledged = await SettingService.getCriticalAlerts({
+			const unacknowledged = await getCriticalAlerts({
 				page: 1,
 				pageSize: 10,
 				acknowledged: false
 			})
-
-			if (numUnacknowledgedCriticalAlerts === 0 && unacknowledged.length > 0 && sendToast) {
+			if (
+				numUnacknowledgedCriticalAlerts === 0 &&
+				unacknowledged.length > 0 &&
+				sendToast &&
+				(($superadmin && !muteSettings.global) || (!$superadmin && !muteSettings.workspace))
+			) {
 				sendUserToast(
 					'Critical Alert:',
 					true,
@@ -62,11 +111,19 @@
 	}
 
 	async function acknowledgeAlert(id: number) {
-		await SettingService.acknowledgeCriticalAlert({ id })
+		await acknowledgeCriticalAlert({ id })
 		updateHasUnacknowledgedCriticalAlerts()
 	}
 </script>
 
 <Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
-	<CriticalAlertModalInner {updateHasUnacknowledgedCriticalAlerts} />
+	<CriticalAlertModalInner
+		{numUnacknowledgedCriticalAlerts}
+		{updateHasUnacknowledgedCriticalAlerts}
+		{getCriticalAlerts}
+		{acknowledgeCriticalAlert}
+		{acknowledgeAllCriticalAlerts}
+		{muteSettings}
+		bind:workspaceContext
+	/>
 </Modal>
