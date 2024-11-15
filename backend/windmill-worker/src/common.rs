@@ -41,7 +41,7 @@ use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION,
+    MAX_TIMEOUT_DURATION, PATH_ENV,
 };
 
 pub async fn build_args_map<'a>(
@@ -860,11 +860,17 @@ pub async fn save_in_cache(
 }
 
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
+    #[cfg(unix)]
+    let err_msg = "No such file or directory (os error 2)";
+
+    #[cfg(windows)]
+    let err_msg = "program not found";
+
     if err
         .to_string()
-        .contains("No such file or directory (os error 2)")
+        .contains(&err_msg)
     {
-        return Error::InternalErr(format!("Executable {executable} not found on worker"));
+        return Error::InternalErr(format!("Executable {executable} not found on worker. PATH: {}", *PATH_ENV));
     }
     return err;
 }
