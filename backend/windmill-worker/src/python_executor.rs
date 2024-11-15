@@ -320,7 +320,7 @@ pub async fn uv_pip_compile(
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let child_process = start_child_process(child_cmd, "/usr/local/bin/uv").await?;
+        let child_process = start_child_process(child_cmd, uv_cmd).await?;
         append_logs(&job_id, &w_id, logs, db).await;
         handle_child(
             job_id,
