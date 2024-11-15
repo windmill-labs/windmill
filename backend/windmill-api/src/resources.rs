@@ -300,7 +300,7 @@ async fn get_resource(
     .await?;
     tx.commit().await?;
     if resource_o.is_none() {
-        explain_resource_perm_error(&path, &w_id, &db).await?;
+        explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
     }
     let resource = not_found_if_none(resource_o, "Resource", path)?;
     Ok(Json(resource))
@@ -343,7 +343,7 @@ async fn get_resource_value(
 
     tx.commit().await?;
     if value_o.is_none() {
-        explain_resource_perm_error(&path, &w_id, &db).await?;
+        explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
@@ -354,6 +354,7 @@ async fn explain_resource_perm_error(
     path: &str,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
+    authed: &ApiAuthed,
 ) -> windmill_common::error::Result<()> {
     let extra_perms = sqlx::query_scalar!(
         "SELECT extra_perms from resource WHERE path = $1 AND workspace_id = $2",
@@ -378,12 +379,12 @@ async fn explain_resource_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}",
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
             serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}",
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
             serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
         )));
     }
@@ -457,7 +458,7 @@ pub async fn get_resource_value_interpolated_internal(
     .await?;
     tx.commit().await?;
     if value_o.is_none() {
-        explain_resource_perm_error(path, workspace, db).await?;
+        explain_resource_perm_error(path, workspace, db, &authed).await?;
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
