@@ -90,7 +90,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_423: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_425: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -574,8 +574,8 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
         tracing::info!("Minimal worker version: {min_version}");
     }
 
-    if min_version >= Version::new(1, 423, 0) {
-        *MIN_VERSION_IS_AT_LEAST_1_423.write().await = true;
+    if min_version >= Version::new(1, 425, 0) {
+        *MIN_VERSION_IS_AT_LEAST_1_425.write().await = true;
     }
 
     *MIN_VERSION.write().await = min_version.clone();

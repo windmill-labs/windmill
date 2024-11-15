@@ -59,7 +59,7 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
-        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, MIN_VERSION_IS_AT_LEAST_1_423,
+        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, MIN_VERSION_IS_AT_LEAST_1_425,
         NO_LOGS, WORKER_CONFIG, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
@@ -581,7 +581,7 @@ pub async fn add_completed_job<
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
 
-    let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_423.read().await {
+    let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_425.read().await {
         sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<JsonRawValue>>\"
             FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
@@ -3914,7 +3914,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     .execute(&mut tx)
     .await?;
 
-    let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_423.read().await {
+    let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_425.read().await {
         (raw_code, raw_lock, raw_flow)
     } else {
         (None, None, None)
