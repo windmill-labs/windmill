@@ -325,7 +325,7 @@
 							</div>
 						</TabContent>
 						<TabContent value="" values={settingsKeys}>
-							<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} />
+							<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} {closeDrawer}/>
 						</TabContent>
 					</svelte:fragment>
 				</Tabs>

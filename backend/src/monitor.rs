@@ -34,12 +34,12 @@ use windmill_common::{
     error,
     flow_status::FlowStatusModule,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -54,8 +54,8 @@ use windmill_common::{
         update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SMTP_CONFIG,
         WORKER_CONFIG, WORKER_GROUP,
     },
-    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED, CRITICAL_ALERT_MUTE_UI_ENABLED
+    BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
+    HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -231,13 +231,20 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
 }
 
 pub async fn reload_critical_alert_mute_ui_setting(db: &DB) -> error::Result<()> {
-    let mute = load_value_from_global_settings(db, CRITICAL_ALERT_MUTE_UI_SETTING).await;
-    match mute {
-        Ok(Some(serde_json::Value::Bool(t))) => {
-            CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
+    if let Ok(Some(serde_json::Value::Bool(t))) =
+        load_value_from_global_settings(db, CRITICAL_ALERT_MUTE_UI_SETTING).await
+    {
+        CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
+
+        if t {
+            if let Err(e) = sqlx::query!("UPDATE alerts SET acknowledged = true")
+                .execute(db)
+                .await
+            {
+                tracing::error!("Error updating alerts: {}", e.to_string());
+            }
         }
-        _ => (),
-    };
+    }
     Ok(())
 }
 
@@ -1323,7 +1330,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE job_logs.job_id = $1", r.id)
                 .execute(db).await;
             tracing::error!(error_message);
-            report_critical_error(error_message, db.clone()).await;
+            report_critical_error(error_message, db.clone(), Some(&r.workspace_id), None).await;
         }
     }
 
@@ -1437,7 +1444,7 @@ async fn handle_zombie_flows(
                 flow.id, flow.workspace_id
             );
             tracing::error!(error_message);
-            report_critical_error(error_message, db.clone()).await;
+            report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
@@ -1457,7 +1464,7 @@ async fn handle_zombie_flows(
                     format!("Flow {id} was cancelled because it")
                 }
             );
-            report_critical_error(reason.clone(), db.clone()).await;
+            report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
             cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
         }
     }

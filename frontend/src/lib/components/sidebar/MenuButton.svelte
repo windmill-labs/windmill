@@ -2,14 +2,15 @@
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
 	import { createEventDispatcher } from 'svelte'
-
+	import SideBarNotification from './SideBarNotification.svelte'
 	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
 	export let stopPropagationOnClick: boolean = false
-	export let shortcut: string = ""
+	export let shortcut: string = ''
+	export let notificationsCount: number = 0
 
 	let dispatch = createEventDispatcher()
 </script>
@@ -59,6 +60,16 @@
 						{shortcut}
 					</span>
 				</span>
+			{/if}
+
+			{#if isCollapsed && notificationsCount > 0}
+				<div class="absolute translate-x-1/2 translate-y-1/2 -top-2 right-1 flex h-fit w-fit">
+					<SideBarNotification notificationCount={notificationsCount} small={true} />
+				</div>
+			{:else if notificationsCount > 0}
+				<div class="ml-auto">
+					<SideBarNotification notificationCount={notificationsCount} small={false} />
+				</div>
 			{/if}
 		</button>
 		<svelte:fragment slot="text">
