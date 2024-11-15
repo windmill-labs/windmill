@@ -41,7 +41,8 @@
 		copyToClipboard,
 		truncateRev,
 		orderedJsonStringify,
-		type Value
+		type Value,
+		replaceFalseWithUndefined
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -422,13 +423,27 @@
 			// We need it to show diff
 			// Handle through confirmation modal
 			await syncWithDeployed()
-
-			confirmCallback = async () => {
-				open = false
+			if (
+				deployedValue &&
+				savedApp &&
+				$app &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({
+						summary: $summary,
+						value: $app,
+						path: newPath || savedApp.draft?.path || savedApp.path,
+						policy
+					}))
+			) {
 				await updateApp(npath)
+			} else {
+				confirmCallback = async () => {
+					open = false
+					await updateApp(npath)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
 		}
 	}
 
@@ -442,15 +457,14 @@
 		deployedBy = deployedApp.created_by
 
 		// Strip off extra information
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
-			starred: undefined,
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
 			versions: undefined,
-			extra_perms: undefined //
-		}
+			extra_perms: undefined
+		})
 	}
 
 	async function updateApp(npath: string) {

@@ -25,6 +25,7 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
+		replaceFalseWithUndefined,
 		sleep,
 		type Value
 	} from '$lib/utils'
@@ -294,12 +295,21 @@
 			// We need it for diff
 			await syncWithDeployed()
 
-			// Handle through confirmation modal
-			confirmCallback = async () => {
+			if (
+				deployedValue &&
+				$flowStore &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({ ...$flowStore, path: $pathStore }))
+			) {
 				await saveFlow(deploymentMsg)
+			} else {
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					await saveFlow(deploymentMsg)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
 		}
 	}
 	async function syncWithDeployed() {
@@ -308,18 +318,12 @@
 			path: initialPath,
 			withStarredInfo: true
 		})
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...flow,
-			starred: undefined,
-			id: undefined,
 			edited_at: undefined,
 			edited_by: undefined,
-			workspace_id: undefined,
-			archived: undefined,
-			same_worker: undefined,
-			visible_to_runner_only: undefined,
-			ws_error_handler_muted: undefined
-		}
+			workspace_id: undefined
+		})
 		deployedBy = flow.edited_by
 	}
 

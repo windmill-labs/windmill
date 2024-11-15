@@ -129,7 +129,7 @@
 							...structuredClone(flowWithDraft.draft),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 					  }
-					: undefined
+					: undefined		
 			} as Flow & {
 				draft?: Flow
 			}
