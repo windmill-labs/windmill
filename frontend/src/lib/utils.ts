@@ -799,6 +799,30 @@ export type Value = {
 	[key: string]: any
 }
 
+export function replaceFalseWithUndefined(obj: any) {
+	return replaceFalseWithUndefinedRec(structuredClone(obj))
+}
+
+function replaceFalseWithUndefinedRec(obj: any) {
+	// Check if the input is an object and not null
+	if (obj !== null && typeof obj === 'object') {
+		for (const key in obj) {
+			if (obj.hasOwnProperty(key)) {
+				// If the value is false, replace it with undefined
+				if (obj[key] === false) {
+					// delete obj[key];
+					obj[key] = undefined;
+
+				} else {
+					// If the value is an object, call the function recursively
+					replaceFalseWithUndefinedRec(obj[key]);
+				}
+			}
+		}
+	}
+	return obj
+}
+
 export function cleanValueProperties(obj: Value) {
 	if (typeof obj !== 'object') {
 		return obj
