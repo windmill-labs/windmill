@@ -15,7 +15,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
-	import { OauthService, WorkspaceService, JobService, ResourceService } from '$lib/gen'
+	import {
+		OauthService,
+		WorkspaceService,
+		JobService,
+		ResourceService,
+		SettingService
+	} from '$lib/gen'
 	import {
 		enterpriseLicense,
 		copilotInfo,
@@ -23,7 +29,8 @@
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		hubBaseUrlStore
+		hubBaseUrlStore,
+		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, tryEvery } from '$lib/utils'
@@ -102,6 +109,8 @@
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
+	let criticalAlertUIMuted: boolean | undefined = undefined
+	let initialCriticalAlertUIMuted: boolean | undefined = undefined
 	let aiResourceInitialPath: string | undefined = undefined
 	let aiResourceInitialProvider: string | undefined = undefined
 
@@ -391,6 +400,8 @@
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
+		criticalAlertUIMuted = settings.mute_critical_alerts
+		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -586,6 +597,22 @@
 			interval: 500,
 			timeout: 5000
 		})
+	}
+
+	async function editCriticalAlertMuteSetting() {
+		await SettingService.workspaceMuteCriticalAlertsUi({
+			workspace: $workspaceStore!,
+			requestBody: {
+				mute_critical_alerts: criticalAlertUIMuted
+			}
+		})
+		sendUserToast(
+			`Critical alert UI mute setting for workspace is set to ${criticalAlertUIMuted}\nreloading page...`
+		)
+		// reload page after change of setting
+		setTimeout(() => {
+			window.location.reload()
+		}, 3000)
 	}
 </script>
 
@@ -971,6 +998,41 @@
 				>
 					Save
 				</Button>
+			</div>
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
+					<div class="text-tertiary text-xs">
+						Critical alerts within the scope of a workspace are sent to the workspace admins through
+						a UI notification.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
+					<div class="flex flex-col mt-5 gap-5 items-start">
+						<Button
+							disabled={!$enterpriseLicense}
+							size="sm"
+							on:click={() => isCriticalAlertsUIOpen.set(true)}
+						>
+							Show Critical Alerts
+						</Button>
+						<Toggle
+							disabled={!$enterpriseLicense}
+							bind:checked={criticalAlertUIMuted}
+							options={{ right: 'Mute critical alerts UI for this workspace' }}
+						/>
+						<Button
+							disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
+							size="sm"
+							on:click={editCriticalAlertMuteSetting}
+						>
+							Save Mute Setting
+						</Button>
+					</div>
+				</div>
 			</div>
 		{:else if tab == 'ai'}
 			<div class="flex flex-col gap-4 my-8">
