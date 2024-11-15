@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, fs, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -1326,6 +1326,16 @@ pub async fn handle_python_reqs(
             "finished setting up python dependencies {}",
             job_id
         );
+        if child.is_err() {
+            
+            if let Err(e) = fs::remove_dir_all(&venv_p) {
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "failed to remove cache dir: {:?}",
+                    e
+                );
+            }
+        }
         child?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
