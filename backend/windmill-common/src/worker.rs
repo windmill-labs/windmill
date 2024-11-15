@@ -202,7 +202,7 @@ pub fn write_file_at_user_defined_location(
     job_dir: &str,
     user_defined_path: &str,
     content: &str,
-    chmod: Option<u32>,
+    mode: Option<u32>,
 ) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
@@ -229,8 +229,8 @@ pub fn write_file_at_user_defined_location(
 
     let mut file = File::create(full_path)?;
 
-    if let Some(chmod) = chmod {
-        let perm = std::os::unix::fs::PermissionsExt::from_mode(chmod);
+    if let Some(mode) = mode {
+        let perm = std::os::unix::fs::PermissionsExt::from_mode(mode);
         file.set_permissions(perm)
             .map_err(|e| anyhow!("Failed to set permissions to {}: {e}", user_defined_path))?;
     }

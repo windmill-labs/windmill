@@ -198,7 +198,7 @@ pub enum ResourceOrVariablePath {
 pub struct FileResource {
     pub resource_path: ResourceOrVariablePath,
     pub target_path: String,
-    pub chmod: Option<u32>,
+    pub mode: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -446,13 +446,13 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
                 "No `target` provided for the file. Please input a target path (only relative paths are allowed) where the ansible playbook can read this file.",
             ))?;
 
-        let mut chmod = None;
-        if let Some(u) = f.get(&Yaml::String("chmod".to_string())) {
-            let chmod_val: u32 = match u {
+        let mut mode = None;
+        if let Some(u) = f.get(&Yaml::String("mode".to_string())) {
+            let mode_val: u32 = match u {
                 Yaml::Integer(u) => {
                     u.clone().try_into().map_err(|e| {
                         anyhow!(
-                            "Invalid value for `chmod` permissions property on targeted file to: {}, err: {e}",
+                            "Invalid value for `mode` permissions property on targeted file to: {}, err: {e}",
                             target_path
                         )
                     })?
@@ -468,16 +468,16 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
                         u32::from_str_radix(s, 8)
                     };
 
-                    val.map_err(|e| anyhow!("Error parsing chmod value {s}: {e}"))?
+                    val.map_err(|e| anyhow!("Error parsing permission mode value {s}: {e}"))?
                 }
                 _ => {
-                    return Err(anyhow!("Invalid field in `chmod`, expected integer like 0o644"));
+                    return Err(anyhow!("Invalid field in `mode`, expected integer like 0o644"));
                 }
             };
-            if chmod_val <= 0o777 {
-                chmod = Some(chmod_val);
+            if mode_val <= 0o777 {
+                mode = Some(mode_val);
             } else {
-                return Err(anyhow!("The provided value for `chmod` is too big. Make sure that you are using the octal prefix (0o), e.g. `chmod: 0o644`"));
+                return Err(anyhow!("The provided value for `mode` is too big. Make sure that you are using the octal prefix (0o), e.g. `mode: 0o644`"));
             }
         }
 
@@ -485,14 +485,14 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
             return Ok(FileResource {
                 resource_path: ResourceOrVariablePath::Resource(resource_path.clone()),
                 target_path,
-                chmod,
+                mode,
             });
         }
         if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("variable".to_string())) {
             return Ok(FileResource {
                 resource_path: ResourceOrVariablePath::Variable(resource_path.clone()),
                 target_path,
-                chmod,
+                mode,
             });
         }
         return Err(anyhow!(

@@ -569,7 +569,7 @@ async fn create_file_resources(
             job_dir,
             path.as_str(),
             &r,
-            file_res.chmod,
+            file_res.mode,
         )
         .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
 
