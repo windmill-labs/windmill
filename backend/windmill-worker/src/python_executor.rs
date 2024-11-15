@@ -1153,7 +1153,11 @@ pub async fn handle_python_reqs(
 
     for (req, venv_p) in req_with_penv {
         let mut logs1 = String::new();
-        logs1.push_str("\n\n--- UV PIP INSTALL ---\n");
+        if no_uv_install {
+            logs1.push_str("\n\n--- PIP INSTALL ---\n");
+        } else {
+            logs1.push_str("\n\n--- UV PIP INSTALL ---\n");
+        }
         logs1.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
         append_logs(&job_id, w_id, logs1, db).await;
 
