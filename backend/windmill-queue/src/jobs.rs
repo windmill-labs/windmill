@@ -4126,19 +4126,23 @@ async fn restarted_flows_resolution(
         ))
     })?;
 
-    let raw_flow = sqlx::query_scalar!(
-        "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"
-        FROM completed_job_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-        &completed_flow_id, workspace_id
-    )
-    .fetch_one(db)
-    .await
-    .ok()
-    .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok())
-    .ok_or(Error::InternalErr(format!(
-        "Unable to parse raw definition for job {} in workspace {}",
-        completed_flow_id, workspace_id,
-    )))?;
+    let flow_value = if let Some(flow_value) = flow_value_if_any {
+        flow_value
+    } else {
+        sqlx::query_scalar!(
+            "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"
+            FROM completed_job_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            &completed_flow_id, workspace_id
+        )
+        .fetch_one(db)
+        .await
+        .ok()
+        .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok())
+        .ok_or(Error::InternalErr(format!(
+            "Unable to parse raw definition for job {} in workspace {}",
+            completed_flow_id, workspace_id,
+        )))?
+    };
     let flow_status = completed_job
         .parse_flow_status()
         .ok_or(Error::InternalErr(format!(
@@ -4150,19 +4154,10 @@ async fn restarted_flows_resolution(
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
     for module in flow_status.modules {
-        if flow_value_if_any
-            .clone()
-            .map(|fv| {
-                fv.modules
-                    .iter()
-                    .find(|flow_value_module| flow_value_module.id == module.id())
-                    .is_none()
-            })
-            .unwrap_or(false)
-        {
+        let Some(module_definition) = flow_value.modules.iter().find(|flow_value_module| flow_value_module.id == module.id()) else {
             // skip module as it doesn't appear in the flow_value anymore
             continue;
-        }
+        };
         if module.id() == restart_step_id {
             // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
             // set the module as WaitingForPriorSteps as it needs to be re-run
@@ -4172,14 +4167,6 @@ async fn restarted_flows_resolution(
             } else {
                 // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
                 let branch_or_iteration_n = branch_or_iteration_n.unwrap();
-                let module_definition = raw_flow
-                    .modules
-                    .iter()
-                    .find(|flow_value_module| flow_value_module.id == restart_step_id)
-                    .ok_or(Error::InternalErr(format!(
-                        "Module {} not found in flow definition",
-                        module.id()
-                    )))?;
 
                 match module_definition.get_value() {
                     Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
@@ -4292,7 +4279,7 @@ async fn restarted_flows_resolution(
 
     return Ok((
         completed_job.script_path,
-        raw_flow,
+        flow_value,
         step_n,
         truncated_modules,
         completed_job.priority,
