@@ -32,7 +32,6 @@ pub const GIT_VERSION: &str =
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::sync::atomic::Ordering;
 
-#[cfg(feature = "enterprise")]
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
