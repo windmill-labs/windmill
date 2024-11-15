@@ -90,7 +90,14 @@
 		if (!options) {
 			return []
 		}
-		return options.map((o) => o.value)
+
+		return options.map((o) => {
+			let val = o.value
+			try {
+				if (typeof val === 'string') val = JSON.parse(val)
+			} catch (_) {}
+			return val
+		})
 	}
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {

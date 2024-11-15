@@ -1,8 +1,14 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import Select from '../../svelte-select/lib/index'
 
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
@@ -15,8 +21,6 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import type { ObjectOption } from '$lib/components/multiselect/types'
-	import { parseConfigOptions } from './utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -42,11 +46,17 @@
 		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
+	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
+
 	$componentControl[id] = {
-		setValue(newValue: any) {
-			setValue(newValue)
+		setValue(nvalue: string) {
+			setValue(JSON.stringify(nvalue))
 		}
 	}
+
 	if (controls) {
 		$componentControl[id] = { ...$componentControl[id], ...controls }
 	}
@@ -55,47 +65,73 @@
 		components['selectcomponent'].initialData.configuration,
 		configuration
 	)
-	let options: (ObjectOption & { created?: boolean })[] = []
+
 	let outputs = initOutput($worldStore, id, {
-		result: undefined as any
+		result: undefined as string | undefined
 	})
 
 	// The library expects double quotes around the value
-	let selectedValue: any | undefined
+	let value: string | undefined = noDefault
+		? undefined
+		: outputs?.result.peak()
+		? JSON.stringify(outputs?.result.peak())
+		: undefined
 
-	$: if (resolvedConfig.items) {
-		options = parseConfigOptions(resolvedConfig.items)
-		updateSelectedValue()
+	$: resolvedConfig.items && handleItems()
+
+	let listItems: { label: string; value: string; created?: boolean }[] = []
+
+	function setContextValue(value: any) {
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
+		}
+		if (rowContext && rowInputs) {
+			rowInputs.set(id, value)
+		}
 	}
+	function handleItems() {
+		listItems = Array.isArray(resolvedConfig.items)
+			? resolvedConfig.items.map((item) => {
+					if (!item || typeof item !== 'object') {
+						console.error('Select component items should be an array of objects')
+						return {
+							label: 'not object',
+							value: 'not object'
+						}
+					}
+					return {
+						label: item?.label ?? 'undefined',
+						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
+					}
+			  })
+			: []
 
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
-	let filterText = ''
-	let css = initCss($app.css?.selectcomponent, customCss)
-
-	let previsousFilter = ''
-
-	function updateSelectedValue() {
-		if (selectedValue != undefined && options.some((x) => x.value === selectedValue)) {
+		if (value != undefined && listItems.some((x) => x.value === value)) {
 			return
 		}
-		let newValue: any | undefined
+		let rawValue
 		if (resolvedConfig.defaultValue !== undefined) {
-			newValue = resolvedConfig.defaultValue
-		} else if (options.length > 0 && resolvedConfig?.preselectFirst) {
-			newValue = resolvedConfig.items[0].value
+			rawValue = resolvedConfig.defaultValue
+		} else if (listItems.length > 0 && resolvedConfig?.preselectFirst) {
+			rawValue = resolvedConfig.items[0].value
 		}
-
-		if (newValue !== undefined && newValue !== null) {
-			selectedValue = newValue
-			outputs?.result.set(newValue)
+		if (rawValue !== undefined && rawValue !== null) {
+			value = JSON.stringify(rawValue)
+			outputs?.result.set(rawValue)
 		}
+		setContextValue(rawValue)
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+		rowInputs?.remove(id)
+	})
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 
 		if (resolvedConfig.create) {
-			options = options.map((i) => {
+			listItems = listItems.map((i) => {
 				delete i.created
 				return i
 			})
@@ -113,43 +149,59 @@
 		setValue(value)
 	}
 
-	function setValue(newValue: any) {
-		selectedValue = newValue
-		outputs?.result.set(newValue)
-
+	function setValue(nvalue: any) {
+		let result: any = undefined
+		try {
+			result = JSON.parse(nvalue)
+		} catch (_) {}
+		value = nvalue
+		outputs?.result.set(result)
+		setContextValue(result)
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
 		}
 	}
 
 	function onClear() {
-		selectedValue = undefined
+		value = undefined
 		outputs?.result.set(undefined, true)
+		setContextValue(undefined)
 	}
 
-	function handleFilter() {
+	let css = initCss($app.css?.selectcomponent, customCss)
+
+	let previsousFilter = ''
+
+	function handleFilter(e) {
 		if (resolvedConfig.create && filterText !== previsousFilter) {
 			previsousFilter = filterText
 			if (filterText.length > 0) {
-				const prev = options?.filter((i) => !i.created)
+				const prev = listItems?.filter((i) => !i.created)
 
-				const exists = options?.some(
-					(item) => item.label.toString().toLowerCase() === filterText.toLowerCase()
+				const exists = listItems?.some(
+					(item) => item.label.toLowerCase() === filterText.toLowerCase()
 				)
 				if (!exists) {
-					options = [...prev, { value: filterText, label: filterText, created: true }]
+					listItems = [
+						...prev,
+						{ value: JSON.stringify(filterText), label: filterText, created: true }
+					]
 				}
 			}
 		}
 	}
 
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
+
 	function handleDefault() {
-		if (!!noDefault || resolvedConfig.defaultValue !== undefined) {
-			return
+		if (resolvedConfig.defaultValue != undefined) {
+			const nvalue = resolvedConfig.defaultValue
+			value = JSON.stringify(nvalue)
+			outputs?.result.set(nvalue)
+			setContextValue(nvalue)
 		}
-		selectedValue = resolvedConfig.defaultValue
-		outputs?.result.set(resolvedConfig.defaultValue)
 	}
+	let filterText = ''
 </script>
 
 {#each Object.keys(components['selectcomponent'].initialData.configuration) as key (key)}
@@ -186,14 +238,14 @@
 			}
 		}}
 	>
-		{#if Array.isArray(options) && options.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
+		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			{#if resolvedConfig.nativeHtmlSelect}
 				<select class={css?.input?.class} style={css?.input?.style} on:change={onNativeChange}>
 					{#if resolvedConfig.placeholder}
 						<option value="" disabled selected>{resolvedConfig.placeholder}</option>
 					{/if}
-					{#each options as item (item.value)}
-						<option value={item.value} selected={item.value === selectedValue}>{item.label}</option>
+					{#each listItems as item (item.value)}
+						<option value={item.value} selected={item.value === value}>{item.label}</option>
 					{/each}
 				</select>
 			{:else}
@@ -206,13 +258,13 @@
 					on:filter={handleFilter}
 					on:clear={onClear}
 					on:change={onChange}
-					items={options}
+					items={listItems}
 					listAutoWidth={resolvedConfig.fullWidth}
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 					containerStyles={($darkMode
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-					value={selectedValue}
+					{value}
 					class={css?.input?.class}
 					placeholder={resolvedConfig.placeholder}
 					disabled={resolvedConfig.disabled}
@@ -241,7 +293,7 @@
 						<Alert title="Incorrect options" type="error" size="xs" class="h-full w-full ">
 							The selectable items should be an array of {'{"value": any, "label":}'}. Found:
 							<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
-								>{JSON.stringify(options, null, 4)}</pre
+								>{JSON.stringify(listItems, null, 4)}</pre
 							>
 						</Alert>
 					</div>
