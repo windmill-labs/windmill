@@ -860,9 +860,15 @@ pub async fn save_in_cache(
 }
 
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
+    #[cfg(unix)]
+    let err_msg = "No such file or directory (os error 2)";
+
+    #[cfg(windows)]
+    let err_msg = "program not found";
+
     if err
         .to_string()
-        .contains("No such file or directory (os error 2)")
+        .contains(&err_msg)
     {
         return Error::InternalErr(format!("Executable {executable} not found on worker"));
     }
