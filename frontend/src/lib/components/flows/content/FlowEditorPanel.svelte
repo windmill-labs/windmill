@@ -62,7 +62,7 @@
 {:else if $selectedId === 'Input'}
 	<FlowInput {noEditor} disabled={disabledFlowInputs} />
 {:else if $selectedId === 'Result'}
-	<p class="p-4 text-secondary">Nothing to show about the result node. Happy flow building!</p>
+	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}
