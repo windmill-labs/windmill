@@ -462,6 +462,8 @@ fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
                         u32::from_str_radix(&s[2..], 2)
                     } else if s.starts_with("0o") {
                         u32::from_str_radix(&s[2..], 8)
+                    } else if s.starts_with("0") {
+                        u32::from_str_radix(&s[1..], 8)
                     } else {
                         u32::from_str_radix(s, 8)
                     };
