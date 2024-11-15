@@ -583,6 +583,9 @@ fn convert_val(
                 .unwrap_or(vec![]);
             Ok(Box::new(bytes))
         }
+        Value::Object(_) if arg_t == "text" || arg_t == "varchar" => {
+            Ok(Box::new(serde_json::to_string(value).unwrap_or_default()))
+        }
         Value::Object(_) => Ok(Box::new(value.clone())),
         Value::String(s) => Ok(Box::new(s.clone())),
         _ => Err(Error::ExecutionErr(format!(
