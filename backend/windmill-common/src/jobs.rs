@@ -22,7 +22,7 @@ use crate::{
     worker::{to_raw_value, TMP_DIR},
 };
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum JobKind {

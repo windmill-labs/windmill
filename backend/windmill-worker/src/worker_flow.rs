@@ -1505,11 +1505,16 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     rsmq: Option<R>,
     job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
-    let flow = flow_value
+    let mut flow = flow_value
         .with_context(|| "Unable to parse flow definition")?;
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
+
+    add_virtual_items_if_necessary(&mut flow.modules);
+    if flow_job.same_worker {
+        flow.same_worker = true;
+    }
 
     if !flow_job.is_flow_step
         && status.retry.fail_count == 0
@@ -3240,7 +3245,7 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let mut modules = if let BranchChosen::Branch { branch } = branch {
+            let modules = if let BranchChosen::Branch { branch } = branch {
                 branches
                     .get(branch)
                     .map(|b| b.modules.clone())
@@ -3252,7 +3257,6 @@ async fn compute_next_flow_transform(
             } else {
                 default.clone()
             };
-            add_virtual_items_if_necessary(&mut modules);
 
             let mut fm = flow.failure_module.clone();
             if let Some(mut failure_module) = flow.failure_module.clone() {
@@ -3311,8 +3315,7 @@ async fn compute_next_flow_transform(
                                                 .id_append(&format!("{}-{i}", status.step,));
                                             fm = Some(failure_module);
                                         }
-                                        let mut modules = b.modules.clone();
-                                        add_virtual_items_if_necessary(&mut modules);
+                                        let modules = b.modules.clone();
                                         JobPayloadWithTag {
                                             payload: JobPayload::RawFlow {
                                                 value: FlowValue {
@@ -3372,7 +3375,7 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let mut modules = branches
+            let modules = branches
                 .get(branch_status.branch)
                 .map(|b| b.modules.clone())
                 .ok_or_else(|| {
@@ -3381,7 +3384,6 @@ async fn compute_next_flow_transform(
                     ))
                 })?;
 
-            add_virtual_items_if_necessary(&mut modules);
             let mut fm = flow.failure_module.clone();
             if let Some(mut failure_module) = flow.failure_module.clone() {
                 failure_module.id_append(&format!("{}-{}", status.step, branch_status.branch));
@@ -3440,8 +3442,7 @@ async fn next_loop_iteration(
         failure_module.id_append(&format!("{}-{}", status.step, ns.index));
         fm = Some(failure_module);
     }
-    let mut modules = (*modules).clone();
-    add_virtual_items_if_necessary(&mut modules);
+    let modules = (*modules).clone();
     let inner_path = Some(format!("{}/loop-{}", flow_job.script_path(), ns.index));
     if is_simple {
         let value = &modules[0].get_value()?;

@@ -66,7 +66,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
-    flows::{add_virtual_items_if_necessary, FlowValue},
+    flows::FlowValue,
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
@@ -4431,7 +4431,7 @@ async fn add_batch_jobs(
             }
         }
         "flow" => {
-            let (mut value, job_kind, path) = if let Some(value) = batch_info.flow_value {
+            let (value, job_kind, path) = if let Some(value) = batch_info.flow_value {
                 (value, JobKind::FlowPreview, None)
             } else if let Some(path) = batch_info.path {
                 let value_json = sqlx::query!(
@@ -4456,7 +4456,6 @@ async fn add_batch_jobs(
                     "Path is required if no value is not provided"
                 ))?
             };
-            add_virtual_items_if_necessary(&mut value.modules);
             let flow_status = FlowStatus::new(&value);
             (
                 None,                             // script_hash
