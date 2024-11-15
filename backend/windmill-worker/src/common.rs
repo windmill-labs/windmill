@@ -41,7 +41,7 @@ use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION,
+    MAX_TIMEOUT_DURATION, PATH_ENV,
 };
 
 pub async fn build_args_map<'a>(
@@ -870,7 +870,7 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
         .to_string()
         .contains(&err_msg)
     {
-        return Error::InternalErr(format!("Executable {executable} not found on worker"));
+        return Error::InternalErr(format!("Executable {executable} not found on worker. PATH: {}", *PATH_ENV));
     }
     return err;
 }

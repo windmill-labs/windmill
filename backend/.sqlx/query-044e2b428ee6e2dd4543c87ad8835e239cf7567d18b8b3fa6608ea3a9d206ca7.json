@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)\n        VALUES ('critical_error', $1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "044e2b428ee6e2dd4543c87ad8835e239cf7567d18b8b3fa6608ea3a9d206ca7"
+}
