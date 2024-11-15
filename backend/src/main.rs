@@ -30,14 +30,15 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -65,19 +66,20 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, POWERSHELL_CACHE_DIR, RUST_CACHE_DIR,
-    TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
+    reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
+    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config, reload_critical_alert_mute_ui_setting,
+    reload_worker_config,
 };
 
 #[cfg(feature = "parquet")]
@@ -996,6 +998,8 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
+        PY311_CACHE_DIR,
+        PIP_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
