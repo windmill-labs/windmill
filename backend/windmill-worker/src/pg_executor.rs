@@ -584,7 +584,9 @@ fn convert_val(
             Ok(Box::new(bytes))
         }
         Value::Object(_) if arg_t == "text" || arg_t == "varchar" => {
-            Ok(Box::new(serde_json::to_string(value).unwrap_or_default()))
+            Ok(Box::new(serde_json::to_string(value).map_err(|err| {
+                Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))
+            })?))
         }
         Value::Object(_) => Ok(Box::new(value.clone())),
         Value::String(s) => Ok(Box::new(s.clone())),
