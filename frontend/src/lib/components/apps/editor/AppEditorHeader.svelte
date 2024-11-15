@@ -426,7 +426,14 @@
 			if (
 				deployedValue &&
 				savedApp &&
-				orderedJsonStringify(deployedValue) === orderedJsonStringify(savedApp)
+				$app &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({
+						summary: $summary,
+						value: $app,
+						path: newPath || savedApp.draft?.path || savedApp.path,
+						policy
+					}))
 			) {
 				await updateApp(npath)
 			} else {
@@ -450,16 +457,14 @@
 		deployedBy = deployedApp.created_by
 
 		// Strip off extra information
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
 			versions: undefined,
 			extra_perms: undefined
-		}
-
-		replaceFalseWithUndefined(deployedValue)
+		})
 	}
 
 	async function updateApp(npath: string) {
@@ -870,12 +875,12 @@
 <UnsavedConfirmationModal
 	{diffDrawer}
 	savedValue={savedApp}
-	modifiedValue={(replaceFalseWithUndefined( {
+	modifiedValue={{
 		summary: $summary,
 		value: $app,
 		path: newPath || savedApp?.draft?.path || savedApp?.path,
 		policy
-	}))}
+	}}
 />
 
 <DeployOverrideConfirmationModal

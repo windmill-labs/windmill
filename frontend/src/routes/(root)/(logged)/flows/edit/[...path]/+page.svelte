@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify, replaceFalseWithUndefined } from '$lib/utils'
+	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
@@ -78,8 +78,6 @@
 				path: statePath
 			})
 
-			replaceFalseWithUndefined(savedFlow);
-
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
 			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
 			flow = stateLoadedFromUrl.flow
@@ -135,7 +133,6 @@
 			} as Flow & {
 				draft?: Flow
 			}
-			replaceFalseWithUndefined(savedFlow);
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
 				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
@@ -250,5 +247,5 @@
 	{savedPrimarySchedule}
 	bind:version
 >
-	<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={(replaceFalseWithUndefined($flowStore))} />
+	<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
 </FlowBuilder>

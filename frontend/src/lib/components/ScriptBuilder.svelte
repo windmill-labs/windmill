@@ -281,12 +281,13 @@
 
 			if (
 				deployedValue &&
-				savedScript &&
+				script &&
 				orderedJsonStringify({ ...deployedValue, hash: undefined }) ===
-					orderedJsonStringify({ ...savedScript, hash: undefined })
+					orderedJsonStringify(
+						replaceFalseWithUndefined({ ...script, hash: undefined, parent_hash: undefined })
+					)
 			) {
 				await editScript(stay, actual_parent_hash, deployMsg)
-
 			} else {
 				// Handle through confirmation modal
 				confirmCallback = async () => {
@@ -299,9 +300,7 @@
 				}
 				// Open confirmation modal
 				open = true
-				
 			}
-
 		}
 	}
 
@@ -312,7 +311,7 @@
 			withStarredInfo: true
 		})
 
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...latestScript,
 			workspace_id: undefined,
 			created_at: undefined,
@@ -321,9 +320,8 @@
 			lock: undefined,
 			lock_error_logs: undefined,
 			parent_hashes: undefined
-		}
+		})
 
-		replaceFalseWithUndefined(deployedValue)
 		deployedBy = latestScript.created_by
 	}
 

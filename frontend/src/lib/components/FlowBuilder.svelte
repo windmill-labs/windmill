@@ -297,8 +297,9 @@
 
 			if (
 				deployedValue &&
-				savedFlow &&
-				(orderedJsonStringify(deployedValue) === orderedJsonStringify(savedFlow))
+				$flowStore &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({ ...$flowStore, path: $pathStore }))
 			) {
 				await saveFlow(deploymentMsg)
 			} else {
@@ -317,13 +318,12 @@
 			path: initialPath,
 			withStarredInfo: true
 		})
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...flow,
 			edited_at: undefined,
 			edited_by: undefined,
 			workspace_id: undefined
-		}
-		replaceFalseWithUndefined(deployedValue)
+		})
 		deployedBy = flow.edited_by
 	}
 

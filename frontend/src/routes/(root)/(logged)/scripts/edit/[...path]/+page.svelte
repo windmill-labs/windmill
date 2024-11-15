@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeState, cleanValueProperties, orderedJsonStringify, replaceFalseWithUndefined } from '$lib/utils'
+	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -138,9 +138,6 @@
 					script = scriptWithDraft
 				}
 				script.parent_hash = scriptWithDraft.hash
-				// Remove all false fields for downstream
-				replaceFalseWithUndefined(script)
-				replaceFalseWithUndefined(savedScript)
 			}
 		}
 		// hash
