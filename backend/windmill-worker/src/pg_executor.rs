@@ -547,7 +547,6 @@ fn convert_val(
             "text" | "varchar" => Ok(Box::new(None::<String>)),
             _ => Err(anyhow::anyhow!("Unsupported JSON null type"))?,
         },
-        Value::Bool(s) if arg_t == "text" || arg_t == "varchar" => Ok(Box::new(s.to_string())),
         Value::Bool(b) => Ok(Box::new(b.clone())),
         Value::Number(n) if matches!(typ, Typ::Str(_)) => Ok(Box::new(n.to_string())),
         Value::Number(n) if arg_t == "char" && n.is_i64() => {
