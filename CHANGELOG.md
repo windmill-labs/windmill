@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.425.1](https://github.com/windmill-labs/windmill/compare/v1.425.0...v1.425.1) (2024-11-16)
+
+
+### Bug Fixes
+
+* revert bool to text support in  pg ([#4727](https://github.com/windmill-labs/windmill/issues/4727)) ([17d8933](https://github.com/windmill-labs/windmill/commit/17d893315bd86942c7895cdb3e9c3ab34977b258))
+
 ## [1.425.0](https://github.com/windmill-labs/windmill/compare/v1.424.0...v1.425.0) (2024-11-15)
 
 
