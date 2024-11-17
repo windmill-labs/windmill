@@ -25,7 +25,6 @@ use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
-use git_version::git_version;
 use http::HeaderValue;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -40,7 +39,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
-use windmill_common::{BASE_URL, INSTANCE_NAME};
+use windmill_common::{BASE_URL, INSTANCE_NAME, utils::GIT_VERSION};
 
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
@@ -64,13 +63,14 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
+mod ai;
+
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
 pub mod oauth2_ee;
 mod oidc_ee;
-mod openai;
 mod raw_apps;
 mod resources;
 mod saml_ee;
@@ -94,10 +94,8 @@ mod workers;
 mod workspaces;
 mod workspaces_ee;
 
-pub const GIT_VERSION: &str =
-    git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
-
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
+
 
 lazy_static::lazy_static! {
 
@@ -283,7 +281,7 @@ pub async fn run_server(
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2_ee::workspaced_service())
-                        .nest("/openai", openai::workspaced_service())
+                        .nest("/ai", ai::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())

@@ -4,10 +4,10 @@ import { colors } from "./deps.ts";
 import { yamlParseFile } from "./deps.ts";
 import { log } from "./deps.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
-import { isSuperset, GlobalOptions } from "./types.ts";
+import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 import * as wmill from "./gen/services.gen.ts";
-import { Config, GlobalSetting } from "./gen/types.gen.ts";
+import { AiResource, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { removeWorkerPrefix } from "./worker_groups.ts";
 import process from "node:process";
 
@@ -24,7 +24,7 @@ export interface SimplifiedSettings {
   error_handler?: string;
   error_handler_extra_args?: any;
   error_handler_muted_on_cancel?: boolean;
-  openai_resource_path?: string;
+  ai_resource?: AiResource;
   code_completion_enabled: boolean;
   large_file_storage?: any;
   git_sync?: any;
@@ -80,7 +80,7 @@ export async function pushWorkspaceSettings(
       error_handler_extra_args: remoteSettings.error_handler_extra_args,
       error_handler_muted_on_cancel:
         remoteSettings.error_handler_muted_on_cancel,
-      openai_resource_path: remoteSettings.openai_resource_path,
+      ai_resource: remoteSettings.ai_resource,
       code_completion_enabled: remoteSettings.code_completion_enabled,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
@@ -153,14 +153,14 @@ export async function pushWorkspaceSettings(
     }
   }
   if (
-    localSettings.openai_resource_path !== settings.openai_resource_path ||
+    localSettings.ai_resource !== settings.ai_resource ||
     localSettings.code_completion_enabled !== settings.code_completion_enabled
   ) {
     log.debug(`Updating openai settings...`);
     await wmill.editCopilotConfig({
       workspace,
       requestBody: {
-        openai_resource_path: localSettings.openai_resource_path,
+        ai_resource: localSettings.ai_resource,
         code_completion_enabled: localSettings.code_completion_enabled,
       },
     });

@@ -20,13 +20,21 @@ use std::sync::Arc;
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
+    no_uv: bool,
 ) -> error::Result<()> {
     use object_store::path::Path;
+
+    use crate::PY311_CACHE_DIR;
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
-    let tar_path = format!("{PIP_CACHE_DIR}/{folder_name}_tar.tar",);
+    let prefix = if no_uv {
+        PIP_CACHE_DIR
+    } else {
+        PY311_CACHE_DIR
+    };
+    let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
@@ -46,7 +54,10 @@ pub async fn build_tar_and_push(
     // })?;
     if let Err(e) = s3_client
         .put(
-            &Path::from(format!("/tar/pip/{folder_name}.tar")),
+            &Path::from(format!(
+                "/tar/{}/{folder_name}.tar",
+                if no_uv { "pip" } else { "python_311" }
+            )),
             std::fs::read(&tar_path)?.into(),
         )
         .await
@@ -71,7 +82,11 @@ pub async fn build_tar_and_push(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
+pub async fn pull_from_tar(
+    client: Arc<dyn ObjectStore>,
+    folder: String,
+    no_uv: bool,
+) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
 
     let folder_name = folder.split("/").last().unwrap();
@@ -79,7 +94,10 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
     tracing::info!("Attempting to pull piptar {folder_name} from bucket");
 
     let start = Instant::now();
-    let tar_path = format!("tar/pip/{folder_name}.tar");
+    let tar_path = format!(
+        "tar/{}/{folder_name}.tar",
+        if no_uv { "pip" } else { "python_311" }
+    );
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
     // tracing::info!("B: {target} {folder}");

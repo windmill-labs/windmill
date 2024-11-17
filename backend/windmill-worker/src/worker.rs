@@ -236,7 +236,14 @@ pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
+// Used as fallback now
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
+
+// pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
+pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
+// pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
+// pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
+
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
@@ -257,6 +264,7 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+const INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK: &str = include_str!("../nsjail/download_deps.py.pip.sh");
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
@@ -311,6 +319,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -739,6 +748,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             &worker_dir,
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
+        );
+
+        // TODO: Remove (Deprecated)
+        let _ = write_file(
+            &worker_dir,
+            "download_deps.py.pip.sh",
+            INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK,
         );
     }
 
@@ -1903,8 +1919,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
     };
     if job.is_flow() {
+        let flow = job.parse_raw_flow();
         handle_flow(
             job,
+            flow,
             db,
             &client.get_authed().await,
             None,

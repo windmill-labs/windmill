@@ -416,24 +416,32 @@ pub async fn do_postgresql(
 }
 
 fn map_as_single_type<T>(
-    vec: &Vec<Value>,
+    vec: Option<&Vec<Value>>,
     f: impl Fn(&Value) -> Option<T>,
-) -> anyhow::Result<Vec<Option<T>>> {
-    vec.into_iter()
-        .map(|v| {
-            // allow nulls in arrays
-            if matches!(v, Value::Null) {
-                Some(None)
-            } else {
-                f(v).map(Some)
-            }
-        })
-        .collect::<Option<Vec<Option<T>>>>()
-        .ok_or_else(|| anyhow::anyhow!("Mixed types in array"))
+) -> anyhow::Result<Option<Vec<Option<T>>>> {
+    if let Some(vec) = vec {
+        Ok(Some(
+            vec.into_iter()
+                .map(|v| {
+                    // first option is if the value is of the right type (if none, will stop the collection and throw error)
+                    // second option is if the value is null
+                    // allow nulls in arrays
+                    if matches!(v, Value::Null) {
+                        Some(None)
+                    } else {
+                        f(v).map(Some)
+                    }
+                })
+                .collect::<Option<Vec<Option<T>>>>()
+                .ok_or_else(|| anyhow::anyhow!("Mixed types in array"))?,
+        ))
+    } else {
+        Ok(None)
+    }
 }
 
 fn convert_vec_val(
-    vec: &Vec<Value>,
+    vec: Option<&Vec<Value>>,
     arg_t: &String,
 ) -> windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> {
     match arg_t.as_str() {
@@ -489,7 +497,9 @@ fn convert_vec_val(
                     .unwrap_or_default()
             })
         })?)),
-        "jsonb" | "json" => Ok(Box::new(vec.clone().into_iter().map(Some).collect_vec())),
+        "jsonb" | "json" => Ok(Box::new(
+            vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
+        )),
         "bytea" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_str().map(|x| {
                 engine::general_purpose::STANDARD
@@ -512,9 +522,31 @@ fn convert_val(
     match value {
         Value::Array(vec) if arg_t.ends_with("[]") => {
             let arg_t = arg_t.trim_end_matches("[]").to_string();
-            convert_vec_val(vec, &arg_t)
+            convert_vec_val(Some(vec), &arg_t)
         }
-        Value::Null => Ok(Box::new(None::<bool>)),
+        Value::Null if arg_t.ends_with("[]") => {
+            let arg_t = arg_t.trim_end_matches("[]").to_string();
+            convert_vec_val(None, &arg_t)
+        }
+        Value::Null => match arg_t.as_str() {
+            "bool" | "boolean" => Ok(Box::new(None::<bool>)),
+            "char" | "character" => Ok(Box::new(None::<i8>)),
+            "smallint" | "smallserial" | "int2" | "serial2" => Ok(Box::new(None::<i16>)),
+            "int" | "integer" | "int4" | "serial" => Ok(Box::new(None::<i32>)),
+            "numeric" | "decimal" => Ok(Box::new(None::<Decimal>)),
+            "oid" => Ok(Box::new(None::<u32>)),
+            "bigint" | "bigserial" | "int8" | "serial8" => Ok(Box::new(None::<i64>)),
+            "real" | "float4" => Ok(Box::new(None::<f32>)),
+            "double" | "float8" => Ok(Box::new(None::<f64>)),
+            "uuid" => Ok(Box::new(None::<Uuid>)),
+            "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
+            "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
+            "timestamp" | "timestamptz" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "jsonb" | "json" => Ok(Box::new(None::<Option<Value>>)),
+            "bytea" => Ok(Box::new(None::<Vec<u8>>)),
+            "text" | "varchar" => Ok(Box::new(None::<String>)),
+            _ => Err(anyhow::anyhow!("Unsupported JSON null type"))?,
+        },
         Value::Bool(b) => Ok(Box::new(b.clone())),
         Value::Number(n) if matches!(typ, Typ::Str(_)) => Ok(Box::new(n.to_string())),
         Value::Number(n) if arg_t == "char" && n.is_i64() => {
@@ -582,6 +614,11 @@ fn convert_val(
                 .decode(s)
                 .unwrap_or(vec![]);
             Ok(Box::new(bytes))
+        }
+        Value::Object(_) if arg_t == "text" || arg_t == "varchar" => {
+            Ok(Box::new(serde_json::to_string(value).map_err(|err| {
+                Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))
+            })?))
         }
         Value::Object(_) => Ok(Box::new(value.clone())),
         Value::String(s) => Ok(Box::new(s.clone())),
