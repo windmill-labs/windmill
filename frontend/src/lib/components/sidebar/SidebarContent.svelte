@@ -332,7 +332,6 @@
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
 											{/if}
-
 											{subItem.label}
 										</div>
 									</a>
