@@ -1,0 +1,28 @@
+Error parsing /home/dieri/windmill/backend/windmill-api/openapi.yaml: bad indentation of a mapping entry (12261:18)
+
+ 12258 |           type: string
+ 12259 |         columns_name:
+ 12260 |           type: array
+ 12261 |             items:
+--------------------------^
+ 12262 |               type: string
+ 12263 |       required:
+JSONParserError: Error parsing /home/dieri/windmill/backend/windmill-api/openapi.yaml: bad indentation of a mapping entry (12261:18)
+
+ 12258 |           type: string
+ 12259 |         columns_name:
+ 12260 |           type: array
+ 12261 |             items:
+--------------------------^
+ 12262 |               type: string
+ 12263 |       required:
+    at Object.parse (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parsers/yaml.js:44:23)
+    at getResult (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:116:22)
+    at runNextPlugin (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:64:32)
+    at /home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:55:9
+    at new Promise (<anonymous>)
+    at Object.run (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:54:12)
+    at parseFile (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parse.js:130:38)
+    at parse (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parse.js:56:30)
+    at async $RefParser.parse (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/index.js:115:28)
+    at async $RefParser.resolve (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/index.js:145:13)

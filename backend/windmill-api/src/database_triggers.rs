@@ -5,7 +5,7 @@ use axum::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use windmill_common::{db::UserDB, error, utils::StripPath};
+use windmill_common::{db::UserDB, error, utils::StripPath, worker::CLOUD_HOSTED};
 
 use crate::db::ApiAuthed;
 
@@ -26,14 +26,18 @@ impl Database {
 #[derive(Serialize, Deserialize)]
 struct TableTrack {
     table_name: String,
-    columns_name: Vec<String>,
+    columns_name: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
 struct EditDatabaseTrigger {}
 
 #[derive(Deserialize, Serialize)]
-struct CreateDatabaseTrigger {
+struct NewDatabaseTrigger {
+    path: String,
+    script_path: String,
+    is_flow: bool,
+    enabled: bool,
     database: Database,
     table_to_track: Option<Vec<TableTrack>>,
 }
@@ -57,8 +61,17 @@ async fn create_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(CreateDatabaseTrigger { database, table_to_track }): Json<CreateDatabaseTrigger>,
+    Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
+    let NewDatabaseTrigger { database, table_to_track, path, script_path, enabled, is_flow } =
+        new_database_trigger;
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
+        ));
+    }
+    let mut tx = user_db.begin(&authed).await?;
+
     Ok((StatusCode::OK, "OK".to_string()))
 }
 
@@ -76,6 +89,7 @@ async fn get_database_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<DatabaseTrigger> {
+    todo!()
     todo!()
 }
 

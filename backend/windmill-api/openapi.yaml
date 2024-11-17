@@ -7685,6 +7685,149 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/database_triggers/create:
+    post:
+      summary: create database trigger
+      operationId: createDatabaseTrigger
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new database trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewDatabaseTrigger"
+      responses:
+        "201":
+          description: database trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/database_triggers/update/{path}:
+    post:
+      summary: update database trigger
+      operationId: updateDatabaseTrigger
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditDatabaseTrigger"
+      responses:
+        "200":
+          description: database trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/database_triggers/delete/{path}:
+    delete:
+      summary: delete database trigger
+      operationId: deleteDatabaseTrigger
+      tags:
+        -  database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: database trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/database_triggers/list:
+    get:
+      summary: list database triggers
+      operationId: listDatabaseTriggers
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: database trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DatabaseTrigger"
+
+  /w/{workspace}/database_triggers/exists/{path}:
+    get:
+      summary: does database trigger exists
+      operationId: existsDatabaseTrigger
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: database trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/database_triggers/setenabled/{path}:
+    post:
+      summary: set enabled database trigger
+      operationId: setDatabaseTriggerEnabled
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated database trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: database trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /groups/list:
     get:
@@ -8554,6 +8697,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                database_trigger
               ]
       responses:
         "200":
@@ -8592,6 +8736,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                database_trigger
               ]
       requestBody:
         description: acl to add
@@ -8641,6 +8786,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                database_trigger
               ]
       requestBody:
         description: acl to add
@@ -11932,6 +12078,8 @@ components:
           type: number
         websocket_count:
           type: number
+        database_count:
+          type: number
 
     WebsocketTrigger:
       type: object
@@ -12102,6 +12250,106 @@ components:
                 - is_flow
           required: 
             - runnable_result
+
+    TableToTrack:
+      type: object
+      properties:
+        table_name:
+          type: string
+        columns_name:
+          type: array
+          items:
+            type: string
+      required:
+        - table_name
+
+    DatabaseToTrack:
+      type: object
+      properties:
+        username: string
+        password: string
+        host: string
+        port: number
+
+    DatabaseTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+        database:
+          $ref: "#/components/schemas/DatabaseToTrack"
+          required:
+            - username
+            - host
+            - port
+        table_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TableToTrack"
+  
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - database
+
+    NewDatabaseTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+        database:
+          $ref: "#/components/schemas/DatabaseToTrack"
+          required:
+            - username
+            - host
+            - port
+        table_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TableToTrack"
+  
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - database
+
+    EditDatabaseTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+        database:
+          $ref: "#/components/schemas/DatabaseToTrack"
+          required:
+            - username
+            - host
+            - port
+        table_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TableToTrack"
 
     Group:
       type: object
