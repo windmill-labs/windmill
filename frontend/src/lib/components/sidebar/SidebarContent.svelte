@@ -31,7 +31,8 @@
 		UserCog,
 		Plus,
 		Unplug,
-		AlertCircle
+		AlertCircle,
+		Database
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -97,6 +98,13 @@
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws'
+		},
+		{
+			label: 'Database',
+			href: '/database_triggers',
+			icon: Database,
+			disabled: $userStore?.operator,
+			kind: 'database'
 		}
 	]
 
@@ -205,10 +213,10 @@
 										action: () => {
 											isCriticalAlertsUIOpen.set(true)
 										},
-							icon: AlertCircle,
-							notificationCount: numUnacknowledgedCriticalAlerts
-						}
-					]
+										icon: AlertCircle,
+										notificationCount: numUnacknowledgedCriticalAlerts
+									}
+							  ]
 							: [])
 					]
 			  }
