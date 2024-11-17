@@ -7749,23 +7749,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/get/{path}:
-    get:
-      summary: get database trigger
-      operationId: getDatabaseTrigger
-      tags:
-        - database_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: get database trigger
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DatabaseTrigger"
-
   /w/{workspace}/database_triggers/list:
     get:
       summary: list database triggers
@@ -8714,7 +8697,6 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
-                database_trigger
                 database_trigger
               ]
       responses:
@@ -11929,7 +11911,7 @@ components:
         - is_flow
         - args
 
-    TriggerExtraProperty:
+    TriggersExtraProperty:
       type: object
       properties:
         email:
@@ -11940,25 +11922,19 @@ components:
             type: boolean
         workspace_id:
           type: string
-        edited_by:
-            type: string
-        edited_at:
-            type: string
-            format: date-time
-      required:
-        - email
-        - extra_perms
-        - workspace_id
-        - edited_by
-        - edited_at
 
     HttpTrigger:
       allOf:
-        - $ref: '#/components/schemas/TriggerExtraProperty'
+        - $ref: '#/components/schemas/TriggersExtraProperty'
       type: object
       properties:
         path:
           type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
         script_path:
           type: string
         route_path:
@@ -12113,11 +12089,16 @@ components:
 
     WebsocketTrigger:
       allOf:
-        - $ref: '#/components/schemas/TriggerExtraProperty'
+        - $ref: '#/components/schemas/TriggersExtraProperty'
       type: object
       properties:
         path:
           type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
         script_path:
           type: string
         url:
@@ -12316,7 +12297,7 @@ components:
 
     DatabaseTrigger:
       allOf:
-        - $ref: '#/components/schemas/TriggerExtraProperty'
+        - $ref: '#/components/schemas/TriggersExtraProperty'
       type: object
       properties:
         path:
@@ -12337,8 +12318,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TableToTrack"
-        error:
-          type: string
+  
       required:
         - path
         - script_path

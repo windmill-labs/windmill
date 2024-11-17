@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { WebsocketTriggerService, type WebsocketTrigger } from '$lib/gen'
+	import { DatabaseTriggerService, type DatabaseTrigger } from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
@@ -30,15 +30,15 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import DatabaseTriggerEditor from '$lib/components/triggers/database_triggers/DatabaseTriggerEditor.svelte'
 
-	type TriggerW = WebsocketTrigger & { canWrite: boolean }
+	type TriggerD = DatabaseTrigger & { canWrite: boolean }
 
-	let triggers: TriggerW[] = []
+	let triggers: TriggerD[] = []
 	let shareModal: ShareModal
 	let loading = true
 
 	async function loadTriggers(): Promise<void> {
 		triggers = (
-			await WebsocketTriggerService.listWebsocketTriggers({ workspace: $workspaceStore! })
+			await DatabaseTriggerService.listDatabaseTriggers({ workspace: $workspaceStore! })
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
@@ -47,7 +47,7 @@
 
 	let interval = setInterval(async () => {
 		try {
-			const newTriggers = await WebsocketTriggerService.listWebsocketTriggers({
+			const newTriggers = await DatabaseTriggerService.listDatabaseTriggers({
 				workspace: $workspaceStore!
 			})
 			for (let i = 0; i < triggers.length; i++) {
@@ -55,8 +55,6 @@
 				if (newTrigger) {
 					triggers[i] = {
 						...triggers[i],
-						error: newTrigger.error,
-						last_server_ping: newTrigger.last_server_ping,
 						enabled: newTrigger.enabled
 					}
 				}
@@ -72,14 +70,14 @@
 
 	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await WebsocketTriggerService.setWebsocketTriggerEnabled({
+			await DatabaseTriggerService.setDatabaseTriggerEnabled({
 				path,
 				workspace: $workspaceStore!,
 				requestBody: { enabled }
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` websocket trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` database trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -94,7 +92,7 @@
 	}
 	let databaseTriggerEditor: DatabaseTriggerEditor
 
-	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
+	let filteredItems: (TriggerD & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
 	let preFilteredItems: typeof filteredItems | undefined = []
 	let filter = ''
@@ -111,7 +109,7 @@
 	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 
 	function filterItemsPathsBaseOnUserFilters(
-		item: TriggerW,
+		item: TriggerD,
 		selectedFilterKind: 'trigger' | 'script_flow',
 		filterUserFolders: boolean
 	) {
@@ -228,7 +226,12 @@
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search Database triggers" bind:value={filter} class="search-item" />
+			<input
+				type="text"
+				placeholder="Search Database triggers"
+				bind:value={filter}
+				class="search-item"
+			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
@@ -258,9 +261,9 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No database triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, enabled } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
+					{@const ping = new Date()}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -274,19 +277,6 @@
 								on:click={() => databaseTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-									{#if marked}
-										<span class="text-xs">
-											{@html marked}
-										</span>
-									{:else}
-										{url.startsWith('$script:')
-											? 'URL: ' + url.replace('$script:', 'result of script ')
-											: url.startsWith('$flow:')
-											? 'URL: ' + url.replace('$flow:', 'result of flow ')
-											: url}
-									{/if}
-								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									{path}
 								</div>
@@ -311,9 +301,9 @@
 										</span>
 										<div slot="text">
 											{#if enabled}
-												Websocket is not connected{error ? ': ' + error : ''}
+												Could not connect to database{error ? ': ' + error : ''}
 											{:else}
-												Websocket was disabled because of an error: {error}
+												Disabled because of an error: {error}
 											{/if}
 										</div>
 									</Popover>
@@ -322,7 +312,7 @@
 										<span class="flex h-4 w-4">
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
-										<div slot="text"> Websocket is connected </div>
+										<div slot="text"> Connected to database </div>
 									</Popover>
 								{/if}
 							</div>
@@ -363,7 +353,7 @@
 											icon: Trash,
 											disabled: !canWrite,
 											action: async () => {
-												await WebsocketTriggerService.deleteWebsocketTrigger({
+												await DatabaseTriggerService.deleteDatabaseTrigger({
 													workspace: $workspaceStore ?? '',
 													path
 												})

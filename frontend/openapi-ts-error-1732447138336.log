@@ -1,0 +1,12 @@
+Token "DatabaseToTrackWithoutPass" does not exist.
+JSONParserError: Token "DatabaseToTrackWithoutPass" does not exist.
+    at Pointer.resolve (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/pointer.js:103:23)
+    at $Ref.resolve (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/ref.js:81:28)
+    at $Refs._resolve (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/refs.js:158:21)
+    at inventory$Ref (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:116:27)
+    at crawl (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:91:21)
+    at crawl (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:94:21)
+    at inventory$Ref (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:153:9)
+    at crawl (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:91:21)
+    at crawl (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:94:21)
+    at crawl (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/bundle.js:94:21)
