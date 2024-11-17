@@ -42,7 +42,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook_triggers/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
@@ -78,12 +78,13 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http_triggers/RoutesPanel.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
-	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/websocket_triggers/WebsocketTriggersPanel.svelte'
+	import DatabaseTriggersPanel from '$lib/components/triggers/database_triggers/DatabaseTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -719,6 +720,11 @@
 			<svelte:fragment slot="websockets">
 				<div class="p-2">
 					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="database">
+				<div class="p-2">
+					<DatabaseTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">

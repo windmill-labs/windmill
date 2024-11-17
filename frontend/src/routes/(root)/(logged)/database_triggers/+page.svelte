@@ -26,9 +26,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import WebsocketTriggerEditor from '$lib/components/triggers/WebsocketTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import DatabaseTriggerEditor from '$lib/components/triggers/database_triggers/DatabaseTriggerEditor.svelte'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
@@ -92,7 +92,7 @@
 			loadTriggers()
 		}
 	}
-	let websocketTriggerEditor: WebsocketTriggerEditor
+	let databaseTriggerEditor: DatabaseTriggerEditor
 
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
@@ -197,7 +197,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
-<WebsocketTriggerEditor on:update={loadTriggers} bind:this={websocketTriggerEditor} />
+<DatabaseTriggerEditor on:update={loadTriggers} bind:this={databaseTriggerEditor} />
 
 <SearchItems
 	{filter}
@@ -214,7 +214,7 @@
 		<Button
 			size="md"
 			startIcon={{ icon: Plus }}
-			on:click={() => websocketTriggerEditor.openNew(false)}
+			on:click={() => databaseTriggerEditor.openNew(false)}
 		>
 			New&nbsp;Database trigger
 		</Button>
@@ -271,7 +271,7 @@
 
 							<a
 								href="#{path}"
-								on:click={() => websocketTriggerEditor?.openEdit(path, is_flow)}
+								on:click={() => databaseTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -337,7 +337,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => websocketTriggerEditor?.openEdit(path, is_flow)}
+									on:click={() => databaseTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -374,7 +374,7 @@
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
 											action: () => {
-												websocketTriggerEditor?.openEdit(path, is_flow)
+												databaseTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
 										{

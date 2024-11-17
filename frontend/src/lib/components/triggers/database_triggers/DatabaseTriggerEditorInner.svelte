@@ -20,12 +20,12 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '../Toggle.svelte'
 	import { fade } from 'svelte/transition'
-	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import type { Schema } from '$lib/common'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false

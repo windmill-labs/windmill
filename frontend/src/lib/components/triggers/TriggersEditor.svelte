@@ -1,17 +1,18 @@
 <script lang="ts">
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import { Tabs } from '$lib/components/common'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook_triggers/WebhooksPanel.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http_triggers/RoutesPanel.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
-	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
+	import ScheduledPollPanel from './scheduled_triggers/ScheduledPollPanel.svelte'
+	import WebsocketTriggersPanel from './websocket_triggers/WebsocketTriggersPanel.svelte'
+	import DatabaseTriggersPanel from './database_triggers/DatabaseTriggersPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -31,6 +32,7 @@
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
+				<Tab value="database" selectedClass="text-primary text-sm font-semibold">Database</Tab>
 				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 				{#if isFlow}
 					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
@@ -72,6 +74,12 @@
 					{#if $selectedTrigger === 'websockets'}
 						<div class="p-4">
 							<WebsocketTriggersPanel {newItem} path={currentPath} {isFlow} />
+						</div>
+					{/if}
+
+					{#if $selectedTrigger === 'database'}
+						<div class="p-4">
+							<DatabaseTriggersPanel {newItem} path={currentPath} {isFlow} />
 						</div>
 					{/if}
 

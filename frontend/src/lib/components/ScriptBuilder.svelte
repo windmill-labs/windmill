@@ -109,7 +109,7 @@
 	)
 	const simplifiedPoll = writable(false)
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll' | 'database'
 	>('webhooks')
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {

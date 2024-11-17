@@ -12,15 +12,15 @@
 		SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON
 	} from '$lib/consts'
 	import { ArrowDownRight, ArrowUpRight, Clipboard } from 'lucide-svelte'
-	import UserSettings from '../UserSettings.svelte'
+	import UserSettings from '../../UserSettings.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
-	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
-	import HighlightTheme from '../HighlightTheme.svelte'
+	import HighlightTheme from '../../HighlightTheme.svelte'
 	import { base } from '$lib/base'
 	import Label from '$lib/components/Label.svelte'
-	import TriggerTokens from './TriggerTokens.svelte'
+	import TriggerTokens from '../TriggerTokens.svelte'
 	let userSettings: UserSettings
 
 	export let token: string

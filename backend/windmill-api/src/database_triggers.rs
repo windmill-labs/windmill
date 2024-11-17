@@ -9,11 +9,40 @@ use windmill_common::{db::UserDB, error, utils::StripPath};
 
 use crate::db::ApiAuthed;
 
+#[derive(Serialize, Deserialize)]
+struct Database {
+    username: String,
+    password: Option<String>,
+    host: String,
+    port: u16,
+}
+
+impl Database {
+    pub fn new(username: String, password: Option<String>, host: String, port: u16) -> Self {
+        Self { username, password, host, port }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TableTrack {
+    table_name: String,
+    columns_name: Vec<String>,
+}
+
 #[derive(Deserialize)]
 struct EditDatabaseTrigger {}
 
 #[derive(Deserialize, Serialize)]
-struct DatabaseTrigger {}
+struct CreateDatabaseTrigger {
+    database: Database,
+    table_to_track: Option<Vec<TableTrack>>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct DatabaseTrigger {
+    database: Database,
+    table_to_track: Option<Vec<TableTrack>>,
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct ListDatabaseTriggerQuery {
@@ -28,6 +57,7 @@ async fn create_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Json(CreateDatabaseTrigger { database, table_to_track }): Json<CreateDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
     Ok((StatusCode::OK, "OK".to_string()))
 }
@@ -46,7 +76,7 @@ async fn get_database_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<DatabaseTrigger> {
-    Ok(Json(DatabaseTrigger {}))
+    todo!()
 }
 
 async fn update_database_trigger(

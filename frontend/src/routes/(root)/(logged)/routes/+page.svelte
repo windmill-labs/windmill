@@ -6,7 +6,6 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import RouteEditor from '$lib/components/triggers/RouteEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -21,6 +20,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
+	import RouteEditor from '$lib/components/triggers/http_triggers/RouteEditor.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 

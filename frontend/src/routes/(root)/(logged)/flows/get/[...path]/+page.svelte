@@ -42,7 +42,7 @@
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook_triggers/WebhooksPanel.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
@@ -55,12 +55,13 @@
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http_triggers/RoutesPanel.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
-	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/websocket_triggers/WebsocketTriggersPanel.svelte'
+	import DatabaseTriggersPanel from '$lib/components/triggers/database_triggers/DatabaseTriggersPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -537,6 +538,11 @@
 		<svelte:fragment slot="websockets">
 			<div class="p-2">
 				<WebsocketTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+		<svelte:fragment slot="database">
+			<div class="p-2">
+				<DatabaseTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="emails">

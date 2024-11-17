@@ -20,7 +20,14 @@
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets'
+		| 'database'
+		| 'scheduledPoll'
 	>('webhooks')
 
 	const simplifiedPoll = writable(false)
@@ -52,6 +59,7 @@
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
 							<slot slot="websockets" name="websockets" />
+							<slot slot="database" name="database" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
@@ -94,6 +102,7 @@
 								<slot slot="routes" name="routes" />
 								<slot slot="script" name="script" />
 								<slot slot="websockets" name="websockets" />
+								<slot slot="database" name="database" />
 								<slot slot="emails" name="emails" />
 								<slot slot="schedules" name="schedules" />
 								<slot slot="cli" name="cli" />

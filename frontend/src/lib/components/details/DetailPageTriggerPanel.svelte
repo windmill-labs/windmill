@@ -11,6 +11,7 @@
 		| 'cli'
 		| 'routes'
 		| 'websockets'
+		| 'database'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
 </script>
@@ -43,6 +44,12 @@
 				Websockets
 			</span>
 		</Tab>
+		<Tab value="database">
+			<span class="flex flex-row gap-2 items-center text-xs">
+				<Unplug size={12} />
+				Database
+			</span>
+		</Tab>
 		<Tab value="emails">
 			<span class="flex flex-row gap-2 items-center text-xs">
 				<MailIcon size={12} />
@@ -69,6 +76,8 @@
 				<slot name="schedules" />
 			{:else if triggerSelected === 'websockets'}
 				<slot name="websockets" />
+			{:else if triggerSelected === 'database'}
+				<slot name="database" />
 			{:else if triggerSelected === 'cli'}
 				<slot name="cli" />
 			{/if}

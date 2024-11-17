@@ -1,16 +1,14 @@
 <script lang="ts">
-	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { WebsocketTriggerService, type WebsocketTrigger } from '$lib/gen'
 	import { UnplugIcon } from 'lucide-svelte'
 
-	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { canWrite } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import type { TriggerContext } from '../triggers'
 	import { getContext } from 'svelte'
 	import WebsocketTriggerEditor from './WebsocketTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import type { TriggerContext } from '$lib/components/triggers'
 
 	export let isFlow: boolean
 	export let path: string

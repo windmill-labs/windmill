@@ -473,7 +473,7 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'database' | 'scheduledPoll'
 	>('webhooks')
 
 	export function getSelectedId() {
@@ -502,6 +502,7 @@
 			| 'cli'
 			| 'routes'
 			| 'websockets'
+			| 'database'
 			| 'scheduledPoll'
 	) {
 		selectedTriggerStore.set(selectedTrigger)

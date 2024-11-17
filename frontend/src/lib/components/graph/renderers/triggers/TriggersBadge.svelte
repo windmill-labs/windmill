@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Unplug } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug, Database } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
@@ -18,8 +18,8 @@
 	export let isFlow: boolean
 	export let selected: boolean
 	export let showOnlyWithCount: boolean
-	export let triggersToDisplay: ('webhooks' | 'schedules' | 'routes' | 'websockets' | 'emails')[] =
-		['webhooks', 'schedules', 'routes', 'websockets', 'emails']
+	export let triggersToDisplay: ('webhooks' | 'schedules' | 'routes' | 'websockets' | 'database' | 'emails')[] =
+		['webhooks', 'schedules', 'routes', 'websockets', 'database', 'emails']
 	const dispatch = createEventDispatcher()
 
 	onMount(() => {
@@ -47,6 +47,7 @@
 		schedules: { icon: Calendar, countKey: 'schedule_count' },
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
+		database: { icon: Database, countKey: 'database_count' },
 		emails: { icon: Mail, countKey: 'email_count' }
 	}
 </script>
