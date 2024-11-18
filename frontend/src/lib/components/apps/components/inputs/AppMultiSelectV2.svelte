@@ -18,6 +18,7 @@
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 	import type { ObjectOption } from '../../../multiselect/types'
 	import { parseConfigOptions } from './utils'
+	import { deepEqual } from 'fast-equals'
 
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
@@ -58,6 +59,9 @@
 	}
 
 	$: if (resolvedConfig.defaultItems) {
+		console.log(resolvedConfig.defaultItems)
+		console.log(findOptionsByValue(resolvedConfig.defaultItems))
+
 		selectOptionsByValue(resolvedConfig.defaultItems)
 	}
 
@@ -72,9 +76,14 @@
 		})
 	}
 
-	function findOptionsByValue(valuesArray: any[]) {
-		const values = new Set(valuesArray)
-		return options?.filter((item) => values.has(item.value)) as ObjectOption[]
+	function findOptionsByValue(values: any[]) {
+		return options?.filter((item) => {
+			let itemValue = item.value
+			try {
+				if (typeof itemValue === 'string') JSON.parse(itemValue)
+			} catch (_) {}
+			return values.some((value) => deepEqual(itemValue, value))
+		}) as ObjectOption[]
 	}
 
 	function selectOptionsByValue(values: any[]) {
