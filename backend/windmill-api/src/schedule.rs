@@ -28,11 +28,10 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath, ScheduleType},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{schedule::push_scheduled_job, QueueTransaction};
-use croner::Cron;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -154,10 +153,8 @@ async fn create_schedule(
 
     let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
 
-    Cron::new(&ns.schedule)
-        .with_seconds_optional()
-        .parse()
-        .map_err(|e| Error::BadRequest(format!("cron: {}", e.to_string())))?;
+    // Check schedule for error
+    ScheduleType::from_str(&ns.schedule, true)?;
 
     check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
     check_flow_conflict(
@@ -260,10 +257,8 @@ async fn edit_schedule(
     let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq.clone(), user_db.begin(&authed).await?).into();
 
-    Cron::new(&es.schedule)
-        .with_seconds_optional()
-        .parse()
-        .map_err(|e| Error::BadRequest(format!("cron: {}", e.to_string())))?;
+    // Check schedule for error
+    ScheduleType::from_str(&es.schedule, true)?;
 
     clear_schedule(tx.transaction_mut(), path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
@@ -477,19 +472,12 @@ pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
 ) -> JsonResult<Vec<DateTime<Utc>>> {
 
-    let schedule = Cron::new(&payload.schedule)
-        .with_seconds_optional()
-        .parse()
-        .map_err(|e| Error::BadRequest(format!("cron: {}", e.to_string())))?;
+    let schedule = ScheduleType::from_str(&payload.schedule, true)?;
 
-    let tz =
-        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz = chrono_tz::Tz::from_str(&payload.timezone)
+        .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-    let upcoming: Vec<DateTime<Utc>> = schedule
-        .iter_from(Utc::now().with_timezone(&tz))
-        .take(5)
-        .map(|dt| dt.with_timezone(&Utc))
-        .collect();
+    let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5);
 
     Ok(Json(upcoming))
 }

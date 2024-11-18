@@ -16,12 +16,15 @@ use anyhow::Context;
 use gethostname::gethostname;
 use git_version::git_version;
 
+use chrono::Utc;
+use croner::Cron;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use reqwest::Client;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
-use semver::Version;
+use std::str::FromStr;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -275,7 +278,8 @@ pub async fn report_critical_error(
     // we ack_global if mute_global is true, or if mute_workspace is true
     // but we ignore global mute setting for ack_workspace
     let acknowledge_workspace = mute_workspace;
-    let acknowledge_global = mute_global || mute_workspace || ( workspace_id.is_some() && *CLOUD_HOSTED);
+    let acknowledge_global =
+        mute_global || mute_workspace || (workspace_id.is_some() && *CLOUD_HOSTED);
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
@@ -374,5 +378,97 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
             );
             Err(Error::SqlErr(err))
         }
+    }
+}
+
+pub enum ScheduleType {
+    Croner(Cron),
+    Cron(cron::Schedule),
+}
+
+impl ScheduleType {
+    pub fn find_next(
+        &self,
+        starting_from: &chrono::DateTime<chrono_tz::Tz>,
+    ) -> chrono::DateTime<chrono_tz::Tz> {
+        match self {
+            ScheduleType::Croner(croner_schedule) => croner_schedule
+                .find_next_occurrence(starting_from, false)
+                .expect("cron: a schedule should have a next event"),
+            ScheduleType::Cron(schedule) => schedule
+                .after(starting_from)
+                .next()
+                .expect("cron: a schedule should have a next event"),
+        }
+    }
+
+    pub fn from_str(schedule_str: &str, force_croner: bool) -> Result<ScheduleType> {
+        tracing::debug!("Attempting to parse schedule string: {}", schedule_str);
+
+        fn parse_croner(schedule_str: &str) -> Result<Cron> {
+            Cron::new(schedule_str)
+                .with_alternative_weekdays()
+                .with_seconds_required()
+                .parse()
+                .map_err(|e| {
+                    tracing::error!(
+                        "Failed to parse schedule string '{}' using Croner: {}",
+                        schedule_str,
+                        e
+                    );
+                    Error::BadRequest(format!("cron: {}", e))
+                })
+        }
+
+        if force_croner {
+            // Parse using croner
+            parse_croner(schedule_str).map(ScheduleType::Croner)
+        } else {
+            // Try croner, fallback to cron
+            parse_croner(schedule_str)
+                .map(ScheduleType::Croner)
+                .or_else(|_| {
+                    tracing::debug!("Failed to parse using Croner for string: {}", schedule_str);
+                    cron::Schedule::from_str(schedule_str)
+                        .map(ScheduleType::Cron)
+                        .map_err(|e| {
+                            tracing::error!(
+                    "Failed to parse schedule string '{}' using both Croner and Cron: {}",
+                    schedule_str,
+                    e
+                );
+                            Error::BadRequest(format!("cron: {}", e))
+                        })
+                })
+        }
+    }
+
+    pub fn upcoming(
+        &self,
+        tz: chrono_tz::Tz,
+        count: usize, // Number of upcoming events to take
+    ) -> Vec<chrono::DateTime<Utc>> {
+        let start_time = Utc::now().with_timezone(&tz);
+
+        let mut events: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(count);
+
+        match self {
+            ScheduleType::Croner(croner_schedule) => {
+                croner_schedule
+                    .iter_from(start_time)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .take(count)
+                    .for_each(|event| events.push(event));
+            }
+            ScheduleType::Cron(schedule) => {
+                schedule
+                    .upcoming(tz)
+                    .map(|x| x.with_timezone(&Utc))
+                    .take(count)
+                    .for_each(|event| events.push(event));
+            }
+        };
+
+        events
     }
 }

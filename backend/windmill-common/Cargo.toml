@@ -59,6 +59,7 @@ const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
 semver.workspace = true
+croner = "2.0.6"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

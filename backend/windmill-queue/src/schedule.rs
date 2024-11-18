@@ -18,14 +18,14 @@ use windmill_common::ee::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::utils::report_critical_error;
 use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
     users::username_to_permissioned_as,
-    utils::{now_from_db, StripPath},
+    utils::{now_from_db, ScheduleType, StripPath},
 };
-use croner::Cron;
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     db: &DB,
@@ -40,10 +40,11 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         ));
     }
 
-    let sched = Cron::new(schedule.schedule.as_ref())
-        .with_seconds_optional()
-        .parse()
-        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let sched = ScheduleType::from_str(&schedule.schedule, false)?;
+
+    if let ScheduleType::Cron(_) = sched {
+        report_critical_error(format!("Schedule '{}' is incompatible with croner, falling back to cron! Please migrate cron expression to croner format.", schedule.schedule), db.clone(), Some(&schedule.workspace_id), None).await;
+    }
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
@@ -67,10 +68,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     };
 
-    let next = sched
-        // `false` means not inclusive of `starting_from`
-        .find_next_occurrence(&starting_from, false)
-        .expect("a schedule should have a next event");
+    let next = sched.find_next(&starting_from);
 
     // println!("next event ({:?}): {}", tz, next);
     // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
