@@ -59,9 +59,6 @@
 	}
 
 	$: if (resolvedConfig.defaultItems) {
-		console.log(resolvedConfig.defaultItems)
-		console.log(findOptionsByValue(resolvedConfig.defaultItems))
-
 		selectOptionsByValue(resolvedConfig.defaultItems)
 	}
 
@@ -173,6 +170,10 @@
 				{options}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
+				key={(option) => {
+					if (typeof option == 'string' || typeof option == 'number') return option
+					return option.value
+				}}
 				on:change={(event) => {
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
