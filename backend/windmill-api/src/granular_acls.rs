@@ -23,7 +23,7 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
-const KINDS: [&str; 10] = [
+const KINDS: [&str; 12] = [
     "script",
     "group_",
     "resource",
@@ -34,6 +34,8 @@ const KINDS: [&str; 10] = [
     "app",
     "raw_app",
     "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
 ];
 
 pub fn workspaced_service() -> Router {

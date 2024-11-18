@@ -14,7 +14,8 @@
 		ScriptService,
 		HttpTriggerService,
 		VariableService,
-		WebsocketTriggerService
+		WebsocketTriggerService,
+		KafkaTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -37,6 +38,7 @@
 		| 'raw_app'
 		| 'http_trigger'
 		| 'websocket_trigger'
+		| 'kafka_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -222,6 +224,11 @@
 			})
 		} else if (kind == 'websocket_trigger') {
 			return await WebsocketTriggerService.existsWebsocketTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'kafka_trigger') {
+			return await KafkaTriggerService.existsKafkaTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

@@ -198,7 +198,7 @@
 					url_runnable_args
 				}
 			})
-			sendUserToast(`Route ${path} updated`)
+			sendUserToast(`Websocket trigger ${path} updated`)
 		} else {
 			await WebsocketTriggerService.createWebsocketTrigger({
 				workspace: $workspaceStore!,
@@ -213,7 +213,7 @@
 					url_runnable_args
 				}
 			})
-			sendUserToast(`Route ${path} created`)
+			sendUserToast(`Websocket trigger ${path} created`)
 		}
 		if (!$usedTriggerKinds.includes('ws')) {
 			$usedTriggerKinds = [...$usedTriggerKinds, 'ws']
