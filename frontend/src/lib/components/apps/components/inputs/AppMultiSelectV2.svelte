@@ -200,7 +200,7 @@
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
 				>
-					{option.label}
+					{@html option.label === '' ? `&nbsp;` : option.label}
 				</div>
 			</MultiSelect>
 
