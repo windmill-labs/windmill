@@ -198,6 +198,7 @@ pub enum ResourceOrVariablePath {
 pub struct FileResource {
     pub resource_path: ResourceOrVariablePath,
     pub target_path: String,
+    pub mode: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -437,36 +438,65 @@ fn count_consecutive_vs(s: &str) -> usize {
 
 fn parse_file_resource(yaml: &Yaml) -> anyhow::Result<FileResource> {
     if let Yaml::Hash(f) = yaml {
+        let target_path = f
+            .get(&Yaml::String("target".to_string()))
+            .and_then(|x| x.as_str())
+            .map(|x| x.to_string())
+            .ok_or(anyhow!(
+                "No `target` provided for the file. Please input a target path (only relative paths are allowed) where the ansible playbook can read this file.",
+            ))?;
+
+        let mut mode = None;
+        if let Some(u) = f.get(&Yaml::String("mode".to_string())) {
+            let mode_val: u32 = match u {
+                Yaml::Integer(u) => {
+                    u.clone().try_into().map_err(|e| {
+                        anyhow!(
+                            "Invalid value for `mode` permissions property on targeted file to: {}, err: {e}",
+                            target_path
+                        )
+                    })?
+                }
+                Yaml::String(s) => {
+                    let val = if s.starts_with("0b") {
+                        u32::from_str_radix(&s[2..], 2)
+                    } else if s.starts_with("0o") {
+                        u32::from_str_radix(&s[2..], 8)
+                    } else if s.starts_with("0") {
+                        u32::from_str_radix(&s[1..], 8)
+                    } else {
+                        u32::from_str_radix(s, 8)
+                    };
+
+                    val.map_err(|e| anyhow!("Error parsing permission mode value {s}: {e}"))?
+                }
+                _ => {
+                    return Err(anyhow!("Invalid field in `mode`, expected integer like 0o644"));
+                }
+            };
+            if mode_val <= 0o777 {
+                mode = Some(mode_val);
+            } else {
+                return Err(anyhow!("The provided value for `mode` is too big. Make sure that you are using the octal prefix (0o), e.g. `mode: 0o644`"));
+            }
+        }
+
         if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("resource".to_string())) {
-            let target_path = f
-                .get(&Yaml::String("target".to_string()))
-                .and_then(|x| x.as_str())
-                .map(|x| x.to_string())
-                .ok_or(anyhow!(
-                    "No `target` provided for file resource {}. Please input a target relative path for the ansible playbook to see this file.",
-                    resource_path
-                ))?;
             return Ok(FileResource {
                 resource_path: ResourceOrVariablePath::Resource(resource_path.clone()),
                 target_path,
+                mode,
             });
         }
         if let Some(Yaml::String(resource_path)) = f.get(&Yaml::String("variable".to_string())) {
-            let target_path = f
-                .get(&Yaml::String("target".to_string()))
-                .and_then(|x| x.as_str())
-                .map(|x| x.to_string())
-                .ok_or(anyhow!(
-                    "No `target` provided for file resource {}. Please input a target relative path for the ansible playbook to see this file.",
-                    resource_path
-                ))?;
             return Ok(FileResource {
                 resource_path: ResourceOrVariablePath::Variable(resource_path.clone()),
                 target_path,
+                mode,
             });
         }
         return Err(anyhow!(
-            "File resource should have a `resource` field, linking to a text file resource"
+            "Files should have a `resource` or `variable` field that will be the contents of the local text file"
         ));
     }
     return Err(anyhow!("Invalid file resource: Should be a dictionary."));
