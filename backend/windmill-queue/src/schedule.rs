@@ -25,6 +25,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{now_from_db, StripPath},
 };
+use croner::Cron;
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     db: &DB,
@@ -39,7 +40,9 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         ));
     }
 
-    let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
+    let sched = Cron::new(schedule.schedule.as_ref())
+        .with_seconds_optional()
+        .parse()
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
@@ -65,8 +68,8 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     };
 
     let next = sched
-        .after(&starting_from)
-        .next()
+        // `false` means not inclusive of `starting_from`
+        .find_next_occurrence(&starting_from, false)
         .expect("a schedule should have a next event");
 
     // println!("next event ({:?}): {}", tz, next);

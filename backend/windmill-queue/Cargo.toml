@@ -43,3 +43,4 @@ bigdecimal.workspace = true
 axum.workspace = true
 serde_urlencoded.workspace = true
 regex.workspace = true
+croner = "2.0.6"

@@ -32,6 +32,7 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{schedule::push_scheduled_job, QueueTransaction};
+use croner::Cron;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -153,7 +154,11 @@ async fn create_schedule(
 
     let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
 
-    cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
+    Cron::new(&ns.schedule)
+        .with_seconds_optional()
+        .parse()
+        .map_err(|e| Error::BadRequest(format!("cron: {}", e.to_string())))?;
+
     check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
     check_flow_conflict(
         tx.transaction_mut(),
@@ -255,7 +260,10 @@ async fn edit_schedule(
     let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq.clone(), user_db.begin(&authed).await?).into();
 
-    cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
+    Cron::new(&es.schedule)
+        .with_seconds_optional()
+        .parse()
+        .map_err(|e| Error::BadRequest(format!("cron: {}", e.to_string())))?;
 
     clear_schedule(tx.transaction_mut(), path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
@@ -468,17 +476,19 @@ pub struct PreviewPayload {
 pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
 ) -> JsonResult<Vec<DateTime<Utc>>> {
-    let schedule = cron::Schedule::from_str(&payload.schedule)
-        .map_err(|e| Error::BadRequest(e.to_string()))?;
+
+    let schedule = Cron::new(&payload.schedule)
+        .with_seconds_optional()
+        .parse()
+        .map_err(|e| Error::BadRequest(format!("cron: {}", e.to_string())))?;
 
     let tz =
         chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
 
     let upcoming: Vec<DateTime<Utc>> = schedule
-        .upcoming(tz)
+        .iter_from(Utc::now().with_timezone(&tz))
         .take(5)
-        // Convert back to UTC for a standardised API response. The client will convert to the local timezone.
-        .map(|x| x.with_timezone(&Utc))
+        .map(|dt| dt.with_timezone(&Utc))
         .collect();
 
     Ok(Json(upcoming))
