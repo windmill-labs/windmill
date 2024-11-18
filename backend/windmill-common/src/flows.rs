@@ -14,12 +14,15 @@ use std::{
 
 use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
+use sqlx::types::Json;
+use sqlx::types::JsonRawValue;
 
 use crate::{
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
 };
+use crate::worker::to_raw_value;
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct Flow {
@@ -27,7 +30,7 @@ pub struct Flow {
     pub path: String,
     pub summary: String,
     pub description: String,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub value: Json<Box<JsonRawValue>>,
     pub edited_by: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub archived: bool,
@@ -480,6 +483,24 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
     },
+    InlineScript {
+        #[serde(default)]
+        #[serde(alias = "input_transform", serialize_with = "ordered_map")]
+        input_transforms: HashMap<String, InputTransform>,
+        flow_path: String,
+        hash: ScriptHash, // reference to `inline_script` table on (flow.path, hash)
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
+        language: ScriptLang,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        custom_concurrency_key: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        concurrent_limit: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
+    },
     Identity,
 }
 
@@ -494,6 +515,7 @@ struct UntaggedFlowModuleValue {
     #[serde(alias = "input_transform")]
     input_transforms: Option<HashMap<String, InputTransform>>,
     path: Option<String>,
+    flow_path: Option<String>,
     hash: Option<ScriptHash>,
     tag_override: Option<String>,
     iterator: Option<InputTransform>,
@@ -574,6 +596,23 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("content"))?,
                 lock: untagged.lock,
                 path: untagged.path,
+                tag: untagged.tag,
+                language: untagged
+                    .language
+                    .ok_or_else(|| serde::de::Error::missing_field("language"))?,
+                custom_concurrency_key: untagged.custom_concurrency_key,
+                concurrent_limit: untagged.concurrent_limit,
+                concurrency_time_window_s: untagged.concurrency_time_window_s,
+                is_trigger: untagged.is_trigger,
+            }),
+            "inlinescript" => Ok(FlowModuleValue::InlineScript {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                flow_path: untagged
+                    .flow_path
+                    .ok_or_else(|| serde::de::Error::missing_field("flow_path"))?,
+                hash: untagged
+                    .hash
+                    .ok_or_else(|| serde::de::Error::missing_field("hash"))?,
                 tag: untagged.tag,
                 language: untagged
                     .language
@@ -677,4 +716,62 @@ pub async fn has_failure_module<'c>(flow: sqlx::types::Uuid, db: &sqlx::Pool<sql
         ))
     })
     .map(|v| v.unwrap_or(false))
+}
+
+/// Resolve loadable modules recursively.
+pub async fn resolve(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+    value: &mut Box<JsonRawValue>
+) {
+    let Ok(mut val) = serde_json::from_str::<FlowValue>(value.get()) else { return };
+    for module in &mut val.modules {
+        resolve_module(conn, workspace_id, &mut module.value).await;
+    }
+    *value = to_raw_value(&val);
+}
+
+/// Resolve loadable module values recursively.
+pub async fn resolve_module(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+    value: &mut Box<JsonRawValue>
+) {
+    use FlowModuleValue::*;
+
+    let Ok(mut val) = serde_json::from_str::<FlowModuleValue>(value.get()) else { return };
+    match &mut val {
+        InlineScript { .. } => {
+            let InlineScript {
+                input_transforms, flow_path, hash, tag, language,
+                custom_concurrency_key, concurrent_limit, concurrency_time_window_s, is_trigger
+            } = std::mem::replace(&mut val, Identity) else { unreachable!() };
+            let Ok((content, lock, path)) = sqlx::query!(
+                "SELECT content, lock, path FROM inline_script WHERE hash = $1 AND flow = $2 AND \
+                 workspace_id = $3",
+                hash.0, flow_path, workspace_id
+            )
+            .fetch_one(conn)
+            .await
+            .map(|record| (record.content, record.lock, record.path)) else { return };
+            val = RawScript {
+                input_transforms, content, lock, path, tag, language, custom_concurrency_key,
+                concurrent_limit, concurrency_time_window_s, is_trigger
+            };
+        },
+        ForloopFlow { modules, .. } | WhileloopFlow { modules, .. }  => {
+            for module in modules {
+                Box::pin(resolve_module(conn, workspace_id, &mut module.value)).await;
+            }
+        },
+        BranchOne { branches, .. } | BranchAll { branches, .. } => {
+            for branch in branches {
+                for module in &mut branch.modules {
+                    Box::pin(resolve_module(conn, workspace_id, &mut module.value)).await;
+                }
+            }
+        }
+        _ => {}
+    }
+    *value = to_raw_value(&val);
 }

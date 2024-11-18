@@ -39,7 +39,7 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{resolve, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
@@ -98,7 +98,7 @@ async fn list_search_flows(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
-    let rows = sqlx::query_as::<_, SearchFlow>(
+    let mut rows = sqlx::query_as::<_, SearchFlow>(
         "SELECT flow.path, flow_version.value
         FROM flow 
         LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
@@ -110,6 +110,9 @@ async fn list_search_flows(
     .await?
     .into_iter()
     .collect::<Vec<_>>();
+    for row in &mut rows {
+        resolve(&mut *tx, &w_id, &mut row.value.0).await;
+    }
     tx.commit().await?;
     Ok(Json(rows))
 }
@@ -578,11 +581,12 @@ async fn get_flow_version(
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
     )
     .bind(path)
-    .bind(w_id)
+    .bind(&w_id)
     .bind(version)
     .fetch_optional(&mut *tx)
     .await?;
 
+    let flow = resolve_flow_value_if_some(&mut *tx, &w_id, flow, |f| &mut f.value).await;
     tx.commit().await?;
 
     let flow = not_found_if_none(flow, "Flow version", version.to_string())?;
@@ -942,7 +946,7 @@ async fn get_flow_by_path(
             WHERE flow.path = $1 AND flow.workspace_id = $2"
         )
             .bind(path)
-            .bind(w_id)
+            .bind(&w_id)
             .bind(&authed.username)
             .fetch_optional(&mut *tx)
             .await?
@@ -954,10 +958,11 @@ async fn get_flow_by_path(
             WHERE flow.path = $1 AND flow.workspace_id = $2"
         )
             .bind(path)
-            .bind(w_id)
+            .bind(&w_id)
             .fetch_optional(&mut *tx)
             .await?
     };
+    let flow_o = resolve_flow_value_if_some(&mut *tx, &w_id, flow_o, |f| &mut f.flow.value).await;
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1004,9 +1009,10 @@ async fn get_flow_by_path_w_draft(
         WHERE flow.path = $1 AND flow.workspace_id = $2",
     )
     .bind(path)
-    .bind(w_id)
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
+    let flow_o = resolve_flow_value_if_some(&mut *tx, &w_id, flow_o, |f| &mut f.value).await;
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1484,4 +1490,15 @@ mod tests {
 
         assert_eq!(Some(81 * SECOND), retry.max_interval());
     }
+}
+
+async fn resolve_flow_value_if_some<T>(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+    maybe: Option<T>,
+    f: impl FnOnce(&mut T) -> &mut Box<sqlx::types::JsonRawValue>
+) -> Option<T> {
+    let Some(mut value) = maybe else { return None; };
+    resolve(conn, workspace_id, f(&mut value)).await;
+    Some(value)
 }

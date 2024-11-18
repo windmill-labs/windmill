@@ -39,6 +39,7 @@ pub enum JobKind {
     AppDependencies,
     Noop,
     DeploymentCallback,
+    InlineScript,
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -262,6 +263,16 @@ pub enum JobPayload {
         language: ScriptLang,
         priority: Option<i16>,
         apply_preprocessor: bool,
+    },
+    InlineScript {
+        flow_path: String,
+        hash: ScriptHash,
+        language: ScriptLang,
+        custom_concurrency_key: Option<String>,
+        concurrent_limit: Option<i32>,
+        concurrency_time_window_s: Option<i32>,
+        cache_ttl: Option<i32>,
+        dedicated_worker: Option<bool>,
     },
     Code(RawCode),
     Dependencies {

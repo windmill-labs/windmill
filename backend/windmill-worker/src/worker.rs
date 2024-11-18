@@ -1842,7 +1842,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
-            format!("script_{}", h.to_string())
+            if matches!(job.job_kind, JobKind::InlineScript) {
+                format!("inlinescript_{}", h.to_string())
+            } else {
+                format!("script_{}", h.to_string())
+            }
         } else if let Some(rc) = raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
@@ -2256,6 +2260,26 @@ async fn handle_code_execution_job(
             )
             .await?
         }
+        JobKind::InlineScript => {
+            // TODO(uael): why path unused ?
+            let (content, lock, _path) = sqlx::query!(
+                "SELECT content, lock, path FROM inline_script \
+                 WHERE flow = $1 AND hash = $2 AND workspace_id = $3",
+                job.script_path.as_ref().map(String::as_str).unwrap_or(""),
+                job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.workspace_id
+            )
+            .fetch_one(db)
+            .await
+            .map(|record| (record.content, record.lock, record.path))?;
+            ContentReqLangEnvs {
+                content,
+                lockfile: lock,
+                language: job.language.to_owned(),
+                envs: None,
+                codebase: None,
+            }
+        },
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
         }

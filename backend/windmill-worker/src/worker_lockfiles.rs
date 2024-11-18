@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hasher};
 use std::path::{Component, Path, PathBuf};
 
 use async_recursion::async_recursion;
@@ -922,7 +923,7 @@ async fn lock_modules<'c>(
         )
         .await;
         //
-        match new_lock {
+        let lock = match new_lock {
             Ok(new_lock) => {
                 let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
                 tx = clear_dependency_map_for_item(
@@ -963,20 +964,7 @@ async fn lock_modules<'c>(
                         language = ScriptLang::Bun;
                     };
                 }
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: Some(new_lock),
-                    path,
-                    input_transforms,
-                    content,
-                    language,
-                    tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    is_trigger,
-                });
-                new_flow_modules.push(e);
-                continue;
+                Some(new_lock)
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
@@ -986,24 +974,57 @@ async fn lock_modules<'c>(
                     error = ?error,
                     "Failed to generate flow lock for raw script"
                 );
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: None,
-                    path,
-                    input_transforms,
-                    content,
-                    language,
-                    tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    is_trigger,
-                });
-                new_flow_modules.push(e);
-                continue;
+                None
             }
-        }
+        };
+        // TODO(uael): check min version before using `InlineScript`.
+        let hash;
+        (tx, hash) = create_inline_script(tx, job_path, &job.workspace_id, lock, path, content)
+            .await?;
+        e.value = to_raw_value(&FlowModuleValue::InlineScript {
+            input_transforms,
+            flow_path: job_path.to_string(),
+            hash,
+            tag,
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            is_trigger,
+        });
+        new_flow_modules.push(e);
+        continue;
     }
     Ok((new_flow_modules, tx, modified_ids))
+}
+
+async fn create_inline_script<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    flow_path: &str,
+    workspace_id: &str,
+    lock: Option<String>,
+    path: Option<String>,
+    content: String,
+) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, ScriptHash)> {
+    let hash = ScriptHash({
+        use std::hash::Hash;
+
+        let mut hasher = DefaultHasher::new();
+        lock.hash(&mut hasher);
+        path.hash(&mut hasher);
+        content.hash(&mut hasher);
+        hasher.finish() as i64
+    });
+
+    sqlx::query!(
+        "INSERT INTO inline_script (hash, flow, workspace_id, lock, path, content)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT DO NOTHING",
+        hash.0, flow_path, workspace_id, lock, path, content
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok((tx, hash))
 }
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {

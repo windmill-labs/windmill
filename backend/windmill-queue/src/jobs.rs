@@ -3299,6 +3299,31 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 priority,
             )
         }
+        // TODO(uael): apply_preprocessor ?
+        JobPayload::InlineScript {
+            flow_path,
+            hash,
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker
+        } => (
+            Some(hash.0),
+            Some(flow_path),
+            None,
+            JobKind::InlineScript,
+            None,
+            None,
+            Some(language),
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker,
+            None,
+        ),
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -4060,6 +4085,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
             JobKind::AppDependencies => "jobs.run.app_dependencies",
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
+            JobKind::InlineScript => "jobs.run.inline_script",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

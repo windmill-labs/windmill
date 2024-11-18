@@ -392,6 +392,45 @@ async fn spawn_dedicated_workers_for_flow(
                         workers.push(dedi_w);
                     }
                 }
+                FlowModuleValue::InlineScript { hash, language, .. } => {
+                    let spawn = sqlx::query!(
+                        "SELECT content, lock, path FROM inline_script \
+                         WHERE flow = $1 AND hash = $2 AND workspace_id = $3",
+                        path, hash.0, w_id
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map(|record| SpawnWorker::RawScript {
+                        path: record.path.unwrap_or_else(|| "".to_string()),
+                        content: record.content,
+                        lock: record.lock,
+                        lang: language.clone(),
+                    });
+                    match spawn {
+                        Ok(spawn) => {
+                            if let Some(dedi_w) = spawn_dedicated_worker(
+                                spawn,
+                                w_id,
+                                killpill_tx.clone(),
+                                killpill_rx,
+                                db,
+                                worker_dir,
+                                base_internal_url,
+                                worker_name,
+                                job_completed_tx,
+                                Some(module.id.clone()),
+                            )
+                              .await
+                            {
+                                workers.push(dedi_w);
+                            }
+                        },
+                        Err(err) => tracing::error!(
+                            "failed to get script for module: {:?}, err: {:?}",
+                            module, err
+                        )
+                    }
+                },
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }
