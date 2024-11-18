@@ -24,12 +24,8 @@
 	export let expandedEvenOnLevel0: string | undefined = undefined
 	export let connecting = false
 
-	$: console.log('dbg connecting', connecting)
-
 	let s3FileViewer: S3FilePicker
 	let hoveredKey: string | null = null
-
-	$: console.log('dbg hoveredKey', hoveredKey)
 
 	const collapsedSymbol = '...'
 	$: keys = ['object', 's3object'].includes(getTypeAsString(json)) ? Object.keys(json) : []
@@ -120,7 +116,6 @@
 							<Button
 								on:click={() => selectProp(key, undefined, false)}
 								on:mouseenter={() => {
-									console.log('dbg mouseenter', key)
 									hoveredKey = key
 								}}
 								on:mouseleave={() => (hoveredKey = null)}
