@@ -74,6 +74,9 @@
 	}
 
 	function findOptionsByValue(values: any[]) {
+		if (!Array.isArray(values)) {
+			return []
+		}
 		return options?.filter((item) => {
 			let itemValue = item.value
 			try {
@@ -95,7 +98,7 @@
 	}
 
 	function toValues(options: ObjectOption[] | undefined) {
-		if (!options) {
+		if (!options || !Array.isArray(options)) {
 			return []
 		}
 
