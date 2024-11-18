@@ -47,7 +47,7 @@
 			} else if (subFieldType === 'object') {
 				value.push({})
 			} else if (subFieldType === 'labeledresource' || subFieldType === 'labeledselect') {
-				value.push({ value: 'value', label: 'label' })
+				value.push({ label: 'label', value: 'value' })
 			} else if (subFieldType === 'tab-select') {
 				value.push({ id: '', index: 0 })
 			} else if (
