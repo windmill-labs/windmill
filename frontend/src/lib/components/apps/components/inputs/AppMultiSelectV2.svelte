@@ -75,7 +75,13 @@
 
 	function findOptionsByValue(values: any[]) {
 		return options?.filter((item) => {
-			return values.some((value) => deepEqual(item.value, value))
+			let itemValue = item.value
+			try {
+				if (typeof itemValue == 'string') {
+					itemValue = JSON.parse(itemValue)
+				}
+			} catch (_) {}
+			return values.some((value) => deepEqual(itemValue, value))
 		}) as ObjectOption[]
 	}
 
