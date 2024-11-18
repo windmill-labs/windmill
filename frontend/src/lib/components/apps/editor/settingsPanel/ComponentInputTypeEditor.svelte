@@ -49,7 +49,7 @@
 
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full">
-		<div class="mx-auto flex gap-2" bind:clientWidth>
+		<div class="flex gap-2 justify-end" bind:clientWidth>
 			<ToggleButtonGroup
 				on:selected={() => {
 					onchange?.()
