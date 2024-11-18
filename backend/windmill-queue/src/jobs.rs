@@ -924,6 +924,8 @@ pub async fn add_completed_job<
                         .unwrap_or("".to_string()),
                 ),
                 db.clone(),
+                Some(&w_id),
+                None,
             )
             .await;
         } else if queued_job.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL {
@@ -992,7 +994,7 @@ pub async fn add_completed_job<
                             "Could not push workspace error handler for failed job ({base_url}/run/{}?workspace={w_id}): {}",
                             queued_job.id,
                             err
-                        ), db.clone())
+                        ), db.clone(), Some(&w_id), None)
                         .await;
                     }
                 }
@@ -1175,10 +1177,10 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel<
                 queued_job.id,
                 err
             );
-            report_critical_error(error_message, db.clone()).await;
+            report_critical_error(error_message, db.clone(), Some(&w_id), None).await;
         }
     } else {
-        report_critical_error(error_message, db.clone()).await;
+        report_critical_error(error_message, db.clone(), Some(&w_id), None).await;
     }
 }
 
@@ -3670,15 +3672,15 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
         JobPayload::DeploymentCallback { path } => (
             None,
-            Some(path),
+            Some(path.clone()),
             None,
             JobKind::DeploymentCallback,
             None,
             None,
             None,
-            None,
-            None,
-            None,
+            Some(format!("{workspace_id}:git_sync")),
+            Some(1),
+            Some(0),
             None,
             None,
             None,

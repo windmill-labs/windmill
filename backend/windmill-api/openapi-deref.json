@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.418.0",
+    "version": "1.423.2",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -286,7 +286,7 @@
         }
       }
     },
-    "/w/{workspace}/users/{username}": {
+    "/w/{workspace}/users/get/{username}": {
       "get": {
         "summary": "get user (require admin privilege)",
         "operationId": "getUser",
@@ -425,6 +425,106 @@
         "responses": {
           "200": {
             "description": "password set",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/set_password_of/{user}": {
+      "post": {
+        "summary": "set password for a specific user (require super admin)",
+        "operationId": "setPasswordForUser",
+        "tags": [
+          "user"
+        ],
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "set password",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "password set",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/set_login_type/{user}": {
+      "post": {
+        "summary": "set login type for a specific user (require super admin)",
+        "operationId": "setLoginTypeForUser",
+        "tags": [
+          "user"
+        ],
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "set login type",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "login_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "login_type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "login type set",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1105,6 +1205,9 @@
                       },
                       "tls_implicit": {
                         "type": "boolean"
+                      },
+                      "disable_tls": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -1113,7 +1216,8 @@
                       "password",
                       "port",
                       "from",
-                      "tls_implicit"
+                      "tls_implicit",
+                      "disable_tls"
                     ]
                   }
                 },
@@ -2460,8 +2564,8 @@
                     "deploy_to": {
                       "type": "string"
                     },
-                    "openai_resource_path": {
-                      "type": "string"
+                    "ai_resource": {
+                      "$ref": "#/components/schemas/AiResource"
                     },
                     "code_completion_enabled": {
                       "type": "boolean"
@@ -2901,8 +3005,8 @@
                   "code_completion_enabled"
                 ],
                 "properties": {
-                  "openai_resource_path": {
-                    "type": "string"
+                  "ai_resource": {
+                    "$ref": "#/components/schemas/AiResource"
                   },
                   "code_completion_enabled": {
                     "type": "boolean"
@@ -2946,7 +3050,10 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "exists_openai_resource_path": {
+                    "ai_provider": {
+                      "type": "string"
+                    },
+                    "exists_ai_resource": {
                       "type": "boolean"
                     },
                     "code_completion_enabled": {
@@ -2954,7 +3061,8 @@
                     }
                   },
                   "required": [
-                    "exists_openai_resource_path",
+                    "ai_provider",
+                    "exists_ai_resource",
                     "code_completion_enabled"
                   ]
                 }
@@ -13160,6 +13268,30 @@
         }
       }
     },
+    "/workers/queue_counts": {
+      "get": {
+        "summary": "get counts of jobs waiting for an executor per tag",
+        "operationId": "getCountsOfJobsWaitingPerTag",
+        "tags": [
+          "worker"
+        ],
+        "responses": {
+          "200": {
+            "description": "queue counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/configs/list_worker_groups": {
       "get": {
         "summary": "list worker groups",
@@ -14810,6 +14942,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "content_type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content_disposition",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -16116,6 +16262,21 @@
       }
     },
     "schemas": {
+      "AiResource": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "provider"
+        ]
+      },
       "Script": {
         "type": "object",
         "properties": {
@@ -17226,7 +17387,7 @@
               "jobs.disapproval",
               "jobs.delete",
               "account.delete",
-              "openai.request",
+              "ai.request",
               "resources.create",
               "resources.update",
               "resources.delete",
@@ -18067,6 +18228,23 @@
           "route_path": {
             "type": "string"
           },
+          "static_asset_config": {
+            "type": "object",
+            "properties": {
+              "s3": {
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "s3"
+            ]
+          },
           "is_flow": {
             "type": "boolean"
           },
@@ -18126,6 +18304,23 @@
           "route_path": {
             "type": "string"
           },
+          "static_asset_config": {
+            "type": "object",
+            "properties": {
+              "s3": {
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "s3"
+            ]
+          },
           "is_flow": {
             "type": "boolean"
           },
@@ -18167,6 +18362,23 @@
           },
           "route_path": {
             "type": "string"
+          },
+          "static_asset_config": {
+            "type": "object",
+            "properties": {
+              "s3": {
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "s3"
+            ]
           },
           "is_flow": {
             "type": "boolean"
@@ -18914,6 +19126,12 @@
           "triggerables_v2": {
             "type": "object",
             "additionalProperties": {
+              "type": "object"
+            }
+          },
+          "s3_inputs": {
+            "type": "array",
+            "items": {
               "type": "object"
             }
           },

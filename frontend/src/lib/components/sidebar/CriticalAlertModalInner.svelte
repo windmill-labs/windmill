@@ -2,23 +2,77 @@
 	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import { CheckCircle2, AlertCircle, RefreshCw, CheckSquare2, AlertTriangle } from 'lucide-svelte'
+	import {
+		CheckCircle2,
+		AlertCircle,
+		RefreshCw,
+		CheckSquare2,
+		AlertTriangle,
+	} from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
 	import { instanceSettingsSelectedTab } from '$lib/stores'
 	import { goto } from '$app/navigation'
+	import { superadmin, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import Section from '$lib/components/Section.svelte'
 
-	export let updateHasUnacknowledgedCriticalAlerts: () => void = () => {}
+	export let updateHasUnacknowledgedCriticalAlerts
+	export let getCriticalAlerts
+	export let acknowledgeCriticalAlert
+	export let acknowledgeAllCriticalAlerts
+	export let numUnacknowledgedCriticalAlerts
 
 	let alerts: CriticalAlert[] = []
 
 	let isRefreshing = false
-	let hasCriticalAlertChannels = false
+	let hasCriticalAlertChannels = true
+
+	export let muteSettings = {
+		workspace: true,
+		global: true
+	}
+
+	$: muteSettings
+	$: {
+		if (initialMuteSettings.workspace !== muteSettings.workspace || initialMuteSettings.global !== muteSettings.global) {
+			saveMuteSettings()
+		}
+	}
+
+	$: numUnacknowledgedCriticalAlerts >= 0 && getAlerts(true)
+
+	let initialMuteSettings = muteSettings
+
+	async function saveMuteSettings() {
+		if (initialMuteSettings.workspace !== muteSettings.workspace) {
+			// Workspace
+			await SettingService.workspaceMuteCriticalAlertsUi({
+				workspace: $workspaceStore!,
+				requestBody: {
+					mute_critical_alerts: muteSettings.workspace
+				}
+			})
+		}
+		if ($superadmin && initialMuteSettings.global !== muteSettings.global) {
+			// Global
+			await SettingService.setGlobal({
+				key: 'critical_alert_mute_ui',
+				requestBody: { value: muteSettings.global }
+			})
+		}
+		sendUserToast(
+			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
+		)
+		getAlerts(true)
+		initialMuteSettings = { ...muteSettings }
+	}
 
 	$: loading = isRefreshing
 
 	onMount(() => {
 		refreshAlerts()
+		initialMuteSettings = { ...muteSettings }
 	})
 
 	// Pagination
@@ -29,14 +83,14 @@
 	let hideAcknowledged = false
 
 	async function acknowledgeAll() {
-		await SettingService.acknowledgeAllCriticalAlerts()
+		await acknowledgeAllCriticalAlerts()
 		getAlerts(false)
 	}
 
 	async function fetchAlerts(pageNumber: number) {
 		isRefreshing = true
 		try {
-			const newAlerts = await SettingService.getCriticalAlerts({
+			const newAlerts = await getCriticalAlerts({
 				page: pageNumber,
 				pageSize: pageSize,
 				acknowledged: hideAcknowledged ? false : undefined
@@ -55,6 +109,7 @@
 
 	async function getAlerts(reset?: boolean) {
 		if (reset) page = 1
+		updateHasUnacknowledgedCriticalAlerts()
 		await fetchAlerts(page)
 	}
 
@@ -64,7 +119,7 @@
 	}
 
 	async function acknowledgeAlert(id: number) {
-		await SettingService.acknowledgeCriticalAlert({ id })
+		await acknowledgeCriticalAlert({ id })
 		getAlerts(false)
 	}
 
@@ -82,7 +137,7 @@
 	}
 
 	async function refreshAlerts() {
-		checkCriticalAlertChannels()
+		if ($superadmin) checkCriticalAlertChannels()
 		await getAlerts(true)
 	}
 
@@ -102,46 +157,99 @@
 		goto('/#superadmin-settings')
 		instanceSettingsSelectedTab.set('Core')
 	}
+
+	export let workspaceContext = false
+
+	$: {
+		workspaceContextChanged(workspaceContext)
+	}
+
+	async function workspaceContextChanged(_ctx) {
+		await getAlerts(true)
+	}
 </script>
 
 <div>
-	{#if !hasCriticalAlertChannels}
-		<div class="flex flex-row pb-4">
-			<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
-			<p>
-				No critical alert channels are set up. Go to the
-				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance Settings</a>
-				page to configure critical alert channels.
-			</p>
+	<div class="grid grid-cols-3 gap-4 col-start-3">
+		<div class="pt-1 col-span-2">
+			{#if !hasCriticalAlertChannels && $superadmin}
+				<div class="flex flex-row pb-4">
+					<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
+					<p>
+						No critical alert channels are set up. Go to the
+						<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}
+							>Instance Settings</a
+						>
+						page to configure critical alert channels.
+					</p>
+				</div>
+			{/if}
 		</div>
-	{/if}
-	<!-- Row of action buttons above the table -->
-	<div class="flex justify-between items-center mb-4">
-		<div class="flex space-x-2">
-			<Button color="green" startIcon={{ icon: CheckSquare2 }} size="sm" on:click={acknowledgeAll}
-				>Acknowledge All</Button
+
+		<div class="flex flex-col justify-between col-start-3">
+			<div class="flex flex-row justify-end mt-[-38px] pb-3">
+				<Button
+					color="green"
+					startIcon={{ icon: CheckSquare2 }}
+					size="xs"
+					disabled={numUnacknowledgedCriticalAlerts === 0}
+					on:click={acknowledgeAll}
+				>
+					Acknowledge All</Button
+				>
+			</div>
+
+			{#if $superadmin}
+				<div class="flex flex-row py-2 pb-3">
+					<Toggle
+						bind:checked={workspaceContext}
+						options={{ right: `Workspace: '${$workspaceStore}'`, left: "Context: 'Global'" }}
+						size="xs"
+					/>
+				</div>
+			{/if}
+
+			<Section
+				label="Mute Settings"
+				collapsable={true}
+				small={true}
 			>
-		</div>
+				{#if $superadmin}
+					<div class="flex flex-row pb-1">
+						<Toggle
+							bind:checked={muteSettings.global}
+							options={{ right: 'Mute critical alerts instance wide' }}
+							size="xs"
+						/>
+					</div>
+				{/if}
 
-		<button class="p-2 rounded-full hover:bg-gray-200" on:click={refreshAlerts} disabled={loading}>
-			<RefreshCw class={loading ? 'animate-spin ' : ''} size="20" />
-		</button>
-	</div>
+				<div class="flex flex-row pb-1">
+					<Toggle
+						bind:checked={muteSettings.workspace}
+						options={{ right: 'Mute critical alerts for current workspace' }}
+						size="xs"
+					/>
+				</div>
+			</Section>
 
-	<!-- Pagination controls above the table -->
-	<div class="flex justify-between items-center mb-2">
-		<div class="flex items-center space-x-4">
-			<Button size="xs2" on:click={goToPreviousPage} disabled={page <= 1}>Previous</Button>
-			<span>Page {page}</span>
-			<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
-		</div>
-		<div class="pr-3">
-			<Toggle
-				bind:checked={hideAcknowledged}
-				on:change={refreshAlerts}
-				options={{ right: 'Hide Acknowledged' }}
-				size="xs"
-			/>
+			<div class="pt-2 flex justify-between items-center">
+				<div class="pr-2">
+					<Toggle
+						bind:checked={hideAcknowledged}
+						on:change={refreshAlerts}
+						options={{ right: 'Hide Acknowledged' }}
+						size="xs"
+					/>
+				</div>
+				<button
+					class="mb-1 p-2 rounded-full hover:bg-gray-200"
+					on:click={refreshAlerts}
+					disabled={loading}
+				>
+					<RefreshCw class={loading ? 'animate-spin ' : ''} size="20" />
+				</button>
+			</div>
 		</div>
 	</div>
 
@@ -153,11 +261,14 @@
 					<th class="w-[60px] px-4 py-2 text-center">Type</th>
 					<th class="px-4 py-2 text-center">Message</th>
 					<th class="w-[150px] px-4 py-2 text-center">Created At</th>
+					{#if $superadmin}
+						<th class="w-[80px] px-4 py-2 text-center">Workspace</th>
+					{/if}
 					<th class="w-[180px] px-4 py-2 text-center">Acknowledge</th>
 				</tr>
 			</thead>
 			<tbody>
-				{#each alerts as { id, alert_type, message, created_at, acknowledged }}
+				{#each alerts as { id, alert_type, message, created_at, acknowledged, workspace_id }}
 					{#if !hideAcknowledged || !acknowledged}
 						<tr class="bg-gray-100 dark:bg-gray-700 dark:text-white text-center">
 							<td class="border px-4 py-2 w-[100px]">
@@ -174,6 +285,9 @@
 							<td class="border px-4 py-2">{message}</td>
 							<!-- Flexible width -->
 							<td class="border px-4 py-2 w-[150px]">{formatDate(created_at)}</td>
+							{#if $superadmin}
+								<td class="border px-4 py-2 w-[150px]">{workspace_id ? workspace_id : 'global'}</td>
+							{/if}
 							<td class="border px-4 py-2 w-[180px]">
 								<div class="flex justify-center items-center">
 									{#if !acknowledged}
@@ -195,6 +309,11 @@
 				{/each}
 			</tbody>
 		</table>
+	</div>
+	<div class="flex flex-1 pt-2 gap-x-4 justify-end">
+		<Button size="xs2" on:click={goToPreviousPage} disabled={page <= 1}>Previous</Button>
+		<span>Page {page}</span>
+		<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
 	</div>
 
 	{#if alerts.length === 0}

@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.425.1](https://github.com/windmill-labs/windmill/compare/v1.425.0...v1.425.1) (2024-11-16)
+
+
+### Bug Fixes
+
+* revert bool to text support in  pg ([#4727](https://github.com/windmill-labs/windmill/issues/4727)) ([17d8933](https://github.com/windmill-labs/windmill/commit/17d893315bd86942c7895cdb3e9c3ab34977b258))
+
+## [1.425.0](https://github.com/windmill-labs/windmill/compare/v1.424.0...v1.425.0) (2024-11-15)
+
+
+### Features
+
+* Handle `pip install` by `uv` ([#4517](https://github.com/windmill-labs/windmill/issues/4517)) ([f240d13](https://github.com/windmill-labs/windmill/commit/f240d1322a3c1669dfb69ebda6d05effcca26ae3))
+* **monitoring:** workspace critical alerts ([#4684](https://github.com/windmill-labs/windmill/issues/4684)) ([c32038a](https://github.com/windmill-labs/windmill/commit/c32038a76d9d00703d8b865af72f083ac43414e3))
+
+## [1.424.0](https://github.com/windmill-labs/windmill/compare/v1.423.2...v1.424.0) (2024-11-14)
+
+
+### Features
+
+* allow setting password and login type from superadmin UI ([2a1bff3](https://github.com/windmill-labs/windmill/commit/2a1bff3160b65eadba399229b5f53950ec2c0d48))
+* **backend:** monitor minimal version of living workers ([#4704](https://github.com/windmill-labs/windmill/issues/4704)) ([50ff183](https://github.com/windmill-labs/windmill/commit/50ff183baeaa2a39c2b0188ee8dd6172b08ae801))
+* Support mistral anthropic for ai ([#4692](https://github.com/windmill-labs/windmill/issues/4692)) ([556b4a4](https://github.com/windmill-labs/windmill/commit/556b4a41a1d010bb8a1796f485d343c1e412d278))
+
+
+### Bug Fixes
+
+* add countCompletedJobs api ([2a78359](https://github.com/windmill-labs/windmill/commit/2a78359af7b8e4700634c2ad2745c1d14d2da4f7))
+* add queue_couts api ([10b6b1d](https://github.com/windmill-labs/windmill/commit/10b6b1dc04cb2b2d4ec5ceb26a5dbd2ac7bd1394))
+* autoscaling when count &lt; min worker set to min_workers ([180bb82](https://github.com/windmill-labs/windmill/commit/180bb826436f9960def8c6cf3e9692714ffdf917))
+* deployment callbacks have a concurrency limit of 1 on same path ([c44fc4f](https://github.com/windmill-labs/windmill/commit/c44fc4f5ab8bcb5dffec08d5ed4ccd61feb1cb13))
+
 ## [1.423.2](https://github.com/windmill-labs/windmill/compare/v1.423.1...v1.423.2) (2024-11-13)
 
 

@@ -276,9 +276,13 @@
 														<td>
 															<div class="flex flex-row gap-x-1 justify-end">
 																<InstanceNameEditor
+																	login_type={login_type}
 																	value={name}
 																	{username}
 																	{email}
+																	on:refresh={() => {
+																		listUsers(activeOnly)
+																	}}
 																	on:save={(e) => {
 																		updateName(e.detail, email)
 																	}}
@@ -321,7 +325,7 @@
 							</div>
 						</TabContent>
 						<TabContent value="" values={settingsKeys}>
-							<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} />
+							<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} {closeDrawer}/>
 						</TabContent>
 					</svelte:fragment>
 				</Tabs>
