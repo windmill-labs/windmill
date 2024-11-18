@@ -281,7 +281,7 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $superadmin !== undefined && $userStore) {
+		if ($enterpriseLicense && $workspaceStore && $userStore && ($superadmin || $userStore.is_admin)) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}
