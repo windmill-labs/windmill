@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { Button } from '../common'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { KafkaTriggerService, type KafkaTrigger } from '$lib/gen'
-	import { UnplugIcon } from 'lucide-svelte'
-
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
@@ -11,6 +9,7 @@
 	import { getContext } from 'svelte'
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -48,61 +47,60 @@
 	bind:this={kafkaTriggerEditor}
 />
 
-<div class="flex flex-col gap-4">
-	{#if !newItem}
-		{#if isCloudHosted()}
-			<Alert title="Not compatible with multi-tenant cloud" type="warning">
-				Kafka triggers are disabled in the multi-tenant cloud.
+{#if !$enterpriseLicense}
+	<Alert title="EE Only" type="warning" size="xs">
+		Kafka triggers are an enterprise only feature.
+	</Alert>
+{:else if isCloudHosted()}
+	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+		Kafka triggers are disabled in the multi-tenant cloud.
+	</Alert>
+{:else}
+	<div class="flex flex-col gap-4">
+		{#if newItem}
+			<Alert title="Triggers disabled" type="warning" size="xs">
+				Deploy the {isFlow ? 'flow' : 'script'} to add kafka triggers.
 			</Alert>
-		{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+		{:else}
 			<Button
 				on:click={() => kafkaTriggerEditor?.openNew(isFlow, path)}
 				variant="border"
 				color="light"
 				size="xs"
-				startIcon={{ icon: UnplugIcon }}
+				startIcon={{ icon: KafkaIcon }}
 			>
 				New Kafka Trigger
 			</Button>
-		{:else}
-			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
-		{/if}
-	{/if}
-
-	{#if kafkaTriggers}
-		{#if kafkaTriggers.length == 0}
-			<div class="text-xs text-secondary"> No kafka triggers </div>
-		{:else}
-			<div class="flex flex-col divide-y pt-2">
-				{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
-					<div class="grid grid-cols-5 text-2xs items-center py-2">
-						<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
-						<div class="col-span-2 truncate">
-							{kafkaTrigger.kafka_resource_path}
-						</div>
-						<div class="flex justify-end">
-							<button
-								on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
-								class="px-2"
-							>
-								{#if kafkaTrigger.canWrite}
-									Edit
-								{:else}
-									View
-								{/if}
-							</button>
-						</div>
+			{#if kafkaTriggers}
+				{#if kafkaTriggers.length == 0}
+					<div class="text-xs text-secondary"> No kafka triggers </div>
+				{:else}
+					<div class="flex flex-col divide-y pt-2">
+						{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
+							<div class="grid grid-cols-5 text-2xs items-center py-2">
+								<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
+								<div class="col-span-2 truncate">
+									{kafkaTrigger.kafka_resource_path}
+								</div>
+								<div class="flex justify-end">
+									<button
+										on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
+										class="px-2"
+									>
+										{#if kafkaTrigger.canWrite}
+											Edit
+										{:else}
+											View
+										{/if}
+									</button>
+								</div>
+							</div>
+						{/each}
 					</div>
-				{/each}
-			</div>
+				{/if}
+			{:else}
+				<Skeleton layout={[[8]]} />
+			{/if}
 		{/if}
-	{:else}
-		<Skeleton layout={[[8]]} />
-	{/if}
-
-	{#if newItem}
-		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to add kafka triggers.
-		</Alert>
-	{/if}
-</div>
+	</div>
+{/if}

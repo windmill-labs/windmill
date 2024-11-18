@@ -666,6 +666,7 @@ inventory:
   #   target:  ./config_template.j2
   # - variable: u/user/ssh_key
   #   target:  ./ssh_key
+  #   mode: '0600'
 
 # Define the arguments of the windmill script
 extra_vars:

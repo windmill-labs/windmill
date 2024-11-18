@@ -24,7 +24,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult},
     utils::{
-        not_found_if_none, paginate, report_critical_error, require_admin, Pagination, StripPath,
+        not_found_if_none, paginate, report_critical_error, Pagination, StripPath,
     },
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
@@ -189,7 +189,6 @@ async fn create_websocket_trigger(
             "Websocket triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
     }
-    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -332,7 +331,6 @@ async fn delete_websocket_trigger(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
