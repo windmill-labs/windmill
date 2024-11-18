@@ -527,7 +527,7 @@ async fn wait_runnable_result(
         ws_trigger.email.clone(),
         &ws_trigger.workspace_id,
         &db,
-        username_override,
+        Some(username_override),
     )
     .await?;
 
@@ -754,12 +754,14 @@ async fn disable_with_error(db: &DB, ws_trigger: &WebsocketTrigger, error: Strin
     )
     .execute(db).await {
         Ok(_) => {
-            report_critical_error(format!("Disabling websocket {} because of error: {}", ws_trigger.url, error), db.clone()).await;
+            report_critical_error(format!("Disabling websocket {} because of error: {}", ws_trigger.url, error), db.clone(), Some(&ws_trigger.workspace_id), None).await;
         },
         Err(disable_err) => {
             report_critical_error(
                 format!("Could not disable websocket {} with err {}, disabling because of error {}", ws_trigger.path, disable_err, error), 
-                db.clone()
+                db.clone(),
+                Some(&ws_trigger.workspace_id),
+                None,
             ).await;
         }
     }
@@ -771,7 +773,9 @@ async fn listen_to_websocket(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    update_ping(&db, &ws_trigger, Some("Connecting...")).await;
+    if let None = update_ping(&db, &ws_trigger, Some("Connecting...")).await {
+        return;
+    }
 
     let url = ws_trigger.url.as_str();
 
@@ -896,7 +900,7 @@ async fn listen_to_websocket(
                                                                 }
                                                                 if should_handle {
                                                                     if let Err(err) = run_job(&db, rsmq.clone(), &ws_trigger, text).await {
-                                                                        report_critical_error(format!("Failed to trigger job from websocket {}: {:?}", ws_trigger.url, err), db.clone()).await;
+                                                                        report_critical_error(format!("Failed to trigger job from websocket {}: {:?}", ws_trigger.url, err), db.clone(), Some(&ws_trigger.workspace_id), None).await;
                                                                     };
                                                                 }
                                                             },
@@ -968,7 +972,7 @@ async fn run_job(
         trigger.email.clone(),
         &trigger.workspace_id,
         db,
-        "anonymous".to_string(),
+        Some("anonymous".to_string()),
     )
     .await?;
 

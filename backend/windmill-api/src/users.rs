@@ -90,6 +90,9 @@ pub fn global_service() -> Router {
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
         .route("/setpassword", post(set_password))
+        .route("/set_password_of/:user", post(set_password_of_user))
+        .route("/set_login_type/:user", post(set_login_type))
+
         .route("/create", post(create_user))
         .route("/update/:user", post(update_user))
         .route("/delete/:user", delete(delete_user))
@@ -743,20 +746,30 @@ pub async fn fetch_api_authed(
     email: String,
     w_id: &str,
     db: &DB,
-    username_override: String,
+    username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
     let permissioned_as = username_to_permissioned_as(username.as_str());
+    fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
+}
+
+pub async fn fetch_api_authed_from_permissioned_as(
+    permissioned_as: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: Option<String>,
+) -> error::Result<ApiAuthed> {
     let authed =
         fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
     Ok(ApiAuthed {
-        username: username,
+        username: authed.username,
         email: email,
         is_admin: authed.is_admin,
         is_operator: authed.is_operator,
         groups: authed.groups,
         folders: authed.folders,
         scopes: authed.scopes,
-        username_override: Some(username_override),
+        username_override: username_override,
     })
 }
 
@@ -855,6 +868,12 @@ pub struct EditWorkspaceUser {
 pub struct EditPassword {
     pub password: String,
 }
+
+#[derive(Deserialize)]
+pub struct EditLoginType {
+    pub login_type: String,
+}
+
 
 #[derive(FromRow, Serialize)]
 pub struct TruncatedToken {
@@ -2018,7 +2037,52 @@ async fn set_password(
     authed: ApiAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    crate::users_ee::set_password(db, argon2, authed, ep).await
+    let email = authed.email.clone();
+    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+}
+
+async fn set_password_of_user(
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Path(email): Path<String>,
+    authed: ApiAuthed,
+    Json(ep): Json<EditPassword>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+}
+
+async fn set_login_type(
+    Extension(db): Extension<DB>,
+    Path(email): Path<String>,
+    authed: ApiAuthed,
+    Json(et): Json<EditLoginType>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE password SET login_type = $1 WHERE email = $2",
+        et.login_type,
+        email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.set_login_type",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!("login type of {} updated to {}", email, et.login_type))
+    
 }
 
 async fn login(

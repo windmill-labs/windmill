@@ -116,6 +116,8 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
+            true,
+            true,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -546,6 +548,7 @@ async fn create_file_resources(
                 .ok_or(anyhow!(
                     "Invalid inventory resource, `content` field absent or invalid"
                 ))?,
+            None,
         )
         .map_err(|e| anyhow!("Couldn't write inventory: {}", e))?;
 
@@ -562,8 +565,13 @@ async fn create_file_resources(
             get_resource_or_variable_content(client, &file_res.resource_path, job_id.to_string())
                 .await?;
         let path = file_res.target_path.clone();
-        let validated_path = write_file_at_user_defined_location(job_dir, path.as_str(), &r)
-            .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
+        let validated_path = write_file_at_user_defined_location(
+            job_dir,
+            path.as_str(),
+            &r,
+            file_res.mode,
+        )
+        .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
 
         nsjail_mounts.push(
             define_nsjail_mount(job_dir, &validated_path)

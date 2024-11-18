@@ -276,8 +276,13 @@
 		</Popover>
 
 		<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
-			{#if id && id !== 'preprocessor' && !id.startsWith('failure')}
-				<Badge color="indigo" wrapperClass="max-w-full" baseClass="max-w-full truncate" title={id}>
+			{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
+				<Badge
+					color="indigo"
+					wrapperClass="max-w-full"
+					baseClass="max-w-full truncate !px-1"
+					title={id}
+				>
 					<span class="max-w-full text-2xs truncate">{id}</span></Badge
 				>
 				{#if deletable}
@@ -290,6 +295,10 @@ hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
 						title="Edit Id"><Pencil size={14} /></button
 					>
 				{/if}
+			{:else if id?.startsWith('subflow:')}
+				<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1" title={id}>
+					<span class="max-w-full text-2xs truncate">{id.substring('subflow:'.length)}</span></Badge
+				>
 			{/if}
 		</div>
 	</div>

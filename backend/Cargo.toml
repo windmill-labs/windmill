@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.421.2"
+version = "1.426.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -29,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.421.2"
+version = "1.426.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -62,6 +62,7 @@ jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemal
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
+kafka = ["windmill-api/kafka"]
 
 [dependencies]
 anyhow.workspace = true
@@ -180,6 +181,7 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
+semver = "^1"
 
 deno_fetch = "0.195.0"
 deno_tls = "0.158.0"
@@ -265,6 +267,7 @@ tokio-native-tls = "^0"
 openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
+rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

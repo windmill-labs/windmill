@@ -25,6 +25,7 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
+		replaceFalseWithUndefined,
 		sleep,
 		type Value
 	} from '$lib/utils'
@@ -85,6 +86,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
+	import type { AiProviderTypes } from './copilot/lib'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -293,12 +295,21 @@
 			// We need it for diff
 			await syncWithDeployed()
 
-			// Handle through confirmation modal
-			confirmCallback = async () => {
+			if (
+				deployedValue &&
+				$flowStore &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({ ...$flowStore, path: $pathStore }))
+			) {
 				await saveFlow(deploymentMsg)
+			} else {
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					await saveFlow(deploymentMsg)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
 		}
 	}
 	async function syncWithDeployed() {
@@ -307,18 +318,12 @@
 			path: initialPath,
 			withStarredInfo: true
 		})
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...flow,
-			starred: undefined,
-			id: undefined,
 			edited_at: undefined,
 			edited_by: undefined,
-			workspace_id: undefined,
-			archived: undefined,
-			same_worker: undefined,
-			visible_to_runner_only: undefined,
-			ws_error_handler_muted: undefined
-		}
+			workspace_id: undefined
+		})
 		deployedBy = flow.edited_by
 	}
 
@@ -789,6 +794,7 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -918,7 +924,8 @@
 						  })
 						: undefined,
 					isFirstInLoop,
-					abortController
+					abortController,
+					aiProvider
 				)
 				unsubscribe()
 			}
@@ -934,7 +941,7 @@
 						pastModule.value.type === 'script')
 				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_openai_resource_path) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const { inputs, allExprs } = await glueCopilot(
@@ -944,7 +951,8 @@
 								value: RawScript | PathScript
 							},
 							isFirstInLoop,
-							abortController
+							abortController,
+							aiProvider
 						)
 
 						// create flow inputs used by AI for autocompletion
@@ -992,11 +1000,7 @@
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
-						if (
-							isHubStep &&
-							pastModule !== undefined &&
-							!$copilotInfo.exists_openai_resource_path
-						) {
+						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true

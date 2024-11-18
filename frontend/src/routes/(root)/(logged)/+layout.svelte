@@ -43,14 +43,13 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { workspacedOpenai } from '$lib/components/copilot/lib'
+	import { initAllAiWorkspace } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
-	import CriticalAlertButton from '$lib/components/sidebar/CriticalAlertButton.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -191,14 +190,19 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used } = await WorkspaceService.getUsedTriggers({
-			workspace: $workspaceStore ?? ''
-		})
+		const { http_routes_used, websocket_used, kafka_used } = await WorkspaceService.getUsedTriggers(
+			{
+				workspace: $workspaceStore ?? ''
+			}
+		)
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
 		if (websocket_used) {
 			usedKinds.push('ws')
+		}
+		if (kafka_used) {
+			usedKinds.push('kafka')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -230,12 +234,14 @@
 	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
-		workspacedOpenai.init(workspace)
+		initAllAiWorkspace(workspace)
 		try {
 			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 		} catch (err) {
+			console.log(err)
 			copilotInfo.set({
-				exists_openai_resource_path: false,
+				ai_provider: '',
+				exists_ai_resource: false,
 				code_completion_enabled: false
 			})
 			console.error('Could not get copilot info')
@@ -280,23 +286,35 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $superadmin) {
+		if ($enterpriseLicense && $workspaceStore && $userStore && ($superadmin || $userStore.is_admin)) {
+			mountModal = true
 			loadCriticalAlertsMuted()
 		}
 	}
 
 	let numUnacknowledgedCriticalAlerts = 0
-	let isCriticalAlertsModalOpen = false
-	let isCriticalAlertsUiMuted = false
-
-	async function loadCriticalAlertsMuted() {
-		isCriticalAlertsUiMuted = (await SettingService.getGlobal({
-			key: 'critical_alert_mute_ui'
-		})) as boolean
+	let mountModal = false
+	let isCriticalAlertsUiMuted = true
+	let muteSettings = {
+		global: true,
+		workspace: true
 	}
+	async function loadCriticalAlertsMuted() {
+		let g_muted = true
+		const ws_muted =
+			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
+			false
 
-	function openCriticalAlertsModal(text?: string): void {
-		isCriticalAlertsModalOpen = true
+		if ($superadmin) {
+			g_muted = (await SettingService.getGlobal({
+				key: 'critical_alert_mute_ui'
+			})) as boolean
+			isCriticalAlertsUiMuted = g_muted
+		} else {
+			isCriticalAlertsUiMuted = ws_muted
+		}
+
+		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
 </script>
 
@@ -314,13 +332,10 @@
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
-		{#if !isCriticalAlertsUiMuted && $enterpriseLicense}
-			<CriticalAlertModal
-				bind:open={isCriticalAlertsModalOpen}
-				bind:numUnacknowledgedCriticalAlerts
-			/>
-		{/if}
 		<SuperadminSettings bind:this={superadminSettings} />
+	{/if}
+	{#if mountModal}
+		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div>
 		{#if !menuHidden}
@@ -399,7 +414,12 @@
 										/>
 									</div>
 
-									<SidebarContent isCollapsed={false} />
+									<SidebarContent
+										isCollapsed={false}
+										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+											? 0
+											: numUnacknowledgedCriticalAlerts}
+									/>
 								</div>
 							</div>
 						</div>
@@ -433,17 +453,6 @@
 									{/if}
 								</div>
 							</button>
-							{#if $superadmin && $enterpriseLicense}
-								<CriticalAlertButton
-									stopPropagationOnClick={true}
-									on:click={() => openCriticalAlertsModal()}
-									{numUnacknowledgedCriticalAlerts}
-									{isCollapsed}
-									label="Critical Alerts"
-									class="!text-xs"
-									disabled={numUnacknowledgedCriticalAlerts === 0}
-								/>
-							{/if}
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
@@ -458,7 +467,12 @@
 								/>
 							</div>
 
-							<SidebarContent {isCollapsed} />
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
@@ -546,7 +560,12 @@
 								/>
 							</div>
 
-							<SidebarContent {isCollapsed} />
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 						</div>
 					</div>
 				</div>

@@ -20,7 +20,6 @@
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
-	export let isTrigger: boolean = false
 
 	export let retries: number | undefined = undefined
 	export let flowJobs:

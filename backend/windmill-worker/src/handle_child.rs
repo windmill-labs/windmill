@@ -48,6 +48,7 @@ use futures::{
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
 use crate::job_logger::{append_job_logs, append_with_limit, LARGE_LOG_THRESHOLD_SIZE};
+use crate::job_logger_ee::process_streaming_log_lines;
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
@@ -434,6 +435,8 @@ pub async fn handle_child(
     }
 }
 
+
+
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -689,18 +692,23 @@ fn child_joined_output_stream(
 
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
-    stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
+    stream::select(lines_to_stream(stderr, true), lines_to_stream(stdout, false))
 }
 
 pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
+    stderr: bool,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
-            .map(|result| result.transpose())
+            .map(|result| {
+                process_streaming_log_lines(result, stderr)
+             })
     })
 }
+
+
 
 pub fn process_status(status: ExitStatus) -> error::Result<()> {
     if status.success() {
