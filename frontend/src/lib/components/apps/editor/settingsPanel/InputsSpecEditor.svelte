@@ -103,6 +103,14 @@
 		}
 		dispatch('select', true)
 	}
+
+	function handleConnect() {
+		if ($connectingInput.opened) {
+			closeConnection()
+			return
+		}
+		openConnection()
+	}
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
@@ -185,6 +193,8 @@
 							e.key === 'Escape' && closeConnection()}
 						on:pointerdown_outside={closeConnection}
 						on:click_outside={closeConnection}
+						class="connection-access"
+						data-connection-button
 					>
 						<AnimatedButton
 							animate={$connectingInput?.opened && selected}
@@ -197,9 +207,8 @@
 								variant="border"
 								color="light"
 								title="Connect"
-								on:click={openConnection}
+								on:click={handleConnect}
 								id="schema-plug"
-								data-connection-button
 							>
 								<Plug size={14} />
 							</Button>
