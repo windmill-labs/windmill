@@ -39,6 +39,7 @@
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
 	import { isJobCancelable } from '$lib/utils'
+	import RunsBatch from '$lib/components/runs/RunsBatch.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -326,6 +327,7 @@
 		selectedIds = []
 		jobIdsToCancel = []
 		isSelectingJobsToCancel = false
+		isBatch = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -437,10 +439,12 @@
 
 	let jobIdsToCancel: string[] = []
 	let isSelectingJobsToCancel = false
+	let isBatch: boolean = false
 	let fetchingFilteredJobs = false
 	let selectedFiltersString: string | undefined = undefined
 
 	async function cancelVisibleJobs() {
+		isBatch = false
 		isSelectingJobsToCancel = true
 		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
 		if (selectedIds.length === 0) {
@@ -573,7 +577,7 @@
 />
 
 <ConfirmationModal
-	title={`Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`}
+	title={`Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`}
 	confirmationText={`Cancel ${jobIdsToCancel.length} jobs that matched the filters`}
 	open={isCancelingFilteredJobs}
 	on:confirmed={async () => {
@@ -965,6 +969,14 @@
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
+				{#if !isSelectingJobsToCancel}
+					<Toggle
+						size="xs"
+						bind:checked={isBatch}
+						options={{ right: 'Batch run' }}
+						textClass="whitespace-nowrap"
+					/>
+				{/if}
 			</div>
 		</div>
 
@@ -979,6 +991,7 @@
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
 							{isSelectingJobsToCancel}
+							{isBatch}
 							bind:selectedIds
 							bind:selectedWorkspace
 							bind:lastFetchWentToEnd
@@ -1012,9 +1025,7 @@
 							/>
 						{/if}
 					{:else if selectedIds.length > 1}
-						<div class="text-xs m-4"
-							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
-						>
+						<RunsBatch {jobs} {selectedIds} />
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
 					{/if}

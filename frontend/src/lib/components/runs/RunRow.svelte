@@ -2,7 +2,13 @@
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToReadableTime, truncateHash, truncateRev, isJobCancelable } from '$lib/utils'
+	import {
+		displayDate,
+		msToReadableTime,
+		truncateHash,
+		truncateRev,
+		isJobCancelable
+	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -34,11 +40,11 @@
 	export let containsLabel: boolean = false
 	export let activeLabel: string | null
 	export let isSelectingJobsToCancel: boolean = false
+	export let isBatch: boolean = false
 
 	let scheduleEditor: ScheduleEditor
 
 	$: isExternal = job && job.id === '-'
-
 </script>
 
 <Portal name="run-row">
@@ -60,7 +66,7 @@
 	}}
 >
 	<div class="w-1/12 flex justify-center">
-		{#if isSelectingJobsToCancel && isJobCancelable(job)}
+		{#if isBatch || (isSelectingJobsToCancel && isJobCancelable(job))}
 			<div class="px-2">
 				<input type="checkbox" checked={selected} />
 			</div>
@@ -123,7 +129,6 @@
 					Scheduled for {displayDate(job.scheduled_for)}
 				{:else if job.canceled}
 					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
-
 				{:else}
 					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}

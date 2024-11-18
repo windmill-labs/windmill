@@ -9,7 +9,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { isJobCancelable } from '$lib/utils'
-	import RunnableBatchModal from './RunnableBatchModal.svelte'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
@@ -17,6 +16,7 @@
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
 	export let isSelectingJobsToCancel: boolean = false
+	export let isBatch: boolean = false
 	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
@@ -149,12 +149,27 @@
 			selectedIds = []
 		} else {
 			allSelected = true
+			if (isBatch && !isSelectingJobsToCancel) {
+				selectedIds = jobs?.map((j) => j.id) ?? []
+				return
+			}
 			selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
 		}
 	}
 	let cancelableJobCount: number = 0
 	$: isSelectingJobsToCancel && (allSelected = selectedIds.length === cancelableJobCount)
 	$: isSelectingJobsToCancel && (cancelableJobCount = jobs?.filter(isJobCancelable).length ?? 0)
+	$: handleIsBatchToggle(isBatch)
+
+	function handleIsBatchToggle(newIsBatch: boolean) {
+		if (newIsBatch) {
+			allSelected = true
+			selectedIds = jobs?.map((j) => j.id) ?? []
+		} else {
+			allSelected = false
+			selectedIds = []
+		}
+	}
 
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
@@ -186,22 +201,19 @@
 			}
 		}
 	}
-
-	let batchModalIsOpen = false
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
 
-<RunnableBatchModal {jobs} bind:modalIsOpen={batchModalIsOpen} />
+<!-- <button on:click={() => console.log(isSelectingJobs)}>console.log</button> -->
 
 <div
 	class="divide-y min-w-[640px] h-full"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
-	<button on:click={() => (batchModalIsOpen = !batchModalIsOpen)}>Batch execution</button>
 	<div bind:clientHeight={header}>
-		{#if isSelectingJobsToCancel && cancelableJobCount != 0}
+		{#if !!isBatch || (isSelectingJobsToCancel && cancelableJobCount != 0)}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
@@ -285,9 +297,10 @@
 									job={jobOrDate.job}
 									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 									{isSelectingJobsToCancel}
+									{isBatch}
 									on:select={() => {
 										const jobId = jobOrDate.job.id
-										if (isSelectingJobsToCancel) {
+										if (isBatch || isSelectingJobsToCancel) {
 											if (selectedIds.includes(jobOrDate.job.id)) {
 												selectedIds = selectedIds.filter((id) => id != jobId)
 											} else {
