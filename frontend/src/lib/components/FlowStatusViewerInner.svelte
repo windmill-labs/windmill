@@ -105,18 +105,32 @@
 		keepType: boolean | undefined
 	) {
 		moduleState.update((x) => {
+
+			if (newValue.selectedForloop != undefined && x[key]?.selectedForloop != undefined && newValue.selectedForloop != x[key].selectedForloop) {
+				return x
+			}
+
+			if (x[key]?.selectedForLoopSetManually) {
+				if (newValue.selectedForloop != undefined && x[key]?.selectedForloop != newValue.selectedForloop) {
+					return x
+				} else {
+					newValue.selectedForLoopSetManually = true
+					newValue.selectedForloopIndex = x[key]?.selectedForloopIndex
+					newValue.selectedForloop = x[key]?.selectedForloop
+
+				}
+			} else if (x[key]?.selectedForloopIndex != undefined) {
+				newValue.selectedForloopIndex = x[key]?.selectedForloopIndex
+				newValue.selectedForloop = x[key]?.selectedForloop
+
+			}
+
+
 			if (keepType && (x[key]?.type == 'Success' || x[key]?.type == 'Failure')) {
 				newValue.type = x[key].type
 			}
 
-			if (x[key]?.selectedForLoopSetManually) {
-				newValue.selectedForLoopSetManually = true
-				newValue.selectedForloopIndex = x[key].selectedForloopIndex
-				newValue.selectedForloop = x[key].selectedForloop
-			} else if (x[key]?.selectedForloopIndex != undefined && newValue.selectedForloopIndex == undefined) {
-				newValue.selectedForloopIndex = x[key].selectedForloopIndex
-				newValue.selectedForloop = x[key].selectedForloop
-			}
+			
 
 			x[key] = newValue
 			return x
@@ -224,6 +238,7 @@
 	function updateInnerModules() {
 		if ($localModuleStates) {
 			innerModules.forEach((mod, i) => {
+				console.log('INNer MODULE', jobId, mod.id)
 				if (
 					mod.type === 'WaitingForEvents' &&
 					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
@@ -300,22 +315,23 @@
 	$: isForloopSelected && globalModuleStates && loadJobInProgress()
 
 	async function getNewJob(jobId: string, initialJob: Job | undefined) {
-    if (jobId == initialJob?.id &&
-        initialJob?.id != undefined &&
-        initialJob?.type === 'CompletedJob') {
-        return initialJob;
-    } else {
-        return await JobService.getJob({
-            workspace: workspaceId ?? $workspaceStore ?? '',
-            id: jobId ?? '',
-            noLogs: true
-        });
-    }
-}
+		if (jobId == initialJob?.id &&
+			initialJob?.id != undefined &&
+			initialJob?.type === 'CompletedJob') {
+			return initialJob;
+		} else {
+			return await JobService.getJob({
+				workspace: workspaceId ?? $workspaceStore ?? '',
+				id: jobId ?? '',
+				noLogs: true
+			});
+		}
+	}
 	
 	let errorCount = 0
 	let notAnonynmous = false
 	async function loadJobInProgress() {
+		console.log('LOADJOB', jobId)
 		dispatch('start')
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -388,11 +404,15 @@
 	$: isListJob = flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs)
 
 
+	function getTopModuleStates() {
+		return get(globalModuleStates?.[globalModuleStates?.length - 1])
+	}
 
-	let forloop_selected = get(globalModuleStates?.[globalModuleStates?.length - 1])?.[flowJobIds?.moduleId ?? '']?.selectedForloop
+	let forloop_selected = getTopModuleStates()?.[flowJobIds?.moduleId ?? '']?.selectedForloop
 
 	let sub: Unsubscriber | undefined = undefined
-	if (flowJobIds?.moduleId) {
+	$: if (flowJobIds?.moduleId) {
+		sub?.()
 		sub = globalModuleStates?.[globalModuleStates?.length - 1].subscribe((x) => {
 			forloop_selected = x[flowJobIds?.moduleId ?? '']?.selectedForloop
 		})
@@ -417,6 +437,7 @@
 	}
 
 	function onJobsLoaded(mod: FlowStatusModule, job: Job, force?: boolean): void {
+		// console.log('JOBLOADED', jobId, mod)
 		if (mod.id && (mod.flow_jobs ?? []).length == 0) {
 			if (!childFlow) {
 				if ($flowStateStore?.[mod.id]) {
@@ -487,40 +508,38 @@
 
 
 
-	 function setIteration(j: number, id: string, selectedManually: boolean | undefined, clicked: boolean, modId: string, isForloop: boolean) {
+	
+	 async function setIteration(j: number, id: string, selectedManually: boolean | undefined, clicked: boolean, modId: string, isForloop: boolean) {
+		console.log(modId, j)
 		if (modId) {
+
 				globalModuleStates?.[globalModuleStates?.length - 1]?.update((topLevelModuleStates) => {
 				let state = topLevelModuleStates?.[modId]
+				console.log(state?.selectedForloop, id, clicked)
 				if (state) {
 					let manualOnce = state.selectedForLoopSetManually
-					if (state?.selectedForloop == id && clicked) {
-						topLevelModuleStates[modId] = {
-								...(topLevelModuleStates[modId] ?? {}),
-								selectedForloop: undefined,
-								selectedForloopIndex: -1,
-								selectedForLoopSetManually: false
-						}
-					} else if (clicked || (!manualOnce && (state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)) ) || selectedManually){
+					if (clicked || (!manualOnce && (state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)) ) || selectedManually){
 						let setManually = clicked || selectedManually || manualOnce 
+						console.log("SETLOOP", id)
 						topLevelModuleStates[modId] = {
 							...(topLevelModuleStates[modId] ?? {}),
 							selectedForloop: id,
 							selectedForloopIndex: j,
 							selectedForLoopSetManually: setManually ?? false
 						}
+						console.log(id, j, setManually, globalModuleStates?.length)
 						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})			
 					}
 				}
 				return topLevelModuleStates
 			})
-		}
-		
+		}		
 	}
 
 	function innerJobLoaded(jobLoaded: Job, j: number, clicked: boolean, force: boolean) {
 		let modId = flowJobIds?.moduleId
+		console.log(modId, j, jobLoaded)
 		if (modId) {
-			console.log(j, jobLoaded.id)
 			setIteration(j, jobLoaded.id, clicked, clicked, modId, innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow')
 
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
@@ -562,7 +581,7 @@
 					duration_ms: undefined
 				}
 
-				let currentIndex = $localModuleStates[modId]?.selectedForloopIndex == j 
+				let currentIndex = getTopModuleStates()?.[modId]?.selectedForloopIndex == j 
 				if (currentIndex) {
 					v.logs = jobLoaded.logs
 					v.args = jobLoaded.args
@@ -576,7 +595,7 @@
 				} else if (jobLoaded.type == 'CompletedJob') {
 					v.flow_jobs_results = jobResults
 					if (currentIndex) {
-					v.result = jobLoaded.result
+						v.result = jobLoaded.result
 					}
 				}
 				setModuleState(
