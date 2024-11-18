@@ -166,10 +166,11 @@
 	}}
 	on:mouseout|stopPropagation={mouseOut}
 	class={twMerge(
-		'h-full flex flex-col w-full component relative',
+		'h-full flex flex-col w-full component relative connection-access',
 		initializing ? 'overflow-hidden h-0' : '',
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
+	data-connection-button
 >
 	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
 		<div
