@@ -48,13 +48,17 @@
 	bind:this={wsTriggerEditor}
 />
 
-<div class="flex flex-col gap-4">
-	{#if !newItem}
-		{#if isCloudHosted()}
-			<Alert title="Not compatible with multi-tenant cloud" type="warning">
-				Websocket triggers are disabled in the multi-tenant cloud.
+{#if isCloudHosted()}
+	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+		Websocket triggers are disabled in the multi-tenant cloud.
+	</Alert>
+{:else}
+	<div class="flex flex-col gap-4">
+		{#if newItem}
+			<Alert title="Triggers disabled" type="warning" size="xs">
+				Deploy the {isFlow ? 'flow' : 'script'} to add WS triggers.
 			</Alert>
-		{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+		{:else if wsTriggers}
 			<Button
 				on:click={() => wsTriggerEditor?.openNew(isFlow, path)}
 				variant="border"
@@ -64,45 +68,34 @@
 			>
 				New WS Trigger
 			</Button>
-		{:else}
-			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
-		{/if}
-	{/if}
-
-	{#if wsTriggers}
-		{#if wsTriggers.length == 0}
-			<div class="text-xs text-secondary"> No WS triggers </div>
-		{:else}
-			<div class="flex flex-col divide-y pt-2">
-				{#each wsTriggers as wsTriggers (wsTriggers.path)}
-					<div class="grid grid-cols-5 text-2xs items-center py-2">
-						<div class="col-span-2 truncate">{wsTriggers.path}</div>
-						<div class="col-span-2 truncate">
-							{wsTriggers.url}
+			{#if wsTriggers.length == 0}
+				<div class="text-xs text-secondary"> No WS triggers </div>
+			{:else}
+				<div class="flex flex-col divide-y pt-2">
+					{#each wsTriggers as wsTriggers (wsTriggers.path)}
+						<div class="grid grid-cols-5 text-2xs items-center py-2">
+							<div class="col-span-2 truncate">{wsTriggers.path}</div>
+							<div class="col-span-2 truncate">
+								{wsTriggers.url}
+							</div>
+							<div class="flex justify-end">
+								<button
+									on:click={() => wsTriggerEditor?.openEdit(wsTriggers.path, isFlow)}
+									class="px-2"
+								>
+									{#if wsTriggers.canWrite}
+										Edit
+									{:else}
+										View
+									{/if}
+								</button>
+							</div>
 						</div>
-						<div class="flex justify-end">
-							<button
-								on:click={() => wsTriggerEditor?.openEdit(wsTriggers.path, isFlow)}
-								class="px-2"
-							>
-								{#if wsTriggers.canWrite}
-									Edit
-								{:else}
-									View
-								{/if}
-							</button>
-						</div>
-					</div>
-				{/each}
-			</div>
+					{/each}
+				</div>
+			{/if}
+		{:else}
+			<Skeleton layout={[[8]]} />
 		{/if}
-	{:else}
-		<Skeleton layout={[[8]]} />
-	{/if}
-
-	{#if newItem}
-		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to add WS triggers.
-		</Alert>
-	{/if}
-</div>
+	</div>
+{/if}

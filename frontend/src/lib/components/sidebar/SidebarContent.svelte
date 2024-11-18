@@ -100,10 +100,10 @@
 			kind: 'ws'
 		},
 		{
-			label: 'Kafka',
+			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/kafka_triggers',
 			icon: KafkaIcon,
-			disabled: $userStore?.operator,
+			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'kafka'
 		}
 	]
@@ -321,9 +321,10 @@
 							<MenuItem>
 								<div class="py-1" role="none">
 									<a
-										href={subItem.href}
+										href={subItem.disabled ? '' : subItem.href}
 										class={twMerge(
-											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
+											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary',
+											subItem.disabled ? 'pointer-events-none opacity-50' : ''
 										)}
 										role="menuitem"
 										tabindex="-1"

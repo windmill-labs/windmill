@@ -9,7 +9,7 @@
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { FlowService, ScriptService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
@@ -61,7 +61,7 @@
 
 {#each triggersToDisplay as type}
 	{@const { icon, countKey } = triggerTypeConfig[type]}
-	{#if !showOnlyWithCount || ($triggersCount?.[countKey] ?? 0) > 0}
+	{#if (!showOnlyWithCount || ($triggersCount?.[countKey] ?? 0) > 0) && !(type === 'kafka' && !$enterpriseLicense)}
 		<Popover>
 			<svelte:fragment slot="text">{type.charAt(0).toUpperCase() + type.slice(1)}</svelte:fragment>
 			<TriggerButton
