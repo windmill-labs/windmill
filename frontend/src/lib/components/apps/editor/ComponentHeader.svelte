@@ -170,16 +170,12 @@
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							inlineEditorOpened
 								? 'bg-blue-300 text-blue-800'
-								: 'text-white hover:bg-blue-400 hover:text-white'
+								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
 						on:click={() => dispatch('triggerInlineEditor')}
 						on:pointerdown|stopPropagation
 					>
-						{#if inlineEditorOpened}
-							<Pen aria-label="Unlock position" size={11} />
-						{:else}
-							<Pen aria-label="Lock position" size={11} />
-						{/if}
+						<Pen aria-label="Edit" size={11} />
 					</button>
 				{/if}
 				{#if component.type === 'conditionalwrapper'}
