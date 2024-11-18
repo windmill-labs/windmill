@@ -761,7 +761,7 @@
 			{/if}
 
 			{#if $connectingInput.opened}
-				<div class="absolute z-50 inset-0 w-min whitespace-nowrap mx-auto pt-0.5">
+				<div class="absolute z-50 inset-0 w-min h-min whitespace-nowrap mx-auto pt-0.5">
 					<Alert title="Press Esc to exit connection mode." size="xs" class="h-10 py-1" />
 				</div>
 			{/if}
