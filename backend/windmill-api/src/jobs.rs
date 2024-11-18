@@ -950,7 +950,7 @@ async fn get_job_logs(
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
-            "SELECT created_by, CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+            "SELECT created_by, CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
             FROM queue 
             LEFT JOIN job_logs ON job_logs.job_id = queue.id 
             WHERE queue.id = $1 AND queue.workspace_id = $2",
@@ -971,10 +971,10 @@ async fn get_job_logs(
         log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(text.log_offset, &logs, &text.log_file_index).await {
+        if let Some(r) = get_logs_from_store(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await {
             return r.map(content_plain);
         }
-        if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
+        if let Some(r) = get_logs_from_disk(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await {
             return r.map(content_plain);
         }
 

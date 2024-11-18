@@ -8,6 +8,7 @@
 		cleanValueProperties,
 		orderedJsonStringify,
 		orderedYamlStringify,
+		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
 	import type { Script } from '$lib/gen'
@@ -54,8 +55,9 @@
 		diffViewer.closeDrawer()
 	}
 
+
 	function prepareDiff(data: Value) {
-		const metadata = structuredClone(cleanValueProperties(data))
+		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
 		const content = metadata['content']
 		if (metadata['content'] !== undefined) {
 			metadata['content'] = 'check content diff'
