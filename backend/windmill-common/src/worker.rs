@@ -229,10 +229,16 @@ pub fn write_file_at_user_defined_location(
 
     let mut file = File::create(full_path)?;
 
+    #[cfg(unix)]
     if let Some(mode) = mode {
         let perm = std::os::unix::fs::PermissionsExt::from_mode(mode);
         file.set_permissions(perm)
             .map_err(|e| anyhow!("Failed to set permissions to {}: {e}", user_defined_path))?;
+    }
+
+    #[cfg(windows)]
+    if mode.is_some() {
+        tracing::error!("Cannot use `mode` to set file permissions on windows workers");
     }
 
     file.write_all(content.as_bytes())?;
