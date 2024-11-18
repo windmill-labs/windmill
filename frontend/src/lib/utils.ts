@@ -256,6 +256,7 @@ export function pointerDownOutside(
 				if (options?.stopPropagation) {
 					event.stopPropagation()
 				}
+				console.log('dbg pointerdown_outside')
 				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
 				return false
 			}

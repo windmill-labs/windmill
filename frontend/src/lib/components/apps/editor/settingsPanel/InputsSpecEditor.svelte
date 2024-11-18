@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { createEventDispatcher } from 'svelte'
-
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
 	import RowInputEditor from './inputEditor/RowInputEditor.svelte'
@@ -13,13 +11,12 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Loader2, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Loader2, Pen, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
-	import { Button } from '$lib/components/common'
+	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
+
 	import Toggle from '$lib/components/Toggle.svelte'
-	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
-	import { clickOutside, pointerDownOutside } from '$lib/utils'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -46,11 +43,8 @@
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
 	export let securedContext = false
-	export let selected: boolean = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
-
-	const dispatch = createEventDispatcher()
 
 	let evalV2editor: EvalV2InputEditor
 	function applyConnection(connection: InputConnection) {
@@ -76,16 +70,7 @@
 		}
 	}
 
-	async function getConnectionButtonElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-connection-button], [data-connection-button] *')
-		) as HTMLElement[]
-	}
-
 	function closeConnection() {
-		if (!$connectingInput?.opened) {
-			return
-		}
 		$connectingInput = {
 			opened: false,
 			hoveredComponent: undefined,
@@ -101,15 +86,6 @@
 			hoveredComponent: undefined,
 			onConnect: applyConnection
 		}
-		dispatch('select', true)
-	}
-
-	function handleConnect() {
-		if ($connectingInput.opened) {
-			closeConnection()
-			return
-		}
-		openConnection()
 	}
 </script>
 
@@ -177,43 +153,7 @@
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div
-						use:clickOutside={{
-							capture: true,
-							stopPropagation: !!$connectingInput?.opened,
-							exclude: getConnectionButtonElements
-						}}
-						use:pointerDownOutside={{
-							capture: true,
-							stopPropagation: !!$connectingInput?.opened,
-							exclude: getConnectionButtonElements
-						}}
-						on:keydown|preventDefault|stopPropagation={(e) =>
-							e.key === 'Escape' && closeConnection()}
-						on:pointerdown_outside={closeConnection}
-						on:click_outside={closeConnection}
-						class="connection-access"
-						data-connection-button
-					>
-						<AnimatedButton
-							animate={$connectingInput?.opened && selected}
-							baseRadius="6px"
-							animationDuration="2s"
-							marginWidth="2px"
-						>
-							<Button
-								size="xs"
-								variant="border"
-								color="light"
-								title="Connect"
-								on:click={handleConnect}
-								id="schema-plug"
-							>
-								<Plug size={14} />
-							</Button>
-						</AnimatedButton>
-					</div>
+					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
 			</div>
 		</div>

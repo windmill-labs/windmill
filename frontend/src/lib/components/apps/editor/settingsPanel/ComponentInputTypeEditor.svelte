@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, createEventDispatcher } from 'svelte'
 	import type { AppInput, InputConnection } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { Code, CurlyBraces, FunctionSquare, Pen, Plug, Plug2 } from 'lucide-svelte'
+	import { Code, CurlyBraces, FunctionSquare, Pen, Plug2 } from 'lucide-svelte'
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Button } from '$lib/components/common'
+	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
 	import type EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 
 	export let componentInput: AppInput
@@ -14,6 +14,8 @@
 	export let evalV2editor: EvalV2InputEditor | undefined
 
 	const { onchange, connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+
+	const dispatch = createEventDispatcher()
 
 	$: if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
 		//@ts-ignore
@@ -105,14 +107,19 @@
 					id="data-source-compute"
 				/>
 			</ToggleButtonGroup>
+
 			<div class="flex">
-				<Button
-					size="xs"
-					variant="border"
-					color="light"
-					title="Connect"
-					id={`plug`}
-					on:click={() => {
+				<ConnectionButton
+					closeConnection={() => {
+						$connectingInput = {
+							opened: false,
+							hoveredComponent: undefined,
+							input: undefined,
+							onConnect: () => {}
+						}
+						dispatch('select', true)
+					}}
+					openConnection={() => {
 						$connectingInput = {
 							opened: true,
 							input: undefined,
@@ -120,9 +127,8 @@
 							onConnect: applyConnection
 						}
 					}}
-				>
-					<Plug size={12} />
-				</Button>
+					isOpen={!!$connectingInput.opened}
+				/>
 			</div>
 		</div>
 	</div>
