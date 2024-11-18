@@ -507,7 +507,7 @@ async fn get_http_route_trigger(
         trigger.email.clone(),
         &trigger.workspace_id,
         &db,
-        username_override.unwrap_or("anonymous".to_string()),
+        Some(username_override.unwrap_or("anonymous".to_string())),
     )
     .await?;
 

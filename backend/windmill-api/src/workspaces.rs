@@ -1296,6 +1296,7 @@ async fn set_encryption_key(
 struct UsedTriggers {
     pub websocket_used: bool,
     pub http_routes_used: bool,
+    pub kafka_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1306,7 +1307,10 @@ async fn get_used_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let websocket_used = sqlx::query_as!(
         UsedTriggers,
-        r#"SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!""#,
+        r#"SELECT 
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", 
+            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!",
+            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!""#,
         w_id,
     )
     .fetch_one(&mut *tx)

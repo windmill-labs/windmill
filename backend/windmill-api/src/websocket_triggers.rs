@@ -527,7 +527,7 @@ async fn wait_runnable_result(
         ws_trigger.email.clone(),
         &ws_trigger.workspace_id,
         &db,
-        username_override,
+        Some(username_override),
     )
     .await?;
 
@@ -773,7 +773,9 @@ async fn listen_to_websocket(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    update_ping(&db, &ws_trigger, Some("Connecting...")).await;
+    if let None = update_ping(&db, &ws_trigger, Some("Connecting...")).await {
+        return;
+    }
 
     let url = ws_trigger.url.as_str();
 
@@ -970,7 +972,7 @@ async fn run_job(
         trigger.email.clone(),
         &trigger.workspace_id,
         db,
-        "anonymous".to_string(),
+        Some("anonymous".to_string()),
     )
     .await?;
 

@@ -10,6 +10,7 @@
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -18,8 +19,14 @@
 	export let isFlow: boolean
 	export let selected: boolean
 	export let showOnlyWithCount: boolean
-	export let triggersToDisplay: ('webhooks' | 'schedules' | 'routes' | 'websockets' | 'emails')[] =
-		['webhooks', 'schedules', 'routes', 'websockets', 'emails']
+	export let triggersToDisplay: (
+		| 'webhooks'
+		| 'schedules'
+		| 'routes'
+		| 'websockets'
+		| 'kafka'
+		| 'emails'
+	)[] = ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'emails']
 	const dispatch = createEventDispatcher()
 
 	onMount(() => {
@@ -47,6 +54,7 @@
 		schedules: { icon: Calendar, countKey: 'schedule_count' },
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
+		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
 		emails: { icon: Mail, countKey: 'email_count' }
 	}
 </script>

@@ -49,6 +49,7 @@
 	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/stores'
 	import SideBarNotification from './SideBarNotification.svelte'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -97,6 +98,13 @@
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws'
+		},
+		{
+			label: 'Kafka',
+			href: '/kafka_triggers',
+			icon: KafkaIcon,
+			disabled: $userStore?.operator,
+			kind: 'kafka'
 		}
 	]
 
@@ -205,10 +213,10 @@
 										action: () => {
 											isCriticalAlertsUIOpen.set(true)
 										},
-							icon: AlertCircle,
-							notificationCount: numUnacknowledgedCriticalAlerts
-						}
-					]
+										icon: AlertCircle,
+										notificationCount: numUnacknowledgedCriticalAlerts
+									}
+							  ]
 							: [])
 					]
 			  }

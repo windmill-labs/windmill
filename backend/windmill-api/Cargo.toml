@@ -19,6 +19,7 @@ parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/par
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 openidconnect = ["dep:openidconnect"]
 tantivy = ["dep:windmill-indexer"]
+kafka = ["dep:rdkafka"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -96,6 +97,7 @@ url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit.workspace = true
 tokio-tungstenite.workspace = true
+rdkafka = { workspace = true, optional = true }
 
 pin-project.workspace = true
 http.workspace = true
