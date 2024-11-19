@@ -711,9 +711,10 @@
 	let instance: any
 	let isModifierKeyPressed = false
 	function resetView() {
-		if (instance) {
+		if (instance && box) {
 			instance.moveTo(0.5, 0)
 			instance.zoomAbs(0.5, 0, 1)
+			box.scrollTop = 0
 		}
 	}
 
@@ -881,7 +882,7 @@
 										$focusedGrid = undefined
 									}}
 									class={twMerge(
-										'bg-green-500 h-full w-full relative',
+										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer h-full overflow-visible',
 										isModifierKeyPressed ? 'cursor-grab' : ''
