@@ -106,7 +106,7 @@
 		"ag-grid-community": "^31.0.0",
 		"ag-grid-enterprise": "^31.0.0",
 		"ansi_up": "^5.2.1",
-		"chart.js": "^4.3.0",
+		"chart.js": "^4.4.6",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
 		"d3-zoom": "^3.0.0",
