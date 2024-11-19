@@ -145,7 +145,7 @@ tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
-thiserror = "^1"
+thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "0.4.35", features = ["serde"] }
 chrono-tz = "^0"
