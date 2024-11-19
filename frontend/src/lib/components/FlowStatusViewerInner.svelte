@@ -71,6 +71,7 @@
 	export let globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
 
 	export let childFlow: boolean = false
+	export let isSubflow: boolean = false
 	export let reducedPolling = false
 
 	export let wideResults = false
@@ -97,9 +98,9 @@
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let expandedSubflows: Record<string, FlowModule[]> = {}
 
-	$: flowJobIds?.moduleId && onFlowJobFlowStatus()
+	$: flowJobIds?.moduleId && onFlowModuleId()
 
-	function onFlowJobFlowStatus() {
+	function onFlowModuleId() {
 		if (globalRefreshes) {
 			let modId = flowJobIds?.moduleId
 			if (modId) {
@@ -168,15 +169,7 @@
 		
 		let modId = flowJobIds?.moduleId
 
-		let state = modId ? getTopModuleStates()?.[modId] : undefined
-		let loopjob =  state?.selectedForloop 		
-
-		await Promise.all(Object.entries(recursiveRefresh).map(async ([key, v]) => {
-				await tick()
-				await v(clearLoop, false)
-		}))
-		
-	
+			
 		if (clearLoop) {
 			if (modId && !root) {
 				globalModuleStates?.[globalModuleStates?.length - 1]?.update((x) => {
@@ -185,23 +178,32 @@
 				})
 			}
 		} else {
+
+			let state = modId ? getTopModuleStates()?.[modId] : undefined
+			let loopjob =  state?.selectedForloop 		
 			let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
 			if (njob) {
 				dispatch('jobsLoaded', { job: njob, force: true })
 			}
 		}
+
+		await Promise.all(Object.entries(recursiveRefresh).map(async ([key, v]) => {
+				await tick()
+				await v(clearLoop, false)
+		}))
+		
+
 	
 	}
 
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
 				parentRecursiveRefresh[jobId] = async (clear, root) => { 
-					globalModuleStates.length > 0 && (await refresh(clear, root))
+					(globalModuleStates.length > 0 || isSubflow) && (await refresh(clear, root))
 				}
 			}
 	}
 
-	updateRecursiveRefresh(jobId)
 
 
 	function setModuleState(
@@ -434,11 +436,12 @@
 	let destroyed = false
 
 
+	updateRecursiveRefresh(jobId)
 
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
-			recursiveRefresh = {}
+
 			$localModuleStates = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
@@ -464,6 +467,8 @@
 					})
 				)
 			} else {
+				updateRecursiveRefresh(jobId)
+				recursiveRefresh = {}
 				$localDurationStatuses = {}
 			}
 			await loadJobInProgress()
@@ -508,7 +513,6 @@
 	}
 
 	function onJobsLoaded(mod: FlowStatusModule, job: Job, force?: boolean): void {
-		// console.log('JOBLOADED', jobId, mod)
 		if (mod.id && (mod.flow_jobs ?? []).length == 0) {
 			if (!childFlow) {
 				if ($flowStateStore?.[mod.id]) {
@@ -953,7 +957,7 @@
 									globalModuleStates={forloopIsSelected ? [localModuleStates, ...globalModuleStates] : []}
 									globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 									{prefix}
-									{subflowParentsGlobalModuleStates}
+									subflowParentsGlobalModuleStates={forloopIsSelected ? subflowParentsGlobalModuleStates : []}
 									{subflowParentsDurationStatuses}
 									render={forloop_selected == loopJobId && selected == 'sequence' && render}
 									isForloopSelected={forloop_selected == loopJobId && (innerModule?.type == 'forloopflow' ||  innerModule?.type == 'whileloopflow')}
@@ -1066,6 +1070,7 @@
 										{workspaceId}
 										jobId={mod.job}
 										{reducedPolling}
+										isSubflow
 										childFlow
 										on:jobsLoaded={(e) => {
 											let { force, job } = e.detail
