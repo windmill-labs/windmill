@@ -10874,7 +10874,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
