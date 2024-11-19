@@ -25,7 +25,7 @@
 		'text-2xs font-bold w-fit h-full cursor-pointer rounded',
 		isManuallySelected
 			? 'hover:bg-red-200 hover:text-red-800'
-			: ' hover:text-indigo-800 hover:bg-indigo-300'
+			: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 	)}
 	on:click={() => dispatch('triggerInlineEditor')}
 	on:pointerdown|stopPropagation

@@ -9,6 +9,7 @@
 	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let json: any
 	export let level = 0
@@ -21,8 +22,10 @@
 	export let collapseLevel: number | undefined = undefined
 	export let prefix = ''
 	export let expandedEvenOnLevel0: string | undefined = undefined
+	export let connecting = false
 
 	let s3FileViewer: S3FilePicker
+	let hoveredKey: string | null = null
 
 	const collapsedSymbol = '...'
 	$: keys = ['object', 's3object'].includes(getTypeAsString(json)) ? Object.keys(json) : []
@@ -103,17 +106,29 @@
 			>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<Button
-							on:click={() => selectProp(key, undefined, false)}
-							size="xs2"
-							color="light"
-							variant="border"
-							wrapperClasses="inline-flex p-0 whitespace-nowrap w-fit"
-							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]"
-							title={computeFullKey(key, rawKey)}
+						<AnimatedButton
+							animate={connecting && hoveredKey === key}
+							marginWidth="1px"
+							wrapperClasses="inline-flex h-fit w-fit items-center"
+							baseRadius="0.275rem"
+							animationDuration="2s"
 						>
-							<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
-						</Button>
+							<Button
+								on:click={() => selectProp(key, undefined, false)}
+								on:mouseenter={() => {
+									hoveredKey = key
+								}}
+								on:mouseleave={() => (hoveredKey = null)}
+								size="xs2"
+								color="light"
+								variant="border"
+								wrapperClasses="p-0 whitespace-nowrap w-fit"
+								btnClasses="font-mono h-4 py-1 text-2xs font-thin px-1 rounded-[0.275rem]"
+								title={computeFullKey(key, rawKey)}
+							>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+							</Button>
+						</AnimatedButton>
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
 						{#if getTypeAsString(json[key]) === 'object'}

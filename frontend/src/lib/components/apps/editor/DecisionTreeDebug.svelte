@@ -78,7 +78,7 @@
 			'px-1 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 			componentIsDebugging
 				? ' hover:bg-red-300 hover:text-red-800'
-				: ' hover:bg-indigo-300 hover:text-indigo-800'
+				: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 		)}
 		on:click={() => dispatch('triggerInlineEditor')}
 		on:pointerdown|stopPropagation
