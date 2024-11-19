@@ -688,7 +688,11 @@
 	$: updateCursorStyle(!!$connectingInput.opened)
 
 	function updateCursorStyle(disabled: boolean) {
-		document.documentElement.style.setProperty('--global-cursor', disabled ? 'not-allowed' : '')
+		if (disabled) {
+			document.documentElement.style.setProperty('--global-cursor', 'not-allowed', 'important')
+		} else {
+			document.documentElement.style.removeProperty('--global-cursor')
+		}
 	}
 </script>
 
@@ -1094,10 +1098,10 @@
 
 	/* Conditionally apply the disabled cursor globally */
 	:global(*) {
-		cursor: var(--element-cursor, var(--global-cursor, auto)) !important;
+		cursor: var(--element-cursor, var(--global-cursor, auto));
 	}
 
 	:global(.connection-access) {
-		--element-cursor: pointer;
+		--element-cursor: auto;
 	}
 </style>
