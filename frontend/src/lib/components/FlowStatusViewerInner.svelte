@@ -59,7 +59,7 @@
 	export let innerModule: FlowModuleValue | undefined = undefined
 	export let globalRefreshes: Record<
 		string,
-		(root) => Promise<void>
+		(clear, root) => Promise<void>
 	> = {}
 	export let render = true
 
@@ -80,11 +80,11 @@
 	export let subflowParentsGlobalModuleStates: Writable<Record<string, GraphModuleState>>[] = []
 	export let subflowParentsDurationStatuses: Writable<Record<string, DurationStatus>>[] = []
 	export let isForloopSelected = false
-	export let parentRecursiveRefresh: Record<string, (root) => void> = {}
+	export let parentRecursiveRefresh: Record<string, (clear, root) => void> = {}
 	export let job: Job | undefined = undefined
+	
 
-
-	let recursiveRefresh: Record<string, (root) => void> = {}
+	let recursiveRefresh: Record<string, (clear, root) => void> = {}
 
 
 	let jobResults: any[] =
@@ -103,8 +103,8 @@
 		if (globalRefreshes) {
 			let modId = flowJobIds?.moduleId
 			if (modId) {
-				globalRefreshes[buildSubflowKey(modId, prefix)] = async (root) => {		
-					await refresh(root)			// refresh(true, loopJob)
+				globalRefreshes[buildSubflowKey(modId, prefix)] = async (clear, root) => {		
+					await refresh(clear, root)			// refresh(true, loopJob)
 				}
 			}
 		}
@@ -162,39 +162,41 @@
 	}
 
 	async function refresh(
-		root: boolean,
+		clearLoop: boolean,
+		root: boolean
 	) {
-
 		
 		let modId = flowJobIds?.moduleId
 
-
 		let state = modId ? getTopModuleStates()?.[modId] : undefined
-		let loopjob =  state?.selectedForloop 
-
-
-	
-		
+		let loopjob =  state?.selectedForloop 		
 
 		await Promise.all(Object.entries(recursiveRefresh).map(async ([key, v]) => {
 				await tick()
-				await v(false)
+				await v(clearLoop, false)
 		}))
-
-
 		
-		let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
-
-		if (njob) {
-			dispatch('jobsLoaded', { job: njob, force: true })
+	
+		if (clearLoop) {
+			if (modId && !root) {
+				globalModuleStates?.[globalModuleStates?.length - 1]?.update((x) => {
+					delete x[modId]
+					return x
+				})
+			}
+		} else {
+			let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
+			if (njob) {
+				dispatch('jobsLoaded', { job: njob, force: true })
+			}
 		}
 	
 	}
 
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
-				parentRecursiveRefresh[jobId] = async (root) => { 
-					globalModuleStates.length > 0 && (await refresh(root))
+				parentRecursiveRefresh[jobId] = async (clear, root) => { 
+					globalModuleStates.length > 0 && (await refresh(clear, root))
 				}
 			}
 	}
@@ -345,12 +347,12 @@
 					setModuleState(mod.id ?? '', {}, true)
 				}
 				
-				if (isForloopSelected && mod?.flow_jobs) {
-					let states = getTopModuleStates()
-					if (states) {
-						states[mod.id ?? ''] = $localModuleStates[mod.id ?? '']
-					}
-				}
+				// if (isForloopSelected && mod?.flow_jobs) {
+				// 	let states = getTopModuleStates()
+				// 	if (states) {
+				// 		states[mod.id ?? ''] = $localModuleStates[mod.id ?? '']
+				// 	}
+				// }
 
 				if (mod.branch_chosen) {
 					setModuleState(
@@ -577,19 +579,21 @@
 
 
 
-	async function rootRefresh(modId: string) {
-		await globalRefreshes?.[modId]?.(true)
-	}
 
 	 async function setIteration(j: number, id: string, clicked: boolean, modId: string, isForloop: boolean) {
 		if (modId) {
 
+			if (clicked) {
+							await globalRefreshes?.[modId]?.(true, true)
+
+						}
 				globalModuleStates?.[globalModuleStates?.length - 1]?.update((topLevelModuleStates) => {
 				let state = topLevelModuleStates?.[modId]
 				if (state) {
 					let manualOnce = state.selectedForLoopSetManually
 					if (clicked || (!manualOnce && (state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)) )){
 						let setManually = clicked || manualOnce 
+
 						topLevelModuleStates[modId] = {
 							...(topLevelModuleStates[modId] ?? {}),
 							selectedForloop: id,
@@ -597,14 +601,15 @@
 							selectedForLoopSetManually: setManually ?? false
 						}
 
-						if (clicked) {
-							rootRefresh(modId)
-						}
 						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})			
 					}
 				}
 				return topLevelModuleStates
 			})
+
+			if (clicked) {
+							await globalRefreshes?.[modId]?.(false, true)
+						}
 		}		
 	}
 
@@ -1167,14 +1172,17 @@
 							on:selectedIteration={async (e) => {
 								let detail = e.detail
 								if (detail.manuallySet) {
+									await globalRefreshes?.[detail.moduleId]?.(true, true)
+
 									$localModuleStates[detail.moduleId] = {
 										...$localModuleStates[detail.moduleId],
 										selectedForloop: detail.id,
 										selectedForloopIndex: detail.index,
 										selectedForLoopSetManually: true
 									}
-									await rootRefresh(detail.moduleId)
 
+							await globalRefreshes?.[detail.moduleId]?.(false, true)
+						
 								} else {
 									$localModuleStates[detail.moduleId] = {
 										...$localModuleStates[detail.moduleId],
