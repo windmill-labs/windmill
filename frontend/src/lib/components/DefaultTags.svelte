@@ -18,7 +18,7 @@
 	<svelte:fragment slot="button">
 		<Button color="dark" size="xs" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center"
-				><Pen size={14} /> Default Tags&nbsp;<Tooltip light
+				><Pen size={14} /> Default tags&nbsp;<Tooltip light
 					>Scripts and steps that have not been specifically assigned tags will use a default tag
 					that can be customized here</Tooltip
 				></div
