@@ -18,7 +18,6 @@ use windmill_common::ee::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
-use windmill_common::utils::report_critical_error;
 use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
@@ -40,11 +39,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         ));
     }
 
-    let sched = ScheduleType::from_str(&schedule.schedule, false)?;
-
-    if let ScheduleType::Cron(_) = sched {
-        report_critical_error(format!("Schedule '{}' is incompatible with croner, falling back to cron! Please migrate cron expression to croner format.", schedule.schedule), db.clone(), Some(&schedule.workspace_id), None).await;
-    }
+    let sched = ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref())?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;

@@ -20,11 +20,11 @@
 		type Retry
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { List, Loader2, Save } from 'lucide-svelte'
+	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
@@ -37,6 +37,10 @@
 	let initialPath = ''
 	let edit = true
 	let schedule: string = '0 0 12 * *'
+	let cronVersion: string = 'v2'
+	let isLatestCron = true;
+	let initialCronVersion: string = 'v2'
+	let initialSchedule: string;
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 	let paused_until: string | undefined = undefined
 
@@ -315,8 +319,12 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+			cronVersion = s.cron_version ?? 'v2'
+			initialCronVersion = cronVersion
+			isLatestCron = cronVersion == 'v2'
 			enabled = s.enabled
 			schedule = s.schedule
+			initialSchedule = schedule
 			timezone = s.timezone
 			paused_until = s.paused_until
 			showPauseUntil = paused_until !== undefined
@@ -423,7 +431,8 @@
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
-					paused_until: paused_until
+					paused_until: paused_until,
+					cron_version: cronVersion,
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -456,7 +465,8 @@
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
-					paused_until: paused_until
+					paused_until: paused_until,
+					cron_version: cronVersion,
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -495,6 +505,17 @@
 
 	let showPauseUntil = false
 	$: !showPauseUntil && (paused_until = undefined)
+
+	function onVersionChange() {
+		cronVersion = isLatestCron? 'v2' : 'v1'
+		if (cronVersion === 'v2' && initialCronVersion === 'v1') {
+			// switches day-of-week from v1 -> v2
+			schedule = cronV1toV2(schedule)
+		} else if (cronVersion === 'v1' && initialCronVersion === 'v1' && (schedule !== initialSchedule)) {
+			// revert back to original
+			schedule = initialSchedule
+		}
+	}
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
@@ -616,7 +637,23 @@
 					<svelte:fragment slot="header">
 						<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 					</svelte:fragment>
-					<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
+					{#if initialCronVersion !== 'v2'}
+					<div class='flex flex-row'>
+						<AlertTriangle color='orange' class='mr-2' size={16} />
+						<Toggle
+							options={{
+								right: 'latest Cron syntax',
+								rightTooltip:
+									'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
+							}}
+							size='xs'
+							bind:checked={isLatestCron}
+							on:change={onVersionChange}
+						/>
+					</div>
+					{/if}
+					<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON bind:cronVersion />
 					<Toggle
 						options={{
 							right: 'Pause schedule until...',

@@ -7120,6 +7120,8 @@ paths:
                   type: string
                 timezone:
                   type: string
+                cron_version:
+                  type: string
               required:
                 - schedule
                 - timezone
@@ -11627,6 +11629,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - path
         - edited_by
@@ -11709,6 +11713,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - path
         - schedule
@@ -11758,6 +11764,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - schedule
         - timezone

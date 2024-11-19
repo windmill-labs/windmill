@@ -10,6 +10,7 @@
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 	export let schedule: string
+	export let cronVersion: string
 
 	let instructions = ''
 	let instructionsField: HTMLInputElement | undefined = undefined
@@ -17,8 +18,25 @@
 	let abortController = new AbortController()
 	$: instructionsField && setTimeout(() => instructionsField?.focus(), 100)
 
-	const SYSTEM =
-		"You are a helpful assistant for creating CRON schedules using both standard and extended Croner patterns. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Supported modifiers: ? (wildcard), L (last day/weekday), # (nth occurrence of a weekday), and W (closest weekday). Weekdays are Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). Ensure syntax is valid, including optional seconds and special modifiers. You only return either the CRON string without any leading/closing quotes or an error message prefixed with 'ERROR:'."
+	const SYSTEM_V2 =
+		"You are a helpful assistant for creating CRON schedules using both standard and extended Croner patterns. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Supported modifiers: ? (wildcard), L (last day/weekday), # (nth occurrence of a weekday), and W (closest weekday). Weekdays are Sunday (0 or 7), Monday (1), Tuesday (2), Wednesday (3), Thursday (4), Friday (5), Saturday (6). Ensure syntax is valid, including optional seconds and special modifiers. You only return either the CRON string without any leading/closing quotes or an error message prefixed with 'ERROR:'."
+
+	const SYSTEM_V1 =
+		"You are a helpful assitant for creating CRON schedules. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Weekdays are Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). You only return the CRON string without any wrapping characters. If it is invalid, you will return an error message preceeded by 'ERROR:'."
+
+	$: updateSystemPrompt(cronVersion)
+
+	function updateSystemPrompt(version: string) {
+		console.log('Updating system prompt to version: ', version)
+		if (version === 'v2') {
+			SYSTEM = SYSTEM_V2
+		} else {
+			SYSTEM = SYSTEM_V1
+		}
+	}
+
+	let SYSTEM = SYSTEM_V2
+
 	const USER = 'CRON schedule instructions: {instructions}'
 	async function generateCron() {
 		genLoading = true

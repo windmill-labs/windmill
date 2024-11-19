@@ -34,6 +34,7 @@ pub const GIT_VERSION: &str =
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::sync::atomic::Ordering;
+use std::panic::{self, AssertUnwindSafe};
 
 use crate::worker::CLOUD_HOSTED;
 
@@ -402,44 +403,55 @@ impl ScheduleType {
         }
     }
 
-    pub fn from_str(schedule_str: &str, force_croner: bool) -> Result<ScheduleType> {
-        tracing::debug!("Attempting to parse schedule string: {}", schedule_str);
+    pub fn from_str(schedule_str: &str, version: Option<&str>) -> Result<ScheduleType> {
+        let version_to_use = version.unwrap_or("v2");
+        tracing::debug!(
+            "Attempting to parse schedule string: {}, using version: {}",
+            schedule_str,
+            version_to_use
+        );
 
-        fn parse_croner(schedule_str: &str) -> Result<Cron> {
-            Cron::new(schedule_str)
-                .with_alternative_weekdays()
-                .with_seconds_required()
-                .parse()
-                .map_err(|e| {
+        match version_to_use {
+            "v1" => {
+                // Use Cron for v1
+                cron::Schedule::from_str(schedule_str)
+                    .map(ScheduleType::Cron)
+                    .map_err(|e| {
+                        tracing::error!(
+                            "Failed to parse schedule string '{}' using Cron: {}",
+                            schedule_str,
+                            e
+                        );
+                        Error::BadRequest(format!("cron: {}", e))
+                    })
+            }
+            _ => {
+                // Use Croner for v2
+                let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
+                    Cron::new(schedule_str)
+                        .with_seconds_optional()
+                        .parse()
+                }))
+                .map_err(|_| {
                     tracing::error!(
-                        "Failed to parse schedule string '{}' using Croner: {}",
+                        "A panic occurred while parsing schedule string '{}' using Croner",
                         schedule_str,
-                        e
                     );
-                    Error::BadRequest(format!("cron: {}", e))
+                    Error::BadRequest(format!("cron: a panic occurred during schedule parsing"))
                 })
-        }
+                .and_then(|parse_result| {
+                    parse_result.map(ScheduleType::Croner).map_err(|e| {
+                        tracing::error!(
+                            "Failed to parse schedule string '{}' using Croner: {}",
+                            schedule_str,
+                            e
+                        );
+                        Error::BadRequest(format!("cron: {}", e))
+                    })
+                });
 
-        if force_croner {
-            // Parse using croner
-            parse_croner(schedule_str).map(ScheduleType::Croner)
-        } else {
-            // Try croner, fallback to cron
-            parse_croner(schedule_str)
-                .map(ScheduleType::Croner)
-                .or_else(|_| {
-                    tracing::debug!("Failed to parse using Croner for string: {}", schedule_str);
-                    cron::Schedule::from_str(schedule_str)
-                        .map(ScheduleType::Cron)
-                        .map_err(|e| {
-                            tracing::error!(
-                    "Failed to parse schedule string '{}' using both Croner and Cron: {}",
-                    schedule_str,
-                    e
-                );
-                            Error::BadRequest(format!("cron: {}", e))
-                        })
-                })
+                schedule_type_result
+            }
         }
     }
 
