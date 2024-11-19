@@ -27,7 +27,6 @@
 	$: updateSystemPrompt(cronVersion)
 
 	function updateSystemPrompt(version: string) {
-		console.log('Updating system prompt to version: ', version)
 		if (version === 'v2') {
 			SYSTEM = SYSTEM_V2
 		} else {
