@@ -11,7 +11,7 @@
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
@@ -57,7 +57,10 @@
 
 	//only useful when forloops are optimized and the job doesn't contain the mod id anymore
 	export let innerModule: FlowModuleValue | undefined = undefined
-
+	export let globalRefreshes: Record<
+		string,
+		(root) => Promise<void>
+	> = {}
 	export let render = true
 
 	export let isOwner = false
@@ -77,6 +80,12 @@
 	export let subflowParentsGlobalModuleStates: Writable<Record<string, GraphModuleState>>[] = []
 	export let subflowParentsDurationStatuses: Writable<Record<string, DurationStatus>>[] = []
 	export let isForloopSelected = false
+	export let parentRecursiveRefresh: Record<string, (root) => void> = {}
+	export let job: Job | undefined = undefined
+
+
+	let recursiveRefresh: Record<string, (root) => void> = {}
+
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -88,7 +97,18 @@
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let expandedSubflows: Record<string, FlowModule[]> = {}
 
-	export let job: Job | undefined = undefined
+	$: flowJobIds?.moduleId && onFlowJobFlowStatus()
+
+	function onFlowJobFlowStatus() {
+		if (globalRefreshes) {
+			let modId = flowJobIds?.moduleId
+			if (modId) {
+				globalRefreshes[buildSubflowKey(modId, prefix)] = async (root) => {		
+					await refresh(root)			// refresh(true, loopJob)
+				}
+			}
+		}
+	}
 
 	// let lastSize = 0
 	// $: {
@@ -140,6 +160,49 @@
 	function buildSubflowKey(key: string, prefix: string | undefined) {
 		return prefix ? 'subflow:' + prefix + key : key
 	}
+
+	async function refresh(
+		root: boolean,
+	) {
+
+		
+		let modId = flowJobIds?.moduleId
+
+
+		let state = modId ? getTopModuleStates()?.[modId] : undefined
+		let loopjob =  state?.selectedForloop 
+
+
+	
+		
+
+		await Promise.all(Object.entries(recursiveRefresh).map(async ([key, v]) => {
+				await tick()
+				await v(false)
+		}))
+
+
+		
+		let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
+
+		console.log(modId, njob, root, modId, storedListJobs, loopjob, (flowJobIds?.length ?? 0) - 1)
+		if (njob) {
+			dispatch('jobsLoaded', { job: njob, force: true })
+		}
+	
+	}
+
+	function updateRecursiveRefresh(jobId: string) {
+		if (jobId) {
+				parentRecursiveRefresh[jobId] = async (root) => { 
+					globalModuleStates.length > 0 && (await refresh(root))
+				}
+			}
+	}
+
+	updateRecursiveRefresh(jobId)
+
+
 	function setModuleState(
 		key: string,
 		value: Partial<GraphModuleState>,
@@ -238,7 +301,6 @@
 	function updateInnerModules() {
 		if ($localModuleStates) {
 			innerModules.forEach((mod, i) => {
-				console.log('INNer MODULE', jobId, mod.id)
 				if (
 					mod.type === 'WaitingForEvents' &&
 					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
@@ -283,6 +345,14 @@
 				} else if (isForloopSelected) {
 					setModuleState(mod.id ?? '', {}, true)
 				}
+				
+				if (isForloopSelected && mod?.flow_jobs) {
+					let states = getTopModuleStates()
+					if (states) {
+						states[mod.id ?? ''] = $localModuleStates[mod.id ?? '']
+					}
+				}
+
 				if (mod.branch_chosen) {
 					setModuleState(
 						mod.id ?? '',
@@ -331,7 +401,6 @@
 	let errorCount = 0
 	let notAnonynmous = false
 	async function loadJobInProgress() {
-		console.log('LOADJOB', jobId)
 		dispatch('start')
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -368,6 +437,7 @@
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
+			recursiveRefresh = {}
 			$localModuleStates = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
@@ -508,26 +578,29 @@
 
 
 
-	
-	 async function setIteration(j: number, id: string, selectedManually: boolean | undefined, clicked: boolean, modId: string, isForloop: boolean) {
-		console.log(modId, j)
+	async function rootRefresh(modId: string) {
+		await globalRefreshes?.[modId]?.(true)
+	}
+
+	 async function setIteration(j: number, id: string, clicked: boolean, modId: string, isForloop: boolean) {
 		if (modId) {
 
 				globalModuleStates?.[globalModuleStates?.length - 1]?.update((topLevelModuleStates) => {
 				let state = topLevelModuleStates?.[modId]
-				console.log(state?.selectedForloop, id, clicked)
 				if (state) {
 					let manualOnce = state.selectedForLoopSetManually
-					if (clicked || (!manualOnce && (state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)) ) || selectedManually){
-						let setManually = clicked || selectedManually || manualOnce 
-						console.log("SETLOOP", id)
+					if (clicked || (!manualOnce && (state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)) )){
+						let setManually = clicked || manualOnce 
 						topLevelModuleStates[modId] = {
 							...(topLevelModuleStates[modId] ?? {}),
 							selectedForloop: id,
 							selectedForloopIndex: j,
 							selectedForLoopSetManually: setManually ?? false
 						}
-						console.log(id, j, setManually, globalModuleStates?.length)
+
+						if (clicked) {
+							rootRefresh(modId)
+						}
 						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})			
 					}
 				}
@@ -538,9 +611,9 @@
 
 	function innerJobLoaded(jobLoaded: Job, j: number, clicked: boolean, force: boolean) {
 		let modId = flowJobIds?.moduleId
-		console.log(modId, j, jobLoaded)
+
 		if (modId) {
-			setIteration(j, jobLoaded.id, clicked, clicked, modId, innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow')
+			setIteration(j, jobLoaded.id, clicked, modId, innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow')
 
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
@@ -868,6 +941,8 @@
 							<!-- <LogId id={loopJobId} /> -->
 							<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 								<svelte:self
+									{globalRefreshes}
+									parentRecursiveRefresh={recursiveRefresh}
 									{childFlow}
 									job={storedListJobs[j]}
 									initialJob={storedListJobs[j]}
@@ -949,6 +1024,8 @@
 									<!-- <LogId id={loopJobId} /> -->
 									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
 										<svelte:self
+											{globalRefreshes}
+											parentRecursiveRefresh={recursiveRefresh}
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -966,6 +1043,8 @@
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
+										{globalRefreshes}
+										parentRecursiveRefresh={recursiveRefresh}
 										globalModuleStates={[]}
 										globalDurationStatuses={[]}
 										prefix={buildPrefix(prefix, mod.id ?? '')}
@@ -993,7 +1072,8 @@
 									<div class="text-secondary">no subflow (empty loop?)</div>
 								{:else}
 									<svelte:self
-
+										{globalRefreshes}
+										parentRecursiveRefresh={recursiveRefresh}
 										{childFlow}
 										globalModuleStates={[localModuleStates, ...globalModuleStates]}
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -1085,7 +1165,7 @@
 									selectedNode = e.detail.id
 								}
 							}}
-							on:selectedIteration={(e) => {
+							on:selectedIteration={async (e) => {
 								let detail = e.detail
 								if (detail.manuallySet) {
 									$localModuleStates[detail.moduleId] = {
@@ -1094,7 +1174,7 @@
 										selectedForloopIndex: detail.index,
 										selectedForLoopSetManually: true
 									}
-
+									await rootRefresh(detail.moduleId)
 
 								} else {
 									$localModuleStates[detail.moduleId] = {
