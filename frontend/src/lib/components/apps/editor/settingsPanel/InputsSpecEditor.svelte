@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
 	import RowInputEditor from './inputEditor/RowInputEditor.svelte'
@@ -12,10 +11,11 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Loader2, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Loader2, Pen, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
-	import { Button } from '$lib/components/common'
+	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
+
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let id: string
@@ -67,6 +67,24 @@
 		componentInput = {
 			type: 'static',
 			value: undefined
+		}
+	}
+
+	function closeConnection() {
+		$connectingInput = {
+			opened: false,
+			hoveredComponent: undefined,
+			input: undefined,
+			onConnect: () => {}
+		}
+	}
+
+	function openConnection() {
+		$connectingInput = {
+			opened: true,
+			input: undefined,
+			hoveredComponent: undefined,
+			onConnect: applyConnection
 		}
 	}
 </script>
@@ -135,25 +153,7 @@
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
-					<div>
-						<Button
-							size="xs"
-							variant="border"
-							color="light"
-							title="Connect"
-							on:click={() => {
-								$connectingInput = {
-									opened: true,
-									input: undefined,
-									hoveredComponent: undefined,
-									onConnect: applyConnection
-								}
-							}}
-							id="schema-plug"
-						>
-							<Plug size={14} />
-						</Button>
-					</div>
+					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
 			</div>
 		</div>

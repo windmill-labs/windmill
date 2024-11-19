@@ -174,6 +174,7 @@ const portalDivs = ['app-editor-select']
 interface ClickOutsideOptions {
 	capture?: boolean
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
+	stopPropagation?: boolean
 }
 
 export function clickOutside(
@@ -204,6 +205,9 @@ export function clickOutside(
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
+				if (opts?.stopPropagation) {
+					event.stopPropagation()
+				}
 				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 			}
 		}
@@ -218,6 +222,56 @@ export function clickOutside(
 		},
 		destroy() {
 			document.removeEventListener('click', handleClick, capture ?? true)
+		}
+	}
+}
+
+export function pointerDownOutside(
+	node: Node,
+	options?: ClickOutsideOptions
+): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
+	const handlePointerDown = async (event: PointerEvent) => {
+		const target = event.target as HTMLElement
+
+		let excludedElements: HTMLElement[] = []
+		if (options?.exclude) {
+			if (Array.isArray(options.exclude)) {
+				excludedElements = options.exclude
+			} else {
+				excludedElements = await options.exclude()
+			}
+		}
+
+		const isExcluded = excludedElements.some((excludedEl) => {
+			const contains = excludedEl?.contains?.(target)
+			const isTarget = target === excludedEl
+			return contains || isTarget
+		})
+
+		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
+			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const parent = target.closest(portalDivsSelector)
+
+			if (!parent) {
+				if (options?.stopPropagation) {
+					event.stopPropagation()
+				}
+				console.log('dbg pointerdown_outside')
+				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				return false
+			}
+		}
+	}
+
+	const capture = options?.capture ?? true
+	document.addEventListener('pointerdown', handlePointerDown, capture ?? true)
+
+	return {
+		update(newOptions: ClickOutsideOptions) {
+			options = newOptions
+		},
+		destroy() {
+			document.removeEventListener('pointerdown', handlePointerDown, capture ?? true)
 		}
 	}
 }
