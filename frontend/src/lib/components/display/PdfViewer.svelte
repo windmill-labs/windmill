@@ -7,9 +7,8 @@
 		GlobalWorkerOptions
 	} from 'pdfjs-dist'
 
-	GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
+	GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs`
 
-	// import { getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import { throttle } from '../../utils'
