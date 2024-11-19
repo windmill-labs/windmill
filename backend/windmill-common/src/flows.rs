@@ -657,14 +657,14 @@ pub async fn has_failure_module<'c>(flow: sqlx::types::Uuid, db: &sqlx::Pool<sql
     if completed {
         sqlx::query_scalar!(
             "SELECT raw_flow->'failure_module' != 'null'::jsonb
-            FROM completed_job
+            FROM completed_job_view
             WHERE id = $1",
             flow
         )
     } else {
         sqlx::query_scalar!(
             "SELECT raw_flow->'failure_module' != 'null'::jsonb
-            FROM queue
+            FROM queue_view
             WHERE id = $1",
             flow
         )

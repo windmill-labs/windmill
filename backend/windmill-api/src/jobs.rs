@@ -683,23 +683,18 @@ async fn get_job(
 }
 
 lazy_static::lazy_static! {
-    static ref GET_COMPLETED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "completed_job");
-    static ref GET_COMPLETED_JOB_QUERY: String = generate_get_job_query(false, "completed_job");
-    static ref GET_QUEUED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "queue");
-    static ref GET_QUEUED_JOB_QUERY: String = generate_get_job_query(false, "queue");
+    static ref GET_COMPLETED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "completed_job_view");
+    static ref GET_COMPLETED_JOB_QUERY: String = generate_get_job_query(false, "completed_job_view");
+    static ref GET_QUEUED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "queue_view");
+    static ref GET_QUEUED_JOB_QUERY: String = generate_get_job_query(false, "queue_view");
 }
 fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     let log_expr = if no_logs {
         "null".to_string()
     } else {
-        format!("right(concat(coalesce({table}.logs, ''), job_logs.logs), 20000)")
+        format!("right({table}.logs, 20000)")
     };
-    let join = if no_logs {
-        "".to_string()
-    } else {
-        format!("LEFT JOIN job_logs ON {table}.id = job_logs.job_id")
-    };
-    let additional_fields = if table == "completed_job" {
+    let additional_fields = if table == "completed_job_view" {
         "duration_ms,      
         success,        
         result,    
@@ -733,7 +728,6 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields}
     FROM {table}
-    {join}
     WHERE id = $1 AND {table}.workspace_id = $2");
 }
 pub async fn get_queued_job_ex(
@@ -2306,6 +2300,13 @@ pub struct JobExtended<T> {
     #[serde(flatten)]
     inner: T,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_lock: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
+
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub self_wait_time_ms: Option<i64>,
@@ -2316,7 +2317,7 @@ pub struct JobExtended<T> {
 
 impl<T> JobExtended<T> {
     pub fn new(self_wait_time_ms: Option<i64>, aggregate_wait_time_ms: Option<i64>, inner: T) -> Self {
-        Self { inner, self_wait_time_ms, aggregate_wait_time_ms }
+        Self { inner, raw_code: None, raw_lock: None, raw_flow: None, self_wait_time_ms, aggregate_wait_time_ms }
     }
 }
 
@@ -2636,12 +2637,10 @@ impl<'a> From<UnifiedJob> for Job {
                     deleted: uj.deleted,
                     canceled: uj.canceled,
                     canceled_by: uj.canceled_by,
-                    raw_code: None,
                     canceled_reason: None,
                     job_kind: uj.job_kind,
                     schedule_path: uj.schedule_path,
                     permissioned_as: uj.permissioned_as,
-                    raw_flow: None,
                     is_flow_step: uj.is_flow_step,
                     language: uj.language,
                     is_skipped: uj.is_skipped,
@@ -2666,8 +2665,6 @@ impl<'a> From<UnifiedJob> for Job {
                     scheduled_for: uj.scheduled_for.unwrap(),
                     logs: None,
                     flow_status: None,
-                    raw_code: None,
-                    raw_lock: None,
                     canceled: uj.canceled,
                     canceled_by: uj.canceled_by,
                     canceled_reason: None,
@@ -2675,7 +2672,6 @@ impl<'a> From<UnifiedJob> for Job {
                     job_kind: uj.job_kind,
                     schedule_path: uj.schedule_path,
                     permissioned_as: uj.permissioned_as,
-                    raw_flow: None,
                     is_flow_step: uj.is_flow_step,
                     language: uj.language,
                     same_worker: false,
@@ -3144,15 +3140,15 @@ pub async fn run_workflow_as_code(
     }
 
     let job = not_found_if_none(job, "Queued Job", &job_id.to_string())?;
-    let JobExtended { inner: job, .. } = job;
+    let JobExtended { inner: job, raw_code, raw_lock, .. } = job;
     let (job_payload, tag, _delete_after_use, timeout) = match job.job_kind {
         JobKind::Preview => (
             JobPayload::Code(RawCode {
                 hash: None,
-                content: job.raw_code.unwrap_or_default(),
+                content: raw_code.unwrap_or_default(),
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
-                lock: job.raw_lock,
+                lock: raw_lock,
                 custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id)
                     .await
                     .map_err(to_anyhow)?,
@@ -4514,11 +4510,24 @@ async fn add_batch_jobs(
 
     let uuids = sqlx::query_scalar!(
         r#"WITH uuid_table as (
-            select gen_random_uuid() as uuid from generate_series(1, $11)
+            select gen_random_uuid() as uuid from generate_series(1, $5)
+        )
+        INSERT INTO job
+            (id, workspace_id, raw_code, raw_lock, raw_flow)
+            (SELECT uuid, $1, $2, $3, $4 FROM uuid_table)
+        RETURNING id"#,
+        w_id, raw_code, raw_lock, raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>, n
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let uuids = sqlx::query_scalar!(
+        r#"WITH uuid_table as (
+            select unnest($11::uuid[]) as uuid
         )
         INSERT INTO queue 
-            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, raw_code, raw_lock, raw_flow, flow_status)
-            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15, $16, $17, $18 FROM uuid_table) 
+            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, flow_status)
+            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15 FROM uuid_table) 
         RETURNING id"#,
             hash.map(|h| h.0),
             path,
@@ -4530,13 +4539,10 @@ async fn add_batch_jobs(
             authed.email,
             Utc::now(),
             w_id,
-            n,
+            &uuids,
             concurrent_limit,
             concurrent_time_window_s,
             timeout,
-            raw_code,
-            raw_lock,
-            raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
             flow_status.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowStatus>>
         )
         .fetch_all(&db)

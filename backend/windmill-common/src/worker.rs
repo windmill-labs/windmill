@@ -91,6 +91,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -113,10 +114,10 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
                 LIMIT 1
             )
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-            running,  script_hash,  script_path,  args,   null as logs,  raw_code,  canceled,  canceled_by,
+            running,  script_hash,  script_path,  args,   null as logs,  canceled,  canceled_by,
             canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as,
-            flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,
-            same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak,
+            flow_status,  is_flow_step,  language,  suspend,  suspend_until,
+            same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
              root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
              timeout,  flow_step_id,  cache_ttl, priority", wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", "));
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
@@ -144,10 +145,10 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
             LIMIT 1
         )
         RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-        running,  script_hash,  script_path,  args,  null as logs,  raw_code,  canceled,  canceled_by,
+        running,  script_hash,  script_path,  args,  null as logs,  canceled,  canceled_by,
         canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as,
-        flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,
-        same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak,
+        flow_status,  is_flow_step,  language,  suspend,  suspend_until,
+        same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
          root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
          timeout,  flow_step_id,  cache_ttl, priority", tags.tags.iter().map(|x| format!("'{x}'")).join(", "));
 
@@ -586,6 +587,10 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
 
     if min_version != cur_version {
         tracing::info!("Minimal worker version: {min_version}");
+    }
+
+    if min_version >= Version::new(1, 427, 0) {
+        *MIN_VERSION_IS_AT_LEAST_1_427.write().await = true;
     }
 
     *MIN_VERSION.write().await = min_version.clone();
