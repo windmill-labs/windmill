@@ -59,8 +59,8 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
-        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, NO_LOGS, WORKER_CONFIG,
-        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, MIN_VERSION_IS_AT_LEAST_1_427,
+        NO_LOGS, WORKER_CONFIG, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -581,6 +581,20 @@ pub async fn add_completed_job<
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
 
+    let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_427.read().await {
+        sqlx::query!(
+            "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<JsonRawValue>>\"
+            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            &job_id, &queued_job.workspace_id
+        )
+        .fetch_one(db)
+        .await
+        .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
+        .unwrap_or_default()
+    } else {
+        (None, None, None)
+    };
+
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     add_time!(bench, "add_completed_job query START");
     let _duration: i64 = sqlx::query_scalar!(
@@ -630,8 +644,8 @@ pub async fn add_completed_job<
         queued_job.script_path,
         &queued_job.args as &Option<Json<HashMap<String, Box<RawValue>>>>,
         result as Json<&T>,
-        queued_job.raw_code,
-        queued_job.raw_lock,
+        raw_code,
+        raw_lock,
         canceled_by.is_some(),
         canceled_by.clone().map(|cb| cb.username).flatten(),
         canceled_by.clone().map(|cb| cb.reason).flatten(),
@@ -639,7 +653,7 @@ pub async fn add_completed_job<
         queued_job.schedule_path,
         queued_job.permissioned_as,
         &queued_job.flow_status as &Option<Json<Box<RawValue>>>,
-        &queued_job.raw_flow as &Option<Json<Box<RawValue>>>,
+        &raw_flow as &Option<Json<Box<RawValue>>>,
         queued_job.is_flow_step,
         skipped,
         queued_job.language.clone() as Option<ScriptLang>,
@@ -2068,10 +2082,10 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             , suspend_until = null
             WHERE id = $1
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-                running,  script_hash,  script_path,  args,   right(logs, 900000) as logs,  raw_code,  canceled,  canceled_by,  
+                running,  script_hash,  script_path,  args,   right(logs, 900000) as logs,  canceled,  canceled_by,  
                 canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as, 
-                flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
-                same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
+                flow_status,  is_flow_step,  language,  suspend,  suspend_until,  
+                same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
                  root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
                  timeout,  flow_step_id,  cache_ttl, priority",
             )
@@ -3885,6 +3899,27 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         None
     };
 
+    let raw_flow = raw_flow.map(Json);
+
+    sqlx::query!(
+        "INSERT INTO job (id, workspace_id, raw_code, raw_lock, raw_flow, tag)
+        VALUES ($1, $2, $3, $4, $5, $6)",
+        job_id,
+        workspace_id,
+        raw_code,
+        raw_lock,
+        raw_flow.as_ref() as Option<&Json<FlowValue>>,
+        tag,
+    )
+    .execute(&mut tx)
+    .await?;
+
+    let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_427.read().await {
+        (raw_code, raw_lock, raw_flow)
+    } else {
+        (None, None, None)
+    };
+
     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
@@ -3909,7 +3944,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        raw_flow.map(Json) as Option<Json<FlowValue>>,
+        raw_flow.as_ref() as Option<&Json<FlowValue>>,
         flow_status.map(Json) as Option<Json<FlowStatus>>,
         is_flow_step,
         language as Option<ScriptLang>,
@@ -4091,12 +4126,23 @@ async fn restarted_flows_resolution(
         ))
     })?;
 
-    let raw_flow = completed_job
-        .parse_raw_flow()
+    let flow_value = if let Some(flow_value) = flow_value_if_any {
+        flow_value
+    } else {
+        sqlx::query_scalar!(
+            "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"
+            FROM completed_job_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            &completed_flow_id, workspace_id
+        )
+        .fetch_one(db)
+        .await
+        .ok()
+        .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok())
         .ok_or(Error::InternalErr(format!(
             "Unable to parse raw definition for job {} in workspace {}",
             completed_flow_id, workspace_id,
-        )))?;
+        )))?
+    };
     let flow_status = completed_job
         .parse_flow_status()
         .ok_or(Error::InternalErr(format!(
@@ -4108,19 +4154,10 @@ async fn restarted_flows_resolution(
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
     for module in flow_status.modules {
-        if flow_value_if_any
-            .clone()
-            .map(|fv| {
-                fv.modules
-                    .iter()
-                    .find(|flow_value_module| flow_value_module.id == module.id())
-                    .is_none()
-            })
-            .unwrap_or(false)
-        {
+        let Some(module_definition) = flow_value.modules.iter().find(|flow_value_module| flow_value_module.id == module.id()) else {
             // skip module as it doesn't appear in the flow_value anymore
             continue;
-        }
+        };
         if module.id() == restart_step_id {
             // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
             // set the module as WaitingForPriorSteps as it needs to be re-run
@@ -4130,14 +4167,6 @@ async fn restarted_flows_resolution(
             } else {
                 // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
                 let branch_or_iteration_n = branch_or_iteration_n.unwrap();
-                let module_definition = raw_flow
-                    .modules
-                    .iter()
-                    .find(|flow_value_module| flow_value_module.id == restart_step_id)
-                    .ok_or(Error::InternalErr(format!(
-                        "Module {} not found in flow definition",
-                        module.id()
-                    )))?;
 
                 match module_definition.get_value() {
                     Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
@@ -4250,7 +4279,7 @@ async fn restarted_flows_resolution(
 
     return Ok((
         completed_job.script_path,
-        raw_flow,
+        flow_value,
         step_n,
         truncated_modules,
         completed_job.priority,

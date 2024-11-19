@@ -1829,20 +1829,29 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         None
     };
 
+    let (raw_code, raw_lock, raw_flow) =
+        sqlx::query!(
+            "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
+            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            &job.id, job.workspace_id
+        )
+        .fetch_one(db)
+        .await
+        .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
+        .unwrap_or_default();
+
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
             format!("script_{}", h.to_string())
-        } else if let Some(rc) = job.raw_code.as_ref() {
+        } else if let Some(rc) = raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
             rc.hash(&mut s);
             format!("inline_{}", hex::encode(s.finish().to_be_bytes()))
-        } else if let Some(rc) = job.raw_flow.as_ref() {
+        } else if let Some(sqlx::types::Json(rc)) = raw_flow.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
-            serde_json::to_string(&rc.0)
-                .unwrap_or_default()
-                .hash(&mut s);
+            rc.get().hash(&mut s);
             format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
         } else {
             "none".to_string()
@@ -1919,7 +1928,9 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
     };
     if job.is_flow() {
-        let flow = job.parse_raw_flow();
+        let flow = raw_flow
+            .as_ref()
+            .and_then(|raw_flow| serde_json::from_str(raw_flow.get()).ok());
         handle_flow(
             job,
             flow,
@@ -1976,6 +1987,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             JobKind::Dependencies => {
                 handle_dependency_job(
                     &job,
+                    raw_code,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -1992,6 +2004,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             JobKind::FlowDependencies => {
                 handle_flow_dependency_job(
                     &job,
+                    raw_flow,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2031,6 +2044,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 let metric_timer = Instant::now();
                 let r = handle_code_execution_job(
                     job.as_ref(),
+                    raw_code,
+                    raw_lock,
                     db,
                     client,
                     job_dir,
@@ -2193,6 +2208,8 @@ pub async fn get_script_content_by_hash(
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
+    raw_code: Option<String>,
+    raw_lock: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -2220,11 +2237,9 @@ async fn handle_code_execution_job(
             };
 
             ContentReqLangEnvs {
-                content: job
-                    .raw_code
-                    .clone()
+                content: raw_code
                     .unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: job.raw_lock.clone(),
+                lockfile: raw_lock,
                 language: job.language.to_owned(),
                 envs: None,
                 codebase,
