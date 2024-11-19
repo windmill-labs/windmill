@@ -482,7 +482,7 @@ pub async fn preview_schedule(
     let tz = chrono_tz::Tz::from_str(&payload.timezone)
         .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-    let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5);
+    let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 
     Ok(Json(upcoming))
 }

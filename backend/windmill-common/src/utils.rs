@@ -450,6 +450,27 @@ impl ScheduleType {
                     })
                 });
 
+                // Additional check to make sure the provided schedule can generate a next event
+                if let Ok(ScheduleType::Croner(croner_schedule)) = &schedule_type_result {
+                    let test_time = chrono::Utc::now().with_timezone(&chrono_tz::UTC);
+                    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                        croner_schedule
+                            .find_next_occurrence(&test_time, false)
+                            .expect("cron: a schedule should have a next event");
+                    }));
+                    if let Err(_) = result {
+                        tracing::error!("A panic occurred while finding the next occurrence");
+                        return Err(Error::BadRequest(format!(
+                            "cron: a panic occurred during find_next_occurrence"
+                        )));
+                    }
+
+                    if let Err(e) = result {
+                        tracing::error!("An error occurred while finding the next occurrence: {:?}", e);
+                        return Err(Error::BadRequest(format!("cron: error during find_next_occurrence: {:?}", e)));
+                    }
+                }
+
                 schedule_type_result
             }
         }
@@ -459,7 +480,7 @@ impl ScheduleType {
         &self,
         tz: chrono_tz::Tz,
         count: usize, // Number of upcoming events to take
-    ) -> Vec<chrono::DateTime<Utc>> {
+    ) -> Result<Vec<chrono::DateTime<Utc>>> {
         let start_time = Utc::now().with_timezone(&tz);
 
         let mut events: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(count);
@@ -481,6 +502,15 @@ impl ScheduleType {
             }
         };
 
-        events
+        // Make sure the schedule is valid and can actually generate "count" events
+        if events.len() != count {
+            return Err(Error::BadRequest(format!(
+                "cron: failed to generate the requested number of events. Expected {}, got {}",
+                count,
+                events.len()
+            )));
+        }
+
+        Ok(events)
     }
 }
