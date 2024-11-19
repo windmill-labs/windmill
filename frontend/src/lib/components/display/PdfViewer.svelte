@@ -254,34 +254,34 @@
 					</span>
 				</div>
 				<div class="flex justify-end items-center px-2 text-secondary text-sm gap-1">
-					{#if allowFullscreen}
-						<Button
-							on:click={downloadPdf}
-							disabled={!doc}
-							size="xs"
-							color="light"
-							title="Download PDF"
-							aria-label="Download PDF"
-							btnClasses="!font-medium !px-2"
-						>
-							<Download size={14} />
-						</Button>
-					{/if}
 					<Button
-						on:click={() => (fullscreen = !fullscreen)}
+						on:click={downloadPdf}
 						disabled={!doc}
 						size="xs"
 						color="light"
-						title="Toggle fullscreen"
-						aria-label="Toggle fullscreen"
+						title="Download PDF"
+						aria-label="Download PDF"
 						btnClasses="!font-medium !px-2"
 					>
-						{#if fullscreen}
-							<Shrink size={14} />
-						{:else}
-							<Expand size={14} />
-						{/if}
+						<Download size={14} />
 					</Button>
+					{#if allowFullscreen}
+						<Button
+							on:click={() => (fullscreen = !fullscreen)}
+							disabled={!doc}
+							size="xs"
+							color="light"
+							title="Toggle fullscreen"
+							aria-label="Toggle fullscreen"
+							btnClasses="!font-medium !px-2"
+						>
+							{#if fullscreen}
+								<Shrink size={14} />
+							{:else}
+								<Expand size={14} />
+							{/if}
+						</Button>
+					{/if}
 				</div>
 			</div>
 		{:else}
