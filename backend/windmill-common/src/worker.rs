@@ -2,7 +2,6 @@ use anyhow::anyhow;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{
@@ -89,8 +88,6 @@ lazy_static::lazy_static! {
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
-
-    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -585,10 +582,9 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
         .unwrap_or_else(|| cur_version.clone());
 
     if min_version != cur_version {
-        tracing::info!("Minimal worker version: {min_version}");
+        tracing::info!("Minimal worker version: {min_version} (current: {cur_version})");
     }
 
-    *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version
 }
 

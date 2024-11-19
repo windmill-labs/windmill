@@ -43,7 +43,7 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION},
-    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
+    worker::{reload_custom_tags_setting, update_min_version, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 
@@ -872,6 +872,12 @@ Windmill Community Edition {GIT_VERSION}
             }
             Ok(()) as anyhow::Result<()>
         };
+
+        // Make sure all workers are updated to the latest version.
+        while !update_min_version(&db).await {
+            tracing::warn!("Workers in a previous version are still running, waiting for them to exit...");
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
 
         if server_mode {
             schedule_stats(&db, &HTTP_CLIENT).await;
