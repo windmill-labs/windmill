@@ -8,11 +8,6 @@ use std::collections::HashMap;
  * LICENSE-AGPL for a copy of the license.
  */
 
-#[cfg(feature = "parquet")]
-use crate::{job_helpers_ee::{
-    get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
-    UploadFileResponse,
-}, users::fetch_api_authed_from_permissioned_as};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
@@ -21,6 +16,14 @@ use crate::{
     variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
+};
+#[cfg(feature = "parquet")]
+use crate::{
+    job_helpers_ee::{
+        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
+        UploadFileResponse,
+    },
+    users::fetch_api_authed_from_permissioned_as,
 };
 use axum::{
     extract::{Extension, Json, Path, Query},
@@ -1288,7 +1291,6 @@ async fn upload_s3_file_from_app() -> Result<()> {
     ));
 }
 
-
 #[cfg(feature = "parquet")]
 #[derive(Debug, Deserialize, Clone)]
 struct UploadFileToS3Query {
@@ -1353,9 +1355,14 @@ async fn upload_s3_file_from_app(
         let (username, permissioned_as, email) =
             get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-        let on_behalf_authed =
-            fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, username)
-                .await?;
+        let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+            permissioned_as,
+            email,
+            &w_id,
+            &db,
+            Some(username),
+        )
+        .await?;
 
         if let Some(file_key) = query.file_key {
             // file key is provided => requires workspace, user or list policy and must match the regex

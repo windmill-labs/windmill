@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                flow_status AS \"flow_status!: Json<Box<RawValue>>\",\n                raw_flow->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"\n            FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+  "query": "SELECT\n                flow_status AS \"flow_status!: Json<Box<RawValue>>\",\n                raw_flow->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"\n            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       null
     ]
   },
-  "hash": "1e7ce0c140410ae799f9c0c5772e4be4506bfd238c88f1b1c3ddf39b29071446"
+  "hash": "4bbf4dbf5b18d8dfd62c0a029ec4deb95a348dc804ee23a02698adb9aa32b375"
 }

@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.428.0](https://github.com/windmill-labs/windmill/compare/v1.427.0...v1.428.0) (2024-11-19)
+
+
+### Features
+
+* improve app connection UX [#4687](https://github.com/windmill-labs/windmill/issues/4687)  ([2fd80f7](https://github.com/windmill-labs/windmill/commit/2fd80f7cdd21e3938311914ec733d769e13993d6))
+* pdf file preview ([#4753](https://github.com/windmill-labs/windmill/issues/4753)) ([b3a7cb0](https://github.com/windmill-labs/windmill/commit/b3a7cb058384b61328e2956f8ccd782ebd7b5900))
+
+
+### Bug Fixes
+
+* prevent groups to be ill-defined with non writer owners ([f59c0c0](https://github.com/windmill-labs/windmill/commit/f59c0c007675886d41b57647dc7e93b63444e3f9))
+
+## [1.427.0](https://github.com/windmill-labs/windmill/compare/v1.426.1...v1.427.0) (2024-11-19)
+
+
+### Features
+
+* **backend:** move some static fields out of job tables ([#4689](https://github.com/windmill-labs/windmill/issues/4689)) ([97457a5](https://github.com/windmill-labs/windmill/commit/97457a5679dd6f17b7835d4adfa66ac99c0f5404))
+
+
+### Bug Fixes
+
+* improve flow status viewer for iterations ([#4744](https://github.com/windmill-labs/windmill/issues/4744)) ([1c39848](https://github.com/windmill-labs/windmill/commit/1c398486e6d5bc5d5bc454b61b41da9acfd50f39))
+
+## [1.426.1](https://github.com/windmill-labs/windmill/compare/v1.426.0...v1.426.1) (2024-11-18)
+
+
+### Bug Fixes
+
+* playbook files permission mode incompatible with Windows ([#4740](https://github.com/windmill-labs/windmill/issues/4740)) ([4d9ec90](https://github.com/windmill-labs/windmill/commit/4d9ec909d1af7d123fec1a64143615e6cd0bba7e))
+
+## [1.426.0](https://github.com/windmill-labs/windmill/compare/v1.425.1...v1.426.0) (2024-11-18)
+
+
+### Features
+
+* Add mode (permissions) option to files in ansible ([#4724](https://github.com/windmill-labs/windmill/issues/4724)) ([5e10782](https://github.com/windmill-labs/windmill/commit/5e107827790292d89e51d81138eeef2b5b23a9c2))
+* kafka triggers ([#4713](https://github.com/windmill-labs/windmill/issues/4713)) ([88b8ffa](https://github.com/windmill-labs/windmill/commit/88b8ffab907e662ccca612bf01e6a228566522d2))
+
+
+### Bug Fixes
+
+* do not mount critical alerts modal if user is neither superadmin nor workspace admin ([#4731](https://github.com/windmill-labs/windmill/issues/4731)) ([180809d](https://github.com/windmill-labs/windmill/commit/180809d3466fb62d6692c45cbb012f158f83528f))
+
 ## [1.425.1](https://github.com/windmill-labs/windmill/compare/v1.425.0...v1.425.1) (2024-11-16)
 
 

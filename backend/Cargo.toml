@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.425.1"
+version = "1.428.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -29,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.425.1"
+version = "1.428.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -62,6 +62,7 @@ jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemal
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
+kafka = ["windmill-api/kafka"]
 
 [dependencies]
 anyhow.workspace = true
@@ -139,12 +140,12 @@ headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
 tower = "^0"
-tower-http = { version = "^0.5", features = ["trace", "cors"] }
+tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
-thiserror = "^1"
+thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "0.4.35", features = ["serde"] }
 chrono-tz = "^0"
@@ -266,6 +267,7 @@ tokio-native-tls = "^0"
 openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
+rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

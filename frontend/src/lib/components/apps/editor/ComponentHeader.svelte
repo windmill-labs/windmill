@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug2 } from 'lucide-svelte'
+	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -12,6 +12,7 @@
 	import TabsDebug from './TabsDebug.svelte'
 	import ComponentOutputViewer from './contextPanel/ComponentOutputViewer.svelte'
 	import DecisionTreeDebug from './DecisionTreeDebug.svelte'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -33,6 +34,7 @@
 	let maxWidth = 10
 	let isManuallySelected = false
 	let componentIsDebugging = false
+	let id_width = 0
 
 	$: maxWidth = Math.max(Math.round(0.2 * componentContainerWidth), MINIMUM_WIDTH)
 
@@ -59,15 +61,27 @@
 </script>
 
 {#if connecting}
-	<div class="absolute z-50 left-6 -top-[11px] overflow-auto">
+	<div
+		class="absolute z-50 overflow-auto -top-[18px] connection-access"
+		style="left: {id_width}px;"
+		data-connection-button
+	>
 		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button">
-				<button
-					id={`connect-output-${component.id}`}
-					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
-					title="Outputs"
-					aria-label="Open output"><Plug2 size={12} /></button
+				<AnimatedButton
+					animate={true}
+					baseRadius="9999px"
+					wrapperClasses="h-full w-full pt-2"
+					marginWidth="2px"
+					animationDuration="3s"
 				>
+					<button
+						id={`connect-output-${component.id}`}
+						class="h-[20px] w-[20px] bg-surface rounded-full center-center text-primary"
+						title="Outputs"
+						aria-label="Open output"><Plug size={12} /></button
+					>
+				</AnimatedButton>
 			</svelte:fragment>
 			<ComponentOutputViewer
 				suffix="connect"
@@ -91,15 +105,19 @@
 			draggable="false"
 			title={`Id: ${component.id}`}
 			class={twMerge(
-				'py-0.5 text-2xs w-fit h-full min-h-5 border rounded z-50 cursor-move flex flex-row flex-nowrap font-semibold items-center shadow',
+				'py-0.5 text-2xs w-fit h-full min-h-5 rounded z-50 cursor-move flex flex-row flex-nowrap font-semibold items-center shadow',
 				selected
-					? 'bg-indigo-500/90 border-indigo-500 text-white'
+					? 'bg-blue-600/90 text-white'
 					: $connectingInput.opened
-					? 'bg-red-500/90 border-red-600 text-white'
-					: 'bg-blue-500/90 border-blue-600 text-white'
+					? 'bg-[#f8aa4b]/90  text-white'
+					: 'bg-blue-400/90 text-white'
 			)}
 		>
-			<div class={`px-1 text-2xs w-full min-w-4 h-full truncate`} style="max-width: {maxWidth}px;">
+			<div
+				class={`px-1 text-2xs w-full min-w-4 h-full truncate`}
+				style="max-width: {maxWidth}px;"
+				bind:clientWidth={id_width}
+			>
 				{component.id}
 			</div>
 			{#if !connecting}
@@ -109,8 +127,8 @@
 						class={twMerge(
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							fullHeight
-								? ' bg-indigo-800 text-indigo-200'
-								: 'text-white hover:bg-indigo-700 hover:text-indigo-200'
+								? 'bg-blue-300 text-blue-800'
+								: 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						on:click={() => dispatch('fillHeight')}
 						on:pointerdown|stopPropagation
@@ -122,9 +140,7 @@
 						title="Lock Position"
 						class={twMerge(
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
-							locked
-								? ' bg-indigo-800 text-indigo-200'
-								: 'text-white hover:bg-indigo-700 hover:text-indigo-200'
+							locked ? 'bg-blue-300 text-blue-800' : 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						on:click={() => dispatch('lock')}
 						on:pointerdown|stopPropagation
@@ -141,10 +157,10 @@
 		{#if selected && !connecting && checkComponentOptions()}
 			<div
 				class={twMerge(
-					'px-1 py-0.5 text-2xs font-semibold w-fit min-h-5 border shadow rounded z-50 flex flex-row items-center flex-nowrap',
+					'px-1 py-0.5 text-2xs font-semibold w-fit min-h-5 shadow rounded z-50 flex flex-row items-center flex-nowrap',
 					isManuallySelected || componentIsDebugging
 						? 'bg-red-100 text-red-600 border-red-500'
-						: 'bg-indigo-100/90 border-indigo-200 text-indigo-600'
+						: 'bg-blue-100/90 border-blue-200 text-blue-600'
 				)}
 			>
 				{#if hasInlineEditor}
@@ -153,17 +169,13 @@
 						class={twMerge(
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							inlineEditorOpened
-								? 'bg-indigo-300 text-indigo-800'
-								: 'text-indigo-600 hover:bg-indigo-300 hover:text-indigo-800'
+								? 'bg-blue-300 text-blue-800'
+								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
 						on:click={() => dispatch('triggerInlineEditor')}
 						on:pointerdown|stopPropagation
 					>
-						{#if inlineEditorOpened}
-							<Pen aria-label="Unlock position" size={11} />
-						{:else}
-							<Pen aria-label="Lock position" size={11} />
-						{/if}
+						<Pen aria-label="Edit" size={11} />
 					</button>
 				{/if}
 				{#if component.type === 'conditionalwrapper'}
@@ -185,10 +197,10 @@
 					<button
 						title={'Open Decision Tree Editor'}
 						class={twMerge(
-							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full center-center',
 							componentIsDebugging
 								? 'text-red-600 hover:bg-red-300 hover:text-red-800'
-								: 'text-indigo-600 hover:bg-indigo-300 hover:text-indigo-800'
+								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
 						on:click={() => {
 							const element = document.getElementById(`decision-tree-graph-editor`)

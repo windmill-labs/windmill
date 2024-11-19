@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT raw_flow->'failure_module' != 'null'::jsonb\n            FROM completed_job\n            WHERE id = $1",
+  "query": "SELECT raw_flow->'failure_module' != 'null'::jsonb\n            FROM queue_view\n            WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "31dd23f6768052e486668172e15eba1a3f9b6a8e5678a7ee8e5456ff4405d6f9"
+  "hash": "202a4fee4e70ff74d150a187a8daec3609328b1e3fe6e4fac20fb6fe91ff1732"
 }

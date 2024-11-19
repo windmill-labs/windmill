@@ -49,6 +49,7 @@
 	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/stores'
 	import SideBarNotification from './SideBarNotification.svelte'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -97,6 +98,13 @@
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws'
+		},
+		{
+			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/kafka_triggers',
+			icon: KafkaIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'kafka'
 		}
 	]
 
@@ -205,10 +213,10 @@
 										action: () => {
 											isCriticalAlertsUIOpen.set(true)
 										},
-							icon: AlertCircle,
-							notificationCount: numUnacknowledgedCriticalAlerts
-						}
-					]
+										icon: AlertCircle,
+										notificationCount: numUnacknowledgedCriticalAlerts
+									}
+							  ]
 							: [])
 					]
 			  }
@@ -313,9 +321,10 @@
 							<MenuItem>
 								<div class="py-1" role="none">
 									<a
-										href={subItem.href}
+										href={subItem.disabled ? '' : subItem.href}
 										class={twMerge(
-											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
+											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary',
+											subItem.disabled ? 'pointer-events-none opacity-50' : ''
 										)}
 										role="menuitem"
 										tabindex="-1"

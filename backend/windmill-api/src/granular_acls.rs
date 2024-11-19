@@ -23,7 +23,7 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
-const KINDS: [&str; 10] = [
+const KINDS: [&str; 12] = [
     "script",
     "group_",
     "resource",
@@ -34,6 +34,8 @@ const KINDS: [&str; 10] = [
     "app",
     "raw_app",
     "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
 ];
 
 pub fn workspaced_service() -> Router {
@@ -83,6 +85,26 @@ async fn add_granular_acl(
                 .await?;
         } else {
             require_owner_of_path(&authed, path)?;
+        }
+    }
+
+    if kind == "folder" {
+        if let Some(obj) = sqlx::query_scalar!(
+            "SELECT owners FROM folder WHERE name = $1 AND workspace_id = $2",
+            path, 
+            w_id
+        )
+
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if obj.contains(&owner) {
+                if write != Some(true) {
+                    return Err(Error::BadRequest(
+                        "Cannot remove write permission for folder owner".to_string(),
+                    ));
+                }
+            }
         }
     }
 

@@ -45,7 +45,7 @@ jobs:
           $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
-          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core
+          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka
 
       - name: Rename binary with corresponding architecture
         run: |

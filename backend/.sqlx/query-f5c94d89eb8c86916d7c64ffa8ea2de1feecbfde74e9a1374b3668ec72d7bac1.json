@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT raw_flow->'failure_module' != 'null'::jsonb\n            FROM queue\n            WHERE id = $1",
+  "query": "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM queue_view WHERE id = $2 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,7 @@
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Uuid"
       ]
     },
@@ -18,5 +19,5 @@
       null
     ]
   },
-  "hash": "aa6907b7266ee437dfbd77a9bf6c047fda88f3e72a0d10323a5e4020cf857c42"
+  "hash": "f5c94d89eb8c86916d7c64ffa8ea2de1feecbfde74e9a1374b3668ec72d7bac1"
 }

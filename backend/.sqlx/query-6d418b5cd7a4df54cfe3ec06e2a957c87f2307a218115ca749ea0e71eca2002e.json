@@ -1,23 +1,23 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM queue WHERE id = $2 LIMIT 1",
+  "query": "SELECT EXISTS(SELECT 1 FROM kafka_trigger WHERE path = $1 AND workspace_id = $2)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "?column?",
+        "name": "exists",
         "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "de1abe57b6aa61155f747a3bcb98359f70eade6654b5a884915f07f3ef3fe15e"
+  "hash": "6d418b5cd7a4df54cfe3ec06e2a957c87f2307a218115ca749ea0e71eca2002e"
 }
