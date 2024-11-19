@@ -52,7 +52,6 @@
 	on:keydown|preventDefault|stopPropagation={(e) => e.key === 'Escape' && handleConnect()}
 	on:pointerdown_outside={deactivateConnection}
 	on:click_outside={deactivateConnection}
-	class="connection-access"
 	data-connection-button
 >
 	<AnimatedButton
