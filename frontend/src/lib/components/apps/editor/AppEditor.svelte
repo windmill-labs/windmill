@@ -33,7 +33,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Job, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
-	import { Component, Minus, Paintbrush, Plus, Smartphone } from 'lucide-svelte'
+	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
@@ -849,30 +849,40 @@
 												size="xs2"
 												disabled={$scale <= 30}
 												on:click={() => {
-													$scale -= 10
+													$scale = Math.round(($scale - 10) / 10) * 10
 												}}
 											>
 												<Minus size={14} />
 											</Button>
 											<div class="w-8 flex justify-center text-2xs h-full items-center">
-												{$scale}%
+												{Math.round($scale)}%
 											</div>
 											<Button
 												color="light"
 												size="xs2"
-												disabled={$scale >= 100}
+												disabled={$scale >= 150}
 												on:click={() => {
-													$scale += 10
+													$scale = Math.round(($scale + 10) / 10) * 10
 												}}
 											>
 												<Plus size={14} />
+											</Button>
+											<Button
+												color="light"
+												size="xs2"
+												disabled={$scale >= 150}
+												on:click={() => {
+													$scale = 100
+												}}
+											>
+												<Scan size={14} />
 											</Button>
 										</div>
 									</div>
 
 									<div id="app-editor-top-level-drawer" />
 									<div
-										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
 									/>
 
 									<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -895,7 +905,7 @@
 												on:pointerdown|stopPropagation
 												class={twMerge(width, 'mx-auto', 'z-10000')}
 											>
-												<GridEditor {policy} />
+												<GridEditor {policy} bind:resetView={$resetViewFn} />
 											</div>
 										{/if}
 										{#if !$appStore?.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
