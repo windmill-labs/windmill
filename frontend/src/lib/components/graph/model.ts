@@ -53,6 +53,7 @@ export type GraphModuleState = {
 	parent_module?: string
 	selectedForloop?: string
 	selectedForloopIndex?: number
+	selectedForLoopSetManually?: boolean
 	flow_jobs_success?: (boolean | undefined)[]
 	flow_jobs?: string[]
 	iteration_total?: number

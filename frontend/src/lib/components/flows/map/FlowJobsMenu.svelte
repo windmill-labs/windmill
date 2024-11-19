@@ -1,15 +1,16 @@
 <script lang="ts">
 	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { ListFilter } from 'lucide-svelte'
+	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	const dispatch = createEventDispatcher()
 
-	export let index: number
+	export let id: string
 	export let flowJobs: string[] | undefined
 	export let flowJobsSuccess: (boolean | undefined)[] | undefined
 	export let selected: number
+	export let selectedManually: boolean | undefined
 
 	let filter: number | undefined = undefined
 	function onKeydown(event: KeyboardEvent) {
@@ -21,16 +22,34 @@
 			filter > 0
 		) {
 			event.preventDefault()
-			dispatch('selectedIteration', { index: filter - 1, id: flowJobs[filter - 1] })
+			dispatch('selectedIteration', { index: filter - 1, id: flowJobs[filter - 1], manuallySet: true })
 		}
 	}
+
+	let buttonHover = false
 </script>
 
-<Menu maxHeight={300}>
+{#if selectedManually}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div title="Iteration picked from new subflow runs automatically" on:mouseenter={() => (buttonHover = true)} on:mouseleave={() => (buttonHover = false)} on:click={(e) => {
+			buttonHover = false
+			dispatch('selectedIteration', { manuallySet: false })}
+		} 
+		class="absolute top-1.5 right-12 cursor-pointer">
+		{#if buttonHover}
+			<LockOpen class="text-primary" size={14} />
+		{:else}
+			<Lock class="text-primary" size={12} />
+		{/if}
+	</div>
+{/if}
+
+<Menu  maxHeight={300}>
 	<div slot="trigger">
 		<button
 			title="Pick an iteration"
-			id={`flow-editor-iteration picker-${index}`}
+			id={`flow-editor-iteration picker-${id}`}
 			type="button"
 			class=" text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none
 		hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-sm w-[40px] gap-1 h-[20px]
@@ -42,6 +61,7 @@
 			<ListFilter size={15} />
 		</button>
 	</div>
+
 	<MenuItem disabled>
 		<input type="number" bind:value={filter} on:keydown={onKeydown} />
 	</MenuItem>
@@ -56,7 +76,7 @@
 						: ''}"
 					on:pointerdown={() => {
 						//close()
-						dispatch('selectedIteration', { index: idx, id })
+						dispatch('selectedIteration', { index: idx, id, manuallySet: true })
 					}}
 					role="menuitem"
 					tabindex="-1"
