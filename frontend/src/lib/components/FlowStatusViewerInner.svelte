@@ -185,7 +185,6 @@
 		
 		let njob = flowJobIds && modId && loopjob ? storedListJobs?.[loopjob] : job
 
-		console.log(modId, njob, root, modId, storedListJobs, loopjob, (flowJobIds?.length ?? 0) - 1)
 		if (njob) {
 			dispatch('jobsLoaded', { job: njob, force: true })
 		}
