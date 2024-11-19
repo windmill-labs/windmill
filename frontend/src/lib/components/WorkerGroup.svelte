@@ -654,7 +654,7 @@
 		<div class="mt-8" />
 
 		<Section
-			label="Environment Variables passed to Jobs"
+			label="Environment variables passed to jobs"
 			collapsable={true}
 			tooltip="Add static and dynamic environment variables that will be passed to jobs handled by this worker group. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
 		>
@@ -805,7 +805,7 @@
 		<div class="mt-8" />
 
 		<Section
-			label="Init Script"
+			label="Init script"
 			tooltip="Bash scripts run at start of the workers. More lightweight than having to require the worker images at the cost of being run on every start."
 		>
 			<div class="flex gap-4 py-2 pb-6 items-baseline w-full">
