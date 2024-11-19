@@ -88,6 +88,26 @@ async fn add_granular_acl(
         }
     }
 
+    if kind == "folder" {
+        if let Some(obj) = sqlx::query_scalar!(
+            "SELECT owners FROM folder WHERE name = $1 AND workspace_id = $2",
+            path, 
+            w_id
+        )
+
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if obj.contains(&owner) {
+                if write != Some(true) {
+                    return Err(Error::BadRequest(
+                        "Cannot remove write permission for folder owner".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
