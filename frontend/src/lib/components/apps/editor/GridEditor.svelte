@@ -3,7 +3,6 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
-	import panzoom from 'panzoom'
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
@@ -45,7 +44,7 @@
 		worldStore
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, scale, componentActive } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, componentActive } = getContext<AppEditorContext>('AppEditorContext')
 
 	let previousSelectedIds: string[] | undefined = undefined
 	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
@@ -118,78 +117,7 @@
 			subGridIndex
 		}
 	}
-
-	let instance: any
-	let parentHeight: number = 0
-
-	function initPanzoom(node: HTMLElement) {
-		instance = panzoom(node, {
-			bounds: true,
-			boundsPadding: 0.1,
-			maxZoom: 1.5,
-			minZoom: 0.3,
-			zoomDoubleClickSpeed: 1,
-			smoothScroll: false,
-
-			initialZoom: $scale / 100,
-			beforeMouseDown: (e) => {
-				if (e.ctrlKey || e.metaKey) {
-					// Prevent event propagation to children when panning
-					e.stopPropagation()
-					return false
-				}
-				return true
-			},
-			beforeWheel: (e) => {
-				if (e.ctrlKey || e.metaKey) {
-					// Prevent event propagation to children when zooming
-					e.stopPropagation()
-					return false
-				}
-				return true
-			}
-		})
-
-		// Update scale store when zoom changes
-		instance.on('zoom', (e) => {
-			const currentScale = e.getTransform().scale * 100
-			if (currentScale !== $scale) {
-				$scale = currentScale
-			}
-		})
-
-		return {
-			destroy() {
-				instance.dispose()
-			}
-		}
-	}
-
-	$: if (instance && $scale) {
-		const currentScale = instance.getTransform().scale * 100
-		if (currentScale !== $scale) {
-			instance.zoomAbs($parentWidth / 2, parentHeight / 2, $scale / 100)
-		}
-	}
-
-	let isModifierKeyPressed = false
-
-	function handleKeyDown(e: KeyboardEvent) {
-		isModifierKeyPressed = e.ctrlKey || e.metaKey
-	}
-
-	function handleKeyUp(e: KeyboardEvent) {
-		isModifierKeyPressed = false
-	}
-
-	export function resetView() {
-		if (instance) {
-			instance.reset()
-		}
-	}
 </script>
-
-<svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
 
 <div class="w-full z-[1000] overflow-visible h-full">
 	<div class={$app.hideLegacyTopBar ? 'hidden' : ''}>
@@ -245,22 +173,15 @@
 		class={twMerge(
 			'p-2 overflow-visible z-50',
 			$app.css?.['app']?.['grid']?.class ?? '',
-			'wm-app-grid !static h-full w-full',
-			isModifierKeyPressed && 'cursor-grab'
+			'wm-app-grid !static h-full w-full'
 		)}
 		on:pointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
 		}}
 		bind:clientWidth={$parentWidth}
-		bind:clientHeight={parentHeight}
 	>
-		<div
-			class="subgrid overflow-visible z-100 border border-dashed border-tertiary {isModifierKeyPressed
-				? 'pointer-events-none'
-				: ''}"
-			use:initPanzoom
-		>
+		<div class="subgrid overflow-visible z-100 border border-dashed border-tertiary">
 			<Grid
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}

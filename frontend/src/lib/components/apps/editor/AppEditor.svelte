@@ -54,6 +54,7 @@
 	import { goto, replaceState } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
+	import panzoom from 'panzoom'
 
 	export let app: App
 	export let path: string
@@ -605,6 +606,8 @@
 			return
 		}
 
+		isModifierKeyPressed = event.ctrlKey || event.metaKey
+
 		switch (event.key) {
 			case 'b': {
 				if (event.ctrlKey || event.metaKey) {
@@ -704,6 +707,80 @@
 			})
 		}
 	}
+
+	let instance: any
+	let isModifierKeyPressed = false
+	function resetView() {
+		if (instance) {
+			instance.moveTo(0.5, 0)
+			instance.zoomAbs(0.5, 0, 1)
+		}
+	}
+
+	function zoomTo(x: number, y: number, scale: number) {
+		if (instance) {
+			instance.zoomAbs(x, y, scale)
+		}
+	}
+
+	function initPanzoom(node: HTMLElement) {
+		instance = panzoom(node, {
+			bounds: true,
+			boundsPadding: 0.1,
+			maxZoom: 1.5,
+			minZoom: 0.3,
+			zoomDoubleClickSpeed: 1,
+			smoothScroll: false,
+			initialZoom: 1,
+			beforeMouseDown: (e) => {
+				if (e.ctrlKey || e.metaKey) {
+					// Prevent event propagation to children when panning
+					e.stopPropagation()
+					return false
+				}
+				return true
+			},
+			beforeWheel: (e) => {
+				if (e.ctrlKey || e.metaKey) {
+					// Prevent event propagation to children when zooming
+					e.stopPropagation()
+					return false
+				}
+				return true
+			}
+		})
+
+		// Update scale store when zoom changes
+		instance.on('zoom', (e) => {
+			const currentScale = e.getTransform().scale * 100
+			if (currentScale !== $scale) {
+				$scale = currentScale
+			}
+		})
+
+		return {
+			destroy() {
+				instance.dispose()
+			}
+		}
+	}
+
+	// Update the zoom handler
+	/* $: if (instance && $scale) {
+		const currentScale = instance.getTransform().scale * 100
+		if (currentScale !== $scale) {
+			// Zoom relative to center of container
+			instance.zoomAbs(containerWidth / 2, containerHeight / 2, $scale / 100)
+		}
+	} */
+
+	function handleKeyUp(e: KeyboardEvent) {
+		isModifierKeyPressed = false
+	}
+
+	$: console.log('dbg isModifierKeyPressed', isModifierKeyPressed)
+
+	$: console.log('dbg transfor origine', instance?.getTransformOrigin())
 </script>
 
 <svelte:head>
@@ -712,7 +789,7 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<svelte:window on:hashchange={hashchange} on:keydown={keydown} />
+<svelte:window on:hashchange={hashchange} on:keydown={keydown} on:keyup={handleKeyUp} />
 
 {#if !$userStore?.operator}
 	{#if $appStore}
@@ -804,9 +881,10 @@
 										$focusedGrid = undefined
 									}}
 									class={twMerge(
-										'bg-surface-secondary h-full w-full relative',
+										'bg-green-500 h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer h-full overflow-visible'
+										'wm-app-viewer h-full overflow-visible',
+										isModifierKeyPressed ? 'cursor-grab' : ''
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 									bind:clientWidth={centerPanelWidth}
@@ -849,7 +927,7 @@
 												size="xs2"
 												disabled={$scale <= 30}
 												on:click={() => {
-													$scale = Math.round(($scale - 10) / 10) * 10
+													zoomTo(0.5, 0, Math.round(($scale - 10) / 10) / 10)
 												}}
 											>
 												<Minus size={14} />
@@ -862,19 +940,12 @@
 												size="xs2"
 												disabled={$scale >= 150}
 												on:click={() => {
-													$scale = Math.round(($scale + 10) / 10) * 10
+													zoomTo(0.5, 0, Math.round(($scale + 10) / 10) / 10)
 												}}
 											>
 												<Plus size={14} />
 											</Button>
-											<Button
-												color="light"
-												size="xs2"
-												disabled={$scale >= 150}
-												on:click={() => {
-													$scale = 100
-												}}
-											>
+											<Button color="light" size="xs2" disabled={false} on:click={resetView}>
 												<Scan size={14} />
 											</Button>
 										</div>
@@ -903,9 +974,15 @@
 
 											<div
 												on:pointerdown|stopPropagation
-												class={twMerge(width, 'mx-auto', 'z-10000')}
+												class={twMerge(
+													width,
+													'mx-auto',
+													'z-10000',
+													isModifierKeyPressed ? 'pointer-events-none' : ''
+												)}
+												use:initPanzoom
 											>
-												<GridEditor {policy} bind:resetView={$resetViewFn} />
+												<GridEditor {policy} />
 											</div>
 										{/if}
 										{#if !$appStore?.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
