@@ -103,7 +103,7 @@
 		"@xyflow/svelte": "^0.1.15",
 		"ag-charts-community": "^9.0.1",
 		"ag-charts-enterprise": "^9.0.1",
-		"ag-grid-community": "^31.0.0",
+		"ag-grid-community": "^32.3.3",
 		"ag-grid-enterprise": "^31.0.0",
 		"ansi_up": "^5.2.1",
 		"chart.js": "^4.4.6",
