@@ -26,6 +26,7 @@
 		'branchone',
 		data.flowModuleStates?.[data.id]
 	)
+	
 </script>
 
 <NodeWrapper let:darkMode offset={data.offset}>

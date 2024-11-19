@@ -38,12 +38,14 @@
 		? {
 				flowJobs: state?.flow_jobs,
 				selected: state?.selectedForloopIndex ?? -1,
+				selectedManually: state?.selectedForLoopSetManually,
 				flowJobsSuccess: state?.flow_jobs_success
 		  }
 		: (undefined as any)
 
-	let selectedIteration = -1
 </script>
+
+
 
 <NodeWrapper offset={data.offset} let:darkMode>
 	{#if data.module.value.type == 'flow'}
@@ -65,12 +67,11 @@
 		annotation={flowJobs &&
 		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 			? 'Iteration: ' +
-			  (selectedIteration >= 0 ? selectedIteration : state?.flow_jobs?.length) +
+			  ((state?.selectedForloopIndex ?? 0) >= 0 ? (state?.selectedForloopIndex ?? 0) + 1 : state?.flow_jobs?.length) +
 			  '/' +
 			  (state?.iteration_total ?? '?')
 			: ''}
 		bgColor={getStateColor(type, darkMode, true, state?.skipped)}
-		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={state?.duration_ms}
 		retries={data.retries}
@@ -94,7 +95,6 @@
 			data.eventHandlers.select(e.detail)
 		}}
 		on:selectedIteration={(e) => {
-			selectedIteration = e.detail.index + 1
 			data.eventHandlers.selectedIteration(e.detail, data.module.id)
 		}}
 	/>

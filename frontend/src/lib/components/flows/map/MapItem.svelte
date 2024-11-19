@@ -17,16 +17,14 @@
 	export let insertable: boolean
 	export let annotation: string | undefined = undefined
 	export let bgColor: string = ''
-	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
 
 	export let retries: number | undefined = undefined
 	export let flowJobs:
-		| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
+		| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[], selectedManually: boolean | undefined }
 		| undefined
 
-	$: idx = modules.findIndex((m) => m.id === mod.id)
 
 	const { selectedId } = getContext<{ selectedId: Writable<string> }>('FlowGraphContext')
 	const dispatch = createEventDispatcher<{
@@ -83,13 +81,14 @@
 		{#if flowJobs && !insertable && (mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow')}
 			<div class="absolute right-8 z-50 -top-5">
 				<FlowJobsMenu
+					id={mod.id}
 					on:selectedIteration={(e) => {
 						dispatch('selectedIteration', e.detail)
 					}}
 					flowJobsSuccess={flowJobs.flowJobsSuccess}
 					flowJobs={flowJobs.flowJobs}
 					selected={flowJobs.selected}
-					index={idx}
+					selectedManually={flowJobs.selectedManually}
 				/>
 			</div>
 		{/if}
