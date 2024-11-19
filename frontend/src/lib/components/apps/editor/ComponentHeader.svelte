@@ -58,6 +58,9 @@
 
 		return Object.values(componentOptions).some((value) => value)
 	}
+
+	let connectingPopupHover = false
+	$: connectingPopupHover && dispatch('mouseover')
 </script>
 
 {#if connecting}
@@ -66,7 +69,10 @@
 		style="left: {id_width}px;"
 		data-connection-button
 	>
-		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
+		<Popup
+			floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
+			bind:popupHover={connectingPopupHover}
+		>
 			<svelte:fragment slot="button">
 				<AnimatedButton
 					animate={true}
@@ -75,11 +81,11 @@
 					marginWidth="2px"
 					animationDuration="3s"
 				>
-					<button
+					<div
 						id={`connect-output-${component.id}`}
 						class="h-[20px] w-[20px] bg-surface rounded-full center-center text-primary"
 						title="Outputs"
-						aria-label="Open output"><Plug size={12} /></button
+						aria-label="Open output"><Plug size={12} /></div
 					>
 				</AnimatedButton>
 			</svelte:fragment>
