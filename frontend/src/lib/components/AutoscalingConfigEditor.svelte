@@ -140,7 +140,7 @@
 					</label>
 					<!-- svelte-ignore a11y-label-has-associated-control -->
 					<label>
-						Occupancy rate % threhsold to go below to trigger a scale-in (decrease) <Tooltip
+						Occupancy rate % threshold to go below to trigger a scale-in (decrease) <Tooltip
 							>Default: 25%, need to go below average of all of 15s, 5m and 30m occupancy rates</Tooltip
 						>
 						{#if config !== undefined}
