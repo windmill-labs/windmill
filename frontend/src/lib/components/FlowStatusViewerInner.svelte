@@ -173,7 +173,9 @@
 		if (clearLoop) {
 			if (modId && !root) {
 				globalModuleStates?.[globalModuleStates?.length - 1]?.update((x) => {
-					delete x[modId]
+					if (modId) {
+						delete x[modId]
+					}
 					return x
 				})
 			}
