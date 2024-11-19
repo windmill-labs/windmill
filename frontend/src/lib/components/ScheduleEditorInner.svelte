@@ -642,7 +642,7 @@
 						<AlertTriangle color='orange' class='mr-2' size={16} />
 						<Toggle
 							options={{
-								right: 'latest Cron syntax',
+								right: 'enable latest Cron syntax',
 								rightTooltip:
 									'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
 								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
