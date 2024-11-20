@@ -1005,7 +1005,7 @@
 													on:click={() => (handMode = !handMode)}
 													btnClasses={handMode ? 'bg-surface-hover' : ''}
 												>
-													{#if handMode}
+													{#if $panzoomActive}
 														<Grab size={14} />
 													{:else}
 														<Hand size={14} />
