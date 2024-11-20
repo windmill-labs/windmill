@@ -182,7 +182,7 @@
 		bind:clientWidth={$parentWidth}
 	>
 		<div
-			class="subgrid overflow-visible z-100 outline-dashed outline-2 outline-offset-4 outline-gray-300"
+			class="subgrid overflow-visible z-100 outline-dashed outline-2 outline-offset-4 outline-gray-300 dark:outline-gray-500"
 		>
 			<Grid
 				allIdsInPath={$allIdsInPath}
