@@ -7,8 +7,7 @@
 
 	export let frontendJob: boolean | any = false
 	export let testJob: Job | any = undefined
-
-	let testIsLoading = false
+	export let testIsLoading = false
 
 	let logDrawerOpen = false
 	let resultDrawerOpen = false

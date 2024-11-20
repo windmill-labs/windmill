@@ -402,7 +402,7 @@
 	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
-			: 'min-h-[200px]'}"
+			: 'min-h-[160px]'}"
 		>{#if result != undefined && length != undefined && largeObject != undefined}<div
 				class="flex justify-between items-center w-full"
 				><div class="text-tertiary text-sm">
