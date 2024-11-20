@@ -33,7 +33,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Job, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
-	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan } from 'lucide-svelte'
+	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
@@ -654,6 +654,9 @@
 				if ($connectingInput.opened) {
 					$connectingInput.opened = false
 				}
+				if (handMode) {
+					handMode = false
+				}
 				break
 			}
 		}
@@ -736,7 +739,7 @@
 			smoothScroll: false,
 			initialZoom: 1,
 			beforeMouseDown: (e) => {
-				if (e.ctrlKey || e.metaKey) {
+				if (e.ctrlKey || e.metaKey || handMode) {
 					// Prevent event propagation to children when panning
 					e.stopPropagation()
 					return false
@@ -744,7 +747,7 @@
 				return true
 			},
 			beforeWheel: (e) => {
-				if (e.ctrlKey || e.metaKey) {
+				if (e.ctrlKey || e.metaKey || handMode) {
 					// Prevent event propagation to children when zooming
 					e.stopPropagation()
 					return false
@@ -788,7 +791,16 @@
 	}
 
 	let mouseOverGridView = false
-	$: $panzoomActive = isModifierKeyPressed && !$componentActive && mouseOverGridView
+	let handMode = false
+	let forceDeactivatePanzoom = false
+
+	$: $panzoomActive =
+		(isModifierKeyPressed || handMode) &&
+		!forceDeactivatePanzoom &&
+		!$componentActive &&
+		mouseOverGridView
+
+	$: forceDeactivatePanzoom = isModifierKeyPressed && handMode
 </script>
 
 <svelte:head>
@@ -960,6 +972,46 @@
 											<Button color="light" size="xs2" disabled={false} on:click={resetView}>
 												<Scan size={14} />
 											</Button>
+											<Popover disappearTimeout={0} notClickable placement="bottom">
+												<svelte:fragment slot="text">
+													<div class="flex flex-row gap-2">
+														<div class="flex-1">
+															Hand Mode
+															<br />
+															<span class="ml-2">Pan</span>
+															<br />
+															<span class="ml-2">Zoom</span>
+
+															<br />
+															<span class="ml-2">Exit</span>
+														</div>
+														<div>
+															<span class="float-left text-tertiary-inverse"
+																>hold {getModifierKey()}</span
+															>
+															<br />
+															<span class="float-left text-tertiary-inverse">click & drag</span>
+															<br />
+															<span class="float-left text-tertiary-inverse">scroll</span>
+															<br />
+															<span class="float-left text-tertiary-inverse">esc</span>
+														</div>
+													</div>
+												</svelte:fragment>
+												<Button
+													color="light"
+													size="xs2"
+													disabled={false}
+													on:click={() => (handMode = !handMode)}
+													btnClasses={handMode ? 'bg-surface-hover' : ''}
+												>
+													{#if handMode}
+														<Grab size={14} />
+													{:else}
+														<Hand size={14} />
+													{/if}
+												</Button>
+											</Popover>
 										</div>
 									</div>
 
