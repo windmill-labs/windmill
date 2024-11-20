@@ -800,7 +800,16 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<svelte:window on:hashchange={hashchange} on:keydown={keydown} on:keyup={handleKeyUp} />
+<svelte:window
+	on:hashchange={hashchange}
+	on:keydown={keydown}
+	on:keyup={handleKeyUp}
+	on:focus={() => {
+		if (isModifierKeyPressed) {
+			isModifierKeyPressed = false
+		}
+	}}
+/>
 
 {#if !$userStore?.operator}
 	{#if $appStore}
