@@ -777,15 +777,6 @@
 		}
 	}
 
-	// Update the zoom handler
-	/* $: if (instance && $scale) {
-		const currentScale = instance.getTransform().scale * 100
-		if (currentScale !== $scale) {
-			// Zoom relative to center of container
-			instance.zoomAbs(containerWidth / 2, containerHeight / 2, $scale / 100)
-		}
-	} */
-
 	function handleKeyUp(e: KeyboardEvent) {
 		isModifierKeyPressed = false
 	}
