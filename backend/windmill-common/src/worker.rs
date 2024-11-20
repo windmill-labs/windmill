@@ -15,7 +15,7 @@ use std::{
 use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
-use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::Smtp, DB};
+use crate::{error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB};
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
@@ -68,6 +68,7 @@ lazy_static::lazy_static! {
 
 
     pub static ref SMTP_CONFIG: Arc<RwLock<Option<Smtp>>> = Arc::new(RwLock::new(None));
+    pub static ref INDEXER_CONFIG: Arc<RwLock<TantivyIndexerSettings>> = Arc::new(RwLock::new(TantivyIndexerSettings::default()));
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();

@@ -105,6 +105,9 @@
 		if (values['smtp_settings'] == undefined) {
 			values['smtp_settings'] = {}
 		}
+		if (values['indexer_settings'] == undefined) {
+			values['indexer_settings'] = {}
+		}
 		loading = false
 
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
@@ -321,6 +324,12 @@
 							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
 							instance or sending critical alerts.
 							<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_smtp">Learn more</a
+							></div
+						>
+					{:else if category == "Indexer/Search"}
+						<div class="text-secondary pb-4 text-xs"
+							>The indexer service unlocks full text search across jobs and service logs. It requires spinning up its own separate container
+							<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup">Learn how to</a
 							></div
 						>
 					{:else if category == 'Registries'}
@@ -961,6 +970,137 @@
 														>
 															Connect to Slack
 														</Button>
+													{/if}
+												</div>
+											{:else if setting.fieldType == 'indexer_rates'}
+												<div class="flex flex-col gap-4 mt-4">
+													{#if values[setting.key]}
+														<div>
+															<label for="writer_memory_budget" class="block text-sm font-medium">
+																Index writer memory budget (MB)
+																<Tooltip>
+																	The allocated memory arena for the indexer. A bigger value means
+																	less writing to disk and potentially higher indexing throughput
+																</Tooltip>
+															</label>
+															<input
+																type="number"
+																id="writer_memory_budget"
+																placeholder="300"
+																on:input={(e) => {
+																	if (e.target instanceof HTMLInputElement) {
+																		if (e.target.valueAsNumber) {
+																			values[setting.key].writer_memory_budget =
+																				e.target.valueAsNumber * (1024 * 1024)
+																		}
+																	}
+																}}
+																value={values[setting.key].writer_memory_budget / (1024 * 1024)}
+															/>
+														</div>
+														<h3>Completed Job Index</h3>
+														<div>
+															<label
+																for="commit_job_max_batch_size"
+																class="block text-sm font-medium"
+															>
+																Commit max batch size <Tooltip>
+																	The max amount of documents (here jobs) per commit. To optimize
+																	indexing throughput, it is best to keep this as high as possible.
+																	However, especially when reindexing the whole instance, it can be
+																	useful to have a limit on how many jobs can be written without
+																	being commited. A commit will make the jobs available for search,
+																	constitute a "checkpoint" state in the indexing and will be
+																	logged.
+																</Tooltip>
+															</label>
+															<input
+																type="number"
+																id="commit_job_max_batch_size"
+																placeholder="100000"
+																bind:value={values[setting.key].commit_job_max_batch_size}
+															/>
+														</div>
+														<div>
+															<label for="refresh_index_period" class="block text-sm font-medium">
+																Refresh index period (s) <Tooltip>
+																	The index will query new jobs peridically and write them on the
+																	index. This setting sets that period.
+																</Tooltip></label
+															>
+															<input
+																type="number"
+																id="refresh_index_period"
+																placeholder="300"
+																bind:value={values[setting.key].refresh_index_period}
+															/>
+														</div>
+														<div>
+															<label
+																for="max_indexed_job_log_size"
+																class="block text-sm font-medium"
+															>
+																Max indexed job log size (KB) <Tooltip>
+																	Job logs are included when indexing, but to avoid the index size
+																	growing artificially, the logs will be truncated after a size has
+																	been reached.
+																</Tooltip>
+															</label>
+															<input
+																type="number"
+																id="max_indexed_job_log_size"
+																placeholder="1024"
+																on:input={(e) => {
+																	if (e.target instanceof HTMLInputElement) {
+																		if (e.target.valueAsNumber) {
+																			values[setting.key].max_indexed_job_log_size =
+																				e.target.valueAsNumber * 1024
+																		}
+																	}
+																}}
+																value={values[setting.key].max_indexed_job_log_size / 1024}
+															/>
+														</div>
+														<h3>Service Logs Index</h3>
+														<div>
+															<label
+																for="commit_log_max_batch_size"
+																class="block text-sm font-medium"
+																>Commit max batch size Commit max batch size <Tooltip>
+																	The max amount of documents per commit. In this case 1 document is
+																	one log file representing all logs during 1 minute for a specific
+																	host. To optimize indexing throughput, it is best to keep this as
+																	high as possible. However, especially when reindexing the whole
+																	instance, it can be useful to have a limit on how many logs can be
+																	written without being commited. A commit will make the logs
+																	available for search, appear as a log line, and be a "checkpoint"
+																	of the indexing progress.
+																</Tooltip>
+															</label>
+															<input
+																type="number"
+																id="commit_log_max_batch_size"
+																placeholder="10000"
+																bind:value={values[setting.key].commit_log_max_batch_size}
+															/>
+														</div>
+														<div>
+															<label
+																for="refresh_log_index_period"
+																class="block text-sm font-medium"
+															>
+																Refresh index period (s) <Tooltip>
+																	The index will query new service logs peridically and write them
+																	on the index. This setting sets that period.
+																</Tooltip></label
+															>
+															<input
+																type="number"
+																id="refresh_log_index_period"
+																placeholder="300"
+																bind:value={values[setting.key].refresh_log_index_period}
+															/>
+														</div>
 													{/if}
 												</div>
 											{:else if setting.fieldType == 'smtp_connect'}

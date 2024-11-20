@@ -701,7 +701,7 @@
 									<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
 										{#if indexMetadata.indexed_until}
 											<span class="px-2">
-												Most recently indexed job was created <TimeAgo
+												Most recently indexed job was created at <TimeAgo
 													agoOnlyIfRecent
 													date={indexMetadata.indexed_until || ''}
 												/>
@@ -745,7 +745,7 @@
 									<div class="flex flex-row pt-10 text-xs text-secondary">
 										{#if indexMetadata.indexed_until}
 											<span class="px-2">
-												Most recently indexed job was created <TimeAgo
+												Most recently indexed job was created at <TimeAgo
 													agoOnlyIfRecent
 													date={indexMetadata.indexed_until}
 												/>

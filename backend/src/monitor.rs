@@ -29,11 +29,7 @@ use windmill_api::{
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts, LICENSE_KEY_VALID};
 use windmill_common::{
-    auth::JWT_SECRET,
-    ee::CriticalErrorChannel,
-    error,
-    flow_status::FlowStatusModule,
-    global_settings::{
+    auth::JWT_SECRET, ee::CriticalErrorChannel, error, flow_status::FlowStatusModule, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
@@ -42,20 +38,9 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-    },
-    jobs::QueuedJob,
-    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
-    server::load_smtp_config,
-    tracing_init::JSON_FMT,
-    users::truncate_token,
-    utils::{now_from_db, rd_string, report_critical_error, Mode},
-    worker::{
-        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SMTP_CONFIG, WORKER_CONFIG,
-        WORKER_GROUP,
-    },
-    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    }, indexer::load_indexer_config, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
+        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SMTP_CONFIG, WORKER_CONFIG, WORKER_GROUP
+    }, BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -1156,6 +1141,17 @@ pub async fn reload_smtp_config(db: &Pool<Postgres>) {
         let mut wc = SMTP_CONFIG.write().await;
         tracing::info!("Reloading smtp config...");
         *wc = smtp_config.unwrap()
+    }
+}
+
+pub async fn reload_indexer_config(db: &Pool<Postgres>) {
+    let indexer_config = load_indexer_config(&db).await;
+    if let Err(e) = indexer_config {
+        tracing::error!("Error reloading indexer config: {:?}", e)
+    } else {
+        let mut wc = INDEXER_CONFIG.write().await;
+        tracing::info!("Reloading smtp config...");
+        *wc = indexer_config.unwrap()
     }
 }
 
