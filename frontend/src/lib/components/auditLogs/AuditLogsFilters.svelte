@@ -342,6 +342,12 @@
 		<span class="text-xs absolute -top-4">Resource</span>
 
 		<AutoComplete
+			create
+			onCreate={(resource) => {
+				resources.push(resource)
+				return resource
+			}}
+			createText="Press enter to use this value"
 			noInputStyles
 			items={resources}
 			value={resource}
