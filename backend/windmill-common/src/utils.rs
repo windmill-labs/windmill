@@ -74,10 +74,12 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
 }
 
 pub fn hostname() -> String {
-    gethostname()
-        .to_str()
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| rd_string(5))
+    std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
+        gethostname()
+            .to_str()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| rd_string(5))
+    }) 
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
