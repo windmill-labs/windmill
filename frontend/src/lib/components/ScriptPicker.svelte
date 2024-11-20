@@ -27,6 +27,7 @@
 	export let kinds: Script['kind'][] = ['script']
 	export let disabled = false
 	export let allowRefresh = false
+	export let allowEdit = true
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -127,14 +128,16 @@
 	{#if scriptPath !== undefined && scriptPath !== ''}
 		{#if itemKind == 'flow'}
 			<div class="flex gap-2">
-				<Button
-					endIcon={{ icon: ExternalLink }}
-					target="_blank"
-					color="light"
-					size="xs"
-					variant="border"
-					href="{base}/flows/edit/{scriptPath}">Edit</Button
-				>
+				{#if allowEdit}
+					<Button
+						endIcon={{ icon: ExternalLink }}
+						target="_blank"
+						color="light"
+						size="xs"
+						variant="border"
+						href="{base}/flows/edit/{scriptPath}">Edit</Button
+					>
+				{/if}
 				<Button
 					color="light"
 					size="xs"
@@ -148,16 +151,18 @@
 			</div>
 		{:else if itemKind == 'app'}
 			<div class="flex gap-2">
-				<Button
-					startIcon={{ icon: Pen }}
-					target="_blank"
-					color="light"
-					size="xs"
-					href="{base}/apps/edit/{scriptPath}"
-					variant="border"
-				>
-					Edit
-				</Button>
+				{#if allowEdit}
+					<Button
+						startIcon={{ icon: Pen }}
+						target="_blank"
+						color="light"
+						size="xs"
+						href="{base}/apps/edit/{scriptPath}"
+						variant="border"
+					>
+						Edit
+					</Button>
+				{/if}
 				<Button
 					color="light"
 					size="xs"
@@ -171,16 +176,18 @@
 			</div>
 		{:else}
 			<div class="flex gap-2">
-				<Button
-					startIcon={{ icon: Pen }}
-					target="_blank"
-					color="light"
-					size="xs"
-					href="{base}/scripts/edit/{scriptPath}"
-					variant="border"
-				>
-					Edit
-				</Button>
+				{#if allowEdit}
+					<Button
+						startIcon={{ icon: Pen }}
+						target="_blank"
+						color="light"
+						size="xs"
+						href="{base}/scripts/edit/{scriptPath}"
+						variant="border"
+					>
+						Edit
+					</Button>
+				{/if}
 				<Button
 					color="light"
 					size="xs"
