@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Plug } from 'lucide-svelte'
-	import { clickOutside, pointerDownOutside } from '$lib/utils'
+	import { pointerDownOutside } from '$lib/utils'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getContext } from 'svelte'
@@ -46,7 +46,7 @@
 		}
 	}
 
-	function handlePointerDownOutside(e: PointerEvent) {
+	function handlePointerDownOutside(e: CustomEvent) {
 		if (!$panzoomActive) {
 			deactivateConnection()
 		}
