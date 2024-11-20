@@ -931,6 +931,7 @@
 									<div
 										class="absolute bottom-2 left-2 z-50 border bg-surface"
 										data-connection-button
+										on:pointerdown|stopPropagation
 									>
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
