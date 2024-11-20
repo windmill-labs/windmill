@@ -226,7 +226,7 @@
 	$: width =
 		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
 			? 'min-w-[400px] max-w-[656px]'
-			: 'min-w-[710px] w-full'
+			: `min-w-[710px] ${$appStore.fullscreen ? 'w-full' : 'max-w-7xl'}`
 
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
@@ -892,7 +892,7 @@
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer h-full overflow-visible',
-										$panzoomActive ? 'cursor-grab' : '',
+										$panzoomActive ? 'cursor-grab' : ''
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 									bind:clientWidth={centerPanelWidth}
@@ -979,8 +979,7 @@
 										}}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
-											$appStore.fullscreen ? '' : 'max-w-7xl',
-											$componentActive ? 'absolute right-0 left-0' : 'overflow-auto',
+											$componentActive ? 'absolute right-0 left-0' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
@@ -994,7 +993,7 @@
 													width,
 													'mx-auto',
 													'z-10000',
-													$panzoomActive ? 'pointer-events-none' : '',
+													$panzoomActive ? 'pointer-events-none' : ''
 												)}
 												use:initPanzoom
 											>
