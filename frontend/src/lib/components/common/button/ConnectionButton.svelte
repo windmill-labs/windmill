@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { Plug } from 'lucide-svelte'
-	import { clickOutside, pointerDownOutside } from '$lib/utils'
+	import { pointerDownOutside } from '$lib/utils'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 
 	export let isOpen = false
 	export let openConnection: () => void
@@ -10,18 +12,22 @@
 
 	let selected = false
 
+	const { panzoomActive } = getContext<AppViewerContext>('AppViewerContext')
+
 	async function getConnectionButtonElements(): Promise<HTMLElement[]> {
 		return Array.from(
 			document.querySelectorAll('[data-connection-button], [data-connection-button] *')
 		) as HTMLElement[]
 	}
 
-	function handleConnect() {
+	function handleConnect(activate = false) {
 		if (isOpen) {
 			deactivateConnection()
 			return
 		}
-		activateConnection()
+		if (activate) {
+			activateConnection()
+		}
 	}
 
 	function activateConnection() {
@@ -34,24 +40,33 @@
 		closeConnection()
 	}
 
+	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.stopPropagation()
+			e.preventDefault()
+			handleConnect()
+		}
+	}
+
+	function handlePointerDownOutside(e: CustomEvent) {
+		if (!$panzoomActive) {
+			deactivateConnection()
+		}
+	}
+
 	$: !isOpen && (selected = false)
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	use:clickOutside={{
-		capture: true,
-		stopPropagation: isOpen,
-		exclude: getConnectionButtonElements
-	}}
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: isOpen,
-		exclude: getConnectionButtonElements
+		exclude: getConnectionButtonElements,
+		customEventName: 'pointerdown_connecting'
 	}}
-	on:keydown|preventDefault|stopPropagation={(e) => e.key === 'Escape' && handleConnect()}
-	on:pointerdown_outside={deactivateConnection}
-	on:click_outside={deactivateConnection}
+	on:keydown={handleKeyDown}
+	on:pointerdown_outside={handlePointerDownOutside}
 	data-connection-button
 >
 	<AnimatedButton
@@ -65,7 +80,7 @@
 			variant="border"
 			color="light"
 			title="Connect"
-			on:click={handleConnect}
+			on:click={() => handleConnect(true)}
 			id="schema-plug"
 		>
 			<Plug size={14} />
