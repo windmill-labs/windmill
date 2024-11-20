@@ -166,7 +166,7 @@
 	}}
 	on:mouseout|stopPropagation={mouseOut}
 	class={twMerge(
-		'h-full flex flex-col w-full component relative connection-access',
+		'h-full flex flex-col w-full component relative',
 		initializing ? 'overflow-hidden h-0' : '',
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
