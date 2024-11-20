@@ -21,10 +21,7 @@ use tokio::time::Instant;
 use tower::ServiceBuilder;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-use windmill_common::jobs::{
-    format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
-    ENTRYPOINT_OVERRIDE,
-};
+use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
 use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -738,7 +735,11 @@ pub async fn get_queued_job_ex(
     // first optional is if authed need to be checked, second is the opt_authed itself
     opt_authed: Option<&Option<ApiAuthed>>,
 ) -> error::Result<Option<JobExtended<QueuedJob>>> {
-    let query = if no_logs { &*GET_QUEUED_JOB_QUERY_NO_LOGS } else { &*GET_QUEUED_JOB_QUERY };
+    let query = if no_logs {
+        &*GET_QUEUED_JOB_QUERY_NO_LOGS
+    } else {
+        &*GET_QUEUED_JOB_QUERY
+    };
     let job = sqlx::query_as::<_, JobExtended<QueuedJob>>(query)
         .bind(job_id)
         .bind(workspace_id)
@@ -763,7 +764,11 @@ pub async fn get_completed_job_ex(
     // first optional is if authed need to be checked, second is the opt_authed itself
     opt_authed: Option<&Option<ApiAuthed>>,
 ) -> error::Result<Option<JobExtended<CompletedJob>>> {
-    let query = if no_logs { &*GET_COMPLETED_JOB_QUERY_NO_LOGS } else { &*GET_COMPLETED_JOB_QUERY };
+    let query = if no_logs {
+        &*GET_COMPLETED_JOB_QUERY_NO_LOGS
+    } else {
+        &*GET_COMPLETED_JOB_QUERY
+    };
     let cjob = sqlx::query_as::<_, JobExtended<CompletedJob>>(query)
         .bind(job_id)
         .bind(workspace_id)
@@ -779,13 +784,7 @@ pub async fn get_completed_job_ex(
     }
 
     if let Some(mut cjob) = cjob {
-        let CompletedJobWithFormattedResult { mut cj, result } = format_completed_job_result(cjob.inner);
-        cj.result = match result {
-            Some(FormattedResult::RawValue(rv)) => rv,
-            Some(FormattedResult::Vec(v)) => Some(to_raw_value(&v)),
-            None => None,
-        }.map(sqlx::types::Json);
-        cjob.inner = cj;
+        cjob.inner = format_completed_job_result(cjob.inner);
         return Ok(Some(cjob));
     }
 
@@ -965,10 +964,14 @@ async fn get_job_logs(
         log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await {
+        if let Some(r) =
+            get_logs_from_store(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await
+        {
             return r.map(content_plain);
         }
-        if let Some(r) = get_logs_from_disk(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await {
+        if let Some(r) =
+            get_logs_from_disk(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await
+        {
             return r.map(content_plain);
         }
 
@@ -1601,8 +1604,7 @@ async fn count_completed_jobs_detail(
     Query(query): Query<CountCompletedJobsQuery>,
 ) -> error::JsonResult<i64> {
     let mut sqlb = SqlBuilder::select_from("completed_job");
-    sqlb
-        .field("COUNT(*) as count");
+    sqlb.field("COUNT(*) as count");
 
     if !query.all_workspaces.unwrap_or(false) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
@@ -1610,7 +1612,10 @@ async fn count_completed_jobs_detail(
 
     if let Some(after_s_ago) = query.completed_after_s_ago {
         let after = Utc::now() - chrono::Duration::seconds(after_s_ago);
-        sqlb.and_where_gt("started_at + duration_ms / 1000 * interval '1 second'", "?".bind(&after.to_rfc3339()));
+        sqlb.and_where_gt(
+            "started_at + duration_ms / 1000 * interval '1 second'",
+            "?".bind(&after.to_rfc3339()),
+        );
     }
 
     if let Some(success) = query.success {
@@ -1618,18 +1623,20 @@ async fn count_completed_jobs_detail(
     }
 
     if let Some(tags) = query.tags {
-        sqlb.and_where_in("tag", &tags.split(",").map(|t| format!("'{}'", t)).collect::<Vec<_>>());
+        sqlb.and_where_in(
+            "tag",
+            &tags
+                .split(",")
+                .map(|t| format!("'{}'", t))
+                .collect::<Vec<_>>(),
+        );
     }
 
     let sql = sqlb.sql()?;
-    let stats = sqlx::query_scalar::<_, i64>(&sql)
-        .fetch_one(&db)
-        .await?;
+    let stats = sqlx::query_scalar::<_, i64>(&sql).fetch_one(&db).await?;
 
     Ok(Json(stats))
 }
-
-
 
 async fn count_completed_jobs(
     Extension(db): Extension<DB>,
@@ -2316,8 +2323,19 @@ pub struct JobExtended<T> {
 }
 
 impl<T> JobExtended<T> {
-    pub fn new(self_wait_time_ms: Option<i64>, aggregate_wait_time_ms: Option<i64>, inner: T) -> Self {
-        Self { inner, raw_code: None, raw_lock: None, raw_flow: None, self_wait_time_ms, aggregate_wait_time_ms }
+    pub fn new(
+        self_wait_time_ms: Option<i64>,
+        aggregate_wait_time_ms: Option<i64>,
+        inner: T,
+    ) -> Self {
+        Self {
+            inner,
+            raw_code: None,
+            raw_lock: None,
+            raw_flow: None,
+            self_wait_time_ms,
+            aggregate_wait_time_ms,
+        }
     }
 }
 
@@ -2619,7 +2637,10 @@ impl UnifiedJob {
 impl<'a> From<UnifiedJob> for Job {
     fn from(uj: UnifiedJob) -> Self {
         match uj.typ.as_ref() {
-            "CompletedJob" => Job::CompletedJob(JobExtended::new(uj.self_wait_time_ms, uj.aggregate_wait_time_ms, CompletedJob {
+            "CompletedJob" => Job::CompletedJob(JobExtended::new(
+                uj.self_wait_time_ms,
+                uj.aggregate_wait_time_ms,
+                CompletedJob {
                     workspace_id: uj.workspace_id,
                     id: uj.id,
                     parent_job: uj.parent_job,
@@ -2650,8 +2671,12 @@ impl<'a> From<UnifiedJob> for Job {
                     tag: uj.tag,
                     priority: uj.priority,
                     labels: uj.labels,
-            })),
-            "QueuedJob" => Job::QueuedJob(JobExtended::new(uj.self_wait_time_ms, uj.aggregate_wait_time_ms, QueuedJob {
+                },
+            )),
+            "QueuedJob" => Job::QueuedJob(JobExtended::new(
+                uj.self_wait_time_ms,
+                uj.aggregate_wait_time_ms,
+                QueuedJob {
                     workspace_id: uj.workspace_id,
                     id: uj.id,
                     parent_job: uj.parent_job,
@@ -2689,7 +2714,8 @@ impl<'a> From<UnifiedJob> for Job {
                     flow_step_id: None,
                     cache_ttl: None,
                     priority: uj.priority,
-            })),
+                },
+            )),
             t => panic!("job type {} not valid", t),
         }
     }
@@ -3313,7 +3339,7 @@ pub struct WindmillCompositeResult {
     windmill_content_type: Option<String>,
     result: Option<Box<RawValue>>,
 }
-async fn run_wait_result(
+pub async fn run_wait_result(
     db: &DB,
     uuid: Uuid,
     w_id: String,
@@ -3360,15 +3386,13 @@ async fn run_wait_result(
             .bind(&w_id)
             .fetch_optional(db)
             .await?;
-            if let Some(raw_result) = row {
-                result = match format_result(
+            if let Some(mut raw_result) = row {
+                format_result(
                     raw_result.language.as_ref(),
-                    raw_result.flow_status.map(|x| x.0),
-                    raw_result.result.map(|x| x.0),
-                ) {
-                    FormattedResult::RawValue(rv) => rv,
-                    FormattedResult::Vec(v) => Some(to_raw_value(&v)),
-                };
+                    raw_result.flow_status.as_ref(),
+                    raw_result.result.as_mut(),
+                );
+                result = raw_result.result.map(|x| x.0);
             }
         }
 
@@ -4367,7 +4391,7 @@ async fn add_batch_jobs(
         raw_code,
         raw_lock,
         raw_flow,
-        flow_status
+        flow_status,
     ) = match batch_info.kind.as_str() {
         "script" => {
             if let Some(path) = batch_info.path {
@@ -4458,19 +4482,19 @@ async fn add_batch_jobs(
             add_virtual_items_if_necessary(&mut value.modules);
             let flow_status = FlowStatus::new(&value);
             (
-                None,                             // script_hash
-                path,                             // script_path
-                job_kind,                         // job_kind
-                None,                             // language
-                None,                             // dedicated_worker
-                value.concurrency_key.clone(),    // custom_concurrency_key
-                value.concurrent_limit.clone(),   // concurrent_limit
-                value.concurrency_time_window_s,  // concurrency_time_window_s
-                None,                             // timeout
-                None,                             // raw_code
-                None,                             // raw_lock
-                Some(value),                      // raw_flow
-                Some(flow_status),                // flow_status
+                None,                            // script_hash
+                path,                            // script_path
+                job_kind,                        // job_kind
+                None,                            // language
+                None,                            // dedicated_worker
+                value.concurrency_key.clone(),   // custom_concurrency_key
+                value.concurrent_limit.clone(),  // concurrent_limit
+                value.concurrency_time_window_s, // concurrency_time_window_s
+                None,                            // timeout
+                None,                            // raw_code
+                None,                            // raw_lock
+                Some(value),                     // raw_flow
+                Some(flow_status),               // flow_status
             )
         }
         "noop" => (
@@ -4516,7 +4540,11 @@ async fn add_batch_jobs(
             (id, workspace_id, raw_code, raw_lock, raw_flow)
             (SELECT uuid, $1, $2, $3, $4 FROM uuid_table)
         RETURNING id"#,
-        w_id, raw_code, raw_lock, raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>, n
+        w_id,
+        raw_code,
+        raw_lock,
+        raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
+        n
     )
     .fetch_all(&db)
     .await?;
@@ -5122,8 +5150,7 @@ async fn get_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job_o = get_completed_job_ex(&db, &w_id, id, false, Some(&opt_authed))
-        .await?;
+    let job_o = get_completed_job_ex(&db, &w_id, id, false, Some(&opt_authed)).await?;
 
     let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     let response = Json(cj).into_response();
@@ -5186,7 +5213,7 @@ async fn get_completed_job_result(
             .await?
     };
 
-    let raw_result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
+    let mut raw_result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
 
     if opt_authed.is_none() && raw_result.created_by.unwrap_or_default() != "anonymous" {
         match (suspended_job, resume_id, approver, secret) {
@@ -5226,15 +5253,15 @@ async fn get_completed_job_result(
         }
     }
 
-    let result = format_result(
+    format_result(
         raw_result.language.as_ref(),
-        raw_result.flow_status.map(|x| x.0),
-        raw_result.result.map(|x| x.0),
+        raw_result.flow_status.as_ref(),
+        raw_result.result.as_mut(),
     );
 
     log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
 
-    Ok(Json(result).into_response())
+    Ok(Json(raw_result.result).into_response())
 }
 
 #[derive(Deserialize)]
@@ -5280,7 +5307,7 @@ struct CompletedJobResult {
     started: Option<bool>,
     success: Option<bool>,
     completed: bool,
-    result: Option<FormattedResult>,
+    result: Option<sqlx::types::Json<Box<RawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -5302,11 +5329,11 @@ async fn get_completed_job_result_maybe(
     .fetch_optional(&db)
     .await?;
 
-    if let Some(res) = result_o {
-        let result = format_result(
+    if let Some(mut res) = result_o {
+        format_result(
             res.language.as_ref(),
-            res.flow_status.map(|x| x.0),
-            res.result.map(|x| x.0),
+            res.flow_status.as_ref(),
+            res.result.as_mut(),
         );
         if opt_authed.is_none() && res.created_by != "anonymous" {
             return Err(Error::BadRequest(
@@ -5320,7 +5347,7 @@ async fn get_completed_job_result_maybe(
             started: Some(true),
             success: Some(res.success),
             completed: true,
-            result: Some(result),
+            result: res.result,
         })
         .into_response())
     } else if get_started.is_some_and(|x| x) {

@@ -466,20 +466,6 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
     Ok((payload, tag))
 }
 
-#[derive(Serialize, Debug)]
-#[serde(untagged)]
-pub enum FormattedResult {
-    RawValue(Option<Box<RawValue>>),
-    Vec(Vec<Box<RawValue>>),
-}
-
-#[derive(Serialize, Debug)]
-pub struct CompletedJobWithFormattedResult {
-    #[serde(flatten)]
-    pub cj: CompletedJob,
-    pub result: Option<FormattedResult>,
-}
-
 #[derive(Deserialize)]
 struct FlowStatusMetadata {
     column_order: Vec<String>,
@@ -493,7 +479,7 @@ struct FlowStatusWithMetadataOnly {
 pub fn order_columns(
     rows: Option<Vec<Box<RawValue>>>,
     column_order: Vec<String>,
-) -> Option<Vec<Box<RawValue>>> {
+) -> Option<Box<RawValue>> {
     if let Some(mut rows) = rows {
         if let Some(first_row) = rows.get(0) {
             let first_row = serde_json::from_str::<HashMap<String, Box<RawValue>>>(first_row.get());
@@ -508,7 +494,7 @@ pub fn order_columns(
 
                 rows[0] = new_row_as_raw_value;
 
-                return Some(rows);
+                return Some(to_raw_value(&rows));
             }
         }
     }
@@ -518,9 +504,9 @@ pub fn order_columns(
 
 pub fn format_result(
     language: Option<&ScriptLang>,
-    flow_status: Option<Box<RawValue>>,
-    result: Option<Box<RawValue>>,
-) -> FormattedResult {
+    flow_status: Option<&sqlx::types::Json<Box<RawValue>>>,
+    result: Option<&mut sqlx::types::Json<Box<RawValue>>>,
+) -> () {
     match language {
         Some(&ScriptLang::Postgresql)
         | Some(&ScriptLang::Mysql)
@@ -531,27 +517,26 @@ pub fn format_result(
             {
                 if let Some(result) = result {
                     let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
-                    match order_columns(rows, flow_status._metadata.column_order) {
-                        Some(rows) => return FormattedResult::Vec(rows),
-                        None => return FormattedResult::RawValue(Some(result)),
+                    if let Some(ordered_result) =
+                        order_columns(rows, flow_status._metadata.column_order)
+                    {
+                        *result = sqlx::types::Json(ordered_result);
                     }
                 }
             }
         }
         _ => {}
     }
-
-    FormattedResult::RawValue(result)
 }
 
-pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJobWithFormattedResult {
-    let sql_result = format_result(
+pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJob {
+    format_result(
         cj.language.as_ref(),
-        cj.flow_status.clone().map(|x| x.0),
-        cj.result.map(|x| x.0),
+        cj.flow_status.as_ref(),
+        cj.result.as_mut(),
     );
-    cj.result = None; // very important to avoid sending the result twice
-    CompletedJobWithFormattedResult { cj, result: Some(sql_result) }
+
+    cj
 }
 
 pub async fn get_logs_from_disk(
@@ -598,7 +583,6 @@ pub async fn get_logs_from_store(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
                     for file_p in file_index.clone() {
