@@ -20,6 +20,7 @@ export interface Setting {
 		| 'critical_error_channels'
 		| 'slack_connect'
 		| 'smtp_connect'
+		| 'indexer_rates'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -247,6 +248,15 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
+		}
+	],
+	'Indexer/Search': [
+		{
+			label: '',
+			key: 'indexer_settings',
+			fieldType: 'indexer_rates',
+			storage: 'setting',
+			ee_only: 'Full text search across jobs and service logs is an EE feature'
 		}
 	],
 	Slack: [
