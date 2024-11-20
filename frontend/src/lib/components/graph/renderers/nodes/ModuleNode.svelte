@@ -37,7 +37,7 @@
 	$: flowJobs = state?.flow_jobs
 		? {
 				flowJobs: state?.flow_jobs,
-				selected: state?.selectedForloopIndex ?? -1,
+				selected: state?.selectedForloopIndex ?? 0,
 				selectedManually: state?.selectedForLoopSetManually,
 				flowJobsSuccess: state?.flow_jobs_success
 		  }
