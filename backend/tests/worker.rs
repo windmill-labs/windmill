@@ -1,3 +1,4 @@
+use serde::de::DeserializeOwned;
 use std::str::FromStr;
 use windmill_api_client::types::{NewScript, NewScriptLanguage};
 
@@ -3611,4 +3612,72 @@ def main():
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
+}
+
+#[sqlx::test(fixtures("base", "result_format"))]
+async fn test_result_format(db: Pool<Postgres>) {
+    let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
+
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await;
+
+    let port = server.addr.port();
+
+    let token = windmill_worker::create_token_for_owner(
+        &db,
+        "test-workspace",
+        "u/test-user",
+        "",
+        100,
+        "",
+        &Uuid::nil(),
+    )
+    .await
+    .unwrap();
+
+    #[derive(Debug, Deserialize)]
+    struct JobResponse {
+        result: Option<Box<serde_json::value::RawValue>>,
+    }
+
+    async fn get_result<T: DeserializeOwned>(url: String) -> T {
+        reqwest::get(url)
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    let correct_result = r#"[{"b":"first","a":"second"}]"#;
+
+    let job_response: JobResponse = get_result(format!("http://localhost:{port}/api/w/test-workspace/jobs_u/get/{ordered_result_job_id}?token={token}&no_logs=true")).await;
+    assert_eq!(job_response.result.unwrap().get(), correct_result);
+
+    let job_response: JobResponse = get_result(format!("http://localhost:{port}/api/w/test-workspace/jobs_u/completed/get_result_maybe/{ordered_result_job_id}?token={token}&no_logs=true")).await;
+    assert_eq!(job_response.result.unwrap().get(), correct_result);
+
+    let job_result: Box<serde_json::value::RawValue> = get_result(format!("http://localhost:{port}/api/w/test-workspace/jobs_u/completed/get_result/{ordered_result_job_id}?token={token}&no_logs=true")).await;
+    assert_eq!(job_result.get(), correct_result);
+
+    let response = windmill_api::jobs::run_wait_result(
+        &db,
+        Uuid::parse_str(ordered_result_job_id).unwrap(),
+        "test-workspace".to_string(),
+        None,
+        "test-user",
+    )
+    .await
+    .unwrap();
+    let result: Box<serde_json::value::RawValue> = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert_eq!(result.get(), correct_result);
 }

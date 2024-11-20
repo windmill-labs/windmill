@@ -402,7 +402,7 @@
 	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
-			: 'min-h-[200px]'}"
+			: 'min-h-[160px]'}"
 		>{#if result != undefined && length != undefined && largeObject != undefined}<div
 				class="flex justify-between items-center w-full"
 				><div class="text-tertiary text-sm">
@@ -533,7 +533,7 @@
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'pdf'}
-					<div class="h-96 mt-2">
+					<div class="h-96 mt-2 border">
 						<PdfViewer
 							allowFullscreen
 							source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
@@ -679,7 +679,7 @@
 									/>
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
-								<div class="h-96 mt-2">
+								<div class="h-96 mt-2 border">
 									<PdfViewer
 										allowFullscreen
 										source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
@@ -755,7 +755,7 @@
 										</button>
 									{/if}
 								{:else if s3object?.s3?.endsWith('.pdf')}
-									<div class="h-96 mt-2">
+									<div class="h-96 mt-2 border">
 										<PdfViewer
 											allowFullscreen
 											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
