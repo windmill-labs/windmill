@@ -689,9 +689,19 @@
 
 	function updateCursorStyle(disabled: boolean) {
 		if (disabled) {
-			document.documentElement.style.setProperty('--global-cursor', 'not-allowed', 'important')
+			// Select all elements that don't have data-connection-button and aren't children of elements with data-connection-button
+			const elements = document.querySelectorAll(
+				':not([data-connection-button]):not([data-connection-button] *)'
+			)
+			elements.forEach((element) => {
+				;(element as HTMLElement).style.cursor = 'not-allowed'
+			})
 		} else {
-			document.documentElement.style.removeProperty('--global-cursor')
+			// Reset cursor style for all elements
+			const elements = document.querySelectorAll('*')
+			elements.forEach((element) => {
+				;(element as HTMLElement).style.removeProperty('cursor')
+			})
 		}
 	}
 </script>
@@ -1094,14 +1104,5 @@
 	}
 	#o2 > .splitpanes__pane {
 		overflow: visible !important;
-	}
-
-	/* Conditionally apply the disabled cursor globally */
-	:global(*) {
-		cursor: var(--element-cursor, var(--global-cursor, auto));
-	}
-
-	:global(.connection-access) {
-		--element-cursor: auto;
 	}
 </style>

@@ -16,6 +16,7 @@
 	export let shouldUsePortal: boolean = true
 	export let target: string | HTMLElement | undefined = undefined
 	export let noTransition = false
+	export let popupHover = false
 </script>
 
 <Popover on:close class="leading-none">
@@ -25,7 +26,18 @@
 		</div>
 	</PopoverButton>
 	<ConditionalPortal condition={shouldUsePortal} {target}>
-		<div use:floatingContent class={`z5000 ${floatingClasses}`}>
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+		<div
+			use:floatingContent
+			class={`z5000 ${floatingClasses}`}
+			on:mouseenter={() => {
+				popupHover = true
+			}}
+			on:mouseleave={() => {
+				popupHover = false
+			}}
+		>
 			{#if !noTransition}
 				<Transition
 					show={blockOpen || undefined}
