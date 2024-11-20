@@ -782,6 +782,7 @@
 	$: console.log('dbg isModifierKeyPressed', isModifierKeyPressed)
 
 	$: console.log('dbg transfor origine', instance?.getTransformOrigin())
+	$: panzoomActive = isModifierKeyPressed && !$componentActive
 </script>
 
 <svelte:head>
@@ -885,7 +886,7 @@
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer h-full overflow-visible',
-										isModifierKeyPressed ? 'cursor-grab' : ''
+										panzoomActive ? 'cursor-grab' : ''
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 									bind:clientWidth={centerPanelWidth}
@@ -979,7 +980,7 @@
 													width,
 													'mx-auto',
 													'z-10000',
-													isModifierKeyPressed ? 'pointer-events-none' : ''
+													panzoomActive ? 'pointer-events-none' : ''
 												)}
 												use:initPanzoom
 											>
