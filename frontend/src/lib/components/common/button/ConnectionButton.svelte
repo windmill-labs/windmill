@@ -20,12 +20,14 @@
 		) as HTMLElement[]
 	}
 
-	function handleConnect() {
+	function handleConnect(activate = false) {
 		if (isOpen) {
 			deactivateConnection()
 			return
 		}
-		activateConnection()
+		if (activate) {
+			activateConnection()
+		}
 	}
 
 	function activateConnection() {
@@ -78,7 +80,7 @@
 			variant="border"
 			color="light"
 			title="Connect"
-			on:click={handleConnect}
+			on:click={() => handleConnect(true)}
 			id="schema-plug"
 		>
 			<Plug size={14} />
