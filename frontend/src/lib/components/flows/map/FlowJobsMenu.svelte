@@ -3,6 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import Popover from '$lib/components/Popover.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -29,20 +30,24 @@
 	let buttonHover = false
 </script>
 
-{#if selectedManually}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div title="Iteration picked from new subflow runs automatically" on:mouseenter={() => (buttonHover = true)} on:mouseleave={() => (buttonHover = false)} on:click={(e) => {
-			buttonHover = false
-			dispatch('selectedIteration', { manuallySet: false })}
-		} 
-		class="absolute top-1.5 right-12 cursor-pointer">
-		{#if buttonHover}
-			<LockOpen class="text-primary" size={14} />
-		{:else}
-			<Lock class="text-primary" size={12} />
-		{/if}
-	</div>
+{#if selectedManually && flowJobsSuccess?.some((x) => x == undefined || x == null)}
+	<Popover class="absolute top-1.5 right-12 cursor-pointer">
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div on:mouseenter={() => (buttonHover = true)} on:mouseleave={() => (buttonHover = false)} on:click={(e) => {
+				buttonHover = false
+				dispatch('selectedIteration', { manuallySet: false })}
+			}>
+			{#if buttonHover}
+				<LockOpen class="text-primary" size={14} />
+			{:else}
+				<Lock class="text-primary" size={12} />
+			{/if}
+		</div>
+		<span slot="text">
+			The iteration picked is locked. Click to unlock to pick automatically new iterations.
+		</span>
+	</Popover>
 {/if}
 
 <Menu  maxHeight={300}>
