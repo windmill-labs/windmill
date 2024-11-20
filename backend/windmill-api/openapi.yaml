@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.418.0
+  version: 1.428.1
   title: Windmill API
 
   contact:
@@ -190,7 +190,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/{username}:
+  /w/{workspace}/users/get/{username}:
     get:
       summary: get user (require admin privilege)
       operationId: getUser
@@ -283,6 +283,71 @@ paths:
             text/plain:
               schema:
                 type: string
+                
+  /users/set_password_of/{user}:
+    post:
+      summary: set password for a specific user (require super admin)
+      operationId: setPasswordForUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: set password
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+                - password
+      responses:
+        "200":
+          description: password set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/set_login_type/{user}:
+    post:
+      summary: set login type for a specific user (require super admin)
+      operationId: setLoginTypeForUser
+      tags:
+        - user
+      parameters:
+        - name: user
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: set login type
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                login_type:
+                  type: string
+              required:
+                - login_type
+      responses:
+        "200":
+          description: login type set
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /users/create:
     post:
@@ -724,6 +789,8 @@ paths:
                       type: string
                     tls_implicit:
                       type: boolean
+                    disable_tls:
+                      type: boolean
                   required:
                     - host
                     - username
@@ -731,6 +798,7 @@ paths:
                     - port
                     - from
                     - tls_implicit
+                    - disable_tls
               required:
                 - to
                 - smtp
@@ -770,6 +838,78 @@ paths:
               schema:
                 type: string
 
+  /settings/critical_alerts:
+    get:
+      summary: Get all critical alerts
+      operationId: getCriticalAlerts
+      tags:
+        - setting
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            description: The page number to retrieve (minimum value is 1)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+            description: Number of alerts per page (maximum is 100)
+        - in: query
+          name: acknowledged
+          schema:
+            type: boolean
+            nullable: true
+            description: Filter by acknowledgment status; true for acknowledged, false for unacknowledged, and omit for all alerts
+      responses:
+        "200":
+          description: Successfully retrieved all critical alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CriticalAlert'
+
+  /settings/critical_alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge a critical alert
+      operationId: acknowledgeCriticalAlert
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: The ID of the critical alert to acknowledge
+      responses:
+        "200":
+          description: Successfully acknowledged the critical alert
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Critical alert acknowledged"
+
+  /settings/critical_alerts/acknowledge_all:
+    post:
+      summary: Acknowledge all unacknowledged critical alerts
+      operationId: acknowledgeAllCriticalAlerts
+      tags:
+        - setting
+      responses:
+        "200":
+          description: Successfully acknowledged all unacknowledged critical alerts.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "All unacknowledged critical alerts acknowledged"
 
   /settings/test_license_key:
     post:
@@ -1541,8 +1681,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
-                  openai_resource_path:
-                    type: string
+                  ai_resource:
+                    $ref: "#/components/schemas/AiResource"
                   code_completion_enabled:
                     type: boolean
                   error_handler:
@@ -1561,6 +1701,8 @@ paths:
                     type: string
                   default_scripts:
                     $ref: "#/components/schemas/WorkspaceDefaultScripts"
+                  mute_critical_alerts:
+                    type: boolean
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -1826,8 +1968,8 @@ paths:
               required:
                 - code_completion_enabled
               properties:
-                openai_resource_path:
-                  type: string
+                ai_resource:
+                  $ref: "#/components/schemas/AiResource"
                 code_completion_enabled:
                   type: boolean
       responses:
@@ -1855,12 +1997,15 @@ paths:
               schema:
                 type: object
                 properties:
-                  exists_openai_resource_path:
+                  ai_provider:
+                    type: string
+                  exists_ai_resource:
                     type: boolean
                   code_completion_enabled:
                     type: boolean
                 required:
-                  - exists_openai_resource_path
+                  - ai_provider
+                  - exists_ai_resource
                   - code_completion_enabled
 
   /w/{workspace}/workspaces/edit_error_handler:
@@ -2187,9 +2332,12 @@ paths:
                     type: boolean
                   websocket_used:
                     type: boolean
+                  kafka_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
+                  - kafka_used
 
   /w/{workspace}/users/list:
     get:
@@ -2573,6 +2721,112 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
+
+  /w/{workspace}/workspaces/critical_alerts:
+    get:
+      summary: Get all critical alerts for this workspace
+      operationId: workspaceGetCriticalAlerts
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            description: The page number to retrieve (minimum value is 1)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+            description: Number of alerts per page (maximum is 100)
+        - in: query
+          name: acknowledged
+          schema:
+            type: boolean
+            nullable: true
+            description: Filter by acknowledgment status; true for acknowledged, false for unacknowledged, and omit for all alerts
+      responses:
+        "200":
+          description: Successfully retrieved all critical alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CriticalAlert'
+
+  /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge a critical alert for this workspace
+      operationId: workspaceAcknowledgeCriticalAlert
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: The ID of the critical alert to acknowledge
+      responses:
+        "200":
+          description: Successfully acknowledged the critical alert
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Critical alert acknowledged"
+
+  /w/{workspace}/workspaces/critical_alerts/acknowledge_all:
+    post:
+      summary: Acknowledge all unacknowledged critical alerts for this workspace
+      operationId: workspaceAcknowledgeAllCriticalAlerts
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Successfully acknowledged all unacknowledged critical alerts.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "All unacknowledged critical alerts acknowledged"
+
+  /w/{workspace}/workspaces/critical_alerts/mute:
+    post:
+      summary: Mute critical alert UI for this workspace
+      operationId: workspaceMuteCriticalAlertsUI
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Boolean flag to mute critical alerts.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mute_critical_alerts:
+                  type: boolean
+                  description: Whether critical alerts should be muted.
+                  example: true
+      responses:
+        '200':
+          description: Successfully updated mute critical alert settings.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
   /oauth/login_callback/{client_name}:
     post:
@@ -5911,6 +6165,39 @@ paths:
                 required:
                   - database_length
 
+  /w/{workspace}/jobs/completed/count_jobs:
+    get:
+      summary: count number of completed jobs with filter
+      operationId: countCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: completed_after_s_ago
+          in: query
+          schema:
+            type: integer
+        - name: success
+          in: query
+          schema:
+            type: boolean
+        - name: tags
+          in: query
+          schema:
+            type: string
+        - name: all_workspaces
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Count of completed jobs
+          content:
+            application/json:
+              schema:
+                type: integer
+
+
   /w/{workspace}/jobs/queue/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
@@ -7401,6 +7688,169 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/kafka_triggers/create:
+    post:
+      summary: create kafka trigger
+      operationId: createKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new kafka trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewKafkaTrigger"
+      responses:
+        "201":
+          description: kafka trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/update/{path}:
+    post:
+      summary: update kafka trigger
+      operationId: updateKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditKafkaTrigger"
+      responses:
+        "200":
+          description: kafka trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/delete/{path}:
+    delete:
+      summary: delete kafka trigger
+      operationId: deleteKafkaTrigger
+      tags:
+        -  kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/get/{path}:
+    get:
+      summary: get kafka trigger
+      operationId: getKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KafkaTrigger"
+
+  
+  /w/{workspace}/kafka_triggers/list:
+    get:
+      summary: list kafka triggers
+      operationId: listKafkaTriggers
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: kafka trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KafkaTrigger"
+
+  
+  /w/{workspace}/kafka_triggers/exists/{path}:
+    get:
+      summary: does kafka trigger exists
+      operationId: existsKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/kafka_triggers/setenabled/{path}:
+    post:
+      summary: set enabled kafka trigger
+      operationId: setKafkaTriggerEnabled
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated kafka trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: kafka trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /groups/list:
     get:
@@ -8113,6 +8563,23 @@ paths:
                     - id
                     - values
 
+  /workers/queue_counts:
+    get:
+      summary: get counts of jobs waiting for an executor per tag
+      operationId: getCountsOfJobsWaitingPerTag
+      tags:
+        - worker
+      responses:
+        "200":
+          description: queue counts
+          content:
+            application/json:
+              schema: 
+                type: object
+                additionalProperties:
+                  type: integer
+
+              
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -8253,6 +8720,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
               ]
       responses:
         "200":
@@ -8291,6 +8759,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8340,6 +8809,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
               ]
       requestBody:
         description: acl to add
@@ -9140,6 +9610,14 @@ paths:
           schema:
             type: string
         - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
           in: query
           schema:
             type: string
@@ -10029,6 +10507,16 @@ components:
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
 
+    AiResource:
+      type: object
+      properties:
+        path:
+          type: string
+        provider:
+          type: string
+      required:
+        - path
+        - provider
     Script:
       type: object
       properties:
@@ -10847,7 +11335,7 @@ components:
             - "jobs.disapproval"
             - "jobs.delete"
             - "account.delete"
-            - "openai.request"
+            - "ai.request"
             - "resources.create"
             - "resources.update"
             - "resources.delete"
@@ -11460,6 +11948,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         extra_perms:
@@ -11506,6 +12005,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -11539,6 +12049,17 @@ components:
           type: string
         route_path:
           type: string
+        static_asset_config:
+          type: object
+          properties:
+            s3:
+              type: string
+            storage:
+              type: string
+            filename:
+              type: string
+          required:
+            - s3
         is_flow:
           type: boolean
         http_method:
@@ -11579,6 +12100,8 @@ components:
         email_count:
           type: number
         websocket_count:
+          type: number
+        kafka_count:
           type: number
 
     WebsocketTrigger:
@@ -11625,6 +12148,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11638,6 +12167,8 @@ components:
         - workspace_id
         - enabled
         - filters
+        - initial_messages
+        - url_runnable_args
 
     NewWebsocketTrigger:
       type: object
@@ -11663,6 +12194,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
         
       required:
         - path
@@ -11670,6 +12207,8 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
 
     EditWebsocketTrigger:
       type: object
@@ -11693,6 +12232,12 @@ components:
             required:
               - key
               - value
+        initial_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
+        url_runnable_args:
+          $ref: "#/components/schemas/ScriptArgs"
               
       required:
         - path
@@ -11700,6 +12245,142 @@ components:
         - url
         - is_flow
         - filters
+        - initial_messages
+        - url_runnable_args
+
+    WebsocketTriggerInitialMessage:
+      anyOf:
+        - type: object
+          properties:
+            raw_message: 
+              type: string
+          required:
+            - raw_message
+        - type: object
+          properties:
+            runnable_result:
+              type: object
+              properties:
+                path: 
+                  type: string
+                args:
+                  $ref: "#/components/schemas/ScriptArgs"
+                is_flow:
+                  type: boolean
+              required:
+                - path
+                - args
+                - is_flow
+          required: 
+            - runnable_result
+
+    KafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+
+    NewKafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - is_flow
+        - kafka_resource_path
+        - group_id
+        - topics
+
+    EditKafkaTrigger:
+      type: object
+      properties:
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+              
+      required:
+        - path
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - is_flow
 
     Group:
       type: object
@@ -12019,6 +12700,10 @@ components:
         triggerables_v2:
           type: object
           additionalProperties:
+            type: object
+        s3_inputs:
+          type: array
+          items:
             type: object
         execution_mode:
           type: string
@@ -12627,3 +13312,27 @@ components:
           type: string
           format: date-time
 
+    CriticalAlert:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Unique identifier for the alert
+        alert_type:
+          type: string
+          description: Type of alert (e.g., critical_error)
+        message:
+          type: string
+          description: The message content of the alert
+        created_at:
+          type: string
+          format: date-time
+          description: Time when the alert was created
+        acknowledged:
+          type: boolean
+          nullable: true
+          description: Acknowledgment status of the alert, can be true, false, or null if not set
+        workspace_id:
+          type: string
+          nullable: true
+          description: Workspace id if the alert is in the scope of a workspace

@@ -26,7 +26,7 @@
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
-	import { copilotInfo, tutorialsToDo } from '$lib/stores'
+	import { copilotInfo, tutorialsToDo, workspaceStore } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
@@ -34,6 +34,7 @@
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -43,12 +44,15 @@
 	export let disableSettings = false
 	export let newFlow: boolean = false
 	export let smallErrorHandler = false
+	export let workspace: string | undefined = $workspaceStore
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
 	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
+
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -87,10 +91,7 @@
 				kind
 			)
 		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(
-				module.id,
-				!disableAi && $copilotInfo.exists_openai_resource_path
-			)
+			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.exists_ai_resource)
 		} else if (kind == 'whileloop') {
 			;[module, state] = await createWhileLoop(module.id)
 		} else if (kind == 'branchone') {
@@ -342,6 +343,7 @@
 			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
 			{flowInputsStore}
+			{workspace}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
@@ -431,6 +433,9 @@
 					await addBranch(detail.module)
 					$flowStore = $flowStore
 				}
+			}}
+			on:select={async ({ detail }) => {
+				flowPropPickerConfig.set(undefined)
 			}}
 			on:changeId={({ detail }) => {
 				let { id, newId, deps } = detail

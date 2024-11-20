@@ -14,7 +14,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { capitalize, classNames, sleep } from '$lib/utils'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
 	import {
 		AlertCircle,
@@ -43,6 +43,7 @@
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
 	export let hideSave: boolean = false
+	export let closeDrawer: (() => void) | undefined = () => {}
 
 	let values: Record<string, any> = {}
 	let initialOauths: Record<string, any> = {}
@@ -823,6 +824,26 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
+											{:else if setting.key == 'critical_alert_mute_ui'}
+												<div class="flex flex-col gap-y-2 my-2 py-2">
+													<Toggle
+														disabled={!$enterpriseLicense}
+														bind:checked={values[setting.key]}
+														options={{ right: setting.description }}
+													/>
+													<div class="flex flex-row">
+														<Button
+															disabled={!$enterpriseLicense}
+															size="sm"
+															on:click={() => {
+																isCriticalAlertsUIOpen.set(true)
+																closeDrawer?.()
+															}}
+														>
+															Show Critical Alerts
+														</Button>
+													</div>
+												</div>
 											{:else if setting.fieldType == 'critical_error_channels'}
 												<div class="w-full flex gap-x-16 flex-wrap">
 													<div class="w-full max-w-lg">
@@ -1154,10 +1175,24 @@
 														</div>
 														<div>
 															<Toggle
+																disabled={values[setting.key].smtp_disable_tls}
 																id="smtp_tls_implicit"
 																bind:checked={values[setting.key].smtp_tls_implicit}
 																options={{ right: 'Implicit TLS' }}
 																label="Implicit TLS"
+															/>
+														</div>
+														<div>
+															<Toggle
+																id="smtp_disable_tls"
+																bind:checked={values[setting.key].smtp_disable_tls}
+																on:change={() => {
+																	if (values[setting.key].smtp_disable_tls) {
+																		values[setting.key].smtp_tls_implicit = false
+																	}
+																}}
+																options={{ right: 'Disable TLS' }}
+																label="Disable TLS"
 															/>
 														</div>
 													{/if}
@@ -1222,7 +1257,8 @@
 												password: smtp['smtp_password'],
 												port: smtp['smtp_port'],
 												from: smtp['smtp_from'],
-												tls_implicit: smtp['smtp_tls_implicit']
+												tls_implicit: smtp['smtp_tls_implicit'],
+												disable_tls: smtp['smtp_disable_tls']
 											}
 										}
 									})

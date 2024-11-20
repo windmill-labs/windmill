@@ -41,7 +41,8 @@
 		copyToClipboard,
 		truncateRev,
 		orderedJsonStringify,
-		type Value
+		type Value,
+		replaceFalseWithUndefined
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -87,6 +88,7 @@
 	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
 
 	async function hash(message) {
 		try {
@@ -195,8 +197,12 @@
 	}
 
 	async function computeTriggerables() {
+		const items = allItems($app.grid, $app.subgrids)
+
+		console.log('items', items)
+
 		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
-			allItems($app.grid, $app.subgrids)
+			items
 				.flatMap((x) => {
 					let c = x.data as AppComponent
 					let r: { input: AppInput | undefined; id: string }[] = [
@@ -296,6 +302,44 @@
 			allTriggers.filter(Boolean) as [string, TriggerableV2][]
 		)
 		policy.triggerables_v2 = ntriggerables
+
+		const s3_inputs = items
+			.filter((x) => (x.data as AppComponent).type === 's3fileinputcomponent')
+			.map((x) => {
+				const c = x.data as AppComponent
+				const config = c.configuration as any
+				return computeS3FileInputPolicy(config?.type?.configuration?.s3, $app)
+			})
+			.filter(Boolean) as {
+			allowed_resources: string[]
+			allow_user_resources: boolean
+			file_key_regex: string
+		}[]
+
+		if (
+			items.findIndex((x) => {
+				const c = x.data as AppComponent
+				if (c.type === 'schemaformcomponent') {
+					return (
+						Object.values((c.componentInput as any)?.value?.properties ?? {}).findIndex(
+							(p: any) => p?.type === 'object' && p?.format === 'resource-s3_object'
+						) !== -1
+					)
+				} else if (c.type === 'formbuttoncomponent' || c.type === 'formcomponent') {
+					return (
+						Object.values((c.componentInput as any)?.fields ?? {}).findIndex(
+							(p: any) => p?.fieldType === 'object' && p?.format === 'resource-s3_object'
+						) !== -1
+					)
+				} else {
+					return false
+				}
+			}) !== -1
+		) {
+			s3_inputs.push(computeWorkspaceS3FileInputPolicy())
+		}
+
+		policy.s3_inputs = s3_inputs
 	}
 
 	async function processRunnable(
@@ -379,13 +423,27 @@
 			// We need it to show diff
 			// Handle through confirmation modal
 			await syncWithDeployed()
-
-			confirmCallback = async () => {
-				open = false
+			if (
+				deployedValue &&
+				savedApp &&
+				$app &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({
+						summary: $summary,
+						value: $app,
+						path: newPath || savedApp.draft?.path || savedApp.path,
+						policy
+					}))
+			) {
 				await updateApp(npath)
+			} else {
+				confirmCallback = async () => {
+					open = false
+					await updateApp(npath)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
 		}
 	}
 
@@ -399,15 +457,14 @@
 		deployedBy = deployedApp.created_by
 
 		// Strip off extra information
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
-			starred: undefined,
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
 			versions: undefined,
-			extra_perms: undefined //
-		}
+			extra_perms: undefined
+		})
 	}
 
 	async function updateApp(npath: string) {

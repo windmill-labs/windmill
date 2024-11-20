@@ -37,13 +37,11 @@
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
-	import ConnectionInstructions from './ConnectionInstructions.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
 	import {
 		SecondaryMenu,
 		secondaryMenuLeft,
 		secondaryMenuLeftStore,
-		secondaryMenuRight,
 		secondaryMenuRightStore
 	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
@@ -294,15 +292,6 @@
 		hasResult: writable<Record<string, boolean>>({})
 	})
 
-	$: if ($connectingInput.opened) {
-		secondaryMenuRight.open(ConnectionInstructions, {}, () => {
-			$connectingInput.opened = false
-		})
-		secondaryMenuLeft.close()
-	} else {
-		secondaryMenuRight.close()
-	}
-
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
@@ -323,28 +312,6 @@
 
 	let toggled = false
 	let cssToggled = false
-
-	$: if ($connectingInput.opened && !toggled) {
-		tmpRunnablePanelSize = runnablePanelSize
-		tmpGridPanelSize = gridPanelSize
-
-		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
-
-		toggled = true
-	} else if (!$connectingInput.opened && toggled) {
-		animateTo(
-			runnablePanelSize,
-			tmpRunnablePanelSize,
-			(newValue: number) => (runnablePanelSize = newValue)
-		)
-		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
-
-		tmpRunnablePanelSize = -1
-		tmpGridPanelSize = -1
-
-		toggled = false
-	}
 
 	// Animation logic for cssInput
 	$: animateCssInput($cssEditorOpen)
@@ -546,27 +513,58 @@
 
 	let centerPanelWidth = 0
 
-	function hideLeftPanel() {
+	function hideLeftPanel(animate: boolean = false) {
 		storedLeftPanelSize = leftPanelSize
-		leftPanelSize = 0
+		if (animate) {
+			animateTo(leftPanelSize, 0, (newValue: number) => (leftPanelSize = newValue))
+		} else {
+			leftPanelSize = 0
+		}
 		centerPanelSize = centerPanelSize + storedLeftPanelSize
+		if ($connectingInput.opened) {
+			$connectingInput.opened = false
+		}
 	}
 
 	function hideRightPanel() {
 		storedRightPanelSize = rightPanelSize
 		rightPanelSize = 0
 		centerPanelSize = centerPanelSize + storedRightPanelSize
+		if ($connectingInput.opened) {
+			$connectingInput.opened = false
+		}
 	}
 
-	function hideBottomPanel() {
+	function hideBottomPanel(animate: boolean = false) {
+		if (runnablePanelSize === 0) {
+			return
+		}
 		storedBottomPanelSize = runnablePanelSize
-		gridPanelSize = 99
-		runnablePanelSize = 0
+		if (animate) {
+			tmpRunnablePanelSize = runnablePanelSize
+			tmpGridPanelSize = gridPanelSize
+
+			animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+			animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+		} else {
+			runnablePanelSize = 0
+			gridPanelSize = 99
+		}
 	}
 
-	function showLeftPanel() {
-		leftPanelSize = storedLeftPanelSize
-		centerPanelSize = centerPanelSize - storedLeftPanelSize
+	function showLeftPanel(animate: boolean = false) {
+		if (leftPanelSize !== 0) {
+			return
+		}
+		if (animate) {
+			animateTo(
+				leftPanelSize,
+				storedLeftPanelSize,
+				(newValue: number) => (leftPanelSize = newValue)
+			)
+		} else {
+			leftPanelSize = storedLeftPanelSize
+		}
 		storedLeftPanelSize = 0
 	}
 
@@ -576,9 +574,25 @@
 		storedRightPanelSize = 0
 	}
 
-	function showBottomPanel() {
-		runnablePanelSize = storedBottomPanelSize
-		gridPanelSize = gridPanelSize - storedBottomPanelSize
+	function showBottomPanel(animate: boolean = false) {
+		if (runnablePanelSize !== 0) {
+			return
+		}
+		if (animate) {
+			animateTo(
+				runnablePanelSize,
+				storedBottomPanelSize,
+				(newValue: number) => (runnablePanelSize = newValue)
+			)
+			animateTo(
+				gridPanelSize,
+				gridPanelSize - storedBottomPanelSize,
+				(newValue: number) => (gridPanelSize = newValue)
+			)
+		} else {
+			runnablePanelSize = storedBottomPanelSize
+			gridPanelSize = gridPanelSize - storedBottomPanelSize
+		}
 		storedBottomPanelSize = 0
 	}
 
@@ -630,10 +644,66 @@
 				}
 				break
 			}
+
+			case 'Escape': {
+				if ($connectingInput.opened) {
+					$connectingInput.opened = false
+				}
+				break
+			}
 		}
 	}
+
+	let previousLeftPanelHidden: boolean = false
+	let previousBottomPanelHidden: boolean = false
+
+	async function updatePannelInConnecting() {
+		if ($connectingInput.opened && !toggled) {
+			previousLeftPanelHidden = leftPanelSize === 0
+			previousBottomPanelHidden = runnablePanelSize === 0
+			if (previousLeftPanelHidden) {
+				showLeftPanel(true)
+			}
+			if (!previousBottomPanelHidden) {
+				hideBottomPanel(true)
+			}
+			secondaryMenuLeft.close()
+			toggled = true
+		} else if (!$connectingInput.opened && toggled) {
+			if (previousLeftPanelHidden) {
+				hideLeftPanel(true)
+			}
+			if (!previousBottomPanelHidden) {
+				showBottomPanel(true)
+			}
+			toggled = false
+		}
+	}
+
+	$: $connectingInput.opened, updatePannelInConnecting()
+
 	let testJob: Job | undefined = undefined
 	let jobToWatch: { componentId: string; job: string } | undefined = undefined
+
+	$: updateCursorStyle(!!$connectingInput.opened)
+
+	function updateCursorStyle(disabled: boolean) {
+		if (disabled) {
+			// Select all elements that don't have data-connection-button and aren't children of elements with data-connection-button
+			const elements = document.querySelectorAll(
+				':not([data-connection-button]):not([data-connection-button] *)'
+			)
+			elements.forEach((element) => {
+				;(element as HTMLElement).style.cursor = 'not-allowed'
+			})
+		} else {
+			// Reset cursor style for all elements
+			const elements = document.querySelectorAll('*')
+			elements.forEach((element) => {
+				;(element as HTMLElement).style.removeProperty('cursor')
+			})
+		}
+	}
 </script>
 
 <svelte:head>
@@ -704,6 +774,12 @@
 				</div>
 			{/if}
 
+			{#if $connectingInput.opened}
+				<div class="absolute z-50 inset-0 w-min h-min whitespace-nowrap mx-auto pt-0.5">
+					<Alert title="Press Esc to exit connection mode." size="xs" class="h-10 py-1" />
+				</div>
+			{/if}
+
 			<SplitPanesWrapper>
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
@@ -739,7 +815,7 @@
 										<div class="absolute top-0.5 left-0.5 z-50">
 											<HideButton
 												on:click={() => showLeftPanel()}
-												direction="right"
+												direction="left"
 												hidden
 												btnClasses="border bg-surface"
 											/>
@@ -749,7 +825,7 @@
 										<div class="absolute top-0.5 right-0.5 z-50">
 											<HideButton
 												on:click={() => showRightPanel()}
-												direction="left"
+												direction="right"
 												hidden
 												btnClasses="border bg-surface"
 											/>
@@ -811,7 +887,9 @@
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
 										{#if $appStore.grid}
-											<ComponentNavigation />
+											{#if !$connectingInput?.opened}
+												<ComponentNavigation />
+											{/if}
 
 											<div
 												on:pointerdown|stopPropagation
@@ -948,14 +1026,7 @@
 										</Tab>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
-										<HideButton
-											on:click={() => {
-												storedRightPanelSize = rightPanelSize
-												rightPanelSize = 0
-												centerPanelSize = centerPanelSize + storedRightPanelSize
-											}}
-											direction="right"
-										/>
+										<HideButton on:click={() => hideRightPanel()} direction="right" />
 									</div>
 									<div slot="content" class="h-full overflow-y-auto">
 										<TabContent class="overflow-auto h-full" value="settings">

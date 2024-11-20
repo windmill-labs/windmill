@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use crate::ai::{AiResource, AI_KEY_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_ee::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
@@ -118,7 +119,11 @@ pub fn workspaced_service() -> Router {
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_id", post(change_workspace_id))
         .route("/usage", get(get_usage))
-        .route("/used_triggers", get(get_used_triggers));
+        .route("/used_triggers", get(get_used_triggers))
+        .route("/critical_alerts", get(get_critical_alerts))
+        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
+        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts))
+        .route("/critical_alerts/mute", post(mute_critical_alerts));
 
     #[cfg(feature = "stripe")]
     {
@@ -168,7 +173,7 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
-    pub openai_resource_path: Option<String>,
+    pub ai_resource: Option<serde_json::Value>,
     pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
@@ -179,6 +184,7 @@ pub struct WorkspaceSettings {
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
+    pub mute_critical_alerts: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -234,7 +240,7 @@ struct EditWebhook {
 
 #[derive(Deserialize)]
 struct EditCopilotConfig {
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
 }
 
@@ -645,23 +651,33 @@ async fn edit_copilot_config(
 
     let mut tx = db.begin().await?;
 
-    if let Some(openai_resource_path) = &eo.openai_resource_path {
+    if let Some(ai_resource) = &eo.ai_resource {
+        let path = serde_json::from_value::<AiResource>(ai_resource.clone())
+            .map_err(|e| Error::BadRequest(e.to_string()))?
+            .path;
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
-            openai_resource_path,
+            "UPDATE workspace_settings SET ai_resource = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
+            ai_resource,
             eo.code_completion_enabled,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
+
+        if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
+            if cached.path != path {
+                AI_KEY_CACHE.remove(&w_id);
+            }
+        }
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
             eo.code_completion_enabled,
             &w_id,
         )
         .execute(&mut *tx)
         .await?;
+        AI_KEY_CACHE.remove(&w_id);
     }
     audit_log(
         &mut *tx,
@@ -672,10 +688,7 @@ async fn edit_copilot_config(
         Some(&authed.email),
         Some(
             [
-                (
-                    "openai_resource_path",
-                    &format!("{:?}", eo.openai_resource_path)[..],
-                ),
+                ("ai_resource", &format!("{:?}", eo.ai_resource)[..]),
                 (
                     "code_completion_enabled",
                     &format!("{:?}", eo.code_completion_enabled)[..],
@@ -692,7 +705,8 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
-    pub exists_openai_resource_path: bool,
+    pub ai_provider: String,
+    pub exists_ai_resource: bool,
     pub code_completion_enabled: bool,
 }
 async fn get_copilot_info(
@@ -701,16 +715,32 @@ async fn get_copilot_info(
 ) -> JsonResult<CopilotInfo> {
     let mut tx = db.begin().await?;
     let record = sqlx::query!(
-        "SELECT openai_resource_path, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT ai_resource, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e:#}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
+    let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
+        let ai_resource = serde_json::from_value::<AiResource>(ai_resource);
+        let exist = ai_resource.is_ok();
+        (
+            if exist {
+                ai_resource.unwrap().provider
+            } else {
+                "".to_string()
+            },
+            exist,
+        )
+    } else {
+        ("".to_string(), false)
+    };
+
     Ok(Json(CopilotInfo {
-        exists_openai_resource_path: record.openai_resource_path.is_some(),
+        ai_provider,
+        exists_ai_resource,
         code_completion_enabled: record.code_completion_enabled,
     }))
 }
@@ -1266,6 +1296,7 @@ async fn set_encryption_key(
 struct UsedTriggers {
     pub websocket_used: bool,
     pub http_routes_used: bool,
+    pub kafka_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1276,7 +1307,10 @@ async fn get_used_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let websocket_used = sqlx::query_as!(
         UsedTriggers,
-        r#"SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!""#,
+        r#"SELECT 
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", 
+            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!",
+            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!""#,
         w_id,
     )
     .fetch_one(&mut *tx)
@@ -2223,7 +2257,7 @@ struct SimplifiedSettings {
     error_handler: Option<String>,
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -2588,7 +2622,7 @@ async fn tarball_workspace(
                 webhook, 
                 deploy_to, 
                 error_handler, 
-                openai_resource_path, 
+                ai_resource, 
                 code_completion_enabled, 
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
@@ -3049,4 +3083,94 @@ async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Re
     .await?
     .unwrap_or(0);
     Ok(usage.to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+    Query(params): Query<crate::utils::AlertQueryParams>,
+) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    crate::utils::get_critical_alerts(db, params, Some(w_id)).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, i32)>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_critical_alert() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::utils::acknowledge_all_critical_alerts(db, Some(w_id)).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_all_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct MuteCriticalAlertRequest {
+    pub mute_critical_alerts: Option<bool>,
+}
+
+#[cfg(feature = "enterprise")]
+async fn mute_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(m_r): Json<MuteCriticalAlertRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mute_alerts = m_r.mute_critical_alerts.unwrap_or(false);
+
+    if mute_alerts {
+        sqlx::query!(
+            "UPDATE alerts SET acknowledged_workspace = true, acknowledged = true WHERE workspace_id = $1",
+            &w_id
+        )
+    .execute(&db)
+    .await?;
+    }
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET mute_critical_alerts = $1 WHERE workspace_id = $2",
+        mute_alerts,
+        &w_id
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!("Updated mute criticital alert ui settings for workspace: {}", &w_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn mute_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
 }

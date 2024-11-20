@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.409.0",
+    "version": "1.423.2",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -286,7 +286,7 @@
         }
       }
     },
-    "/w/{workspace}/users/{username}": {
+    "/w/{workspace}/users/get/{username}": {
       "get": {
         "summary": "get user (require admin privilege)",
         "operationId": "getUser",
@@ -425,6 +425,106 @@
         "responses": {
           "200": {
             "description": "password set",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/set_password_of/{user}": {
+      "post": {
+        "summary": "set password for a specific user (require super admin)",
+        "operationId": "setPasswordForUser",
+        "tags": [
+          "user"
+        ],
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "set password",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "password set",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/set_login_type/{user}": {
+      "post": {
+        "summary": "set login type for a specific user (require super admin)",
+        "operationId": "setLoginTypeForUser",
+        "tags": [
+          "user"
+        ],
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "set login type",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "login_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "login_type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "login type set",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1105,6 +1205,9 @@
                       },
                       "tls_implicit": {
                         "type": "boolean"
+                      },
+                      "disable_tls": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -1113,7 +1216,8 @@
                       "password",
                       "port",
                       "from",
-                      "tls_implicit"
+                      "tls_implicit",
+                      "disable_tls"
                     ]
                   }
                 },
@@ -1175,6 +1279,115 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/critical_alerts": {
+      "get": {
+        "summary": "Get all critical alerts",
+        "operationId": "getCriticalAlerts",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "description": "The page number to retrieve (minimum value is 1)"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 100,
+              "description": "Number of alerts per page (maximum is 100)"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acknowledged",
+            "schema": {
+              "type": "boolean",
+              "nullable": true,
+              "description": "Filter by acknowledgment status; true for acknowledged, false for unacknowledged, and omit for all alerts"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved all critical alerts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CriticalAlert"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/critical_alerts/{id}/acknowledge": {
+      "post": {
+        "summary": "Acknowledge a critical alert",
+        "operationId": "acknowledgeCriticalAlert",
+        "tags": [
+          "setting"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the critical alert to acknowledge"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully acknowledged the critical alert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "example": "Critical alert acknowledged"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/critical_alerts/acknowledge_all": {
+      "post": {
+        "summary": "Acknowledge all unacknowledged critical alerts",
+        "operationId": "acknowledgeAllCriticalAlerts",
+        "tags": [
+          "setting"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully acknowledged all unacknowledged critical alerts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "example": "All unacknowledged critical alerts acknowledged"
                 }
               }
             }
@@ -2239,6 +2452,14 @@
           },
           {
             "$ref": "#/components/parameters/PerPage"
+          },
+          {
+            "name": "active_only",
+            "in": "query",
+            "description": "filter only active users",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2343,8 +2564,8 @@
                     "deploy_to": {
                       "type": "string"
                     },
-                    "openai_resource_path": {
-                      "type": "string"
+                    "ai_resource": {
+                      "$ref": "#/components/schemas/AiResource"
                     },
                     "code_completion_enabled": {
                       "type": "boolean"
@@ -2784,8 +3005,8 @@
                   "code_completion_enabled"
                 ],
                 "properties": {
-                  "openai_resource_path": {
-                    "type": "string"
+                  "ai_resource": {
+                    "$ref": "#/components/schemas/AiResource"
                   },
                   "code_completion_enabled": {
                     "type": "boolean"
@@ -2829,7 +3050,10 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "exists_openai_resource_path": {
+                    "ai_provider": {
+                      "type": "string"
+                    },
+                    "exists_ai_resource": {
                       "type": "boolean"
                     },
                     "code_completion_enabled": {
@@ -2837,7 +3061,8 @@
                     }
                   },
                   "required": [
-                    "exists_openai_resource_path",
+                    "ai_provider",
+                    "exists_ai_resource",
                     "code_completion_enabled"
                   ]
                 }
@@ -3321,6 +3546,44 @@
               "text/plain": {
                 "schema": {
                   "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/workspaces/used_triggers": {
+      "get": {
+        "summary": "get used triggers",
+        "operationId": "getUsedTriggers",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "http_routes_used": {
+                      "type": "boolean"
+                    },
+                    "websocket_used": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "http_routes_used",
+                    "websocket_used"
+                  ]
                 }
               }
             }
@@ -6362,6 +6625,36 @@
         }
       }
     },
+    "/w/{workspace}/scripts/get_latest_version/{path}": {
+      "get": {
+        "summary": "get scripts's latest version (hash)",
+        "operationId": "getScriptLatestVersion",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "tags": [
+          "script"
+        ],
+        "responses": {
+          "200": {
+            "description": "Script version/hash",
+            "content": {
+              "application/json": {
+                "required": false,
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptHistory"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/scripts/history_update/h/{hash}/p/{path}": {
       "post": {
         "summary": "update history of a script",
@@ -7171,6 +7464,36 @@
                   "items": {
                     "$ref": "#/components/schemas/FlowVersion"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/flows/get_latest_version/{path}": {
+      "get": {
+        "summary": "get flow's latest version",
+        "operationId": "getFlowLatestVersion",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "tags": [
+          "flow"
+        ],
+        "responses": {
+          "200": {
+            "description": "Flow version",
+            "content": {
+              "application/json": {
+                "required": false,
+                "schema": {
+                  "$ref": "#/components/schemas/FlowVersion"
                 }
               }
             }
@@ -8089,6 +8412,36 @@
                   "items": {
                     "$ref": "#/components/schemas/AppHistory"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/apps/get_latest_version/{path}": {
+      "get": {
+        "summary": "get apps's latest version",
+        "operationId": "getAppLatestVersion",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "tags": [
+          "app"
+        ],
+        "responses": {
+          "200": {
+            "description": "App version",
+            "content": {
+              "application/json": {
+                "required": false,
+                "schema": {
+                  "$ref": "#/components/schemas/AppHistory"
                 }
               }
             }
@@ -11495,25 +11848,269 @@
         }
       }
     },
-    "/w/{workspace}/http_triggers/used": {
-      "get": {
-        "summary": "whether http triggers are used",
-        "operationId": "used",
+    "/w/{workspace}/websocket_triggers/create": {
+      "post": {
+        "summary": "create websocket trigger",
+        "operationId": "createWebsocketTrigger",
         "tags": [
-          "http_trigger"
+          "websocket_trigger"
         ],
         "parameters": [
           {
             "$ref": "#/components/parameters/WorkspaceId"
           }
         ],
+        "requestBody": {
+          "description": "new websocket trigger",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewWebsocketTrigger"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "websocket trigger created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/websocket_triggers/update/{path}": {
+      "post": {
+        "summary": "update websocket trigger",
+        "operationId": "updateWebsocketTrigger",
+        "tags": [
+          "websocket_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "description": "updated trigger",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditWebsocketTrigger"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "whether http triggers are used",
+            "description": "websocket trigger updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/websocket_triggers/delete/{path}": {
+      "delete": {
+        "summary": "delete websocket trigger",
+        "operationId": "deleteWebsocketTrigger",
+        "tags": [
+          "websocket_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "websocket trigger deleted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/websocket_triggers/get/{path}": {
+      "get": {
+        "summary": "get websocket trigger",
+        "operationId": "getWebsocketTrigger",
+        "tags": [
+          "websocket_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "websocket trigger deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsocketTrigger"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/websocket_triggers/list": {
+      "get": {
+        "summary": "list websocket triggers",
+        "operationId": "listWebsocketTriggers",
+        "tags": [
+          "websocket_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId",
+            "required": true
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
+          },
+          {
+            "name": "path",
+            "description": "filter by path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "is_flow",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "websocket trigger list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WebsocketTrigger"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/websocket_triggers/exists/{path}": {
+      "get": {
+        "summary": "does websocket trigger exists",
+        "operationId": "existsWebsocketTrigger",
+        "tags": [
+          "websocket_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "websocket trigger exists",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/websocket_triggers/setenabled/{path}": {
+      "post": {
+        "summary": "set enabled websocket trigger",
+        "operationId": "setWebsocketTriggerEnabled",
+        "tags": [
+          "websocket_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "description": "updated websocket trigger enable",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "websocket trigger enabled set",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -12671,6 +13268,30 @@
         }
       }
     },
+    "/workers/queue_counts": {
+      "get": {
+        "summary": "get counts of jobs waiting for an executor per tag",
+        "operationId": "getCountsOfJobsWaitingPerTag",
+        "tags": [
+          "worker"
+        ],
+        "responses": {
+          "200": {
+            "description": "queue counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/configs/list_worker_groups": {
       "get": {
         "summary": "list worker groups",
@@ -12812,6 +13433,40 @@
         }
       }
     },
+    "/configs/list_autoscaling_events/{worker_group}": {
+      "get": {
+        "summary": "List autoscaling events",
+        "operationId": "listAutoscalingEvents",
+        "tags": [
+          "config"
+        ],
+        "parameters": [
+          {
+            "name": "worker_group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of autoscaling events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AutoscalingEvent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/acls/get/{kind}/{path}": {
       "get": {
         "summary": "get granular acls",
@@ -12842,7 +13497,8 @@
                 "folder",
                 "app",
                 "raw_app",
-                "http_trigger"
+                "http_trigger",
+                "websocket_trigger"
               ]
             }
           }
@@ -12894,7 +13550,8 @@
                 "folder",
                 "app",
                 "raw_app",
-                "http_trigger"
+                "http_trigger",
+                "websocket_trigger"
               ]
             }
           }
@@ -12965,7 +13622,8 @@
                 "folder",
                 "app",
                 "raw_app",
-                "http_trigger"
+                "http_trigger",
+                "websocket_trigger"
               ]
             }
           }
@@ -14284,6 +14942,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "content_type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content_disposition",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -14959,6 +15631,165 @@
           }
         }
       }
+    },
+    "/srch/index/search/service_logs": {
+      "get": {
+        "summary": "Search through service logs with a string query",
+        "operationId": "searchLogsIndex",
+        "tags": [
+          "indexSearch"
+        ],
+        "parameters": [
+          {
+            "name": "search_query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worker_group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hostname",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_ts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "max_ts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "query_parse_errors": {
+                      "description": "a list of the terms that couldn't be parsed (and thus ignored)",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "hits": {
+                      "description": "log files that matched the query",
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LogSearchHit"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/srch/index/search/count_service_logs": {
+      "get": {
+        "summary": "Search and count the log line hits on every provided host",
+        "operationId": "countSearchLogsIndex",
+        "tags": [
+          "indexSearch"
+        ],
+        "parameters": [
+          {
+            "name": "search_query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hosts",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_ts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "max_ts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "query_parse_errors": {
+                      "description": "a list of the terms that couldn't be parsed (and thus ignored)",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "count_per_host": {
+                      "description": "count of log lines that matched the query per hostname",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -15431,6 +16262,21 @@
       }
     },
     "schemas": {
+      "AiResource": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "provider"
+        ]
+      },
       "Script": {
         "type": "object",
         "properties": {
@@ -16541,7 +17387,7 @@
               "jobs.disapproval",
               "jobs.delete",
               "account.delete",
-              "openai.request",
+              "ai.request",
               "resources.create",
               "resources.update",
               "resources.delete",
@@ -16560,6 +17406,7 @@
               "users.delete",
               "users.update",
               "users.login",
+              "users.login_failure",
               "users.logout",
               "users.accept_invite",
               "users.decline_invite",
@@ -16571,6 +17418,7 @@
               "users.impersonate",
               "users.leave_workspace",
               "oauth.login",
+              "oauth.login_failure",
               "oauth.signup",
               "variables.create",
               "variables.delete",
@@ -17380,6 +18228,23 @@
           "route_path": {
             "type": "string"
           },
+          "static_asset_config": {
+            "type": "object",
+            "properties": {
+              "s3": {
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "s3"
+            ]
+          },
           "is_flow": {
             "type": "boolean"
           },
@@ -17439,6 +18304,23 @@
           "route_path": {
             "type": "string"
           },
+          "static_asset_config": {
+            "type": "object",
+            "properties": {
+              "s3": {
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "s3"
+            ]
+          },
           "is_flow": {
             "type": "boolean"
           },
@@ -17480,6 +18362,23 @@
           },
           "route_path": {
             "type": "string"
+          },
+          "static_asset_config": {
+            "type": "object",
+            "properties": {
+              "s3": {
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "s3"
+            ]
           },
           "is_flow": {
             "type": "boolean"
@@ -17533,8 +18432,247 @@
           },
           "email_count": {
             "type": "number"
+          },
+          "websocket_count": {
+            "type": "number"
           }
         }
+      },
+      "WebsocketTrigger": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "edited_by": {
+            "type": "string"
+          },
+          "edited_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "extra_perms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "email": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "last_server_ping": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          "initial_messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebsocketTriggerInitialMessage"
+            }
+          },
+          "url_runnable_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          }
+        },
+        "required": [
+          "path",
+          "edited_by",
+          "edited_at",
+          "script_path",
+          "url",
+          "extra_perms",
+          "is_flow",
+          "email",
+          "workspace_id",
+          "enabled",
+          "filters",
+          "initial_messages",
+          "url_runnable_args"
+        ]
+      },
+      "NewWebsocketTrigger": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          "initial_messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebsocketTriggerInitialMessage"
+            }
+          },
+          "url_runnable_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          }
+        },
+        "required": [
+          "path",
+          "script_path",
+          "url",
+          "is_flow",
+          "filters",
+          "initial_messages",
+          "url_runnable_args"
+        ]
+      },
+      "EditWebsocketTrigger": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          "initial_messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebsocketTriggerInitialMessage"
+            }
+          },
+          "url_runnable_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          }
+        },
+        "required": [
+          "path",
+          "script_path",
+          "url",
+          "is_flow",
+          "filters",
+          "initial_messages",
+          "url_runnable_args"
+        ]
+      },
+      "WebsocketTriggerInitialMessage": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "raw_message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "raw_message"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "runnable_result": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "$ref": "#/components/schemas/ScriptArgs"
+                  },
+                  "is_flow": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path",
+                  "args",
+                  "is_flow"
+                ]
+              }
+            },
+            "required": [
+              "runnable_result"
+            ]
+          }
+        ]
       },
       "Group": {
         "type": "object",
@@ -17817,6 +18955,9 @@
           },
           "username": {
             "type": "string"
+          },
+          "operator_only": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -17985,6 +19126,12 @@
           "triggerables_v2": {
             "type": "object",
             "additionalProperties": {
+              "type": "object"
+            }
+          },
+          "s3_inputs": {
+            "type": "array",
+            "items": {
               "type": "object"
             }
           },
@@ -18796,6 +19943,66 @@
           }
         }
       },
+      "LogSearchHit": {
+        "type": "object",
+        "properties": {
+          "dancer": {
+            "type": "string"
+          }
+        }
+      },
+      "AutoscalingEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "worker_group": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "desired_workers": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "applied_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CriticalAlert": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Unique identifier for the alert"
+          },
+          "alert_type": {
+            "type": "string",
+            "description": "Type of alert (e.g., critical_error)"
+          },
+          "message": {
+            "type": "string",
+            "description": "The message content of the alert"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time when the alert was created"
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Acknowledgment status of the alert, can be true, false, or null if not set"
+          }
+        }
+      },
       "StaticTransform": {
         "type": "object",
         "properties": {
@@ -18901,6 +20108,9 @@
           },
           "custom_concurrency_key": {
             "type": "string"
+          },
+          "is_trigger": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -18933,6 +20143,9 @@
           },
           "tag_override": {
             "type": "string"
+          },
+          "is_trigger": {
+            "type": "boolean"
           }
         },
         "required": [

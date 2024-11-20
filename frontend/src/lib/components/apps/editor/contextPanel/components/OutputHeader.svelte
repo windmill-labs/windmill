@@ -219,7 +219,7 @@
 			$selectedComponent?.includes(id)
 				? openBackground[color]
 				: $connectingInput.hoveredComponent === id
-				? 'bg-orange-300 '
+				? 'bg-[#fab157]'
 				: 'bg-surface-secondary',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : '',

@@ -2,7 +2,13 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
+	import {
+		MAX_SCHEMA_LENGTH,
+		SUPPORTED_LANGUAGES,
+		addThousandsSeparator,
+		copilot,
+		type AiProviderTypes
+	} from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -68,6 +74,7 @@
 			return
 		}
 		savePrompt()
+		const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 		try {
 			genLoading = true
 			blockPopupOpen = true
@@ -84,7 +91,8 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController
+					abortController,
+					aiProvider
 				)
 			} else {
 				await copilot(
@@ -97,7 +105,8 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController
+					abortController,
+					aiProvider
 				)
 			}
 			setupDiff()
@@ -388,7 +397,7 @@
 						<LoadingIcon />
 					{/if}
 				</div>
-			{:else if $copilotInfo.exists_openai_resource_path}
+			{:else if $copilotInfo.exists_ai_resource}
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
@@ -397,7 +406,14 @@
 						</ToggleButtonGroup>
 
 						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							GPT-4o<Bot size={14} />
+							{#if $copilotInfo.ai_provider === 'openai'}
+								GPT-4o
+							{:else if $copilotInfo.ai_provider === 'anthropic'}
+								Claude-3.5
+							{:else}
+								Codestral
+							{/if}
+							<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96 items-start">
@@ -493,7 +509,7 @@
 			{:else}
 				<p class="text-sm">
 					Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

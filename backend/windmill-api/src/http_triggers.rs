@@ -1,24 +1,5 @@
-use axum::{
-    extract::{Path, Query},
-    response::IntoResponse,
-    routing::{delete, get, post},
-    Extension, Json, Router,
-};
-use http::{HeaderMap, StatusCode};
-use serde::{Deserialize, Serialize};
-use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::prelude::FromRow;
-use std::collections::HashMap;
-use tower_http::cors::CorsLayer;
-use windmill_audit::{audit_ee::audit_log, ActionKind};
-use windmill_common::{
-    db::UserDB,
-    error::{self, JsonResult},
-    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
-    worker::{to_raw_value, CLOUD_HOSTED},
-};
-use windmill_queue::PushArgsOwned;
-
+#[cfg(feature = "parquet")]
+use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
     db::{ApiAuthed, DB},
     jobs::{
@@ -27,6 +8,31 @@ use crate::{
     },
     users::{fetch_api_authed, OptAuthed},
 };
+use axum::{
+    extract::{Path, Query},
+    response::IntoResponse,
+    routing::{delete, get, post},
+    Extension, Json, Router,
+};
+#[cfg(feature = "parquet")]
+use http::header::IF_NONE_MATCH;
+use http::{HeaderMap, StatusCode};
+use serde::{Deserialize, Serialize};
+use sql_builder::{bind::Bind, SqlBuilder};
+use sqlx::prelude::FromRow;
+use std::collections::HashMap;
+use tower_http::cors::CorsLayer;
+use windmill_audit::{audit_ee::audit_log, ActionKind};
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::build_object_store_client;
+use windmill_common::{
+    db::UserDB,
+    error::{self, JsonResult},
+    s3_helpers::S3Object,
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    worker::{to_raw_value, CLOUD_HOSTED},
+};
+use windmill_queue::PushArgsOwned;
 
 lazy_static::lazy_static! {
     static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/:\w+").unwrap();
@@ -99,6 +105,7 @@ struct NewTrigger {
     is_async: bool,
     requires_auth: bool,
     http_method: HttpMethod,
+    static_asset_config: Option<sqlx::types::Json<S3Object>>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -116,6 +123,7 @@ struct Trigger {
     is_async: bool,
     requires_auth: bool,
     http_method: HttpMethod,
+    static_asset_config: Option<sqlx::types::Json<S3Object>>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +135,7 @@ struct EditTrigger {
     is_async: bool,
     requires_auth: bool,
     http_method: HttpMethod,
+    static_asset_config: Option<sqlx::types::Json<S3Object>>,
 }
 
 #[derive(Deserialize)]
@@ -182,7 +191,7 @@ async fn get_trigger(
     let path = path.to_path();
     let trigger = sqlx::query_as!(
         Trigger,
-        r#"SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, http_method as "http_method: _", edited_by, email, edited_at, extra_perms, is_async, requires_auth
+        r#"SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, http_method as "http_method: _", edited_by, email, edited_at, extra_perms, is_async, requires_auth, static_asset_config as "static_asset_config: _"
             FROM http_trigger
             WHERE workspace_id = $1 AND path = $2"#,
         w_id,
@@ -209,7 +218,7 @@ async fn create_trigger(
 
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, is_async, requires_auth, http_method, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())",
+        "INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, is_async, requires_auth, http_method, static_asset_config, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())",
         w_id,
         ct.path,
         ct.route_path,
@@ -218,7 +227,8 @@ async fn create_trigger(
         ct.is_flow,
         ct.is_async,
         ct.requires_auth,
-        ct.http_method as HttpMethod,
+        ct.http_method as _,
+        ct.static_asset_config as _,
         &authed.username,
         &authed.email
     )
@@ -261,14 +271,15 @@ async fn update_trigger(
 
         sqlx::query!(
             "UPDATE http_trigger 
-                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, http_method = $6, edited_by = $7, email = $8, is_async = $9, requires_auth = $10, edited_at = now() 
-                WHERE workspace_id = $11 AND path = $12",
+                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, http_method = $6, static_asset_config = $7, edited_by = $8, email = $9, is_async = $10, requires_auth = $11, edited_at = now() 
+                WHERE workspace_id = $12 AND path = $13",
             ct.route_path,
             &route_path_key,
             ct.script_path,
             ct.path,
             ct.is_flow,
-            ct.http_method as HttpMethod,
+            ct.http_method as _,
+            ct.static_asset_config as _,
             &authed.username,
             &authed.email,
             ct.is_async,
@@ -279,12 +290,13 @@ async fn update_trigger(
         .execute(&mut *tx).await?;
     } else {
         sqlx::query!(
-            "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, edited_by = $5, email = $6, is_async = $7, requires_auth = $8, edited_at = now() 
-                WHERE workspace_id = $9 AND path = $10",
+            "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, static_asset_config = $5, edited_by = $6, email = $7, is_async = $8, requires_auth = $9, edited_at = now() 
+                WHERE workspace_id = $10 AND path = $11",
             ct.script_path,
             ct.path,
             ct.is_flow,
-            ct.http_method as HttpMethod,
+            ct.http_method as _,
+            ct.static_asset_config as _,
             &authed.username,
             &authed.email,
             ct.is_async,
@@ -405,6 +417,7 @@ struct TriggerRoute {
     edited_by: String,
     email: String,
     http_method: HttpMethod,
+    static_asset_config: Option<sqlx::types::Json<S3Object>>,
 }
 
 async fn get_http_route_trigger(
@@ -421,7 +434,7 @@ async fn get_http_route_trigger(
         let route_path = StripPath(splitted.collect::<Vec<_>>().join("/"));
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _" FROM http_trigger WHERE workspace_id = $1"#,
+            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _", static_asset_config as "static_asset_config: _" FROM http_trigger WHERE workspace_id = $1"#,
             w_id
         )
         .fetch_all(db)
@@ -430,7 +443,7 @@ async fn get_http_route_trigger(
     } else {
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _" FROM http_trigger"#,
+            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _", static_asset_config as "static_asset_config: _" FROM http_trigger"#,
         )
         .fetch_all(db)
         .await?;
@@ -494,7 +507,7 @@ async fn get_http_route_trigger(
         trigger.email.clone(),
         &trigger.workspace_id,
         &db,
-        username_override.unwrap_or("anonymous".to_string()),
+        Some(username_override.unwrap_or("anonymous".to_string())),
     )
     .await?;
 
@@ -518,6 +531,90 @@ async fn route_job(
             Ok(trigger) => trigger,
             Err(e) => return e.into_response(),
         };
+
+    #[cfg(not(feature = "parquet"))]
+    if trigger.static_asset_config.is_some() {
+        return error::Error::InternalErr(
+            "Static asset configuration is not supported in this build".to_string(),
+        )
+        .into_response();
+    }
+
+    #[cfg(feature = "parquet")]
+    if let Some(sqlx::types::Json(config)) = trigger.static_asset_config {
+        let build_static_response_f = async {
+            let (_, s3_resource_opt) = get_workspace_s3_resource(
+                &authed,
+                &db,
+                None,
+                &"NO_TOKEN".to_string(), // no token is provided in this case
+                &trigger.workspace_id,
+                config.storage,
+            )
+            .await?;
+            let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+                "No files storage resource defined at the workspace level".to_string(),
+            ))?;
+            let s3_client = build_object_store_client(&s3_resource).await?;
+            let path = object_store::path::Path::from(config.s3);
+            let s3_object = s3_client.get(&path).await.map_err(|err| {
+                tracing::warn!("Error retrieving file from S3: {:?}", err);
+                error::Error::InternalErr(format!("Error retrieving file: {}", err.to_string()))
+            })?;
+            let mut response_headers = http::HeaderMap::new();
+            if let Some(ref e_tag) = s3_object.meta.e_tag {
+                if let Some(if_none_match) = headers.get(IF_NONE_MATCH) {
+                    if if_none_match == e_tag {
+                        return Ok::<_, error::Error>((
+                            StatusCode::NOT_MODIFIED,
+                            response_headers,
+                            axum::body::Body::empty(),
+                        ));
+                    }
+                }
+                if let Ok(e_tag) = e_tag.parse() {
+                    response_headers.insert("etag", e_tag);
+                }
+            }
+            response_headers.insert(
+                "content-type",
+                s3_object
+                    .attributes
+                    .get(&object_store::Attribute::ContentType)
+                    .map(|s| s.parse().ok())
+                    .flatten()
+                    .unwrap_or("application/octet-stream".parse().unwrap()),
+            );
+            response_headers.insert(
+                "content-disposition",
+                config.filename.as_ref().map_or_else(
+                    || {
+                        s3_object
+                            .attributes
+                            .get(&object_store::Attribute::ContentDisposition)
+                            .map(|s| s.parse().ok())
+                            .flatten()
+                            .unwrap_or("inline".parse().unwrap())
+                    },
+                    |filename| {
+                        format!("inline; filename=\"{}\"", filename)
+                            .parse()
+                            .unwrap_or("inline".parse().unwrap())
+                    },
+                ),
+            );
+
+            let body_stream = axum::body::Body::from_stream(s3_object.into_stream());
+            Ok::<_, error::Error>((StatusCode::OK, response_headers, body_stream))
+        };
+        match build_static_response_f.await {
+            Ok((status, headers, body_stream)) => {
+                return (status, headers, body_stream).into_response()
+            }
+            Err(e) => return e.into_response(),
+        }
+    }
+
     let headers = headers
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))

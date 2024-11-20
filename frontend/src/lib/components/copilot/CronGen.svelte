@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import Popup from '../common/popup/Popup.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copilotInfo } from '$lib/stores'
+
 	import { base } from '$lib/base'
+	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 	export let schedule: string
 
@@ -14,31 +16,35 @@
 	let genLoading = false
 	let abortController = new AbortController()
 	$: instructionsField && setTimeout(() => instructionsField?.focus(), 100)
+
 	const SYSTEM =
 		"You are a helpful assitant for creating CRON schedules. The structure is 'second minute hour dayOfMonth month dayOfWeek'. Weekdays are Sunday (1), Monday (2), Tuesday (3), Wednesday (4), Thursday (5), Friday (6), Saturday (7). You only return the CRON string without any wrapping characters. If it is invalid, you will return an error message preceeded by 'ERROR:'."
 	const USER = 'CRON schedule instructions: {instructions}'
 	async function generateCron() {
 		genLoading = true
 		abortController = new AbortController()
+		const aiProvider = $copilotInfo.ai_provider
 		try {
+			const messages: ChatCompletionMessageParam[] = [
+				{
+					role: 'system',
+					content: SYSTEM
+				},
+				{
+					role: 'user',
+					content: USER.replace('{instructions}', instructions)
+				}
+			]
+
 			const response = await getNonStreamingCompletion(
-				[
-					{
-						role: 'system',
-						content: SYSTEM
-					},
-					{
-						role: 'user',
-						content: USER.replace('{instructions}', instructions)
-					}
-				],
-				abortController
+				messages,
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 
 			if (response.startsWith('ERROR:')) {
 				throw response.replace('ERROR:', '').trim()
 			}
-
 			schedule = response
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -69,7 +75,7 @@
 			on:click={genLoading ? () => abortController?.abort() : undefined}
 		/>
 	</svelte:fragment>
-	{#if $copilotInfo.exists_openai_resource_path}
+	{#if $copilotInfo.exists_ai_resource}
 		<div class="flex w-96">
 			<input
 				bind:this={instructionsField}
@@ -104,7 +110,7 @@
 		<div class="block text-primary">
 			<p class="text-sm"
 				>Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=openai"
+					href="{base}/workspace_settings?tab=ai"
 					target="_blank"
 					class="inline-flex flex-row items-center gap-1"
 					>workspace settings <ExternalLink size={16} /></a

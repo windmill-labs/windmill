@@ -204,6 +204,7 @@ pub fn extract_relative_imports(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
+    raw_code: Option<String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -215,8 +216,8 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
     rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let raw_code = match job.raw_code {
-        Some(ref code) => code.to_owned(),
+    let raw_code = match raw_code {
+        Some(code) => code,
         None => sqlx::query_scalar!(
             "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
             &job.script_hash.unwrap_or(ScriptHash(0)).0,
@@ -527,6 +528,7 @@ async fn trigger_dependents_to_recompute_dependencies<
 
 pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
+    raw_flow: Option<Json<Box<RawValue>>>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -570,7 +572,7 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         )
     };
 
-    let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
+    let raw_flow = raw_flow.map(|v| Ok(v)).unwrap_or_else(|| {
         Err(Error::InternalErr(
             "Flow Dependency requires raw flow".to_owned(),
         ))
@@ -1312,6 +1314,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
+            false,
+            false,
         )
         .await;
 

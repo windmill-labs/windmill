@@ -2,8 +2,6 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { base } from '$lib/base'
-
-	$: console.log('dbg base', base)
 </script>
 
 <div class="flex flex-col w-full gap-4 text-sm">
@@ -20,7 +18,7 @@
 	<Label label="Setting a scheduled poll" primary>
 		<ul class="pt-4 space-y-2 text-sm">
 			<li>
-				1. Chose a trigger script using the script picker that will poll for new events regularly <img
+				1. Choose a trigger script using the script picker that will poll for new events regularly <img
 					class="shadow-lg rounded"
 					alt="script picker"
 					src="{base}/script-picker.png"

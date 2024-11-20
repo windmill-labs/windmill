@@ -41,12 +41,16 @@
 
 {#if object != undefined && Object.keys(object).length > 0}
 	{#if $hasResult[componentId] || $search == ''}
-		<ObjectViewer
-			json={filtered}
-			on:select
-			topBrackets={false}
-			pureViewer={!$connectingInput.opened}
-		/>
+		<div class="pl-2 !cursor-pointer" data-connection-button>
+			<ObjectViewer
+				json={filtered}
+				on:select
+				topBrackets={false}
+				pureViewer={!$connectingInput.opened}
+				allowCopy={!$connectingInput.opened}
+				connecting={$connectingInput.opened}
+			/>
+		</div>
 	{:else if $search.length > 0}
 		<div class="text-xs pl-2 text-tertiary">No results</div>
 	{:else}

@@ -21,6 +21,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
+use semver::Version;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -28,12 +29,21 @@ pub const DEFAULT_PER_PAGE: usize = 1000;
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
+use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
+use std::sync::atomic::Ordering;
+
+use crate::worker::CLOUD_HOSTED;
+
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .timeout(std::time::Duration::from_secs(20))
         .connect_timeout(std::time::Duration::from_secs(10))
         .build().unwrap();
+    pub static ref GIT_SEM_VERSION: Version = Version::parse(
+        // skip first `v` character.
+        GIT_VERSION.split_at(1).1
+    ).unwrap_or(Version::new(0, 1, 0));
 }
 
 #[derive(Deserialize, Clone)]
@@ -64,10 +74,12 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
 }
 
 pub fn hostname() -> String {
-    gethostname()
-        .to_str()
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| rd_string(5))
+    std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
+        gethostname()
+            .to_str()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| rd_string(5))
+    }) 
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -241,12 +253,40 @@ pub fn generate_lock_id(database_name: &str) -> i64 {
     0x3d32ad9e * (CRC_IEEE.checksum(database_name.as_bytes()) as i64)
 }
 
-pub async fn report_critical_error(error_message: String, _db: DB) -> () {
+pub async fn report_critical_error(
+    error_message: String,
+    _db: DB,
+    workspace_id: Option<&str>,
+    resource: Option<&str>,
+) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
 
+    let mute_global = CRITICAL_ALERT_MUTE_UI_ENABLED.load(Ordering::Relaxed);
+    let mute_workspace = if let Some(workspace_id) = workspace_id {
+        match fetch_mute_workspace(&_db, workspace_id).await {
+            Ok(flag) => flag,
+            Err(err) => {
+                tracing::error!("Error fetching mute_workspace: {}", err);
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // we ack_global if mute_global is true, or if mute_workspace is true
+    // but we ignore global mute setting for ack_workspace
+    let acknowledge_workspace = mute_workspace;
+    let acknowledge_global = mute_global || mute_workspace || ( workspace_id.is_some() && *CLOUD_HOSTED);
+
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message) VALUES ('critical_error', $1)",
-        error_message
+        "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
+        VALUES ('critical_error', $1, $2, $3, $4, $5)",
+        error_message,
+        acknowledge_global,
+        acknowledge_workspace,
+        workspace_id,
+        resource,
     )
     .execute(&_db)
     .await
@@ -255,27 +295,86 @@ pub async fn report_critical_error(error_message: String, _db: DB) -> () {
     }
 
     #[cfg(feature = "enterprise")]
-    send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
+    if *CLOUD_HOSTED && workspace_id.is_some() {
+        tracing::error!(error_message)
+    } else {
+        send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
+    }
 }
 
-pub async fn report_recovered_critical_error(message: String, _db: DB) -> () {
+pub async fn report_recovered_critical_error(
+    message: String,
+    _db: DB,
+    workspace_id: Option<&str>,
+    resource: Option<&str>,
+) -> () {
     tracing::info!("RECOVERED CRITICAL ERROR: {message}");
 
     if let Err(err) = sqlx::query!(
-        "INSERT INTO alerts (alert_type, message) VALUES ('recovered_critical_error', $1)",
-        message
+        "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
+        VALUES ('recovered_critical_error', $1, $2, $3, $4, $5)",
+        message,
+        true,
+        true,
+        workspace_id,
+        resource,
     )
     .execute(&_db)
     .await
     {
-        tracing::error!("Failed to save critical error to database: {}", err);
+        tracing::error!("Failed to save recovered critical error to database: {}", err);
     }
+
+    // acknowledge all alerts with the same resource
+    if let Some(resource) = resource {
+        if let Err(err) = sqlx::query!(
+            "UPDATE alerts SET acknowledged = true, acknowledged_workspace = true WHERE resource = $1 AND alert_type = 'critical_error'",
+            resource,
+        )
+        .execute(&_db)
+        .await
+        {
+            tracing::error!("Failed to acknowledge critical error alerts for resource {}: {}", resource, err);
+        }
+    }
+
     #[cfg(feature = "enterprise")]
-    send_critical_alert(
-        message,
-        &_db,
-        CriticalAlertKind::RecoveredCriticalError,
-        None,
+    if *CLOUD_HOSTED && workspace_id.is_some() {
+        tracing::error!(message);
+    } else {
+        send_critical_alert(
+            message,
+            &_db,
+            CriticalAlertKind::RecoveredCriticalError,
+            None,
+        )
+        .await;
+    }
+}
+
+pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
+    match sqlx::query!(
+        "SELECT mute_critical_alerts FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
     )
-    .await;
+    .fetch_optional(_db)
+    .await
+    {
+        Ok(Some(record)) => Ok(record.mute_critical_alerts.unwrap_or(false)),
+        Ok(None) => {
+            tracing::warn!(
+                "Workspace ID {} not found in workspace_settings table",
+                workspace_id
+            );
+            Ok(false)
+        }
+        Err(err) => {
+            tracing::error!(
+                "Error querying workspace_settings for workspace_id {}: {}",
+                workspace_id,
+                err
+            );
+            Err(Error::SqlErr(err))
+        }
+    }
 }

@@ -171,26 +171,106 @@ export function validatePassword(password: string): boolean {
 
 const portalDivs = ['app-editor-select']
 
-export function clickOutside(node: Node, capture?: boolean): { destroy(): void } {
-	const handleClick = (event: MouseEvent) => {
+interface ClickOutsideOptions {
+	capture?: boolean
+	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
+	stopPropagation?: boolean
+}
+
+export function clickOutside(
+	node: Node,
+	options?: ClickOutsideOptions | boolean
+): { destroy(): void; update(newOptions: ClickOutsideOptions | boolean): void } {
+	const handleClick = async (event: MouseEvent) => {
 		const target = event.target as HTMLElement
+		const opts = typeof options === 'boolean' ? { capture: options } : options
 
-		if (node && !node.contains(target) && !event.defaultPrevented) {
+		let excludedElements: HTMLElement[] = []
+		if (opts?.exclude) {
+			if (Array.isArray(opts.exclude)) {
+				excludedElements = opts.exclude
+			} else {
+				excludedElements = await opts.exclude()
+			}
+		}
+
+		const isExcluded = excludedElements.some((excludedEl) => {
+			const contains = excludedEl?.contains?.(target)
+			const isTarget = target === excludedEl
+			return contains || isTarget
+		})
+
+		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
 			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
-
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
+				if (opts?.stopPropagation) {
+					event.stopPropagation()
+				}
 				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 			}
 		}
 	}
 
+	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
 	document.addEventListener('click', handleClick, capture ?? true)
 
 	return {
+		update(newOptions: ClickOutsideOptions | boolean) {
+			options = newOptions
+		},
 		destroy() {
 			document.removeEventListener('click', handleClick, capture ?? true)
+		}
+	}
+}
+
+export function pointerDownOutside(
+	node: Node,
+	options?: ClickOutsideOptions
+): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
+	const handlePointerDown = async (event: PointerEvent) => {
+		const target = event.target as HTMLElement
+
+		let excludedElements: HTMLElement[] = []
+		if (options?.exclude) {
+			if (Array.isArray(options.exclude)) {
+				excludedElements = options.exclude
+			} else {
+				excludedElements = await options.exclude()
+			}
+		}
+
+		const isExcluded = excludedElements.some((excludedEl) => {
+			const contains = excludedEl?.contains?.(target)
+			const isTarget = target === excludedEl
+			return contains || isTarget
+		})
+
+		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
+			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const parent = target.closest(portalDivsSelector)
+
+			if (!parent) {
+				if (options?.stopPropagation) {
+					event.stopPropagation()
+				}
+				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				return false
+			}
+		}
+	}
+
+	const capture = options?.capture ?? true
+	document.addEventListener('pointerdown', handlePointerDown, capture ?? true)
+
+	return {
+		update(newOptions: ClickOutsideOptions) {
+			options = newOptions
+		},
+		destroy() {
+			document.removeEventListener('pointerdown', handlePointerDown, capture ?? true)
 		}
 	}
 }
@@ -724,7 +804,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {
@@ -770,6 +850,30 @@ export type Value = {
 	value?: any
 	draft?: Value
 	[key: string]: any
+}
+
+export function replaceFalseWithUndefined(obj: any) {
+	return replaceFalseWithUndefinedRec(structuredClone(obj))
+}
+
+function replaceFalseWithUndefinedRec(obj: any) {
+	// Check if the input is an object and not null
+	if (obj !== null && typeof obj === 'object') {
+		for (const key in obj) {
+			if (obj.hasOwnProperty(key)) {
+				// If the value is false, replace it with undefined
+				if (obj[key] === false) {
+					// delete obj[key];
+					obj[key] = undefined;
+
+				} else {
+					// If the value is an object, call the function recursively
+					replaceFalseWithUndefinedRec(obj[key]);
+				}
+			}
+		}
+	}
+	return obj
 }
 
 export function cleanValueProperties(obj: Value) {
@@ -948,5 +1052,4 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 export function validateFileExtension(ext: string) {
 	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
 	return validExtensionRegex.test(ext)
-
 }

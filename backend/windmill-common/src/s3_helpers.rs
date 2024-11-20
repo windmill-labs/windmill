@@ -12,6 +12,8 @@ use object_store::azure::MicrosoftAzureBuilder;
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
+#[cfg(feature = "parquet")]
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
 use std::sync::Arc;
@@ -109,10 +111,13 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct S3Object {
     pub s3: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -248,9 +253,15 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
         s3_resource.path_style,
         s3_resource.bucket.clone(),
     );
-
     let mut store_builder = AmazonS3Builder::new()
-        .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout_disabled()
+                .with_default_headers(HeaderMap::from_iter(vec![(
+                    "Accept-Encoding".parse().unwrap(),
+                    "".parse().unwrap(),
+                )])),
+        ) // TODO: make it configurable maybe
         .with_region(s3_resource.region)
         .with_bucket_name(s3_resource.bucket)
         .with_endpoint(endpoint);
@@ -303,7 +314,14 @@ fn build_azure_blob_client(
     let blob_resource = azure_blob_resource_ref.clone();
 
     let mut store_builder = MicrosoftAzureBuilder::new()
-        .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout_disabled()
+                .with_default_headers(HeaderMap::from_iter(vec![(
+                    "Accept-Encoding".parse().unwrap(),
+                    "".parse().unwrap(),
+                )])),
+        ) // TODO: make it configurable maybe
         .with_account(blob_resource.account_name)
         .with_container_name(blob_resource.container_name);
 

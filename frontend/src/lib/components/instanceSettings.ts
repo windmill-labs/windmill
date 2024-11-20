@@ -141,11 +141,20 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Critical alert channels',
 			description:
-				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alert_channels">Learn more</a>',
+				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
 			ee_only: 'Channels other than tracing are only available in the EE version'
+		},
+		{
+			label: 'Mute critical alerts in UI',
+			description: 'Enable to mute critical alerts in the UI',
+			key: 'critical_alert_mute_ui',
+			fieldType: 'boolean',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			ee_only: 'Critical alerts in UI are only available in the EE version'
 		},
 		{
 			label: 'Azure OpenAI base path',
@@ -284,7 +293,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Keep job directories',
 			key: 'keep_job_dir',
 			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
+			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
 			storage: 'setting'
 		},
 		{

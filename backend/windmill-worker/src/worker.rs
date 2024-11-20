@@ -236,7 +236,14 @@ pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
+// Used as fallback now
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
+
+// pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
+pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
+// pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
+// pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
+
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
@@ -257,6 +264,7 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+const INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK: &str = include_str!("../nsjail/download_deps.py.pip.sh");
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
@@ -311,6 +319,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -739,6 +748,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             &worker_dir,
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
+        );
+
+        // TODO: Remove (Deprecated)
+        let _ = write_file(
+            &worker_dir,
+            "download_deps.py.pip.sh",
+            INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK,
         );
     }
 
@@ -1703,7 +1719,7 @@ async fn do_nativets(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
-) -> windmill_common::error::Result<(Box<RawValue>, String)> {
+) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
@@ -1711,7 +1727,7 @@ async fn do_nativets(
         job.args.as_ref()
     };
 
-    let result = eval_fetch_timeout(
+    Ok(eval_fetch_timeout(
         env_code,
         code.clone(),
         transpile_ts(code)?,
@@ -1726,8 +1742,7 @@ async fn do_nativets(
         true,
         occupancy_metrics,
     )
-    .await?;
-    Ok((result.0, result.1))
+    .await?)
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -1814,20 +1829,29 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         None
     };
 
+    let (raw_code, raw_lock, raw_flow) =
+        sqlx::query!(
+            "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
+            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            &job.id, job.workspace_id
+        )
+        .fetch_one(db)
+        .await
+        .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
+        .unwrap_or_default();
+
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
             format!("script_{}", h.to_string())
-        } else if let Some(rc) = job.raw_code.as_ref() {
+        } else if let Some(rc) = raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
             rc.hash(&mut s);
             format!("inline_{}", hex::encode(s.finish().to_be_bytes()))
-        } else if let Some(rc) = job.raw_flow.as_ref() {
+        } else if let Some(sqlx::types::Json(rc)) = raw_flow.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
-            serde_json::to_string(&rc.0)
-                .unwrap_or_default()
-                .hash(&mut s);
+            rc.get().hash(&mut s);
             format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
         } else {
             "none".to_string()
@@ -1904,8 +1928,12 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
     };
     if job.is_flow() {
+        let flow = raw_flow
+            .as_ref()
+            .and_then(|raw_flow| serde_json::from_str(raw_flow.get()).ok());
         handle_flow(
             job,
+            flow,
             db,
             &client.get_authed().await,
             None,
@@ -1959,6 +1987,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             JobKind::Dependencies => {
                 handle_dependency_job(
                     &job,
+                    raw_code,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -1975,6 +2004,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             JobKind::FlowDependencies => {
                 handle_flow_dependency_job(
                     &job,
+                    raw_flow,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2014,6 +2044,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 let metric_timer = Instant::now();
                 let r = handle_code_execution_job(
                     job.as_ref(),
+                    raw_code,
+                    raw_lock,
                     db,
                     client,
                     job_dir,
@@ -2176,6 +2208,8 @@ pub async fn get_script_content_by_hash(
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
+    raw_code: Option<String>,
+    raw_lock: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -2203,11 +2237,9 @@ async fn handle_code_execution_job(
             };
 
             ContentReqLangEnvs {
-                content: job
-                    .raw_code
-                    .clone()
+                content: raw_code
                     .unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: job.raw_lock.clone(),
+                lockfile: raw_lock,
                 language: job.language.to_owned(),
                 envs: None,
                 codebase,
@@ -2356,7 +2388,8 @@ async fn handle_code_execution_job(
                 .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
                 .collect::<Vec<String>>()
                 .join("\n"));
-        let (result, ts_logs) = do_nativets(
+
+        let result = do_nativets(
             job,
             &client,
             env_code,
@@ -2368,7 +2401,6 @@ async fn handle_code_execution_job(
             occupancy_metrics,
         )
         .await?;
-        append_logs(&job.id, &job.workspace_id, ts_logs, db).await;
         return Ok(result);
     }
 
