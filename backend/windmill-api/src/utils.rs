@@ -6,23 +6,29 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::{body::Body, response::Response};
 use regex::Regex;
+use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
+    auth::is_super_admin_email,
     error::{self, Error},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     DB,
 };
 
+#[cfg(feature = "enterprise")]
+use windmill_common::error::JsonResult;
+
+#[cfg(feature = "enterprise")]
+use axum::Json;
+
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
+
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    if email == SUPERADMIN_SECRET_EMAIL || email == SUPERADMIN_NOTIFICATION_EMAIL {
-        return Ok(());
-    }
-    let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?
-        .unwrap_or(false);
+    let is_admin = is_super_admin_email(db, email).await?;
 
     if !is_admin {
         Err(Error::NotAuthorized(
@@ -148,28 +154,173 @@ pub async fn get_instance_username_or_create_pending<'c>(
             )
             .execute(&mut **tx)
             .await
-            .map_err(|e| Error::InternalErr(format!("creating pending user: {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("creating pending user: {e:#}")))?;
 
             Ok(username)
         }
     }
 }
 
-pub async fn get_and_delete_pending_username_or_generate<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    email: &str,
-) -> error::Result<String> {
-    let username = sqlx::query_scalar!("SELECT username FROM pending_user WHERE email = $1", email)
-        .fetch_optional(&mut **tx)
-        .await?;
+pub fn content_plain(body: Body) -> Response {
+    use axum::http::header;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
+}
 
-    if let Some(username) = username {
-        sqlx::query!("DELETE FROM pending_user WHERE email = $1", email)
-            .execute(&mut **tx)
-            .await?;
-        Ok(username)
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct CriticalAlert {
+    id: i32,
+    alert_type: String,
+    message: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    acknowledged: Option<bool>,
+    workspace_id: Option<String>,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize, Debug)]
+pub struct AlertQueryParams {
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub acknowledged: Option<bool>,
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    db: DB,
+    params: AlertQueryParams,
+    workspace_id: Option<String>,
+) -> JsonResult<Vec<CriticalAlert>> {
+    let page = params.page.unwrap_or(1).max(1);
+    let page_size = params.page_size.unwrap_or(10).min(100) as i64;
+    let offset = ((page - 1) * page_size as i32) as i64;
+
+    let alerts = if let Some(workspace_id) = workspace_id {
+        // `workspace_id` is provided => workspace admin
+        if params.acknowledged.is_none() {
+            // Case: return all rows where `workspace_id` matches
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_workspace, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 WHERE workspace_id = $1
+                 ORDER BY created_at DESC
+                 LIMIT $2 OFFSET $3",
+                workspace_id,
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        } else {
+            // Case: return rows where `acknowledged_workspace` matches `params.acknowledged`
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged_workspace, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 WHERE workspace_id = $1 AND COALESCE(acknowledged_workspace, false) = $2
+                 ORDER BY created_at DESC
+                 LIMIT $3 OFFSET $4",
+                workspace_id,
+                params.acknowledged,
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        }
     } else {
-        let username = generate_instance_wide_unique_username(&mut *tx, email).await?;
-        Ok(username)
-    }
+        // `workspace_id` is not provided => superadmin
+        if params.acknowledged.is_none() {
+            // Case: Return all rows unfiltered with global acknowledged as acknowledged
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 ORDER BY created_at DESC
+                 LIMIT $1 OFFSET $2",
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        } else {
+            // Case: Return rows where global acknowledged matches params.acknowledged
+            sqlx::query_as!(
+                CriticalAlert,
+                "SELECT id, alert_type, message, created_at, COALESCE(acknowledged, false) AS acknowledged, workspace_id
+                 FROM alerts
+                 WHERE COALESCE(acknowledged, false) = $1
+                 ORDER BY created_at DESC
+                 LIMIT $2 OFFSET $3",
+                params.acknowledged,
+                page_size,
+                offset
+            )
+            .fetch_all(&db)
+            .await?
+        }
+    };
+
+    Ok(Json(alerts))
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    db: DB,
+    workspace_id: Option<String>,
+    id: i32,
+) -> error::Result<String> {
+    sqlx::query!(
+        "UPDATE alerts
+         SET
+           acknowledged = true,
+           acknowledged_workspace = CASE
+             WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true
+             ELSE acknowledged_workspace
+           END
+         WHERE id = $1",
+        id,
+        workspace_id
+    )
+    .execute(&db)
+    .await?;
+
+    tracing::info!(
+        "Acknowledged critical alert with id: {}{}",
+        id,
+        workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
+    );
+    Ok("Critical alert acknowledged".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    db: DB,
+    workspace_id: Option<String>,
+) -> error::Result<String> {
+    sqlx::query!(
+        "UPDATE alerts 
+         SET
+           acknowledged = true,
+           acknowledged_workspace = CASE
+             WHEN $1::text IS NOT NULL THEN true
+             ELSE acknowledged_workspace
+           END
+         WHERE ($1::text IS NOT NULL AND workspace_id = $1)
+            OR ($1::text IS NULL)",
+        workspace_id
+    )
+    .execute(&db)
+    .await?;
+
+    tracing::info!(
+        "Acknowledged all unacknowledged critical alerts{}",
+        workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
+    );
+    Ok("All unacknowledged critical alerts acknowledged".to_string())
 }

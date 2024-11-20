@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { InputValue } from '.'
+	import InputValue from './InputValue.svelte'
 	import type { RichConfiguration } from '../../types'
 
 	export let id: string

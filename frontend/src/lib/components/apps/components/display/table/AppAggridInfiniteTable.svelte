@@ -16,9 +16,10 @@
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import AppAggridExplorerTable from './AppAggridExplorerTable.svelte'
-	import { DebouncedInput, type RunnableComponent } from '../..'
 	import { getPrimaryKeys } from '../dbtable/utils'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
+	import RunnableComponent from '../../helpers/RunnableComponent.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -89,6 +90,12 @@
 
 			if (!runnableComponent && result) {
 				params.successCallback(result, result.length)
+				return
+			}
+
+			if (!runnableComponent && !result) {
+				params.successCallback([], 0)
+				return
 			}
 
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {

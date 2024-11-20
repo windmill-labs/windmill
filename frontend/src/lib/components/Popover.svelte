@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+	import { twMerge } from 'tailwind-merge'
+
 	import { ExternalLink } from 'lucide-svelte'
 
 	export let placement: PopoverPlacement = 'bottom-end'
@@ -12,6 +14,7 @@
 	export let appearTimeout = 300
 	export let documentationLink: string | undefined = undefined
 	export let style: string | undefined = undefined
+	export let forceOpen = false
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
@@ -46,6 +49,8 @@
 		inTimeout = undefined
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
+
+	$: forceOpen ? open() : close()
 </script>
 
 {#if notClickable}
@@ -66,15 +71,18 @@
 	</button>
 {/if}
 {#if showTooltip && !disablePopup}
-	<Portal>
+	<Portal name="popover">
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			use:popperContent={popperOptions}
 			on:mouseenter={open}
 			on:mouseleave={close}
-			class="z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left {popupClass}"
+			class={twMerge(
+				'z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left',
+				popupClass
+			)}
 		>
-			<div class="max-w-sm">
+			<div class="max-w-sm break-words">
 				<slot name="text" />
 				{#if documentationLink}
 					<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">

@@ -15,18 +15,22 @@ export interface PropertyDisplayInfo {
 	propertiesNumber: number
 }
 
+export type EnumType = string[] | undefined
+
 export interface SchemaProperty {
 	type: string | undefined
 	description?: string
 	pattern?: string
 	default?: any
-	enum?: string[]
+	enum?: EnumType
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: {
-		type?: 'string' | 'number' | 'bytes' | 'object'
+		type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 		contentEncoding?: 'base64'
 		enum?: string[]
+		resourceType?: string
+		properties?: { [name: string]: SchemaProperty }
 	}
 	min?: number
 	max?: number
@@ -43,6 +47,8 @@ export interface SchemaProperty {
 	dateFormat?: string
 	title?: string
 	placeholder?: string
+	oneOf?: SchemaProperty[]
+	originalType?: string
 }
 
 export interface ModalSchemaProperty {
@@ -57,7 +63,7 @@ export interface ModalSchemaProperty {
 	multiselect?: boolean
 	format?: string
 	pattern?: string
-	enum_?: string[]
+	enum_?: EnumType
 	default?: any
 	items?: { type?: 'string' | 'number'; enum?: string[] }
 	contentEncoding?: 'base64' | 'binary'
@@ -69,6 +75,7 @@ export interface ModalSchemaProperty {
 	dateFormat?: string
 	title?: string
 	placeholder?: string
+	oneOf?: SchemaProperty[]
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -94,7 +101,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		nullable: schema.nullable,
 		dateFormat: schema.dateFormat,
 		title: schema.title,
-		placeholder: schema.placeholder
+		placeholder: schema.placeholder,
+		oneOf: schema.oneOf
 	}
 }
 export type Schema = {
@@ -135,7 +143,7 @@ export type IntRange<F extends number, T extends number> =
 	| Exclude<Enumerate<T>, Enumerate<F>>
 	| T
 
-export function pathToMeta(path: string): Meta {
+export function pathToMeta(path: string, hideUser: boolean): Meta {
 	const splitted = path.split('/')
 	let ownerKind: OwnerKind
 	if (splitted[0] == 'g') {
@@ -147,7 +155,7 @@ export function pathToMeta(path: string): Meta {
 	} else {
 		console.error('Not recognized owner:' + splitted[0])
 		return {
-			ownerKind: 'user',
+			ownerKind: hideUser ? 'folder' : 'user',
 			owner: '',
 			name: ''
 		}

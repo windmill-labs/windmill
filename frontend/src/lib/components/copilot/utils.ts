@@ -66,10 +66,49 @@ export function pythonCompile(schema: Schema) {
 	return res
 }
 
-export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python3' | 'typescript') {
+export function phpCompile(schema: Schema) {
+	let res = ''
+	const entries = Object.entries(schema.properties)
+	if (entries.length === 0) {
+		return 'array'
+	}
+	let i = 0
+	for (let [name, prop] of entries) {
+		let typ = 'array'
+		if (prop.type === 'array') {
+			typ = 'array'
+		} else if (prop.type === 'string') {
+			typ = 'string'
+		} else if (prop.type === 'number') {
+			typ = 'float'
+		} else if (prop.type === 'integer') {
+			typ = 'int'
+		} else if (prop.type === 'boolean') {
+			typ = 'bool'
+		}
+		res += `  public ${typ} $${name};`
+		i++
+		if (i < entries.length) {
+			res += '\n'
+		}
+	}
+	return res
+}
+
+export function formatResourceTypes(
+	resourceTypes: ResourceType[],
+	lang: 'python3' | 'typescript' | 'php'
+) {
 	if (lang === 'python3') {
 		const result = resourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
+		})
+		return '\n' + result.join('\n\n')
+	} else if (lang === 'php') {
+		const result = resourceTypes.map((resourceType) => {
+			return `class ${toCamel(capitalize(resourceType.name))} {\n${phpCompile(
+				resourceType.schema as any
+			)}\n}`
 		})
 		return '\n' + result.join('\n\n')
 	} else {

@@ -57,6 +57,7 @@
 		{#if flowModule.sleep && schema.properties['sleep']}
 			<div class="border">
 				<PropPickerWrapper
+					noFlowPlugConnect={true}
 					notSelectable
 					{result}
 					displayContext={false}
@@ -72,11 +73,13 @@
 						{schema}
 						{previousModuleId}
 						argExtra={{ seconds: true }}
+						bind:editor
 					/>
 				</PropPickerWrapper>
 			</div>
 		{:else}
 			<SecondsInput disabled />
+			<div class="text-secondary">OR use a dynamic expression</div>
 		{/if}
 	</Label>
 </Section>

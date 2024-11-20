@@ -54,7 +54,7 @@ const clearFiles = {
 	title: 'clearFiles',
 	description: 'Clear the files of a file input component.',
 	example: 'clearFiles(id: string)',
-	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#clearFiles'
+	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#clearfiles'
 }
 
 const close = {

@@ -4,26 +4,28 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
+	import { Bug } from 'lucide-svelte'
 
 	export let tabs: any[] = []
 	export let id: string
 
 	export let isConditionalDebugMode: boolean = false
+	export let isSmall = false
 
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let isManuallySelected: boolean = false
+	export let isManuallySelected: boolean = false
 	let selected: number | null = null
 </script>
 
 <button
 	title={isConditionalDebugMode ? 'Debug conditions' : 'Debug tabs'}
 	class={classNames(
-		'text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+		'text-2xs font-bold w-fit h-full cursor-pointer rounded',
 		isManuallySelected
-			? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
-			: 'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+			? 'hover:bg-red-200 hover:text-red-800'
+			: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 	)}
 	on:click={() => dispatch('triggerInlineEditor')}
 	on:pointerdown|stopPropagation
@@ -32,14 +34,21 @@
 		<svelte:fragment slot="buttonReplacement">
 			<div class="px-1">
 				{#if isManuallySelected}
-					<div>
+					<div class="whitespace-nowrap">
 						{#if selected === tabs.length - 1}
-							{isConditionalDebugMode ? `Debug default condition` : `Debug tab ${selected + 1}`}
+							{#if isSmall}
+								{isConditionalDebugMode ? `df` : `t ${selected + 1}`}
+							{:else}
+								{isConditionalDebugMode ? `Debug default condition` : `Debug tab ${selected + 1}`}
+							{/if}
+						{:else if isSmall}
+							{`${isConditionalDebugMode ? 'c' : 't'} ${(selected ?? 0) + 1}`}
 						{:else}
-							{`Debugging ${isConditionalDebugMode ? 'condition' : 'tab'} ${(selected ?? 0) + 1}`}
-						{/if}
+							{`Debugging ${isConditionalDebugMode ? 'condition' : 'tab'} ${
+								(selected ?? 0) + 1
+							}`}{/if}
 					</div>
-				{:else}
+				{:else if isSmall}<Bug size={11} />{:else}
 					{isConditionalDebugMode ? `Debug conditions` : `Debug tabs`}
 				{/if}
 			</div>

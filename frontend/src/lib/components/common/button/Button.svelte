@@ -18,6 +18,7 @@
 	export let href: string | undefined = undefined
 	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
+	export let loadUntilNav: boolean = false
 
 	export let clickableWhileLoading = false
 
@@ -38,7 +39,7 @@
 
 	type MenuItem = {
 		label: string
-		onClick?: () => void
+		onClick?: (e?: Event) => void
 		href?: string
 		icon?: any
 	}
@@ -113,6 +114,13 @@
 			contained:
 				'bg-surface border-transparent hover:bg-surface-hover focus-visible:bg-surface-hover text-primary focus-visible:ring-surface-selected',
 			divider: 'divide-x divide-gray-200 dark:divide-gray-700'
+		},
+		nord: {
+			border:
+				'border-nord-200 bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected-inverse dark:border-nord-200',
+			contained:
+				'bg-nord-300 hover:bg-nord-0 focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse dark:bg-nord-400 dark:hover:bg-nord-600 dark:text-primary-inverse',
+			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		}
 	}
 
@@ -151,6 +159,7 @@
 	)
 
 	const iconMap = {
+		xs3: 12,
 		xs2: 14,
 		xs: 14,
 		sm: 16,
@@ -160,15 +169,16 @@
 	}
 
 	const iconOnlyPadding = {
-		xs2: 'm-[1px]',
-		xs: 'm-[1px]',
-		sm: 'm-[2px]',
-		md: 'm-[2px]',
-		lg: 'm-[5px]',
-		xl: 'm-[5px]'
+		xs3: 'm-[0.5px] qhd:m-[1px]',
+		xs2: 'm-[1px] qhd:m-[1.125px]',
+		xs: 'm-[1px] qhd:m-[1.125px]',
+		sm: 'm-[2px] qhd:m-[2.25px]',
+		md: 'm-[2px] qhd:m-[2.25px]',
+		lg: 'm-[5px] qhd:m-[5.625px]',
+		xl: 'm-[5px] qhd:m-[5.625px]'
 	}
 
-	$: lucideIconSize = iconMap[size] ?? 12
+	$: lucideIconSize = (iconMap[size] ?? 12) * 1
 </script>
 
 <div
@@ -188,7 +198,9 @@
 			on:click={() => {
 				loading = true
 				dispatch('click', event)
-				loading = false
+				if (!loadUntilNav) {
+					loading = false
+				}
 			}}
 			{href}
 			{download}

@@ -35,31 +35,41 @@
       },
       {
         "ordinal": 6,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
         "name": "is_expired",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "is_refreshed",
         "type_info": "Bool"
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "refresh_error",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "is_linked",
         "type_info": "Bool"
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "is_oauth?",
         "type_info": "Bool"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "account",
         "type_info": "Int4"
       }
@@ -77,6 +87,8 @@
       true,
       false,
       false,
+      true,
+      true,
       null,
       null,
       true,

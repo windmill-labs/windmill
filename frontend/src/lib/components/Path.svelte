@@ -12,10 +12,13 @@
 		ResourceService,
 		ScheduleService,
 		ScriptService,
-		VariableService
+		HttpTriggerService,
+		VariableService,
+		WebsocketTriggerService,
+		KafkaTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -23,12 +26,19 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import Required from './Required.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
-	import ContentSearch from './ContentSearch.svelte'
 
-	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
+	type PathKind =
+		| 'resource'
+		| 'script'
+		| 'variable'
+		| 'flow'
+		| 'schedule'
+		| 'app'
+		| 'raw_app'
+		| 'http_trigger'
+		| 'websocket_trigger'
+		| 'kafka_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -40,6 +50,7 @@
 	export let autofocus = true
 	export let dirty = false
 	export let kind: PathKind
+	export let hideUser: boolean = false
 
 	let inputP: HTMLInputElement | undefined = undefined
 
@@ -89,33 +100,43 @@
 		if (path == '' || path == 'u//') {
 			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
-					ownerKind: 'user',
+					ownerKind: hideUser ? 'folder' : 'user',
 					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
-				if ($userStore?.username?.includes('@')) {
-					meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-				} else {
-					meta.owner = $userStore!.username!
+				if (!hideUser) {
+					if ($userStore?.username?.includes('@')) {
+						meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+					} else {
+						meta.owner = $userStore!.username!
+					}
 				}
 			} else {
-				meta = {
-					...$lastMetaUsed,
-					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+				if ($lastMetaUsed.ownerKind == 'user' && hideUser) {
+					meta = {
+						ownerKind: 'folder',
+						owner: '',
+						name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+					}
+				} else {
+					meta = {
+						...$lastMetaUsed,
+						name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+					}
 				}
 			}
 			let newMeta = { ...meta }
 			while (await pathExists(metaToPath(newMeta), kind)) {
 				disabled = true
 				error = 'finding an available name...'
-				newMeta.name = random_adj() + '_' + fullNamePlaceholder ?? namePlaceholder
+				newMeta.name = random_adj() + '_' + (fullNamePlaceholder ?? namePlaceholder)
 			}
 			error = ''
 			disabled = false
 			meta = newMeta
 			path = metaToPath(meta)
 		} else {
-			meta = pathToMeta(path)
+			meta = pathToMeta(path, hideUser)
 		}
 	}
 
@@ -143,7 +164,7 @@
 				.map((x) => ({
 					name: x,
 					write:
-						($userStore?.folders?.includes(x) == true ?? false) ||
+						$userStore?.folders?.includes(x) == true ||
 						($userStore?.is_admin ?? false) ||
 						($userStore?.is_super_admin ?? false)
 				}))
@@ -196,6 +217,21 @@
 			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
 		} else if (kind == 'app') {
 			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
+		} else if (kind == 'http_trigger') {
+			return await HttpTriggerService.existsHttpTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'websocket_trigger') {
+			return await WebsocketTriggerService.existsWebsocketTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'kafka_trigger') {
+			return await KafkaTriggerService.existsKafkaTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
 		} else {
 			return false
 		}
@@ -209,10 +245,10 @@
 			error = 'This name is not valid'
 			return false
 		} else if (meta.owner == '' && meta.ownerKind == 'folder') {
-			error = 'Folder need to be chosen'
+			error = 'Folder needs to be chosen'
 			return false
 		} else if (meta.owner == '' && meta.ownerKind == 'group') {
-			error = 'Group need to be chosen'
+			error = 'Group needs to be chosen'
 			return false
 		} else {
 			return true
@@ -228,14 +264,14 @@
 
 	function initPath() {
 		if (path != undefined && path != '') {
-			meta = pathToMeta(path)
+			meta = pathToMeta(path, hideUser)
 			onMetaChange()
 			return
 		}
 		if (initialPath == undefined || initialPath == '') {
 			reset()
 		} else {
-			meta = pathToMeta(initialPath)
+			meta = pathToMeta(initialPath, hideUser)
 			onMetaChange()
 			path = initialPath
 		}
@@ -263,12 +299,10 @@
 		!dirty && (dirty = true)
 	}
 
-	let contentSearch: ContentSearch
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 </script>
-
-{#if kind != 'app' && kind != 'schedule' && initialPath != '' && initialPath != undefined}
-	<ContentSearch bind:this={contentSearch} />
-{/if}
 
 <Drawer bind:this={newFolder}>
 	<DrawerContent
@@ -279,8 +313,8 @@
 		}}
 	>
 		{#if !folderCreated}
-			<div class="flex flex-row">
-				<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
+			<div class="flex flex-col gap-2">
+				<input placeholder="New folder name" bind:value={newFolderName} />
 				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
 					New&nbsp;folder
 				</Button>
@@ -300,11 +334,9 @@
 <div>
 	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<div class="flex gap-x-4 shrink">
-				<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y-label-has-associated-control -->
+			{#if !hideUser}
 				<div class="block">
-					<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
-
 					<ToggleButtonGroup
 						class="mt-0.5"
 						bind:selected={meta.ownerKind}
@@ -343,9 +375,13 @@
 						/>
 					</ToggleButtonGroup>
 				</div>
+			{/if}
+			{#if !hideUser}
+				<div class="text-xl">/</div>
+			{/if}
+			<div>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
-						<span class="text-secondary text-sm">User</span>
 						<input
 							class="!w-36"
 							type="text"
@@ -357,16 +393,6 @@
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
-						<span class="text-secondary text-sm">
-							Folder
-							<Tooltip
-								documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
-							>
-								Read and write permissions are given to groups and users at the folder level and
-								shared by all items inside the folder.
-							</Tooltip>
-						</span>
-
 						<div class="flex flex-row items-center gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
 								{#if folders?.length == 0}
@@ -402,14 +428,8 @@
 					</label>
 				{/if}
 			</div>
+			<span class="text-xl">/</span>
 			<label class="block grow w-full max-w-md">
-				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-					<div>
-						Name
-						<Required required={true} />
-					</div>
-					<div class="text-2xs text-tertiary"> '/' for subfolders </div>
-				</div>
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					{disabled}
@@ -449,10 +469,10 @@
 			/>
 			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 		</div>
-		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
+		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	</div>
 
-	{#if kind != 'app' && kind != 'schedule' && initialPath != '' && initialPath != undefined && initialPath != path}
+	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && kind != 'websocket_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables
@@ -462,7 +482,7 @@
 					variant="border"
 					color="dark"
 					on:click={() => {
-						contentSearch?.open(initialPath)
+						openSearchWithPrefilledText('#')
 					}}
 					startIcon={{ icon: SearchCode }}
 				>

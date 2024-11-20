@@ -5,51 +5,34 @@
 	import DataTable from './DataTable.svelte'
 	import Head from './Head.svelte'
 	import Row from './Row.svelte'
-	import { pluralize, sendUserToast } from '$lib/utils'
+	import { pluralize } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { isEmail, isLink } from './tableUtils'
+	import {
+		computeStructuredObjectsAndHeaders,
+		convertJsonToCsv,
+		isEmail,
+		isLink
+	} from './tableUtils'
 	import type { BadgeColor } from '../common'
 	import Popover from '../Popover.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
-	import Button from '../common/button/Button.svelte'
-	import { Parser } from '@json2csv/plainjs'
+	import DownloadCsv from './DownloadCsv.svelte'
 	export let objects: Array<Record<string, any>> = []
 
 	let currentPage = 1
 	let perPage = 25
 	let search: string = ''
 
-	$: structuredObjects = computeStructuredObjects(objects)
-
+	let structuredObjects: {
+		_id: number
+		rowData: Record<string, any>
+	}[] = []
 	let headers: string[] = []
 
-	function computeStructuredObjects(objects: Array<Record<string, any>>) {
-		if (Array.isArray(objects)) {
-			let nextId = 1
+	$: recomputeObjectsAndHeaders(objects)
 
-			let hds: string[] = []
-			let objs = objects.map((obj) => {
-				let rowData = obj && typeof obj == 'object' ? obj : {}
-				if (Array.isArray(rowData)) {
-					rowData = Object.fromEntries(rowData.map((x, i) => ['col' + i, x]))
-				}
-				let ks = Object.keys(rowData)
-				ks.forEach((x) => {
-					if (!hds.includes(x)) {
-						hds.push(x)
-					}
-				})
-				return {
-					_id: nextId++,
-					rowData
-				}
-			})
-			headers = hds
-			return objs
-		} else {
-			headers = []
-			return []
-		}
+	function recomputeObjectsAndHeaders(objects: Array<Record<string, any>>) {
+		;[headers, structuredObjects] = computeStructuredObjectsAndHeaders(objects)
 	}
 
 	function adjustCurrentPage() {
@@ -62,43 +45,64 @@
 
 	$: perPage && adjustCurrentPage()
 
-	$: data = structuredObjects
-		.filter(
-			({ rowData }) =>
-				search == undefined ||
-				search == '' ||
-				Object.values(rowData).some((value) =>
+	$: data = computeData(structuredObjects, activeSorting, search)
+
+	type ActiveSorting = {
+		column: string
+		direction: 'asc' | 'desc'
+	}
+
+	let activeSorting: ActiveSorting | undefined = undefined
+
+	function sortObjects(
+		activeSorting: ActiveSorting | undefined,
+		objects: Array<Record<string, any>>,
+		getRowData: boolean
+	) {
+		if (activeSorting) {
+			return objects.sort((a, b) => {
+				if (!activeSorting) return 0
+				const valA = (getRowData ? a.rowData : a)?.[activeSorting.column]
+				const valB = (getRowData ? b.rowData : b)?.[activeSorting.column]
+				const isAsc = activeSorting.direction === 'asc'
+				if (valA == undefined || valA == null) {
+					return isAsc ? -1 : 1
+				}
+				if (valB == undefined || valB == null) {
+					return isAsc ? 1 : -1
+				}
+				if (isAsc) {
+					return valA > valB ? 1 : -1
+				} else {
+					return valA > valB ? -1 : 1
+				}
+			})
+		} else {
+			return objects
+		}
+	}
+	function computeData(
+		structuredObjects: Array<Record<string, any>>,
+		activeSorting: ActiveSorting | undefined,
+		search: string
+	): Array<Record<string, any>> {
+		let objects = structuredObjects
+		if (search != undefined && search != '') {
+			objects = objects.filter((obj) =>
+				Object.values(obj.rowData).some((value) =>
 					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
 				)
-		)
-		.sort((a, b) => {
-			if (!activeSorting) return 0
-			const valA = a.rowData[activeSorting.column]
-			const valB = b.rowData[activeSorting.column]
-			const isAsc = activeSorting.direction === 'asc'
-			if (valA == undefined || valA == null) {
-				return isAsc ? -1 : 1
-			}
-			if (valB == undefined || valB == null) {
-				return isAsc ? 1 : -1
-			}
-			if (isAsc) {
-				return valA > valB ? 1 : -1
-			} else {
-				return valA > valB ? -1 : 1
-			}
-		})
+			)
+		} else {
+			objects = [...objects]
+		}
+		return sortObjects(activeSorting, objects, true)
+	}
 
 	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
 
-	let activeSorting:
-		| {
-				column: string
-				direction: 'asc' | 'desc'
-		  }
-		| undefined = undefined
-
 	let selection = [] as Array<number>
+	let colSelection = [] as Array<string>
 
 	// Function to handle individual row checkbox change
 	function handleCheckboxChange(rowId: number) {
@@ -113,14 +117,19 @@
 
 	// Function to handle select all checkbox change
 	function handleSelectAllChange() {
-		if (selection.length === 0 || selection.length < slicedData.length) {
+		if (
+			selection.length === 0 ||
+			(selection.length < slicedData.length &&
+				(colSelection.length === 0 || colSelection.length < headers.length))
+		) {
 			// Select all rows
 			selection = slicedData.map((row) => row._id)
+			colSelection = [...headers]
 		} else {
 			// Deselect all rows
 			selection = []
+			colSelection = []
 		}
-		selection = [...selection]
 	}
 
 	let renderCount = 0
@@ -142,13 +151,13 @@
 	// 	return (value != undefined && typof === 'string') || typof === 'number' || typof === 'boolean'
 	// }
 
-	function convertJsonToCsv(arr: Array<Record<string, any>>): string {
-		try {
-			const parser = new Parser({})
-			const csv = parser.parse(arr)
-			return csv
-		} catch (err) {
-			throw new Error('An error occured when generating CSV:' + err)
+	function handleColumnSelected(key: string) {
+		if (colSelection.includes(key)) {
+			// Remove the id from the colSelection array
+			colSelection = colSelection.filter((id) => id !== key)
+		} else {
+			// Add the id to the colSelection array
+			colSelection = [...colSelection, key]
 		}
 	}
 </script>
@@ -156,7 +165,7 @@
 <DarkModeObserver bind:darkMode />
 
 <div class="w-full" bind:clientWidth={wrapperWidth}>
-	<div class="flex flex-col gap-2 py-2 my-2" style={`max-width: ${wrapperWidth}px;`}>
+	<div class="flex flex-col gap-2 py-1 my-1" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center gap-2">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
 				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs" />
@@ -167,45 +176,34 @@
 				{/if}
 			</div>
 			<div class="flex flex-row items-center gap-2">
-				<Button
-					size="xs"
-					color="light"
-					startIcon={{ icon: Download }}
-					on:click={() => {
-						try {
-							const csvContent = convertJsonToCsv(
-								structuredObjects
-									.filter(({ _id }) => {
-										if (selection.length > 0) {
-											return selection.includes(_id)
-										} else {
-											return true
-										}
-									})
-									.map((obj) => obj.rowData)
-							)
-
-							const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-							const url = URL.createObjectURL(blob)
-							const link = document.createElement('a')
-							link.setAttribute('href', url)
-							link.setAttribute('download', 'data.csv')
-							link.style.visibility = 'hidden'
-							document.body.appendChild(link)
-							link.click()
-
-							document.body.removeChild(link)
-						} catch (err) {
-							sendUserToast(err, true)
-						}
+				<DownloadCsv
+					getContent={() => {
+						return convertJsonToCsv(
+							selection.length > 0
+								? sortObjects(activeSorting, structuredObjects, true)
+										.filter(({ _id }) => selection.includes(_id))
+										.map((obj) =>
+											colSelection.length == 0
+												? obj.rowData
+												: Object.fromEntries(
+														Object.entries(obj.rowData).filter(([key, _]) =>
+															colSelection.includes(key)
+														)
+												  )
+										)
+								: colSelection.length == 0
+								? sortObjects(activeSorting, objects, false)
+								: sortObjects(activeSorting, objects, false).map((obj) =>
+										Object.fromEntries(
+											Object.entries(obj).filter(([key, _]) => colSelection.includes(key))
+										)
+								  )
+						)
 					}}
-				>
-					{#if selection.length > 0}
-						Download selected as CSV
-					{:else}
-						Download as CSV
-					{/if}
-				</Button>
+					customText={selection.length > 0 || colSelection.length > 0
+						? 'Download selected as CSV'
+						: undefined}
+				/>
 				<Dropdown
 					items={() => {
 						const actions = [
@@ -234,6 +232,7 @@
 								displayName: 'Clear selection',
 								icon: Columns,
 								action: () => {
+									colSelection = []
 									selection = []
 									renderCount++
 								}
@@ -317,14 +316,20 @@
 												<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
 											</button>
 										{/if}
+										<input
+											type="checkbox"
+											class="!w-4 !h-4"
+											checked={colSelection.includes(key)}
+											on:change={() => handleColumnSelected(key)}
+										/>
 									</div>
 								</Cell>
 							{/each}
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each slicedData as { _id, rowData }, index (index)}
-							<Row dividable selected={selection.includes(_id)}>
+						{#each slicedData.filter((x) => x) as { _id, rowData }, index (index)}
+							<Row dividable selected={selection.includes(_id) && colSelection.length == 0}>
 								<Cell first={true} last={false} class="w-6">
 									<input
 										type="checkbox"
@@ -335,7 +340,11 @@
 								</Cell>
 								{#each headers as key, index}
 									{@const value = rowData[key]}
-									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
+									<Cell
+										selected={colSelection.includes(key) &&
+											(selection.length == 0 || selection.includes(_id))}
+										last={index == Object.values(rowData ?? {}).length - 1}
+									>
 										{#if Array.isArray(value) && value.length === 0}
 											<div />
 										{:else if Array.isArray(value) && typeof value?.[0] === 'string'}

@@ -39,6 +39,7 @@ mount {
     src: "/lib64"
     dst: "/lib64"
 	is_bind: true
+    mandatory: false
 }
 
 
@@ -119,6 +120,7 @@ mount {
     src: "{JOB_DIR}/args.json"
     dst: "/tmp/{LANG}/args.json"
     is_bind: true
+    rw: true
 }
 
 mount {
@@ -150,7 +152,7 @@ iface_no_lo: true
 
 mount {
     src: "{CACHE_DIR}"
-    dst: "/tmp/windmill/cache/bun"
+    dst: "/tmp/windmill/cache_nomount/bun"
     is_bind: true
     mandatory: false
     rw: true

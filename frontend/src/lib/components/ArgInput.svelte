@@ -1,27 +1,27 @@
 <script lang="ts">
-	import type { SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, emptyString, shouldDisplayPlaceholder } from '$lib/utils'
-	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import type { EnumType, SchemaProperty } from '$lib/common'
+	import {
+		setInputCat as computeInputCat,
+		debounce,
+		emptyString,
+		getSchemaFromProperties
+	} from '$lib/utils'
+	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { Badge, Button, SecondsInput } from './common'
+	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
-	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ArgEnum from './ArgEnum.svelte'
-	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -30,32 +30,39 @@
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
-	import Label from './Label.svelte'
-	import Tooltip from './Tooltip.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import { deepEqual } from 'fast-equals'
+	import DynSelect from './DynSelect.svelte'
+	import type { Script } from '$lib/gen'
 
 	export let label: string = ''
 	export let value: any
-
 	export let defaultValue: any = undefined
 
 	export let description: string = ''
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
+	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let disabled = false
-	export let editableSchema: { i: number; total: number } | undefined = undefined
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
+				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined = undefined
+
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let nestedRequired: string[] | undefined = undefined
@@ -78,21 +85,52 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+	export let order: string[] | undefined = undefined
+	export let editor: SimpleEditor | undefined = undefined
+	export let orderEditable = false
+	export let shouldDispatchChanges: boolean = false
+	export let noDefaultOnSelectFirst: boolean = false
+	export let helperScript:
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+		| undefined = undefined
+	export let otherArgs: Record<string, any> = {}
 
-	let seeEditable: boolean = enum_ != undefined || pattern != undefined
+	let oneOfSelected: string | undefined = undefined
+	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		if (
+			oneOf &&
+			oneOf.length >= 2 &&
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+		) {
+			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
+				const existingValue = JSON.parse(JSON.stringify(value))
+				oneOfSelected = value['label']
+				await tick()
+				value = existingValue
+			} else {
+				oneOfSelected = oneOf[0]['title']
+			}
+		}
+	}
+	$: updateOneOfSelected(oneOf)
+	function updateOneOfSelectedValue(oneOfSelected: string | undefined) {
+		if (oneOfSelected) {
+			value = { label: oneOfSelected }
+		}
+	}
+	$: updateOneOfSelectedValue(oneOfSelected)
+
 	const dispatch = createEventDispatcher()
 
 	let ignoreValueUndefined = false
-
 	let error: string = ''
-
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
 	let isListJson = false
+	let hasIsListJsonChanged = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
-
-	export let editor: SimpleEditor | undefined = undefined
 
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
@@ -105,6 +143,9 @@
 		defaultValue?: any,
 		nnullable?: boolean
 	) {
+		if (label == 'toString' && typeof value == 'function') {
+			value = undefined
+		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
@@ -130,6 +171,43 @@
 	computeDefaultValue()
 
 	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
+
+	let lastValue: any = undefined
+
+	// By setting isListJson to true, we can render inputs even if the value is not an array of the correct type
+	// This avoids the issue of the input being rendered as a string with value: [object Object], or as a number with value: NaN
+	function checkArrayValueType() {
+		try {
+			if (Array.isArray(value) && value.length > 0) {
+				const firstItem = value?.[0]
+				const type = itemsType?.type
+
+				switch (type) {
+					case 'string':
+						if (typeof firstItem !== 'string') {
+							isListJson = true
+						}
+						break
+					case 'number':
+						if (typeof firstItem !== 'number') {
+							isListJson = true
+						}
+						break
+				}
+			}
+		} catch (e) {
+			console.error(e)
+		}
+
+		lastValue = value
+	}
+
+	$: !isListJson &&
+		inputCat === 'list' &&
+		value != lastValue &&
+		itemsType?.type &&
+		!hasIsListJsonChanged &&
+		checkArrayValueType()
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
@@ -179,7 +257,20 @@
 			error = 'Required'
 			valid && (valid = false)
 		} else {
-			if (pattern && !testRegex(pattern, v)) {
+			if (inputCat == 'number' && typeof v === 'number') {
+				let min = extra['min']
+				let max = extra['max']
+				if (min != undefined && typeof min == 'number' && v < min) {
+					error = `Should be greater than or equal to ${min}`
+					valid && (valid = false)
+				} else if (max != undefined && typeof max == 'number' && v > max) {
+					error = `Should be less than or equal to ${max}`
+					valid && (valid = false)
+				} else {
+					error = ''
+					!valid && (valid = true)
+				}
+			} else if (pattern && !testRegex(pattern, v)) {
 				if (!emptyString(customErrorMessage)) {
 					error = customErrorMessage ?? ''
 				} else if (format == 'email') {
@@ -205,7 +296,10 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
-		if ((e.ctrlKey || e.metaKey) && e.key == 'Enter') {
+		if (
+			(e.ctrlKey || e.metaKey) &&
+			(e.key == 'Enter' || e.key == 'c' || e.key == 'v' || e.key == 'x')
+		) {
 			return
 		}
 		e.stopPropagation()
@@ -216,9 +310,17 @@
 
 	$: validateInput(pattern, value, required)
 
-	function changePosition(i: number, up: boolean) {
-		dispatch('changePosition', { i, up })
+	let oldValue = value
+
+	function compareValues(value) {
+		if (!deepEqual(oldValue, value)) {
+			oldValue = value
+			dispatch('change')
+		}
 	}
+
+	let debounced = debounce(() => compareValues(value), 50)
+	$: shouldDispatchChanges && debounced(value)
 </script>
 
 <S3FilePicker
@@ -230,7 +332,6 @@
 	}}
 	readOnlyMode={false}
 />
-
 <!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
@@ -245,114 +346,8 @@
 				{format}
 				{simpleTooltip}
 			/>
-
-			{#if editableSchema}
-				<span class="mx-8" />
-				{#if editableSchema.i > 0}
-					<button
-						on:click={() => changePosition(editableSchema?.i ?? 0, true)}
-						class="text-lg mr-2"
-					>
-						&uparrow;</button
-					>
-				{/if}
-				{#if editableSchema.i < editableSchema.total - 1}
-					<button
-						on:click={() => changePosition(editableSchema?.i ?? 0, false)}
-						class="text-lg mr-2">&downarrow;</button
-					>
-				{/if}
-			{/if}
 		{/if}
-		{#if editableSchema}
-			<Label label="Description">
-				<textarea
-					class="mb-1"
-					use:autosize
-					rows="1"
-					bind:value={description}
-					on:keydown={onKeyDown}
-					placeholder="Field description"
-				/>
-			</Label>
-			<div class="flex flex-row gap-2 w-full">
-				<Label label="Custom Title" class="w-full">
-					<svelte:fragment slot="header">
-						<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
-					</svelte:fragment>
-					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
-				</Label>
-			</div>
 
-			{#if type == 'array'}
-				<ArrayTypeNarrowing bind:itemsType />
-			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<div class="p-2 my-2 mv-1 text-xs border-solid border rounded-lg">
-					<div class="w-min">
-						<Button
-							on:click={() => {
-								seeEditable = !seeEditable
-							}}
-							endIcon={{
-								icon: ChevronDown,
-								classes: twMerge('rotate-0 duration-300', seeEditable ? '!rotate-180' : '')
-							}}
-							color="light"
-							size="xs"
-						>
-							Customize
-						</Button>
-					</div>
-
-					{#if seeEditable}
-						<div class="mt-2">
-							{#if type == 'string'}
-								<StringTypeNarrowing
-									bind:customErrorMessage
-									bind:format
-									bind:pattern
-									bind:enum_
-									bind:contentEncoding
-									bind:password={extra['password']}
-									bind:minRows={extra['minRows']}
-									bind:disableCreate={extra['disableCreate']}
-									bind:disableVariablePicker={extra['disableVariablePicker']}
-									bind:dateFormat={extra['dateFormat']}
-								/>
-							{:else if type == 'number' || type == 'integer'}
-								<NumberTypeNarrowing
-									bind:min={extra['min']}
-									bind:max={extra['max']}
-									bind:currency={extra['currency']}
-									bind:currencyLocale={extra['currencyLocale']}
-								/>
-							{:else if type == 'object'}
-								<ObjectTypeNarrowing bind:format />
-							{/if}
-						</div>
-						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern)}
-							<Label label="Placeholder" class="pt-2">
-								<textarea placeholder="Enter a placeholder" rows="1" bind:value={placeholder} />
-							</Label>
-						{/if}
-						{#if !required && type === 'string'}
-							<div class="mt-2 border-t pt-4">
-								<Toggle
-									options={{
-										right: 'Nullable',
-										rightTooltip:
-											'If enabled, the default value will be null and not an empty string.'
-									}}
-									size="xs"
-									bind:checked={extra.nullable}
-								/>
-							</div>
-						{/if}
-					{/if}
-				</div>
-			{/if}
-			<span class="text-2xs font-semibold">Preview:</span>
-		{/if}
 		{#if description}
 			<div class="text-xs italic pb-1 text-secondary">
 				<pre class="font-main whitespace-normal">{description}</pre>
@@ -362,15 +357,7 @@
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				{#if extra['min'] != undefined && extra['max'] != undefined}
-					<div class="flex w-full gap-1">
-						<span>{extra['min']}</span>
-
-						<div class="grow">
-							<Range bind:value min={extra['min']} max={extra['max']} />
-						</div>
-						<span>{extra['max']}</span>
-						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
-					</div>
+					<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 				{:else if extra['seconds'] !== undefined}
 					<SecondsInput bind:seconds={value} on:focus />
 				{:else if extra?.currency}
@@ -431,6 +418,9 @@
 									bind:selected={value}
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -441,6 +431,9 @@
 									bind:selected={value}
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else}
@@ -459,7 +452,7 @@
 															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 															multiple={false}
 														/>
-													{:else if itemsType?.type == 'object'}
+													{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
 														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 													{:else if Array.isArray(itemsType?.enum)}
 														<ArgEnum
@@ -477,7 +470,38 @@
 															{autofocus}
 															bind:value={v}
 															enum_={itemsType?.enum ?? []}
+															enumLabels={extra['enumLabels']}
 														/>
+													{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+														<ObjectResourceInput
+															value={v ? `$res:${v}` : undefined}
+															bind:path={v}
+															format={'resource-' + itemsType?.resourceType}
+															defaultValue={undefined}
+														/>
+													{:else if itemsType?.type == 'resource'}
+														<JsonEditor
+															bind:editor
+															on:focus={(e) => {
+																dispatch('focus')
+															}}
+															on:blur={(e) => {
+																dispatch('blur')
+															}}
+															code={JSON.stringify(v, null, 2)}
+															bind:value={v}
+														/>
+													{:else if itemsType?.type === 'object' && itemsType?.properties}
+														<div class="p-8 border rounded-md w-full">
+															<SchemaForm
+																{onlyMaskPassword}
+																{disablePortal}
+																{disabled}
+																noDelete
+																schema={getSchemaFromProperties(itemsType?.properties)}
+																bind:args={v}
+															/>
+														</div>
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
 													{/if}
@@ -513,7 +537,20 @@
 										if (value == undefined || !Array.isArray(value)) {
 											value = []
 										}
-										value = value.concat('')
+										if (itemsType?.type == 'number') {
+											value = value.concat(0)
+										} else if (
+											itemsType?.type == 'object' ||
+											(itemsType?.type == 'resource' &&
+												!(
+													itemsType?.resourceType &&
+													resourceTypes?.includes(itemsType?.resourceType)
+												))
+										) {
+											value = value.concat({})
+										} else {
+											value = value.concat('')
+										}
 									}}
 									id="arg-input-add-item"
 									startIcon={{ icon: Plus }}
@@ -526,6 +563,11 @@
 					<div class="mt-2 mr-4">
 						<Toggle
 							on:change={(e) => {
+								// Once the user has changed the input type, we should not change it back automatically
+								if (!hasIsListJsonChanged) {
+									hasIsListJsonChanged = true
+								}
+
 								evalValueToRaw()
 								isListJson = !isListJson
 							}}
@@ -536,10 +578,29 @@
 						/>
 					</div>
 				</div>
+			{:else if inputCat == 'dynselect'}
+				<DynSelect
+					name={label}
+					args={otherArgs}
+					{helperScript}
+					bind:value
+					entrypoint={format.substring('dynselect_'.length)}
+				/>
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput selectFirst {disablePortal} {format} bind:value {showSchemaExplorer} />
+				<ObjectResourceInput
+					{defaultValue}
+					selectFirst={!noDefaultOnSelectFirst}
+					{disablePortal}
+					{format}
+					bind:value
+					bind:editor
+					on:clear={() => {
+						defaultValue = null
+					}}
+					{showSchemaExplorer}
+				/>
 			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
 					.replace('resource-', '')
 					.replace('_', '')
@@ -581,7 +642,8 @@
 							randomFileKey={true}
 							on:addition={(evt) => {
 								value = {
-									s3: evt.detail?.path ?? ''
+									s3: evt.detail?.path ?? '',
+									filename: evt.detail?.filename ?? ''
 								}
 							}}
 							on:deletion={(evt) => {
@@ -594,15 +656,132 @@
 					{/if}
 				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
-				{#if properties && Object.keys(properties).length > 0}
-					<div class="p-4 pl-8 border rounded w-full">
-						<SchemaForm
-							{onlyMaskPassword}
-							{disablePortal}
-							{disabled}
-							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
-							bind:args={value}
-						/>
+				{#if oneOf && oneOf.length >= 2}
+					<div class="flex flex-col gap-2 w-full">
+						{#if oneOf && oneOf.length >= 2}
+							<ToggleButtonGroup bind:selected={oneOfSelected}>
+								{#each oneOf as obj}
+									<ToggleButton value={obj.title} label={obj.title} />
+								{/each}
+							</ToggleButtonGroup>
+
+							{#if oneOfSelected}
+								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+								{@const obj = oneOf[objIdx]}
+								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
+									<div class="p-4 pl-8 border rounded w-full">
+										{#if orderEditable}
+											<SchemaFormDnd
+												{onlyMaskPassword}
+												{disablePortal}
+												{disabled}
+												schema={{
+													properties: Object.fromEntries(
+														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+													),
+													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+													$schema: '',
+													required: obj.required ?? [],
+													type: 'object'
+												}}
+												args={value}
+												dndType={`nested-${title}`}
+												on:reorder={(e) => {
+													if (oneOf && oneOf[objIdx]) {
+														const keys = e.detail
+														oneOf[objIdx].order = keys
+													}
+												}}
+												on:change
+											/>
+										{:else}
+											<SchemaForm
+												{onlyMaskPassword}
+												{disablePortal}
+												{disabled}
+												noDelete
+												schema={{
+													properties: Object.fromEntries(
+														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+													),
+													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+													$schema: '',
+													required: obj.required ?? [],
+													type: 'object'
+												}}
+												bind:args={value}
+											/>
+										{/if}
+									</div>
+								{:else if disabled}
+									<textarea disabled />
+								{:else}
+									<JsonEditor
+										bind:editor
+										on:focus={(e) => {
+											dispatch('focus')
+										}}
+										on:blur={(e) => {
+											dispatch('blur')
+										}}
+										code={rawValue}
+										bind:value
+									/>
+								{/if}
+							{/if}
+						{:else if disabled}
+							<textarea disabled />
+						{:else}
+							<JsonEditor
+								bind:editor
+								on:focus={(e) => {
+									dispatch('focus')
+								}}
+								on:blur={(e) => {
+									dispatch('blur')
+								}}
+								code={rawValue}
+								bind:value
+							/>
+						{/if}
+					</div>
+				{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
+					<div class="p-4 pl-8 border rounded-md w-full">
+						{#if orderEditable}
+							<SchemaFormDnd
+								{onlyMaskPassword}
+								{disablePortal}
+								{disabled}
+								schema={{
+									properties,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object',
+									order
+								}}
+								args={value}
+								dndType={`nested-${title}`}
+								on:reorder={(e) => {
+									const keys = e.detail
+									order = keys
+								}}
+								on:change
+							/>
+						{:else}
+							<SchemaForm
+								{onlyMaskPassword}
+								{disablePortal}
+								{disabled}
+								schema={{
+									properties,
+									order,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object'
+								}}
+								bind:args={value}
+							/>
+						{/if}
 					</div>
 				{:else if disabled}
 					<textarea disabled />
@@ -643,6 +822,13 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						on:focus={() => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
+						enumLabels={extra['enumLabels']}
 					/>
 				</div>
 			{:else if inputCat == 'date'}
@@ -675,14 +861,19 @@
 						multiple={false}
 					/>
 					{#if value?.length}
-						<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div>
+						<div class="text-2xs text-tertiary mt-1"
+							>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
+								2
+							)}MB)</div
+						>
 					{/if}
 				</div>
 			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
-					selectFirst
+					selectFirst={noDefaultOnSelectFirst}
 					{disablePortal}
 					bind:value
+					initialValue={defaultValue}
 					resourceType={format && format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
@@ -706,11 +897,15 @@
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
 							{#if onlyMaskPassword}
-								<Password
-									{disabled}
-									bind:password={value}
-									placeholder={placeholder ?? defaultValue ?? ''}
-								/>
+								{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+									<input type="text" bind:value />
+								{:else}
+									<Password
+										{disabled}
+										bind:password={value}
+										placeholder={placeholder ?? defaultValue ?? ''}
+									/>
+								{/if}
 							{:else}
 								<PasswordArgInput {disabled} bind:value />
 							{/if}
@@ -769,6 +964,7 @@
 			{/if}
 			<slot name="actions" />
 		</div>
+
 		{#if !compact || (error && error != '')}
 			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{#if disabled || error === ''}
@@ -793,5 +989,6 @@
 	/* Firefox */
 	input[type='number'] {
 		-moz-appearance: textfield !important;
+		appearance: textfield !important;
 	}
 </style>

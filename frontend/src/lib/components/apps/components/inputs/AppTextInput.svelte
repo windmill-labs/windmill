@@ -43,7 +43,7 @@
 	let value: string | undefined = resolvedConfig.defaultValue
 
 	let outputs = initOutput($worldStore, id, {
-		result: ''
+		result: value ?? ''
 	})
 
 	onDestroy(() => {
@@ -76,7 +76,6 @@
 		'windmillapp w-full py-1.5 px-2 text-sm',
 		'app-editor-input',
 		css?.input?.class ?? '',
-		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
 		'wm-input',
 		'wm-text-input'
 	)
@@ -174,6 +173,7 @@
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 						on:keydown|stopPropagation
 						type="password"
+						autocomplete="new-password"
 						bind:value
 						placeholder={resolvedConfig.placeholder}
 						disabled={resolvedConfig.disabled}

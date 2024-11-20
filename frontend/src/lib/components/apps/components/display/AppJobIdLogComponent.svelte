@@ -2,9 +2,7 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { initCss } from '../../utils'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
@@ -12,15 +10,15 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
-	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
-	export let render: boolean
 	export let configuration: RichConfigurations
+	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['jobidlogcomponent'].initialData.configuration,
@@ -42,6 +40,7 @@
 	let testJob: Job | undefined = undefined
 
 	$: if (resolvedConfig.jobId) {
+		outputs.loading.set(true)
 		testJobLoader?.watchJob(resolvedConfig?.['jobId'])
 	}
 </script>
@@ -65,9 +64,21 @@
 	/>
 {/each}
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+<TestJobLoader
+	workspaceOverride={workspace}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+	on:done={(e) => {
+		outputs.loading.set(false)
+		outputs.jobId.set(e.detail.id)
+		outputs.result.set(e.detail.result)
+	}}
+/>
 
-<RunnableWrapper {outputs} {render} {componentInput} {id}>
+<InitializeComponent {id} />
+
+{#if render}
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
 			class={twMerge(
@@ -87,9 +98,9 @@
 				duration={testJob?.['duration_ms']}
 				mem={testJob?.['mem_peak']}
 				content={testJob?.logs}
-				isLoading={testIsLoading}
+				isLoading={testIsLoading && testJob?.['running'] == false}
 				tag={testJob?.tag}
 			/>
 		</div>
 	</div>
-</RunnableWrapper>
+{/if}

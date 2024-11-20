@@ -1,10 +1,17 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
-	import { beforeNavigate, goto } from '$app/navigation'
+	import { beforeNavigate } from '$app/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import Button from '../button/Button.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		orderedJsonStringify,
+		replaceFalseWithUndefined,
+		type Value
+	} from '$lib/utils'
 	import { tick } from 'svelte'
+	import { page } from '$app/stores'
 
 	export let savedValue: Value | undefined = undefined
 	export let modifiedValue: Value | undefined = undefined
@@ -15,23 +22,31 @@
 	let goingTo: URL | undefined = undefined
 
 	beforeNavigate(async (newNavigationState) => {
+		// console.log('beforeNavigate', newNavigationState, bypassBeforeNavigate)
 		if (
 			!bypassBeforeNavigate &&
 			newNavigationState.to &&
+			newNavigationState.to.url != $page.url &&
 			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
 		) {
+			// console.log('going to', newNavigationState.to.url)
 			goingTo = newNavigationState.to.url
 			newNavigationState.cancel()
-			await tick() // make sure saved value is updated when clicking on save draft or deploy
+			if (newNavigationState.type != 'popstate') {
+				await tick() // make sure saved value is updated when clicking on save draft or deploy
+			}
 			if (savedValue && modifiedValue) {
 				const draftOrDeployed = cleanValueProperties({
 					...((savedValue.draft || savedValue) ?? {}),
 					path: undefined
 				})
 				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
-				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				if (
+					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
+					orderedJsonStringify(replaceFalseWithUndefined(current))
+				) {
 					bypassBeforeNavigate = true
-					goto(goingTo)
+					gotoUrl(goingTo)
 				} else {
 					open = true
 				}
@@ -54,7 +69,7 @@
 	on:confirmed={() => {
 		if (goingTo) {
 			bypassBeforeNavigate = true
-			goto(goingTo)
+			gotoUrl(goingTo)
 		}
 	}}
 >
@@ -83,7 +98,7 @@
 							onClick: () => {
 								if (goingTo) {
 									bypassBeforeNavigate = true
-									goto(goingTo)
+									gotoUrl(goingTo)
 								}
 							}
 						}

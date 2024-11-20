@@ -22,6 +22,21 @@
         "ordinal": 3,
         "name": "description",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "format_extension",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -33,6 +48,9 @@
     "nullable": [
       false,
       false,
+      true,
+      true,
+      true,
       true,
       true
     ]

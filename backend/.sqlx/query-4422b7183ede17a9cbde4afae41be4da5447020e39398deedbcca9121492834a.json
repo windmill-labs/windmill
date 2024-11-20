@@ -130,6 +130,21 @@
       },
       {
         "ordinal": 25,
+        "name": "paused_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 26,
+        "name": "on_success",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 27,
+        "name": "on_success_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 28,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -166,6 +181,9 @@
       true,
       true,
       false,
+      true,
+      true,
+      true,
       true,
       null
     ]

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -46,20 +46,20 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectedId} and is a branching step (if-else). 
+The current step is ${$selectedId} and is a branching step (if-else). 
 The user wants to generate a predicate for the branching condition.
 Here's the user's request: ${instructions}
 You can find the details of all the steps below:
 ${flowDetails}
 
-Determine for the user the javascript expression for the branching condition composed of the previous results or the flow inputs.
+Determine for the user the JavaScript expression for the branching condition composed of the previous results or the flow inputs.
 All inputs start with either results. or flow_input. and are followed by the key of the input.
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-
+			const aiProvider = $copilotInfo.ai_provider
 			const result = await getNonStreamingCompletion(
 				[
 					{
@@ -67,7 +67,8 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 
 			dispatch('setExpr', result)
@@ -82,7 +83,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 	<Popup
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"

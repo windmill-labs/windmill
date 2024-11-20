@@ -36,6 +36,7 @@ pub fn global_service() -> Router {
         )
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
+        .route("/queue_counts", get(get_queue_counts))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -46,12 +47,27 @@ struct WorkerPing {
     started_at: chrono::DateTime<chrono::Utc>,
     ip: String,
     jobs_executed: i32,
-    current_job_id: Option<Uuid>,
-    current_job_workspace_id: Option<String>,
+    last_job_id: Option<Uuid>,
+    last_job_workspace_id: Option<String>,
     custom_tags: Option<Vec<String>>,
     worker_group: String,
     wm_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     occupancy_rate: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    occupancy_rate_15s: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    occupancy_rate_5m: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    occupancy_rate_30m: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vcpus: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory_usage: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wm_memory_usage: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -79,7 +95,9 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,
+        CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id, 
+        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
@@ -148,9 +166,8 @@ async fn get_queue_metrics(
             FROM metrics
             WHERE id LIKE 'queue_%'
                 AND created_at > now() - interval '14 day'
-            ORDER BY created_at ASC
         )
-        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at)) as \"values!\"
+        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at) ORDER BY created_at ASC) as \"values!\"
         FROM queue_metrics
         GROUP BY id
         ORDER BY id ASC"
@@ -159,4 +176,13 @@ async fn get_queue_metrics(
     .await?;
 
     Ok(Json(queue_metrics))
+}
+
+async fn get_queue_counts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<std::collections::HashMap<String, u32>> {
+    require_super_admin(&db, &authed.email).await?;
+    let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
+    Ok(Json(queue_counts))
 }

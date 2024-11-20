@@ -6,3 +6,5 @@ frontend/src/routes/test.svelte
 CaddyfileRemoteMalo
 *.swp
 **/.idea/
+.direnv
+.vscode

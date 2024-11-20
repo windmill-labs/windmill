@@ -5,7 +5,10 @@
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import type { Writable } from 'svelte/store'
+	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 
+	export let selfWaitTime: number | undefined = undefined
+	export let aggregateWaitTime: number | undefined = undefined
 	export let flowModules: string[]
 	export let durationStatuses: Writable<
 		Record<
@@ -145,6 +148,16 @@
 				</div>
 			</div>
 		</div>
+		{#if selfWaitTime}
+			<div class="px-2 py-2 grid grid-cols-6 w-full">
+				root:
+				<WaitTimeWarning
+					self_wait_time_ms={selfWaitTime}
+					aggregate_wait_time_ms={aggregateWaitTime}
+					variant="badge-self-wait"
+				/>
+			</div>
+		{/if}
 		{#each Object.values(flowModules) as k (k)}
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
 				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
@@ -165,10 +178,10 @@
 				{/if}
 
 				<div class="px-2 py-2 grid grid-cols-6 w-full">
-					<div>{k}</div>
-					<div class="col-span-5 flex min-h-6 w-full">
+					<div class="truncate">{k.startsWith('subflow:') ? k.substring(8) : k}</div>
+					<div class="col-span-5 flex min-h-6">
 						{#if min && total}
-							<div class="flex flex-col gap-2 w-full p-2">
+							<div class="flex flex-col gap-2 w-full p-2 ml-4">
 								{#each items?.[k] ?? [] as b}
 									{@const waitingLen = b?.created_at
 										? b.started_at

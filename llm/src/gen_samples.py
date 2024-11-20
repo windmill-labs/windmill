@@ -90,8 +90,10 @@ def prepare_prompt(
 
     if query["lang"] in ["deno", "bun", "nativets"]:
         prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["typescript"])
-    elif query["lang"] in ["python3"]:
+    elif query["lang"] == "python3":
         prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["python"])
+    elif query["lang"] == "php":
+        prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["php"])
 
     if query["lang"] in ["postgresql"]:
         prompt = (
@@ -121,7 +123,7 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
         )
         client = openai.OpenAI()
         chat_completion = client.chat.completions.create(
-            model="gpt-4-0125-preview",
+            model="gpt-4o-2024-05-13",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},

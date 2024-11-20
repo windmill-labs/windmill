@@ -24,6 +24,9 @@
 		| 'flow'
 		| 'app'
 		| 'raw_app'
+		| 'http_trigger'
+		| 'websocket_trigger'
+		| 'kafka_trigger'
 	let kind: Kind
 
 	let path: string = ''

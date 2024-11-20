@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
@@ -16,6 +17,8 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { isDeployable } from '$lib/utils_deployable'
+
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
 	import {
@@ -24,7 +27,8 @@
 		Code,
 		Copy,
 		Eye,
-		FileUp,
+		FolderOpen,
+		ChevronUpSquare,
 		GitFork,
 		List,
 		Pen,
@@ -36,6 +40,7 @@
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let script: Script & { canWrite: boolean; use_codebase: boolean }
 	export let marked: string | undefined
@@ -88,8 +93,8 @@
 
 <Row
 	href={script.draft_only
-		? `/scripts/edit/${script.path}`
-		: `/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `${base}/scripts/edit/${script.path}`
+		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
 	path={script.path}
@@ -136,7 +141,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/scripts/edit/{script.path}"
+							href="{base}/scripts/edit/{script.path}"
 						>
 							Edit
 						</Button>
@@ -148,7 +153,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/scripts/add?template={script.path}"
+							href="{base}/scripts/add?template={script.path}"
 						>
 							Fork
 						</Button>
@@ -157,7 +162,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				if (script.draft_only) {
 					return [
@@ -198,31 +203,35 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/scripts/add?template=${script.path}`,
+						href: `${base}/scripts/add?template=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Move/Rename',
-						icon: FileUp,
+						icon: FolderOpen,
 						action: () => {
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
 						disabled: !owner || script.archived,
 						hide: $userStore?.operator
 					},
-					{
-						displayName: 'Deploy to staging/prod',
-						icon: FileUp,
-						action: () => {
-							deploymentDrawer.openDrawer(script.path, 'script')
-						},
-						disabled: script.archived,
-						hide: $userStore?.operator
-					},
+					...(isDeployable('script', script.path, await getDeployUiSettings())
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: ChevronUpSquare,
+									action: () => {
+										deploymentDrawer.openDrawer(script.path, 'script')
+									},
+									disabled: script.archived,
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `/runs/${script.path}`
+						href: `${base}/runs/${script.path}`
 					},
 					{
 						displayName: 'Versions',
@@ -234,7 +243,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${script.path}`,
+						href: `${base}/audit_logs?resource=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{

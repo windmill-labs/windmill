@@ -4,7 +4,7 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
@@ -14,7 +14,9 @@
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
-	export let containerText: string = 'Drag and drop files here or click to browse'
+	export let containerText: string = allowMultiple
+		? 'Drag and drop files here or click to browse'
+		: 'Drag and drop a file here or click to browse'
 	export let customResourcePath: string | undefined = undefined
 	export let customResourceType: 's3' | 'azure_blob' | undefined = undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
 	export let customClass: string = ''
@@ -23,6 +25,19 @@
 	export let pathTransformer: any = undefined // function taking as input {file: File} and returning a string
 	export let forceDisplayUploads: boolean = false
 	export let defaultValue: string | undefined = undefined
+	export let workspace: string | undefined = undefined
+	export let fileUploads: Writable<FileUploadData[]> = writable([])
+	export let appPath: string | undefined = undefined
+	export let computeForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -35,8 +50,6 @@
 		path?: string
 		file?: File
 	}
-
-	let fileUploads: Writable<FileUploadData[]> = writable([])
 
 	async function handleChange(files: File[] | undefined) {
 		for (const file of files ?? []) {
@@ -109,6 +122,30 @@
 			if (fileExtension) {
 				params.append('file_extension', fileExtension)
 			}
+			if (fileToUpload.type) {
+				params.append('content_type', fileToUpload.type)
+			}
+
+			if (computeForceViewerPolicies !== undefined) {
+				const forceViewerPolicies = computeForceViewerPolicies()
+
+				if (forceViewerPolicies) {
+					params.append(
+						'force_viewer_allowed_resources',
+						forceViewerPolicies.allowed_resources.join(',')
+					)
+					params.append(
+						'force_viewer_allow_user_resources',
+						JSON.stringify(forceViewerPolicies.allow_user_resources)
+					)
+					params.append(
+						'force_viewer_allow_workspace_resource',
+						JSON.stringify(forceViewerPolicies.allow_workspace_resource)
+					)
+					params.append('force_viewer_file_key_regex', forceViewerPolicies.file_key_regex)
+				}
+			}
+
 			// let response = await fetch(
 			// 	`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
 			// 	{
@@ -120,8 +157,8 @@
 			// 		duplex: 'half'
 			// 	}
 			// )
-
 			let xhr = new XMLHttpRequest()
+
 			activeUploads.push({ xhr, fileName: fileToUpload.name })
 
 			const response = (await new Promise((resolve, reject) => {
@@ -136,24 +173,32 @@
 						$fileUploads = $fileUploads
 					}
 				})
+
 				xhr?.addEventListener('loadend', () => {
+					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 					let response = xhr?.responseText
 					if (xhr?.readyState === 4 && xhr?.status === 200 && response) {
 						uploadData.progress = 100
 						resolve(JSON.parse(response))
 					} else {
+						xhr?.abort()
 						if (response) {
-							reject('An error occurred while uploading the file, see server logs')
-						} else {
 							reject(response)
+						} else {
+							reject('An error occurred while uploading the file, see server logs')
 						}
 					}
-
-					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 				})
+
 				xhr?.open(
 					'POST',
-					`/api/w/${$workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
+					appPath
+						? `/api/w/${
+								workspace ?? $workspaceStore
+						  }/apps_u/upload_s3_file/${appPath}?${params.toString()}`
+						: `/api/w/${
+								workspace ?? $workspaceStore
+						  }/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -173,7 +218,7 @@
 			})
 			return
 		}
-		dispatch('addition', { path: uploadData.path })
+		dispatch('addition', { path: uploadData.path, filename: fileToUpload.name })
 		sendUserToast('File upload finished!')
 
 		uploadData.progress = 100
@@ -188,7 +233,7 @@
 
 	async function deleteFile(fileKey: string) {
 		await HelpersService.deleteS3File({
-			workspace: $workspaceStore!,
+			workspace: workspace ?? $workspaceStore!,
 			fileKey: fileKey
 		})
 		dispatch('deletion', { path: fileKey })
@@ -302,7 +347,7 @@
 									</Button>
 								{/if}
 
-								{#if fileUpload.progress === 100 && !fileUpload.cancelled}
+								{#if fileUpload.progress === 100 && !fileUpload.cancelled && $userStore}
 									<Button
 										size="xs2"
 										color="red"
@@ -399,7 +444,6 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
-			includeMimeType
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)

@@ -4,7 +4,6 @@
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import type { DecisionTreeNode } from '../../editor/component'
@@ -13,6 +12,7 @@
 	import { initOutput } from '../../editor/appUtils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { getFirstNode, isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -62,58 +62,51 @@
 
 	const history: string[] = []
 
+	function updateCurrentNode(node, index) {
+		currentNodeId = node.next[index].id
+		history.push(node.id)
+		selectedConditionIndex = index + 1
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: nodes.findIndex((node) => node.id == currentNodeId)
+		}
+	}
+
 	function next() {
 		const resolvedNodeConditions = resolvedConditions[currentNodeId]
+		const node = nodes.find((node) => node.id == currentNodeId)
 
-		let found: boolean = false
+		if (!node) {
+			return
+		}
 
-		resolvedNodeConditions.forEach((condition, index) => {
-			if (found) return
-
-			const node = nodes.find((node) => node.id == currentNodeId)
-
-			if (condition && node && resolvedNext[node.id] !== false) {
-				found = true
-				currentNodeId = node.next[index].id
-
-				history.push(node.id)
-
-				selectedConditionIndex = index + 1
-
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: nodes.findIndex((node) => node.id == currentNodeId)
-				}
+		for (let index = 0; index < resolvedNodeConditions.length; index++) {
+			const condition = resolvedNodeConditions[index]
+			if (condition && resolvedNext[node.id] !== false) {
+				updateCurrentNode(node, index)
+				return
 			}
-		})
+		}
+	}
+	function updateFocusedGrid(nodeId) {
+		currentNodeId = nodeId
+		selectedConditionIndex = nodes.findIndex((node) => node.id == currentNodeId)
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: selectedConditionIndex
+		}
 	}
 
 	function prev() {
-		const previsouNodeId = history.pop()
+		const previousNodeId = history.pop()
 
-		if (previsouNodeId) {
-			currentNodeId = previsouNodeId
-
-			selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
-
-			$focusedGrid = {
-				parentComponentId: id,
-				subGridIndex: selectedConditionIndex
-			}
+		if (previousNodeId) {
+			updateFocusedGrid(previousNodeId)
 		} else {
-			// if no history, go to first node
-
+			// if no history, go to the first node
 			const node = getFirstNode(nodes)
-
 			if (node) {
-				currentNodeId = node.id
-
-				selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
-
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: selectedConditionIndex
-				}
+				updateFocusedGrid(node.id)
 			}
 		}
 	}
@@ -151,21 +144,6 @@
 			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
 		}
 	}
-
-	function updateDebuggingComponents() {
-		const nodeIds = nodes.map((node) => node.id).sort()
-		const debuggingComponentsIds = Object.keys($debuggingComponents).sort()
-
-		if (JSON.stringify(nodeIds) !== JSON.stringify(debuggingComponentsIds)) {
-			debuggingComponentsIds.forEach((id) => {
-				if (!nodeIds.includes(id)) {
-					delete $debuggingComponents[id]
-				}
-			})
-		}
-	}
-
-	$: nodes && $debuggingComponents && updateDebuggingComponents()
 </script>
 
 {#if Object.keys(resolvedConditions).length === nodes.length}
@@ -211,7 +189,7 @@
 				<SubGridEditor
 					visible={render && node.id === currentNodeId}
 					{id}
-					class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
+					class={twMerge(css?.container?.class, 'wm-decision-tree')}
 					style={css?.container?.style}
 					subGridId={`${id}-${i}`}
 					containerHeight={componentContainerHeight - 40}

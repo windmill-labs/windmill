@@ -3,6 +3,7 @@
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
+	export let currentSubJobProgress: number | undefined = undefined
 
 	let error: number | undefined = undefined
 	let index = 0
@@ -10,6 +11,7 @@
 	let subLength: number | undefined = undefined
 	let length = 1
 	let nextInProgress = false
+	let subIndexIsPercent: boolean = false
 
 	$: if (job) updateJobProgress(job)
 
@@ -24,7 +26,7 @@
 		let newError: number | undefined = undefined
 		let newNextInProgress = false
 
-		let maxDone = job?.flow_status?.step ?? 0
+		let maxDone = Math.max(job?.flow_status?.step ?? 0, 0)
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
 			if (nextModule.type === 'InProgress') {
@@ -38,7 +40,8 @@
 				newError = maxDone
 				maxDone = maxDone + 1
 			}
-		}
+		}		
+		subIndexIsPercent = false;
 
 		// Loop is still iterating
 		if (module?.iterator) {
@@ -51,6 +54,15 @@
 		} else if (module?.branchall) {
 			subStepIndex = module.branchall.branch
 			subStepLength = module.branchall.len
+		} else if (module?.progress) {		
+			const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
+			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99)
+			//                  Jitter protection >^^^^^^^^
+			subStepLength = 100
+			subIndexIsPercent = true;
+			currentSubJobProgress = subStepIndex
+		} else {
+			currentSubJobProgress = undefined
 		}
 
 		error = newError
@@ -81,5 +93,6 @@
 	{subLength}
 	{subIndex}
 	{error}
+	bind:subIndexIsPercent
 	class={$$props.class}
 />

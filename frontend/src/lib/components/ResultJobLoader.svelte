@@ -15,7 +15,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: workspace = workspaceOverride ?? $workspaceStore
+	$: workspace = workspaceOverride ?? $workspaceStore!
 
 	let syncIteration: number = 0
 	let errorIteration = 0
@@ -28,7 +28,7 @@
 
 	$: isLoading = currentId !== undefined
 
-	type Callbacks = { done: (x: any[]) => void; cancel: () => void; error: () => void }
+	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (err: Error) => void }
 
 	let running = false
 	let lastCallbacks: Callbacks | undefined = undefined
@@ -48,7 +48,7 @@
 					dispatch('started', testId)
 					try {
 						await watchJob(testId, callbacks)
-					} catch {
+					} catch (e) {
 						callbacks?.cancel()
 						dispatch('cancel', testId)
 						if (currentId === testId) {
@@ -59,7 +59,7 @@
 			}
 			return testId
 		} catch (err) {
-			callbacks?.error()
+			callbacks?.error(err)
 			// if error happens on submitting the job, reset UI state so the user can try again
 			isLoading = false
 			currentId = undefined
@@ -69,28 +69,53 @@
 	}
 
 	export async function runScriptByPath(
-		path: string | undefined,
-		args: Record<string, any>
+		path: string,
+		args: Record<string, any>,
+		callbacks?: Callbacks
 	): Promise<string> {
-		return abstractRun(() =>
-			JobService.runScriptByPath({
-				workspace: $workspaceStore!,
-				path: path ?? '',
-				requestBody: args
-			})
+		return abstractRun(
+			() =>
+				JobService.runScriptByPath({
+					workspace: workspace,
+					path: path,
+					requestBody: args,
+					skipPreprocessor: true
+				}),
+			callbacks
+		)
+	}
+
+	export async function runScriptByHash(
+		hash: string,
+		args: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string> {
+		return abstractRun(
+			() =>
+				JobService.runScriptByHash({
+					workspace: workspace,
+					hash: hash,
+					requestBody: args,
+					skipPreprocessor: true
+				}),
+			callbacks
 		)
 	}
 
 	export async function runFlowByPath(
 		path: string | undefined,
-		args: Record<string, any>
+		args: Record<string, any>,
+		callbacks?: Callbacks
 	): Promise<string> {
-		return abstractRun(() =>
-			JobService.runFlowByPath({
-				workspace: $workspaceStore!,
-				path: path ?? '',
-				requestBody: args
-			})
+		return abstractRun(
+			() =>
+				JobService.runFlowByPath({
+					workspace: workspace,
+					path: path ?? '',
+					requestBody: args,
+					skipPreprocessor: true
+				}),
+			callbacks
 		)
 	}
 
@@ -99,19 +124,22 @@
 		code: string,
 		lang: SupportedLanguage,
 		args: Record<string, any>,
-		tag: string | undefined
+		tag: string | undefined,
+		callbacks?: Callbacks
 	): Promise<string> {
-		return abstractRun(() =>
-			JobService.runScriptPreview({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					content: code,
-					args,
-					language: lang as Preview['language'],
-					tag
-				}
-			})
+		return abstractRun(
+			() =>
+				JobService.runScriptPreview({
+					workspace: workspace,
+					requestBody: {
+						path,
+						content: code,
+						args,
+						language: lang as Preview['language'],
+						tag
+					}
+				}),
+			callbacks
 		)
 	}
 
@@ -120,12 +148,13 @@
 		if (id) {
 			lastCallbacks?.cancel()
 			lastCallbacks = undefined
-			// console.log('cancel', 2)
+
 			dispatch('cancel', id)
+
 			currentId = undefined
 			try {
 				await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspace ?? '',
 					id,
 					requestBody: {}
 				})
@@ -138,7 +167,6 @@
 	export async function clearCurrentJob() {
 		if (currentId && !allowConcurentRequests) {
 			lastCallbacks?.cancel()
-			// console.log('cancel', 3)
 			dispatch('cancel', currentId)
 			lastCallbacks = undefined
 			job = undefined
@@ -178,7 +206,7 @@
 						job = { ...maybe_job, id }
 						await tick()
 						if (!job?.success && typeof job?.result == 'object' && 'error' in (job?.result ?? {})) {
-							callbacks?.error()
+							callbacks?.error(job.result.error)
 							dispatch('doneError', {
 								id,
 								error: job.result.error
@@ -192,7 +220,6 @@
 							currentId = undefined
 						}
 					} else {
-						// console.log('cancel', 3)
 						callbacks?.cancel()
 						dispatch('cancel', id)
 					}
@@ -209,7 +236,6 @@
 			}
 			return isCompleted
 		} else {
-			// console.log('cancel', 6)
 			callbacks?.cancel()
 			dispatch('cancel', id)
 			return true
@@ -219,7 +245,6 @@
 	async function syncer(id: string, callbacks?: Callbacks): Promise<void> {
 		if ((currentId != id && !allowConcurentRequests) || finished.includes(id)) {
 			callbacks?.cancel()
-			// console.log('cancel', 7)
 			dispatch('cancel', id)
 			return
 		}
@@ -234,7 +259,9 @@
 		} else if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 			nextIteration = 2000
 		}
-		setTimeout(() => syncer(id, callbacks), nextIteration)
+		setTimeout(() => {
+			syncer(id, callbacks)
+		}, nextIteration)
 	}
 
 	onDestroy(async () => {

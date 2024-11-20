@@ -1,6 +1,13 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
-	import { ResourceService, SettingService, UserService, WorkspaceService } from '$lib/gen'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
+	import {
+		ResourceService,
+		SettingService,
+		UserService,
+		VariableService,
+		WorkspaceService
+	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
@@ -11,11 +18,12 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type { AiProviderTypes } from '$lib/components/copilot/lib'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -25,7 +33,7 @@
 
 	let errorId = ''
 	let errorUser = ''
-	let openAiKey = ''
+	let aiKey = ''
 	let codeCompletionEnabled = true
 	let checking = false
 
@@ -61,7 +69,7 @@
 				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: true }
 			})
 		}
-		if (openAiKey != '') {
+		if (aiKey != '') {
 			let actualUsername = username
 			if (automateUsernameCreation) {
 				const user = await UserService.whoami({
@@ -69,20 +77,32 @@
 				})
 				actualUsername = user.username
 			}
-			let path = `u/${actualUsername}/openai_windmill_codegen`
+			let path = `u/${actualUsername}/${selected}_windmill_codegen`
+			await VariableService.createVariable({
+				workspace: id,
+				requestBody: {
+					path,
+					value: aiKey,
+					is_secret: true,
+					description: 'Ai token'
+				}
+			})
 			await ResourceService.createResource({
 				workspace: id,
 				requestBody: {
 					path,
 					value: {
-						api_key: openAiKey
+						api_key: '$var:' + path
 					},
-					resource_type: 'openai'
+					resource_type: selected
 				}
 			})
 			await WorkspaceService.editCopilotConfig({
 				workspace: id,
-				requestBody: { openai_resource_path: path, code_completion_enabled: codeCompletionEnabled }
+				requestBody: {
+					ai_resource: { path, provider: selected },
+					code_completion_enabled: codeCompletionEnabled
+				}
 			})
 		}
 
@@ -148,6 +168,7 @@
 
 	let auto_invite = false
 	let operatorOnly = false
+	let selected: AiProviderTypes = 'openai'
 </script>
 
 <CenteredModal title="New Workspace">
@@ -175,25 +196,38 @@
 		</label>
 	{/if}
 	<label class="block pb-4">
-		<span class="text-secondary text-sm">
-			OpenAI key for Windmill AI
-			<Tooltip>
-				Find out how it can help you <a
-					href="https://www.windmill.dev/docs/core_concepts/ai_generation"
-					target="_blank"
-					rel="noopener noreferrer">in the docs</a
-				>
-			</Tooltip>
-			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
-		</span>
-		<div class="flex flex-row gap-1">
-			<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
-			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
+		<div class="flex flex-col gap-1">
+			<span class="text-secondary text-sm">
+				AI key for Windmill AI
+				<Tooltip>
+					Find out how it can help you <a
+						href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+						target="_blank"
+						rel="noopener noreferrer">in the docs</a
+					>
+				</Tooltip>
+				<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
+			</span>
+			<div class="pb-2">
+				<ToggleButtonGroup bind:selected>
+					<ToggleButton value="openai" label="OpenAi" />
+					<ToggleButton value="anthropic" label="Anthropic" />
+					<ToggleButton value="mistral" label="Mistral" />
+				</ToggleButtonGroup>
+			</div>
 		</div>
-		{#if openAiKey}
+		<div class="flex flex-row gap-1 pb-4">
+			<input
+				type="password"
+				autocomplete="new-password"
+				bind:value={aiKey}
+				on:keyup={handleKeyUp}
+			/>
+			<TestAiKey apiKey={aiKey} disabled={!aiKey} aiProvider={selected} />
+		</div>
+		{#if aiKey}
 			<Toggle
-				disabled={!openAiKey}
-				size="xs"
+				disabled={!aiKey}
 				bind:checked={codeCompletionEnabled}
 				options={{ right: 'Enable code completion' }}
 			/>
@@ -230,7 +264,7 @@
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="/user/workspaces"
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button

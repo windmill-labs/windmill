@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import type { TableAction } from '$lib/components/apps/editor/component'
 
@@ -7,35 +7,65 @@
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 
 	import AppButton from '../../buttons/AppButton.svelte'
-	import { AppCheckbox, AppSelect } from '../..'
+	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
+	import AppSelect from '../../inputs/AppSelect.svelte'
+
 	import { twMerge } from 'tailwind-merge'
 	import { Popup } from '$lib/components/common'
 	import { Plug2 } from 'lucide-svelte'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { connectOutput } from '$lib/components/apps/editor/appUtils'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
+	import type { ICellRendererParams } from 'ag-grid-community'
 
+	export let p: ICellRendererParams<any>
 	export let id: string
 	export let render: boolean
 	export let actions: TableAction[] = []
 	export let rowIndex: number
 	export let row: { original: Record<string, any> }
-	export let onSet: (id: string, value: any) => void
-	export let onRemove: (id: string) => void
+	export let onSet: (id: string, value: any, rowIndex: number) => void
+	export let onRemove: (id: string, rowIndex: number) => void
 	export let wrapActions: boolean | undefined = undefined
-	export let selectRow: () => void
+	export let selectRow: (params: ICellRendererParams<any>) => void
 
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	let rowDiv: HTMLDivElement | undefined = undefined
+
+	onMount(() => {
+		// apply w-full to the the parent of the parent of the rowDiv
+		if (rowDiv) {
+			const parent = rowDiv.parentElement?.parentElement?.parentElement
+			if (parent) {
+				parent.classList.add('w-full')
+			} else {
+				//sometimes the parent is not available immediately
+				setTimeout(() => {
+					const parent = rowDiv?.parentElement?.parentElement?.parentElement
+					if (parent) {
+						parent.classList.add('w-full')
+					}
+				}, 10)
+			}
+		}
+	})
 </script>
 
-<RowWrapper value={row} index={rowIndex} {onSet} {onRemove}>
+<RowWrapper
+	value={row}
+	index={rowIndex}
+	onSet={(id, value) => onSet(id, value, rowIndex)}
+	onRemove={(id) => onRemove(id, rowIndex)}
+>
 	<div
 		class={twMerge(
 			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full',
 			wrapActions ? 'flex-wrap' : ''
 		)}
+		bind:this={rowDiv}
 	>
 		{#each actions as action, actionIndex}
 			<!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -53,14 +83,21 @@
 					}
 				}}
 				on:pointerdown|stopPropagation={(e) => {
-					selectRow()
-					$selectedComponent = [action.id]
+					selectRow(p)
+
+					if (!$connectingInput.opened) {
+						$selectedComponent = [action.id]
+					}
 				}}
 				class={twMerge(
 					($selectedComponent?.includes(action.id) || $hoverStore === action.id) &&
 						$mode !== 'preview'
-						? 'outline outline-indigo-500 outline-1 outline-offset-1 relative z-50'
-						: 'relative'
+						? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
+						: 'relative',
+					$hoverStore === action.id && $selectedComponent?.[0] !== action.id
+						? 'outline-blue-500'
+						: '',
+					'w-full cursor-pointer'
 				)}
 			>
 				{#if $mode !== 'preview'}
@@ -71,6 +108,9 @@
 						class={twMerge(
 							'px-2 text-2xs font-bold absolute shadow  -top-2 -left-4 border z-50 rounded-sm w-8 !h-5 flex justify-center items-center',
 							'bg-indigo-500/90 border-indigo-600 text-white',
+							$hoverStore === action.id && $selectedComponent?.[0] !== action.id
+								? 'bg-blue-500/90 border-blue-600'
+								: '',
 							$selectedComponent?.includes(action.id) || $hoverStore === action.id
 								? 'opacity-100'
 								: 'opacity-0'
@@ -99,8 +139,16 @@
 								</svelte:fragment>
 								<ComponentOutputViewer
 									suffix="table"
-									on:select={({ detail }) =>
-										connectOutput(connectingInput, 'buttoncomponent', action.id, detail)}
+									on:select={({ detail }) => {
+										const tableId = action.id.split('_')[0]
+
+										connectOutput(
+											connectingInput,
+											action.type,
+											tableId,
+											`inputs.${action.id}[${rowIndex}].${detail}`
+										)
+									}}
 									componentId={action.id}
 								/>
 							</Popup>
@@ -137,7 +185,7 @@
 							noWFull
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow()
+								selectRow(p)
 							}}
 							id={action.id}
 							customCss={action.customCss}
@@ -148,6 +196,7 @@
 							}}
 							componentInput={action.componentInput}
 							verticalAlignment="center"
+							replaceCallback={true}
 							{controls}
 						/>
 					{:else if action.type == 'checkboxcomponent'}
@@ -162,31 +211,29 @@
 							onToggle={action.onToggle}
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow()
+								selectRow(p)
 							}}
 							verticalAlignment="center"
 							{controls}
 						/>
 					{:else if action.type == 'selectcomponent'}
-						<div class="w-40">
-							<AppSelect
-								noDefault
-								noInitialize
-								extraKey={'idx' + rowIndex}
-								{render}
-								--font-size="10px"
-								id={action.id}
-								customCss={action.customCss}
-								configuration={action.configuration}
-								recomputeIds={action.recomputeIds}
-								onSelect={action.onSelect}
-								preclickAction={async () => {
-									dispatch('toggleRow')
-									selectRow()
-								}}
-								{controls}
-							/>
-						</div>
+						<AppSelect
+							noDefault
+							noInitialize
+							extraKey={'idx' + rowIndex}
+							{render}
+							--font-size="10px"
+							id={action.id}
+							customCss={action.customCss}
+							configuration={action.configuration}
+							recomputeIds={action.recomputeIds}
+							onSelect={action.onSelect}
+							preclickAction={async () => {
+								dispatch('toggleRow')
+								selectRow(p)
+							}}
+							{controls}
+						/>
 					{/if}
 				{:else if action.type == 'buttoncomponent'}
 					<AppButton
@@ -195,7 +242,7 @@
 						{render}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow()
+							selectRow(p)
 						}}
 						noWFull
 						id={action.id}
@@ -205,6 +252,7 @@
 						extraQueryParams={{
 							row
 						}}
+						replaceCallback={true}
 						componentInput={action.componentInput}
 					/>
 				{:else if action.type == 'checkboxcomponent'}
@@ -219,28 +267,26 @@
 						onToggle={action.onToggle}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow()
+							selectRow(p)
 						}}
 					/>
 				{:else if action.type == 'selectcomponent'}
-					<div class="w-40">
-						<AppSelect
-							noDefault
-							noInitialize
-							extraKey={'idx' + rowIndex}
-							{render}
-							--font-size="10px"
-							id={action.id}
-							customCss={action.customCss}
-							configuration={action.configuration}
-							recomputeIds={action.recomputeIds}
-							onSelect={action.onSelect}
-							preclickAction={async () => {
-								dispatch('toggleRow')
-								selectRow()
-							}}
-						/>
-					</div>
+					<AppSelect
+						noDefault
+						noInitialize
+						extraKey={'idx' + rowIndex}
+						{render}
+						--font-size="10px"
+						id={action.id}
+						customCss={action.customCss}
+						configuration={action.configuration}
+						recomputeIds={action.recomputeIds}
+						onSelect={action.onSelect}
+						preclickAction={async () => {
+							dispatch('toggleRow')
+							selectRow(p)
+						}}
+					/>
 				{/if}
 			</div>
 		{/each}

@@ -2,6 +2,7 @@
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'
@@ -95,11 +96,11 @@
 			value={items?.find((x) => x.value == initialPath)}
 			class="grow shrink max-w-full"
 			on:change={() => {
-				dispatch('select', { path: scriptPath })
+				dispatch('select', { path: scriptPath, itemKind })
 			}}
 			on:input={(ev) => {
 				if (!ev.detail) {
-					dispatch('select', { path: undefined })
+					dispatch('select', { path: undefined, itemKind })
 				}
 			}}
 			bind:justValue={scriptPath}
@@ -134,7 +135,7 @@
 						color="light"
 						size="xs"
 						variant="border"
-						href="/flows/edit/{scriptPath}">Edit</Button
+						href="{base}/flows/edit/{scriptPath}">Edit</Button
 					>
 				{/if}
 				<Button
@@ -156,7 +157,7 @@
 						target="_blank"
 						color="light"
 						size="xs"
-						href="/apps/edit/{scriptPath}"
+						href="{base}/apps/edit/{scriptPath}"
 						variant="border"
 					>
 						Edit
@@ -168,7 +169,7 @@
 					variant="border"
 					target="_blank"
 					startIcon={{ icon: Code }}
-					href="/apps/get/{scriptPath}"
+					href="{base}/apps/get/{scriptPath}"
 				>
 					View
 				</Button>
@@ -181,7 +182,7 @@
 						target="_blank"
 						color="light"
 						size="xs"
-						href="/scripts/edit/{scriptPath}"
+						href="{base}/scripts/edit/{scriptPath}"
 						variant="border"
 					>
 						Edit

@@ -102,6 +102,14 @@ async fn list_apps(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("app.path", path_start);
+    }
+
+    if let Some(path_exact) = &lq.path_exact {
+        sqlb.and_where_eq("app.path", "?".bind(path_exact));
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
@@ -134,9 +142,7 @@ async fn get_data(
     let app = not_found_if_none(app_o, "App", path)?;
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
 
-    Ok(res
-        .body(Body::from(app))
-        .unwrap())
+    Ok(res.body(Body::from(app)).unwrap())
 }
 
 async fn create_app(
@@ -152,7 +158,7 @@ async fn create_app(
     }
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
+        "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
         app.path,
         w_id
     )
@@ -181,7 +187,7 @@ async fn create_app(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "apps.create",
         ActionKind::Create,
         &w_id,
@@ -217,7 +223,7 @@ async fn delete_app(
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "apps.delete",
         ActionKind::Delete,
         &w_id,
@@ -294,7 +300,7 @@ async fn update_app(
     let npath = app.path.clone().unwrap_or_else(|| path.to_owned());
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "apps.update",
         ActionKind::Update,
         &w_id,

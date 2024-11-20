@@ -9,6 +9,7 @@
 use ::tracing::{field, Span};
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnFailure, OnResponse};
+use uuid::Uuid;
 
 lazy_static::lazy_static! {
     static ref LOG_REQUESTS: bool = std::env::var("LOG_REQUESTS")
@@ -45,17 +46,28 @@ impl<B> OnFailure<B> for MyOnFailure {
         // tracing::error!(latency = latency.as_millis(), "response")
     }
 }
+
+lazy_static::lazy_static! {
+    static ref TRACING_HEADER: String = std::env::var("TRACING_HEADER")
+    .ok().unwrap_or_else(|| "x-tracing-id".to_string());
+}
 #[derive(Clone)]
 pub struct MyMakeSpan {}
 
 impl<B> MakeSpan<B> for MyMakeSpan {
     fn make_span(&mut self, request: &hyper::Request<B>) -> Span {
+        let tracing_id = request
+            .headers()
+            .get(TRACING_HEADER.as_str())
+            .and_then(|x| x.to_str().map(|x| x.to_string()).ok())
+            .unwrap_or(Uuid::new_v4().to_string());
         tracing::info_span!(
             "request",
             method = %request.method(),
             uri = %request.uri(),
             username = field::Empty,
             workspace_id = field::Empty,
+            trace_id = tracing_id,
             email = field::Empty,
         )
     }

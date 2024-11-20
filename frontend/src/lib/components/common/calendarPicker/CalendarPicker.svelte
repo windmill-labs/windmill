@@ -8,6 +8,8 @@
 	export let date: string | undefined
 	export let label: string
 	export let useDropdown: boolean = false
+	export let clearable: boolean = false
+	export let target: string | HTMLElement | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
@@ -15,7 +17,7 @@
 	export let placement: Placement = 'top-end'
 </script>
 
-<Popup floatingConfig={{ placement: placement, strategy: 'absolute' }}>
+<Popup floatingConfig={{ placement: placement, strategy: 'absolute' }} {target}>
 	<svelte:fragment slot="button">
 		<button
 			title="Open calendar picker"
@@ -30,15 +32,22 @@
 	</svelte:fragment>
 
 	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<label class="block text-primary">
 		<div class="pb-1 text-sm text-secondary">{label}</div>
-		<div class="flex w-full">
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div on:click|stopPropagation class="flex w-full">
 			<DateTimeInput
+				{clearable}
 				{useDropdown}
 				value={date}
 				on:change={(e) => {
 					date = e.detail
 					dispatch('change', date)
+				}}
+				on:clear={() => {
+					dispatch('clear')
 				}}
 			/>
 		</div>

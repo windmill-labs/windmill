@@ -12,6 +12,8 @@ use object_store::azure::MicrosoftAzureBuilder;
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
+#[cfg(feature = "parquet")]
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
 use std::sync::Arc;
@@ -64,7 +66,6 @@ pub enum StorageResourceType {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct S3Resource {
-    #[serde(rename = "bucket")]
     pub bucket: String,
     pub region: String,
     #[serde(rename = "endPoint")]
@@ -110,17 +111,21 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct S3Object {
     pub s3: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
 pub async fn get_etag_or_empty(
-    object_store_resource: &ObjectStoreResource,
+    object_store_resource: &mut ObjectStoreResource,
     s3_object: S3Object,
 ) -> Option<String> {
-    let object_store_client = build_object_store_client(object_store_resource);
+    let object_store_client = build_object_store_client(object_store_resource).await;
     if object_store_client.is_err() {
         return None;
     }
@@ -166,11 +171,11 @@ pub fn render_endpoint(
 }
 
 #[cfg(feature = "parquet")]
-pub fn build_object_store_client(
+pub async fn build_object_store_client(
     resource_ref: &ObjectStoreResource,
 ) -> error::Result<Arc<dyn ObjectStore>> {
     match resource_ref {
-        ObjectStoreResource::S3(s3_resource_ref) => build_s3_client(&s3_resource_ref, None),
+        ObjectStoreResource::S3(s3_resource_ref) => build_s3_client(&s3_resource_ref).await,
         ObjectStoreResource::Azure(azure_blob_resource_ref) => {
             build_azure_blob_client(&azure_blob_resource_ref)
         }
@@ -225,10 +230,21 @@ use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region}
 use object_store::CredentialProvider;
 
 #[cfg(feature = "parquet")]
-pub fn build_s3_client(
-    s3_resource_ref: &S3Resource,
-    credential_providers: Option<DefaultCredentialsChain>,
-) -> error::Result<Arc<dyn ObjectStore>> {
+pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
+    let static_creds = s3_resource_ref.access_key.as_ref().is_some_and(|x| x != "")
+        || s3_resource_ref.secret_key.as_ref().is_some_and(|x| x != "");
+
+    let credentials_provider = if !static_creds {
+        Some(
+            DefaultCredentialsChain::builder()
+                .region(Region::new(s3_resource_ref.region.clone()))
+                .build()
+                .await,
+        )
+    } else {
+        None
+    };
+
     let s3_resource = s3_resource_ref.clone();
     let endpoint = render_endpoint(
         s3_resource.endpoint,
@@ -237,14 +253,20 @@ pub fn build_s3_client(
         s3_resource.path_style,
         s3_resource.bucket.clone(),
     );
-
     let mut store_builder = AmazonS3Builder::new()
-        .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout_disabled()
+                .with_default_headers(HeaderMap::from_iter(vec![(
+                    "Accept-Encoding".parse().unwrap(),
+                    "".parse().unwrap(),
+                )])),
+        ) // TODO: make it configurable maybe
         .with_region(s3_resource.region)
         .with_bucket_name(s3_resource.bucket)
         .with_endpoint(endpoint);
 
-    if let Some(credentials_provider) = credential_providers {
+    if let Some(credentials_provider) = credentials_provider {
         store_builder = store_builder.with_credentials(Arc::new(AwsCredentialAdapter {
             inner: credentials_provider,
         }));
@@ -292,7 +314,14 @@ fn build_azure_blob_client(
     let blob_resource = azure_blob_resource_ref.clone();
 
     let mut store_builder = MicrosoftAzureBuilder::new()
-        .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout_disabled()
+                .with_default_headers(HeaderMap::from_iter(vec![(
+                    "Accept-Encoding".parse().unwrap(),
+                    "".parse().unwrap(),
+                )])),
+        ) // TODO: make it configurable maybe
         .with_account(blob_resource.account_name)
         .with_container_name(blob_resource.container_name);
 
@@ -379,7 +408,9 @@ pub struct S3Settings {
     pub secret_key: Option<String>,
     pub endpoint: Option<String>,
     pub allow_http: Option<bool>, // default to true
+    pub path_style: Option<bool>,
     pub store_logs: Option<bool>,
+    pub port: Option<u16>,
 }
 
 #[cfg(feature = "parquet")]
@@ -397,18 +428,7 @@ pub async fn build_s3_client_from_settings(
 ) -> error::Result<Arc<dyn ObjectStore>> {
     let region = none_if_empty(settings.region)
         .unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
-    let access_key = none_if_empty(settings.access_key);
-    let secret_key = none_if_empty(settings.secret_key);
-    let credentials_provider = if access_key.is_none() && secret_key.is_none() {
-        Some(
-            DefaultCredentialsChain::builder()
-                .region(Region::new(region.clone()))
-                .build()
-                .await,
-        )
-    } else {
-        None
-    };
+
     let s3_resource = S3Resource {
         endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| {
             std::env::var("S3_ENDPOINT").unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))
@@ -417,15 +437,15 @@ pub async fn build_s3_client_from_settings(
             std::env::var("S3_CACHE_BUCKET").unwrap_or_else(|_| "missingbucket".to_string())
         }),
         region,
-        access_key,
-        secret_key,
+        access_key: settings.access_key,
+        secret_key: settings.secret_key,
         use_ssl: !settings.allow_http.unwrap_or(true),
-        path_style: None,
-        port: None,
+        path_style: settings.path_style,
+        port: settings.port,
         token: None,
     };
 
-    build_s3_client(&s3_resource, credentials_provider)
+    build_s3_client(&s3_resource).await
 }
 
 #[cfg(feature = "parquet")]

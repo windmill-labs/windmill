@@ -20,19 +20,19 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde_json::Value;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_ee::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{not_found_if_none, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
 };
 
 use lazy_static::lazy_static;
-use magic_crypt::{MagicCrypt256, MagicCryptTrait};
+use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -75,17 +75,27 @@ async fn list_contextual_variables(
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c".to_string()),
+            Some(chrono::offset::Utc::now())
         )
         .await
         .to_vec(),
     ))
 }
 
+#[derive(Deserialize)]
+struct ListVariableQuery {
+    path_start: Option<String>,
+}
+
 async fn list_variables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(lq): Query<ListVariableQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ListableVariable>> {
+    let (per_page, offset) = paginate(pagination);
+
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
@@ -93,13 +103,22 @@ async fn list_variables(
          is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
          account.refresh_error,
          resource.path IS NOT NULL as is_linked,
-         account.refresh_token != '' as is_refreshed
+         account.refresh_token != '' as is_refreshed,
+         variable.expires_at
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
-         WHERE variable.workspace_id = $1 ORDER BY path",
+         WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%' 
+            AND variable.path LIKE $3 || '%'
+         ORDER BY path
+         LIMIT $4 OFFSET $5
+",
     )
     .bind(&w_id)
+    .bind(&authed.username)
+    .bind(&lq.path_start.unwrap_or_default())
+    .bind(per_page as i32)
+    .bind(offset as i32)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -151,7 +170,7 @@ async fn get_variable(
         if decrypt_secret {
             audit_log(
                 &mut *tx,
-                &authed.username,
+                &authed,
                 "variables.decrypt_secret",
                 ActionKind::Execute,
                 &w_id,
@@ -160,14 +179,17 @@ async fn get_variable(
             )
             .await?;
         }
+
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-                Some(_refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?)
+                Some(
+                    _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap(), &db)
+                        .await?,
+                )
             } else if !value.is_empty() && decrypt_secret {
-                let mc = build_crypt(&mut tx, &w_id).await?;
-                tx.commit().await?;
-
+                let _ = tx.commit().await;
+                let mc = build_crypt(&db, &w_id).await?;
                 Some(decrypt(&mc, value)?)
             } else if q.include_encrypted.unwrap_or(false) {
                 Some(value)
@@ -192,7 +214,7 @@ async fn get_value(
 ) -> JsonResult<String> {
     let path = path.to_path();
     let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &db, &w_id, &path, &authed.username)
+    return get_value_internal(tx, &db, &w_id, &path, &authed)
         .await
         .map(Json);
 }
@@ -254,17 +276,13 @@ async fn exists_variable(
     Ok(Json(exists))
 }
 
-async fn check_path_conflict<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    w_id: &str,
-    path: &str,
-) -> Result<()> {
+async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
         path,
         w_id
     )
-    .fetch_one(&mut **tx)
+    .fetch_one(db)
     .await?
     .unwrap_or(false);
     if exists {
@@ -288,20 +306,20 @@ async fn create_variable(
 ) -> Result<(StatusCode, String)> {
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
-    let mut tx = user_db.begin(&authed).await?;
-
-    check_path_conflict(&mut tx, &w_id, &variable.path).await?;
+    check_path_conflict(&db, &w_id, &variable.path).await?;
     let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        let mc = build_crypt(&mut tx, &w_id).await?;
+        let mc = build_crypt(&db, &w_id).await?;
         encrypt(&mc, &variable.value)
     } else {
         variable.value
     };
 
+    let mut tx = user_db.begin(&authed).await?;
+
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         &w_id,
         variable.path,
         value,
@@ -309,13 +327,14 @@ async fn create_variable(
         variable.description,
         variable.account,
         variable.is_oauth.unwrap_or(false),
+        variable.expires_at
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "variables.create",
         ActionKind::Create,
         &w_id,
@@ -354,12 +373,8 @@ async fn encrypt_value(
     Path(w_id): Path<String>,
     Json(variable): Json<String>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
-    let mc = build_crypt(&mut tx, &w_id).await?;
+    let mc = build_crypt(&db, &w_id).await?;
     let value = encrypt(&mc, &variable);
-
-    tx.commit().await?;
 
     Ok(value)
 }
@@ -391,7 +406,7 @@ async fn delete_variable(
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "variables.delete",
         ActionKind::Delete,
         &w_id,
@@ -450,8 +465,6 @@ async fn update_variable(
     let path = path.to_path();
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
-    let mut tx = user_db.begin(&authed).await?;
-
     let mut sqlb = SqlBuilder::update_table("variable");
     sqlb.and_where_eq("path", "?".bind(&path));
     sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
@@ -469,13 +482,13 @@ async fn update_variable(
                 &path,
                 &w_id
             )
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await?
             .unwrap_or(false)
         };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            let mc = build_crypt(&mut tx, &w_id).await?;
+            let mc = build_crypt(&db, &w_id).await?;
             encrypt(&mc, &nvalue)
         } else {
             nvalue
@@ -493,7 +506,7 @@ async fn update_variable(
             &path,
             &w_id
         )
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&db)
         .await?
         .unwrap_or(false);
         if old_secret != nbool && ns_value_is_none {
@@ -504,10 +517,11 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
     }
     sqlb.returning("path");
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path {
         if npath != path {
-            check_path_conflict(&mut tx, &w_id, &npath).await?;
+            check_path_conflict(&db, &w_id, &npath).await?;
             require_owner_of_path(&authed, path)?;
 
             let mut v = sqlx::query_scalar!(
@@ -528,7 +542,7 @@ async fn update_variable(
             }
 
             sqlx::query!(
-                "UPDATE resource SET path = $1, value = $2 WHERE path = $3 AND workspace_id = $4",
+                "UPDATE resource SET path = $1, value = $2, edited_at = now() WHERE path = $3 AND workspace_id = $4",
                 npath,
                 v,
                 path,
@@ -547,7 +561,7 @@ async fn update_variable(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "variables.update",
         ActionKind::Update,
         &w_id,
@@ -603,7 +617,7 @@ pub async fn get_value_internal<'c>(
     db: &DB,
     w_id: &str,
     path: &str,
-    username: &str,
+    audit_author: &impl AuditAuthorable,
 ) -> Result<String> {
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
@@ -622,7 +636,7 @@ pub async fn get_value_internal<'c>(
     let r = if variable.is_secret {
         audit_log(
             &mut *tx,
-            username,
+            audit_author,
             "variables.decrypt_secret",
             ActionKind::Execute,
             &w_id,
@@ -632,10 +646,10 @@ pub async fn get_value_internal<'c>(
         .await?;
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?
+            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap(), db).await?
         } else if !value.is_empty() {
-            let mc = build_crypt(&mut tx, &w_id).await?;
             tx.commit().await?;
+            let mc = build_crypt(&db, &w_id).await?;
             decrypt(&mc, value)?
         } else {
             "".to_string()
@@ -652,6 +666,11 @@ pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
 }
 
 pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
-    mc.decrypt_base64_to_string(value)
-        .map_err(|e| Error::InternalErr(e.to_string()))
+    mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => Error::InternalErr(e.to_string()),
+    })
 }

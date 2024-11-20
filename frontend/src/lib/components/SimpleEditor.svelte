@@ -1,6 +1,31 @@
 <script context="module">
 	let cssClassesLoaded = writable(false)
 	let tailwindClassesLoaded = writable(false)
+
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-css-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noLib: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		noSuggestionDiagnostics: false,
+		diagnosticCodesToIgnore: [1108]
+	})
+	languages.json.jsonDefaults.setDiagnosticsOptions({
+		validate: true,
+		allowComments: false,
+		schemas: [],
+		enableSchemaRequest: true
+	})
 </script>
 
 <script lang="ts">
@@ -13,16 +38,14 @@
 		KeyMod,
 		Uri as mUri,
 		languages,
-		type IRange
+		type IRange,
+		type IDisposable
 	} from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
-	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
+
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-css-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
@@ -30,11 +53,12 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
 	import { writable } from 'svelte/store'
+	import { vimMode } from '$lib/stores'
+	import { initVim } from './monaco_keybindings'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -56,12 +80,14 @@
 	export let small = false
 	export let domLib = false
 	export let autofocus = false
+	export let allowVim = false
+	export let tailwindClasses: string[] = []
 
 	const dispatch = createEventDispatcher()
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	buildWorkerDefinition()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -135,30 +161,50 @@
 	let disableTabCond: meditor.IContextKey<boolean> | undefined
 	$: disableTabCond?.set(!code && !!suggestion)
 
+	let statusDiv: Element | null = null
+
+	let vimDisposable: IDisposable | undefined = undefined
+	$: allowVim && editor && $vimMode && statusDiv && onVimMode()
+	$: !$vimMode && vimDisposable && onVimDisable()
+
+	function onVimDisable() {
+		vimDisposable?.dispose()
+	}
+
+	function onVimMode() {
+		if (editor && statusDiv) {
+			vimDisposable = initVim(editor, statusDiv, () => {
+				console.log('vim save not possible for simple editor')
+			})
+		}
+	}
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
 
-		languages.json.jsonDefaults.setDiagnosticsOptions({
-			validate: true,
-			allowComments: false,
-			schemas: [],
-			enableSchemaRequest: true
-		})
-
+		// if (lang === 'javascript') {
+		// 	languages.typescript.javascriptDefaults.setCompilerOptions({
+		// 		target: languages.typescript.ScriptTarget.Latest,
+		// 		allowNonTsExtensions: true,
+		// 		noSemanticValidation: false,
+		// 		noLib: true,
+		// 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		// 	})
+		// 	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		// 		noSemanticValidation: false,
+		// 		noSyntaxValidation: false,
+		// 		noSuggestionDiagnostics: false,
+		// 		diagnosticCodesToIgnore: [1108]
+		// 	})
+		// } else if (lang === 'json') {
+		// 	languages.json.jsonDefaults.setDiagnosticsOptions({
+		// 		validate: true,
+		// 		allowComments: false,
+		// 		schemas: [],
+		// 		enableSchemaRequest: true
+		// 	})
+		// }
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {
@@ -195,6 +241,7 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			loadExtraLib()
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				code = getCode()
@@ -354,10 +401,20 @@
 
 	onDestroy(() => {
 		try {
+			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()
 		} catch (err) {}
 	})
+
+	export function setCursorToEnd(): void {
+		if (editor) {
+			const lastLine = editor.getModel()?.getLineCount() ?? 1
+			const lastColumn = editor.getModel()?.getLineMaxColumn(lastLine) ?? 1
+			editor.setPosition({ lineNumber: lastLine, column: lastColumn })
+			editor.focus()
+		}
+	}
 </script>
 
 <EditorTheme />
@@ -370,8 +427,14 @@
 		{suggestion}
 	</div>
 {/if}
-
-<div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
+<div
+	bind:this={divEl}
+	class="{$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	bind:clientWidth={width}
+/>
+{#if allowVim && $vimMode}
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+{/if}
 
 <style lang="postcss">
 	.editor {

@@ -13,6 +13,7 @@
 	import YAML from 'yaml'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	let jsonViewerDrawer: Drawer
 
@@ -25,6 +26,8 @@
 		jsonViewerDrawer?.toggleDrawer()
 	}
 </script>
+
+<HighlightTheme />
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
 	<DrawerContent title="App Export" on:close={() => jsonViewerDrawer.toggleDrawer()}>
@@ -45,10 +48,9 @@
 							variant="border"
 							size="sm"
 							startIcon={{ icon: Clipboard }}
-							btnClasses="absolute top-2 right-2 w-min"
-						>
-							Copy content
-						</Button>
+							btnClasses="absolute top-2 right-2 w-min z-20"
+							iconOnly
+						/>
 						{#key rawType}
 							<Highlight
 								class="overflow-auto px-1 flex-1"

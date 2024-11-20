@@ -9,7 +9,6 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import { classNames, getModifierKey, isMac } from '$lib/utils'
 	import { buildExtraLib } from '../../utils'
-	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
@@ -18,12 +17,12 @@
 	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
-	import { deleteGridItem } from '../appUtils'
+	import { deleteGridItem, isTableAction } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import StylePanel from './StylePanel.svelte'
-	import { ChevronLeft, ExternalLink, ArrowBigUp } from 'lucide-svelte'
+	import { ChevronLeft, ArrowBigUp, ArrowLeft } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -31,6 +30,7 @@
 	import type { ResultAppInput } from '../../inputType'
 	import GridGroup from './GridGroup.svelte'
 	import { secondaryMenuLeft } from './secondaryMenu'
+	import DocLink from './DocLink.svelte'
 
 	import ComponentControl from './ComponentControl.svelte'
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
@@ -40,6 +40,11 @@
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
+	import EventHandlers from './EventHandlers.svelte'
+	import GridNavbar from './GridNavbar.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -173,22 +178,54 @@
 
 <svelte:window on:keydown={keydown} />
 
+{#if componentSettings?.item?.id && isTableAction(componentSettings?.item?.id, $app)}
+	<div
+		class="flex items-center px-3 py-2 bg-surface border-b text-xs font-semibold gap-2 justify-between"
+	>
+		<div class="flex flex-row items-center gap-2">
+			<Popover>
+				<svelte:fragment slot="text">
+					<div class="flex flex-row gap-1"> Back to table component </div>
+				</svelte:fragment>
+				<Button
+					iconOnly
+					startIcon={{
+						icon: ArrowLeft
+					}}
+					size="xs"
+					btnClasses={twMerge(
+						'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent'
+					)}
+					on:click={() => {
+						const tableId = componentSettings?.item?.id?.split?.('_')?.[0]
+
+						if (tableId) {
+							$selectedComponent = [tableId]
+						}
+					}}
+					color="light"
+				/>
+			</Popover>
+
+			<div class="flex flex-row gap-2 items-center">
+				Table action of table
+				<Badge color="indigo">{componentSettings?.item?.id.split('_')[0]}</Badge>
+			</div>
+		</div>
+
+		<DocLink
+			docLink="https://www.windmill.dev/docs/apps/app_configuration_settings/aggrid_table#table-actions"
+		/>
+	</div>
+{/if}
+
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
-	<div class="flex justify-between items-center px-3 py-2 bg-surface-secondary">
+	<div class="flex justify-between items-center px-3 py-1 bg-surface-secondary">
 		<div class="text-xs text-primary font-semibold"
 			>{components[componentSettings.item.data.type]?.name ?? 'Unknown'}</div
 		>
-		<a
-			href={components[componentSettings.item.data.type]?.documentationLink}
-			target="_blank"
-			class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
-		>
-			<div class="flex flex-row gap-2">
-				See documentation
-				<ExternalLink size="16" />
-			</div>
-		</a>
+		<DocLink docLink={components[componentSettings.item.data.type]?.documentationLink} />
 	</div>
 
 	<div class="flex min-h-[calc(100%-32px)] flex-col min-w-[150px] w-full divide-y">
@@ -205,16 +242,19 @@
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
-						{#if componentSettings.item.data.type !== 'plotlycomponentv2'}
-							<span
+						<div class="flex flex-row gap-1 justify-center items-center">
+							<DocLink
+								docLink={'https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable'}
+							/>
+							<div
 								class={classNames(
-									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm',
 									'bg-indigo-500'
 								)}
 							>
 								{`${component.id}`}
-							</span>
-						{/if}
+							</div>
+						</div>
 					</svelte:fragment>
 
 					{#if componentSettings.item.data.componentInput}
@@ -290,7 +330,8 @@
 							{/if}
 						</div>
 					{/if}
-					<ContextVariables type={component.type} />
+
+					<ContextVariables type={component.type} id={component.id} />
 
 					{#key $stateId}
 						{#if componentSettings.item.data.componentInput?.type === 'runnable'}
@@ -322,6 +363,7 @@
 										component.type === 'aggridinfinitecomponentee'
 											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
 											: []}
+										securedContext
 									/>
 								</div>
 							{/if}
@@ -333,6 +375,9 @@
 
 		<ComponentControl type={component.type} />
 
+		{#if componentSettings.item.data.type === 'navbarcomponent'}
+			<GridNavbar bind:navbarItems={componentSettings.item.data.navbarItems} id={component.id} />
+		{/if}
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}
@@ -342,7 +387,11 @@
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponentee'}
 			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'agchartscomponentee'}
 			<GridAgChartsLicenseKe bind:license={componentSettings.item.data.license} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
@@ -365,7 +414,6 @@
 			<DecisionTreeGraphEditor
 				bind:nodes={componentSettings.item.data.nodes}
 				bind:component={componentSettings.item.data}
-				rebuildOnChange={componentSettings.item.data.nodes}
 			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane
@@ -373,14 +421,30 @@
 				bind:component={componentSettings.item.data}
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponent'}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'aggridinfinitecomponent'}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'aggridinfinitecomponentee'}
 			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'dbexplorercomponent'}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}
@@ -402,30 +466,8 @@
 				{ccomponents[component.type].name} has no configuration
 			</div>
 		{/if}
-		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.recomputeIds}
-				ownId={component.id}
-			/>
-		{/if}
-		{#if componentSettings.item.data.type === 'checkboxcomponent'}
-			<Recompute
-				title="Recompute on toggle"
-				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue'}
-				documentationLink={undefined}
-				bind:recomputeIds={componentSettings.item.data.onToggle}
-				ownId={component.id}
-			/>
-		{/if}
-		{#if componentSettings.item.data.type === 'resourceselectcomponent' || componentSettings.item.data.type === 'selectcomponent'}
-			<Recompute
-				title="Recompute on select"
-				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue'}
-				documentationLink={undefined}
-				bind:recomputeIds={componentSettings.item.data.onSelect}
-				ownId={component.id}
-			/>
-		{/if}
+
+		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
 		<div class="grow shrink" />
 
@@ -437,35 +479,32 @@
 						size="xs"
 						variant="border"
 						startIcon={{ icon: ChevronLeft }}
-						on:click={() => secondaryMenuLeft.toggle(StylePanel, {})}
+						on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
 					>
 						Show
 					</Button>
 				</div>
-
-				{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
-					<Toggle
-						bind:checked={componentSettings.item[12].fullHeight}
-						size="xs"
-						options={{
-							right: 'Desktop full height',
-							rightTooltip:
-								'When enabled, the component will take the full height of the parent container.'
-						}}
-					/>
-				{/if}
-				{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
-					<Toggle
-						bind:checked={componentSettings.item[3].fullHeight}
-						size="xs"
-						options={{
-							right: 'Mobile full height',
-							rightTooltip:
-								'When enabled, the component will take the full height of the parent container.'
-						}}
-					/>
-				{/if}
-
+				<div class="flex gap-2 items-center">
+					<div class="!text-2xs">Full height</div>
+					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
+						<Toggle
+							bind:checked={componentSettings.item[12].fullHeight}
+							size="xs"
+							options={{
+								right: 'Desktop'
+							}}
+						/>
+					{/if}
+					{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
+						<Toggle
+							bind:checked={componentSettings.item[3].fullHeight}
+							size="xs"
+							options={{
+								right: 'Mobile'
+							}}
+						/>
+					{/if}
+				</div>
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">

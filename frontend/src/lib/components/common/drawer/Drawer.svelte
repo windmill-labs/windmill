@@ -10,6 +10,7 @@
 	export let size = '600px'
 	export let alwaysOpen = false
 	export let shouldUsePortal: boolean = true
+	export let offset: number = 0
 
 	let disposable: Disposable | undefined = undefined
 
@@ -62,9 +63,18 @@
 </script>
 
 <ConditionalPortal condition={shouldUsePortal}>
-	<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
+	<Disposable
+		initialOffset={offset}
+		let:handleClickAway
+		let:zIndex
+		bind:open
+		bind:this={disposable}
+		on:open
+		on:close
+	>
 		<aside
-			class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
+			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
+				''}"
 			class:open
 			class:close={!open && timeout}
 			style={`${style}; --zIndex: ${zIndex};`}
@@ -81,7 +91,7 @@
 	</Disposable>
 </ConditionalPortal>
 
-<style>
+<style lang="postcss">
 	.drawer {
 		position: fixed;
 		top: 0;
@@ -128,7 +138,8 @@
 		width: 100%;
 		@apply bg-surface;
 		z-index: 3;
-		transition: transform var(--duration) ease;
+		transition: transform var(--duration) ease, max-width var(--duration) ease,
+			max-height var(--duration) ease;
 		height: 100%;
 	}
 

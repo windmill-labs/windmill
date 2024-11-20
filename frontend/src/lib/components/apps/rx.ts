@@ -8,7 +8,7 @@ export interface Subscriber<T> {
 }
 
 export interface Observable<T> {
-	subscribe(x: Subscriber<T>, previousValue: T): void
+	subscribe(x: Subscriber<T>, previousValue: T): () => void
 }
 export interface Output<T> extends Observable<T> {
 	set(x: T, force?: boolean): void
@@ -153,6 +153,14 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 		// Send the current value to the new subscriber if it already exists
 		if (value !== undefined && !deepEqual(value, npreviousValue)) {
 			x.next(value)
+		}
+
+		// return a callback to unsubscribe
+		return () => {
+			const index = subscribers.findIndex((y) => y === x || (y.id && y.id === x.id))
+			if (index !== -1) {
+				subscribers.splice(index, 1)
+			}
 		}
 	}
 

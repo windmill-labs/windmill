@@ -67,8 +67,8 @@
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm"
 		>Payload <Tooltip
-			>Auth is passed in query most commonly. LinkedIn is an example of OAuth using
-			x-www-form-urlencoded
+			>Auth (client id/client secret) is passed as basic auth most commonly but can be passed in the
+			body x-www-form-urlencoded. Some LinkedIn is an example of OAuth using x-www-form-urlencoded
 		</Tooltip></span
 	>
 	<div>

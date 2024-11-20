@@ -23,6 +23,21 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
+const KINDS: [&str; 12] = [
+    "script",
+    "group_",
+    "resource",
+    "schedule",
+    "variable",
+    "flow",
+    "folder",
+    "app",
+    "raw_app",
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+];
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/get/*path", get(get_granular_acls))
@@ -49,6 +64,11 @@ async fn add_granular_acl(
     let (kind, path) = path
         .split_once('/')
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
+
+    if !KINDS.contains(&kind) {
+        return Err(Error::BadRequest("Invalid kind".to_string()));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let identifier = if kind == "group_" || kind == "folder" {
@@ -68,10 +88,31 @@ async fn add_granular_acl(
         }
     }
 
+    if kind == "folder" {
+        if let Some(obj) = sqlx::query_scalar!(
+            "SELECT owners FROM folder WHERE name = $1 AND workspace_id = $2",
+            path, 
+            w_id
+        )
+
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if obj.contains(&owner) {
+                if write != Some(true) {
+                    return Err(Error::BadRequest(
+                        "Cannot remove write permission for folder owner".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
-         true) WHERE {identifier} = $2 AND workspace_id = $3 RETURNING extra_perms"
+        "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
+         true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
+    .bind(vec![owner])
     .bind(write.unwrap_or(false))
     .bind(path)
     .bind(&w_id)
@@ -157,6 +198,10 @@ async fn remove_granular_acl(
     let (kind, path) = path
         .split_once('/')
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
+
+    if !KINDS.contains(&kind) {
+        return Err(Error::BadRequest("Invalid kind".to_string()));
+    }
 
     if !authed.is_admin {
         if kind == "folder" {
@@ -266,6 +311,10 @@ async fn get_granular_acls(
     let (kind, path) = path
         .split_once('/')
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
+
+    if !KINDS.contains(&kind) {
+        return Err(Error::BadRequest("Invalid kind".to_string()));
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 

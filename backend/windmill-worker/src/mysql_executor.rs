@@ -1,21 +1,29 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
+use futures::{future::BoxFuture, FutureExt};
+use itertools::Itertools;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use sqlx::types::Json;
+use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
+    worker::to_raw_value,
 };
-use windmill_parser_sql::{parse_db_resource, parse_mysql_sig, RE_ARG_MYSQL_NAMED};
+use windmill_parser_sql::{
+    parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
+    RE_ARG_MYSQL_NAMED,
+};
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, run_future_with_polling_update_job_poller},
+    common::{build_args_map, OccupancyMetrics},
+    handle_child::run_future_with_polling_update_job_poller,
     AuthedClientBackgroundTask,
 };
 
@@ -29,6 +37,71 @@ struct MysqlDatabase {
     ssl: Option<bool>,
 }
 
+pub fn do_mysql_inner<'a>(
+    query: &'a str,
+    all_statement_values: &Params,
+    conn: Arc<Mutex<mysql_async::Conn>>,
+    column_order: Option<&'a mut Option<Vec<String>>>,
+    skip_collect: bool,
+) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+    let param_names = parse_sql_statement_named_params(query, ':')
+        .into_iter()
+        .map(|x| x.into_bytes())
+        .collect_vec();
+
+    let statement_values = if let Params::Named(m) = all_statement_values {
+        Params::Named(
+            m.into_iter()
+                .filter(|(k, _)| param_names.contains(&k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        )
+    } else {
+        all_statement_values.clone()
+    };
+
+    let result_f = async move {
+        if skip_collect {
+            conn.lock()
+                .await
+                .exec_drop(query, statement_values)
+                .await
+                .map_err(to_anyhow)?;
+
+            Ok(to_raw_value(&Value::Array(vec![])))
+        } else {
+            let rows: Vec<Row> = conn
+                .lock()
+                .await
+                .exec(query, statement_values)
+                .await
+                .map_err(to_anyhow)?;
+
+            if let Some(column_order) = column_order {
+                *column_order = Some(
+                    rows.first()
+                        .map(|x| {
+                            x.columns()
+                                .iter()
+                                .map(|x| x.name_str().to_string())
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default(),
+                );
+            }
+
+            Ok(to_raw_value(
+                &rows
+                    .into_iter()
+                    .map(|x| convert_row_to_value(x))
+                    .collect::<Vec<serde_json::Value>>(),
+            ))
+        }
+    };
+
+    Ok(result_f.boxed())
+}
+
 pub async fn do_mysql(
     job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
@@ -38,6 +111,7 @@ pub async fn do_mysql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -58,8 +132,9 @@ pub async fn do_mysql(
             )
             .await?;
 
-        let as_raw = serde_json::from_value(val)
-            .map_err(|e| Error::InternalErr(format!("Error while parsing inline resource: {e}")))?;
+        let as_raw = serde_json::from_value(val).map_err(|e| {
+            Error::InternalErr(format!("Error while parsing inline resource: {e:#}"))
+        })?;
 
         Some(as_raw)
     } else {
@@ -72,6 +147,8 @@ pub async fn do_mysql(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
     let opts = OptsBuilder::default()
         .db_name(Some(database.database))
@@ -90,14 +167,11 @@ pub async fn do_mysql(
         opts
     };
 
-    let pool = mysql_async::Pool::new(opts);
-    let mut conn = pool.get_conn().await.map_err(to_anyhow)?;
-
-    let sig = parse_mysql_sig(&query)
+    let sig = parse_mysql_sig(query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(&query).count() > 0;
+    let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 
     let mut statement_values: Params = match using_named_params {
         true => Params::Named(HashMap::new()),
@@ -105,10 +179,8 @@ pub async fn do_mysql(
     };
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
-        let arg_n = arg.clone().name;
-        let mysql_v = match job
-            .args
-            .as_ref()
+        let arg_n = arg.name.clone();
+        let mysql_v = match job_args
             .and_then(|x| {
                 x.get(arg.name.as_str())
                     .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
@@ -171,35 +243,49 @@ pub async fn do_mysql(
         }
     }
 
-    let result_f = async {
-        let rows: Vec<Row> = conn
-            .exec(
-                query,
-                match statement_values {
-                    Params::Positional(v) => Params::Positional(v),
-                    Params::Named(m) => Params::Named(m),
-                    _ => Params::Empty,
-                },
-            )
-            .await
-            .map_err(to_anyhow)?;
+    let pool = mysql_async::Pool::new(opts);
+    let conn = pool.get_conn().await.map_err(to_anyhow)?;
+    let conn_a = Arc::new(Mutex::new(conn));
 
-        *column_order = Some(
-            rows.first()
-                .map(|x| {
-                    x.columns()
-                        .iter()
-                        .map(|x| x.name_str().to_string())
-                        .collect::<Vec<String>>()
-                })
-                .unwrap_or_default(),
-        );
+    let queries = parse_sql_blocks(query);
 
-        Ok(rows
-            .into_iter()
-            .map(|x| convert_row_to_value(x))
-            .collect::<Vec<serde_json::Value>>())
-            as Result<Vec<serde_json::Value>, anyhow::Error>
+    let result_f = if queries.len() > 1 {
+        let futures = queries
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                do_mysql_inner(
+                    x,
+                    &statement_values,
+                    conn_a.clone(),
+                    None,
+                    annotations.return_last_result && i < queries.len() - 1,
+                )
+            })
+            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+
+        let f = async {
+            let mut res: Vec<Box<RawValue>> = vec![];
+            for fut in futures {
+                let r = fut.await?;
+                res.push(r);
+            }
+            if annotations.return_last_result && res.len() > 0 {
+                Ok(res.pop().unwrap())
+            } else {
+                Ok(to_raw_value(&res))
+            }
+        };
+
+        f.boxed()
+    } else {
+        do_mysql_inner(
+            query,
+            &statement_values,
+            conn_a.clone(),
+            Some(column_order),
+            false,
+        )?
     };
 
     let result = run_future_with_polling_update_job_poller(
@@ -211,10 +297,11 @@ pub async fn do_mysql(
         result_f,
         worker_name,
         &job.workspace_id,
+        &mut Some(occupancy_metrics),
     )
     .await?;
 
-    drop(conn);
+    drop(conn_a);
 
     pool.disconnect().await.map_err(to_anyhow)?;
 

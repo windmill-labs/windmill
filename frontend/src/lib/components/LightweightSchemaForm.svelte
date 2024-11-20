@@ -4,6 +4,7 @@
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import { allTrue, computeShow } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
@@ -14,8 +15,19 @@
 	export let isValid: boolean = true
 	export let defaultValues: Record<string, any> = {}
 	export let dynamicEnums: Record<string, any> = {}
-	export let hideResourceInput: boolean = false
-	export let resourceInputUnsupported: boolean = false
+	export let disabled: boolean = false
+	export let appPath: string | undefined = undefined
+	export let computeS3ForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 	let errors: { [id: string]: string } = {}
@@ -25,8 +37,6 @@
 	$: if (args === undefined) {
 		args = {}
 	}
-
-	reorder()
 
 	export function invalidate(key: string, error: string) {
 		inputCheck[key] = false
@@ -43,29 +53,42 @@
 		errors = Object.fromEntries(Object.entries(errors).map((x) => [x[0], '']))
 	}
 
+	let keys: string[] = Array.isArray(schema?.order)
+		? schema?.order
+		: Object.keys(schema?.properties ?? {})
+
+	$: schema && reorder()
+
 	function reorder() {
-		console.log('reorder')
-		if (schema?.order && Array.isArray(schema.order)) {
-			const n = {}
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
+			console.debug('reorder')
+			if (schema?.order && Array.isArray(schema.order)) {
+				const n = {}
 
-			;(schema.order as string[]).forEach((x) => {
-				if (schema.properties && schema.properties[x] != undefined) {
-					n[x] = schema.properties[x]
-				}
-			})
-
-			Object.keys(schema.properties ?? {})
-				.filter((x) => !schema.order?.includes(x))
-				.forEach((x) => {
-					n[x] = schema.properties[x]
+				;(schema.order as string[]).forEach((x) => {
+					if (schema.properties && schema.properties[x] != undefined) {
+						n[x] = schema.properties[x]
+					}
 				})
-			schema.properties = n
+
+				Object.keys(schema.properties ?? {})
+					.filter((x) => !schema.order?.includes(x))
+					.forEach((x) => {
+						n[x] = schema.properties[x]
+					})
+				schema.properties = n
+			}
+			keys = Object.keys(schema.properties ?? {})
 		}
 	}
 </script>
 
-<div class={twMerge('w-full flex flex-col px-0.5 pb-2', largeGap ? 'gap-8' : 'gap-2')}>
-	{#each Object.keys(schema.properties ?? {}) as argName (argName)}
+<div
+	class={twMerge('w-full flex flex-col px-0.5 pb-2', largeGap ? 'gap-8' : 'gap-2')}
+	on:pointerdown
+>
+	{#each keys as argName (argName)}
 		{#if typeof args == 'object' && schema?.properties[argName] && args}
 			<LightweightArgInput
 				render={computeShow(argName, schema?.properties[argName].showExpr, args)}
@@ -75,6 +98,7 @@
 				bind:valid={inputCheck[argName]}
 				bind:error={errors[argName]}
 				type={schema.properties[argName].type}
+				oneOf={schema.properties[argName].oneOf}
 				required={schema.required?.includes(argName) ?? false}
 				pattern={schema.properties[argName].pattern}
 				defaultValue={defaultValues?.[argName] ?? schema.properties[argName].default}
@@ -91,8 +115,10 @@
 				on:inputClicked
 				{displayType}
 				{css}
-				{hideResourceInput}
-				{resourceInputUnsupported}
+				disabled={disabled || schema.properties[argName].disabled}
+				{appPath}
+				{computeS3ForceViewerPolicies}
+				{workspace}
 			/>
 		{/if}
 	{/each}

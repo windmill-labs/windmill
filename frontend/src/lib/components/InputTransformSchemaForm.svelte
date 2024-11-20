@@ -3,6 +3,7 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -11,7 +12,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 	import { Plus } from 'lucide-svelte'
 
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> }
 	export let args: Record<string, InputTransform | any> = {}
 
 	export let isValid: boolean = true
@@ -27,6 +28,9 @@
 	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
+
+	const dispatch = createEventDispatcher()
+
 	$: isValid = allTrue(inputCheck) ?? false
 
 	$: if (args == undefined || typeof args !== 'object') {
@@ -63,24 +67,26 @@
 
 <div class="w-full {clazz}">
 	{#if enableAi}
-		<StepInputsGen
-			{pickableProperties}
-			argNames={keys
-				? keys.filter(
-						(argName) =>
-							Object.keys(schema.properties ?? {}).includes(argName) &&
-							Object.keys(args ?? {}).includes(argName) &&
-							((args[argName].type === 'static' && !args[argName].value) ||
-								(args[argName].type === 'javascript' && !args[argName].expr))
-				  )
-				: []}
-			{schema}
-		/>
+		<div class="px-0.5 pt-0.5">
+			<StepInputsGen
+				{pickableProperties}
+				argNames={keys
+					? keys.filter(
+							(argName) =>
+								Object.keys(schema.properties ?? {}).includes(argName) &&
+								Object.keys(args ?? {}).includes(argName) &&
+								((args[argName].type === 'static' && !args[argName].value) ||
+									(args[argName].type === 'javascript' && !args[argName].expr))
+					  )
+					: []}
+				{schema}
+			/>
+		</div>
 	{/if}
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="z-10 pt-4">
+				<div class="pt-2 relative">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -94,6 +100,10 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
+						on:change={(e) => {
+							const { argName } = e.detail
+							dispatch('changeArg', { argName })
+						}}
 					/>
 				</div>
 			{/if}
@@ -120,7 +130,7 @@
 >
 	<div
 		slot="submission"
-		class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+		class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
 		<Button
 			variant="border"

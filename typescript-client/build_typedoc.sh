@@ -1,0 +1,1 @@
+npx typedoc src/index.ts --groupOrder 'Classes,Functions,Variables,*'

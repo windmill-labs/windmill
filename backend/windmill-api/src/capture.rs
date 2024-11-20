@@ -18,7 +18,7 @@ use windmill_common::{
     error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
-use windmill_queue::PushArgs;
+use windmill_queue::{PushArgs, PushArgsOwned};
 
 use crate::db::{ApiAuthed, DB};
 
@@ -86,7 +86,7 @@ pub async fn new_payload(
 pub async fn update_payload(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> Result<StatusCode> {
     let mut tx = db.begin().await?;
 
@@ -99,7 +99,7 @@ pub async fn update_payload(
         ",
         &w_id,
         &path.to_path(),
-        Json(args) as Json<PushArgs>,
+        Json(PushArgs { args: &args.args, extra: args.extra }) as Json<PushArgs>,
     )
     .execute(&mut *tx)
     .await?;

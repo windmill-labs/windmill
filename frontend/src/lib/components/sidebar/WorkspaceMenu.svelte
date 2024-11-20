@@ -10,7 +10,8 @@
 	import { Building, Plus, Settings } from 'lucide-svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
@@ -18,6 +19,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { isCloudHosted } from '$lib/cloud'
+	import { initAllAiWorkspace } from '../copilot/lib'
 
 	export let isCollapsed: boolean = false
 
@@ -25,7 +27,7 @@
 		if ($workspaceStore === id) {
 			return
 		}
-
+		initAllAiWorkspace(id, true)
 		const editPages = [
 			'/scripts/edit/',
 			'/flows/edit/',
@@ -38,9 +40,12 @@
 
 		if (!isOnEditPage) {
 			switchWorkspace(id)
+			if ($page.url.searchParams.get('workspace')) {
+				$page.url.searchParams.set('workspace', id)
+			}
 		} else {
-			await goto('/')
 			switchWorkspace(id)
+			await goto('/')
 		}
 	}
 </script>
@@ -71,20 +76,22 @@
 				</MenuItem>
 			{/each}
 		</div>
+		{#if isCloudHosted() || $superadmin}
+			<div class="py-1" role="none">
+				<a
+					href="{base}/user/create_workspace"
+					class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
+					role="menuitem"
+					tabindex="-1"
+				>
+					<Plus size={16} />
+					Workspace
+				</a>
+			</div>
+		{/if}
 		<div class="py-1" role="none">
 			<a
-				href="/user/create_workspace"
-				class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
-				role="menuitem"
-				tabindex="-1"
-			>
-				<Plus size={16} />
-				Workspace
-			</a>
-		</div>
-		<div class="py-1" role="none">
-			<a
-				href="/user/workspaces"
+				href="{base}/user/workspaces"
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}
@@ -92,14 +99,14 @@
 				role="menuitem"
 				tabindex="-1"
 			>
-				All workspaces & invites
+				All workspaces
 			</a>
 		</div>
 		{#if $userStore?.is_admin || $superadmin}
 			<div class="py-1" role="none">
 				<MenuItem>
 					<a
-						href="/workspace_settings"
+						href="{base}/workspace_settings"
 						class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 						role="menuitem"
 						tabindex="-1"

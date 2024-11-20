@@ -13,9 +13,9 @@
 		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
-	import { cloneDeep } from 'lodash'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
 	let scriptEditorDrawer: Drawer
 
@@ -28,7 +28,7 @@
 			workspace: $workspaceStore!,
 			hash
 		})
-		savedScript = cloneDeep(script)
+		savedScript = structuredClone(script)
 		callback = cb
 	}
 
@@ -42,12 +42,14 @@
 				language: Preview['language']
 				content: string
 				schema?: any
+				tag?: string
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				no_main_func?: boolean
+				has_preprocessor?: boolean
 		  }
 		| undefined = undefined
 
@@ -60,12 +62,14 @@
 				language: Preview['language']
 				content: string
 				schema?: any
+				tag?: string
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				no_main_func?: boolean
+				has_preprocessor?: boolean
 		  }
 		| undefined = undefined
 
@@ -74,14 +78,11 @@
 			try {
 				script.schema = script.schema ?? emptySchema()
 				try {
-					await inferArgs(script.language, script.content, script.schema)
-					script.no_main_func = undefined
+					const result = await inferArgs(script.language, script.content, script.schema)
+					script.no_main_func = result?.no_main_func || undefined
+					script.has_preprocessor = result?.has_preprocessor || undefined
 				} catch (error) {
-					script.no_main_func = true
-					sendUserToast(
-						`Impossible to infer the schema. Assuming this is a script without main function`,
-						true
-					)
+					sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 				}
 
 				await ScriptService.createScript({
@@ -92,11 +93,12 @@
 						description: script.description ?? '',
 						parent_hash: script.hash != '' ? script.hash : undefined,
 						is_template: false,
+						tag: script.tag,
 						kind: script.kind as Script['kind'] | undefined,
 						lock: undefined
 					}
 				})
-				savedScript = cloneDeep(script)
+				savedScript = structuredClone(script)
 				callback?.()
 			} catch (error) {
 				sendUserToast(`Impossible to save the script: ${error.body}`, true)
@@ -195,14 +197,21 @@
 		{#if script}
 			{#key script.hash}
 				<ScriptEditor
+					on:saveDraft={() => {
+						saveScript()
+					}}
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
+					tag={script.tag}
 					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
-					tag={undefined}
-				/>
+				>
+					<div slot="editor-bar-right">
+						<WorkerTagSelect bind:tag={script.tag} />
+					</div>
+				</ScriptEditor>
 			{/key}
 		{:else}
 			<div
@@ -233,7 +242,7 @@
 						button: {
 							text: 'Restore to saved',
 							onClick: () => {
-								script = cloneDeep(savedScript)
+								script = structuredClone(savedScript)
 								diffDrawer.closeDrawer()
 							}
 						}

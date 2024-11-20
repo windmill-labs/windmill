@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { createPopperActions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { fade } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
@@ -26,7 +27,7 @@
 	<slot />
 </fragment>
 {#if showTooltip}
-	<Portal>
+	<Portal name="manual-popover">
 		<div
 			use:popperContent
 			class={twMerge('z-[901] rounded-lg shadow-md border p-4 bg-surface', $$props.class)}

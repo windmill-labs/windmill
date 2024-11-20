@@ -1,12 +1,18 @@
 use crate::db::DB;
 
-use axum::{extract::Path, routing::post, Extension, Json, Router};
+use axum::{
+    extract::Path,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 use windmill_common::{
-    error,
-    job_metrics::{JobStatsRecord, MetricKind},
+    error::{self, Error},
+    job_metrics::{
+        record_metric, register_metric_for_job, JobStatsRecord, MetricKind, MetricNumericValue,
+    },
 };
 
 pub fn workspaced_service() -> Router {
@@ -15,7 +21,16 @@ pub fn workspaced_service() -> Router {
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    Router::new().route("/get/:id", post(get_job_metrics).layer(cors.clone()))
+    Router::new()
+        .route("/get/:id", post(get_job_metrics).layer(cors.clone()))
+        .route(
+            "/set_progress/:id",
+            post(set_job_progress).layer(cors.clone()),
+        )
+        .route(
+            "/get_progress/:id",
+            get(get_job_progress).layer(cors.clone()),
+        )
 }
 
 #[derive(Deserialize)]
@@ -136,6 +151,93 @@ async fn get_job_metrics(
 
     let response = JobStatsResponse { metrics_metadata, scalar_metrics, timeseries_metrics };
     Ok(Json(response))
+}
+#[derive(Deserialize)]
+struct JobProgressSetRequest {
+    percent: i32,
+    /// Optional parent flow id
+    /// Used to modify flow status
+    /// Specifically `progress` field in corresponding FlowStatusModule in `InProgress` state
+    flow_job_id: Option<Uuid>,
+}
+
+async fn set_job_progress(
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Json(JobProgressSetRequest { percent, flow_job_id }): Json<JobProgressSetRequest>,
+) -> error::JsonResult<()> {
+    // If flow_job_id exists, than we should modify flow_status of corresponding module
+    // Individual jobs and flows are handled differently
+    if let Some(flow_job_id) = flow_job_id {
+        // TODO: Return error if trying to set completed job?
+        sqlx::query!(
+            "UPDATE queue
+                SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step', 'progress'], $1)
+                WHERE id = $2",
+            serde_json::json!(percent.clamp(0, 99)),
+            flow_job_id
+        )
+        .execute(&db)
+        .await?;
+    }
+
+    let record_progress = || {
+        record_metric(
+            &db,
+            w_id.clone(),
+            job_id,
+            "progress_perc".to_owned(),
+            MetricNumericValue::Integer(percent),
+        )
+    };
+
+    // Try to record
+    if let Err(err) = record_progress().await {
+        if matches!(err, Error::MetricNotFound(..)) {
+            // Register
+            // TODO: Reset progress after job is finished (in case it reruns same job)?
+            _ = register_metric_for_job(
+                &db,
+                w_id.clone(),
+                job_id,
+                "progress_perc".to_string(),
+                MetricKind::ScalarInt,
+                Some("Job Execution Progress (%)".to_owned()),
+            )
+            .await?;
+            // Retry recording progress
+            record_progress().await.map_err(|err| {
+                // If for some reason it still returns same error, this error will be converted to BadRequest and returned
+                if let Error::MetricNotFound(body) = err {
+                    Error::BadRequest(body)
+                } else {
+                    err
+                }
+            })?;
+        } else {
+            return Err(err);
+        }
+    };
+    return Ok(Json(()));
+}
+
+async fn get_job_progress(
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Option<i32>> {
+    let progress: Option<Option<i32>> = sqlx::query_scalar!(
+            "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
+            job_id, w_id)
+            .fetch_optional(&db)
+            .await?;
+
+    let respond_value = if let Some(Some(progress)) = progress {
+        Some(progress.clamp(0, 99))
+    } else {
+        None
+    };
+
+    Ok(Json(respond_value))
 }
 
 fn timeseries_sample<T: Copy>(

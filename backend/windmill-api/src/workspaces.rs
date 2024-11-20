@@ -8,15 +8,17 @@
 
 use std::collections::HashMap;
 
+use crate::ai::{AiResource, AI_KEY_CACHE};
 use crate::db::ApiAuthed;
-use crate::utils::{get_instance_username_or_create_pending, INVALID_USERNAME_CHARS};
+use crate::users_ee::send_email_if_possible;
+use crate::utils::get_instance_username_or_create_pending;
 use crate::BASE_URL;
 use crate::{
     apps::AppWithLastVersion,
     db::DB,
     folders::Folder,
     resources::{Resource, ResourceType},
-    users::{send_email_if_possible, WorkspaceInvite, VALID_USERNAME},
+    users::{WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
     webhook_util::WebhookShared,
 };
@@ -42,6 +44,9 @@ use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::build_crypt;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+#[cfg(feature = "enterprise")]
+use windmill_common::workspaces::WorkspaceDeploymentUISettings;
+#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
@@ -97,6 +102,7 @@ pub fn workspaced_service() -> Router {
             post(edit_large_file_storage_config),
         )
         .route("/edit_git_sync_config", post(edit_git_sync_config))
+        .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
         .route(
@@ -112,7 +118,12 @@ pub fn workspaced_service() -> Router {
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_id", post(change_workspace_id))
-        .route("/usage", get(get_usage));
+        .route("/usage", get(get_usage))
+        .route("/used_triggers", get(get_used_triggers))
+        .route("/critical_alerts", get(get_critical_alerts))
+        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
+        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts))
+        .route("/critical_alerts/mute", post(mute_critical_alerts));
 
     #[cfg(feature = "stripe")]
     {
@@ -162,16 +173,18 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
-    pub openai_resource_path: Option<String>,
+    pub ai_resource: Option<serde_json::Value>,
     pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
+    pub deploy_ui: Option<serde_json::Value>,          // effectively: WorkspaceDeploymentUISettings
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
+    pub mute_critical_alerts: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -212,11 +225,12 @@ struct EditDeployTo {
     deploy_to: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
-struct EditAutoInvite {
-    operator: Option<bool>,
-    invite_all: Option<bool>,
-    auto_add: Option<bool>,
+pub struct EditAutoInvite {
+    pub operator: Option<bool>,
+    pub invite_all: Option<bool>,
+    pub auto_add: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -226,13 +240,21 @@ struct EditWebhook {
 
 #[derive(Deserialize)]
 struct EditCopilotConfig {
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug)]
+struct LargeFileStorageWithSecondary {
+    #[serde(flatten)]
+    large_file_storage: LargeFileStorage,
+    #[serde(default)]
+    secondary_storage: HashMap<String, LargeFileStorage>,
+}
+
+#[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
-    large_file_storage: Option<LargeFileStorage>,
+    large_file_storage: Option<LargeFileStorageWithSecondary>,
 }
 
 #[derive(Deserialize)]
@@ -376,7 +398,7 @@ async fn get_settings(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting settings: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -399,7 +421,7 @@ async fn get_deploy_to(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -448,7 +470,7 @@ async fn edit_slack_command(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_command_script",
         ActionKind::Update,
         &w_id,
@@ -533,7 +555,7 @@ async fn edit_deploy_to(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_deploy_to",
         ActionKind::Update,
         &w_id,
@@ -559,103 +581,11 @@ async fn edit_deploy_to() -> Result<String> {
     ));
 }
 
-const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
+pub const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
     let domain = email.split('@').last().unwrap();
     return Ok(Json(!BANNED_DOMAINS.contains(domain)));
-}
-
-async fn auto_add_user(
-    email: &str,
-    w_id: &str,
-    operator: &bool,
-    tx: &mut Transaction<'_, Postgres>,
-) -> Result<()> {
-    let automate_username_creation = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        AUTOMATE_USERNAME_CREATION_SETTING,
-    )
-    .fetch_optional(&mut **tx)
-    .await?
-    .map(|v| v.as_bool())
-    .flatten()
-    .unwrap_or(false);
-
-    let username = if automate_username_creation {
-        get_instance_username_or_create_pending(&mut *tx, &email).await?
-    } else {
-        let mut username = email
-            .split('@')
-            .next()
-            .unwrap()
-            .to_string()
-            .replace(".", "");
-
-        username = INVALID_USERNAME_CHARS
-            .replace_all(&mut username, "")
-            .to_string();
-
-        if username.is_empty() {
-            username = "user".to_string()
-        }
-
-        let base_username = username.clone();
-        let mut username_conflict = true;
-        let mut i = 1;
-        while username_conflict {
-            if i > 1000 {
-                return Err(Error::InternalErr(format!(
-                    "too many username conflicts for {}",
-                    email
-                )));
-            }
-            if i > 1 {
-                username = format!("{}{}", base_username, i)
-            }
-            username_conflict = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
-                &username,
-                &w_id
-            )
-            .fetch_one(&mut **tx)
-            .await?
-            .unwrap_or(false);
-            i += 1;
-        }
-        username
-    };
-
-    sqlx::query!(
-        "INSERT INTO usr (workspace_id, username, email, is_admin, operator) VALUES ($1, $2, $3, false, $4) ON CONFLICT DO NOTHING",
-        &w_id,
-        &username,
-        &email,
-        &operator
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query_as!(
-        Group,
-        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-        &w_id,
-        username,
-        "all",
-    )
-    .execute(&mut **tx)
-    .await?;
-    audit_log(
-        &mut **tx,
-        &username,
-        "users.auto_invite_add",
-        ActionKind::Create,
-        &w_id,
-        Some(email),
-        None,
-    )
-    .await?;
-    Ok(())
 }
 
 async fn edit_auto_invite(
@@ -663,130 +593,9 @@ async fn edit_auto_invite(
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, email, username, .. }: ApiAuthed,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
-
-    // #[cfg(not(feature = "enterprise"))]
-    // {
-    //     return Err(Error::BadRequest(
-    //         "Auto-invite is only available on enterprise".to_string(),
-    //     ));
-    // }
-
-    let domain = if ea.invite_all.is_some_and(|x| x) {
-        if *CLOUD_HOSTED {
-            return Err(Error::BadRequest(
-                "invite_all is only available locally".to_string(),
-            ));
-        } else {
-            "*"
-        }
-    } else {
-        email.split('@').last().unwrap()
-    };
-
-    let mut tx = db.begin().await?;
-
-    let mut users_to_auto_add = Option::None;
-
-    if let (Some(operator), Some(auto_add)) = (ea.operator, ea.auto_add) {
-        if BANNED_DOMAINS.contains(domain) {
-            return Err(Error::BadRequest(format!(
-                "Domain {} is not allowed",
-                domain
-            )));
-        }
-
-        sqlx::query!(
-            "UPDATE workspace_settings SET auto_invite_domain = $1, auto_invite_operator = $2, auto_add = $4 WHERE workspace_id = $3",
-            domain,
-            operator,
-            &w_id,
-            auto_add,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        if auto_add {
-            users_to_auto_add = Some(sqlx::query!(
-                "SELECT email FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
-                    SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
-                )",
-                &w_id,
-                domain
-            )
-            .fetch_all(&mut *tx).await?);
-
-            for user in users_to_auto_add.as_ref().unwrap() {
-                auto_add_user(&user.email, &w_id, &operator, &mut tx).await?;
-                send_email_if_possible(
-                    &format!("Added to Windmill's workspace: {w_id}"),
-                    &format!(
-                        "You have been granted access to Windmill's workspace {w_id} by {email}.
-                        
-                        Access the workspace at {}/?workspace={w_id}",
-                        BASE_URL.read().await.clone()
-                    ),
-                    &user.email,
-                );
-            }
-        } else {
-            sqlx::query!(
-                "INSERT INTO workspace_invite
-            (workspace_id, email, is_admin, operator)
-            SELECT $1::text, email, false, $3 FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
-                SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
-            )
-            ON CONFLICT DO NOTHING",
-                &w_id,
-                domain,
-                operator
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-    } else {
-        sqlx::query!(
-            "UPDATE workspace_settings SET auto_invite_domain = NULL, auto_invite_operator = NULL, auto_add = NULL WHERE workspace_id = $1",
-            &w_id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    audit_log(
-        &mut *tx,
-        &authed.username,
-        "workspaces.edit_auto_invite_domain",
-        ActionKind::Update,
-        &w_id,
-        Some(&authed.email),
-        Some([("operator", &format!("{:?}", ea.operator)[..])].into()),
-    )
-    .await?;
-    tx.commit().await?;
-
-    if let Some(users) = users_to_auto_add {
-        for user in users {
-            handle_deployment_metadata(
-                &email,
-                &username,
-                &db,
-                &w_id,
-                windmill_git_sync::DeployedObject::User { email: user.email.clone() },
-                Some(format!("Auto-added user '{}' to workspace", &user.email)),
-                rsmq.clone(),
-                true,
-            )
-            .await?;
-        }
-    }
-
-    Ok(format!(
-        "Edit auto-invite for workspace {} to {}",
-        &w_id, domain
-    ))
+    crate::workspaces_ee::edit_auto_invite(authed, db, rsmq, w_id, ea).await
 }
 
 async fn edit_webhook(
@@ -818,7 +627,7 @@ async fn edit_webhook(
     }
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_webhook",
         ActionKind::Update,
         &w_id,
@@ -842,37 +651,44 @@ async fn edit_copilot_config(
 
     let mut tx = db.begin().await?;
 
-    if let Some(openai_resource_path) = &eo.openai_resource_path {
+    if let Some(ai_resource) = &eo.ai_resource {
+        let path = serde_json::from_value::<AiResource>(ai_resource.clone())
+            .map_err(|e| Error::BadRequest(e.to_string()))?
+            .path;
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
-            openai_resource_path,
+            "UPDATE workspace_settings SET ai_resource = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
+            ai_resource,
             eo.code_completion_enabled,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
+
+        if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
+            if cached.path != path {
+                AI_KEY_CACHE.remove(&w_id);
+            }
+        }
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
             eo.code_completion_enabled,
             &w_id,
         )
         .execute(&mut *tx)
         .await?;
+        AI_KEY_CACHE.remove(&w_id);
     }
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_copilot_config",
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
         Some(
             [
-                (
-                    "openai_resource_path",
-                    &format!("{:?}", eo.openai_resource_path)[..],
-                ),
+                ("ai_resource", &format!("{:?}", eo.ai_resource)[..]),
                 (
                     "code_completion_enabled",
                     &format!("{:?}", eo.code_completion_enabled)[..],
@@ -889,7 +705,8 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
-    pub exists_openai_resource_path: bool,
+    pub ai_provider: String,
+    pub exists_ai_resource: bool,
     pub code_completion_enabled: bool,
 }
 async fn get_copilot_info(
@@ -898,16 +715,32 @@ async fn get_copilot_info(
 ) -> JsonResult<CopilotInfo> {
     let mut tx = db.begin().await?;
     let record = sqlx::query!(
-        "SELECT openai_resource_path, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT ai_resource, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
+    let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
+        let ai_resource = serde_json::from_value::<AiResource>(ai_resource);
+        let exist = ai_resource.is_ok();
+        (
+            if exist {
+                ai_resource.unwrap().provider
+            } else {
+                "".to_string()
+            },
+            exist,
+        )
+    } else {
+        ("".to_string(), false)
+    };
+
     Ok(Json(CopilotInfo {
-        exists_openai_resource_path: record.openai_resource_path.is_some(),
+        ai_provider,
+        exists_ai_resource,
         code_completion_enabled: record.code_completion_enabled,
     }))
 }
@@ -926,7 +759,7 @@ async fn edit_large_file_storage_config(
     let args_for_audit = format!("{:?}", new_config.large_file_storage);
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_large_file_storage_config",
         ActionKind::Update,
         &w_id,
@@ -936,8 +769,9 @@ async fn edit_large_file_storage_config(
     .await?;
 
     if let Some(lfs_config) = new_config.large_file_storage {
-        let serialized_lfs_config = serde_json::to_value::<LargeFileStorage>(lfs_config)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+        let serialized_lfs_config =
+            serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
+                .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
@@ -964,6 +798,7 @@ async fn edit_large_file_storage_config(
 
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
+    #[cfg(feature = "enterprise")]
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
@@ -994,7 +829,7 @@ async fn edit_git_sync_config(
     let args_for_audit = format!("{:?}", new_config.git_sync_settings);
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_git_sync_config",
         ActionKind::Update,
         &w_id,
@@ -1028,7 +863,74 @@ async fn edit_git_sync_config(
 }
 
 #[derive(Deserialize)]
+struct EditDeployUIConfig {
+    #[cfg(feature = "enterprise")]
+    deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn edit_deploy_ui_config(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Deployment UI is only available on Windmill Enterprise Edition".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
+async fn edit_deploy_ui_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDeployUIConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_deploy_ui_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("deployment_ui_settings", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
+        let serialized_config =
+            serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
+                .map_err(|err| Error::InternalErr(err.to_string()))?;
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
+            serialized_config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET deploy_ui = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit deployment UI config for workspace {}", &w_id))
+}
+
+#[derive(Deserialize)]
 pub struct EditDefaultApp {
+    #[cfg(feature = "enterprise")]
     pub default_app_path: Option<String>,
 }
 
@@ -1058,7 +960,7 @@ async fn edit_default_scripts(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_default_scripts",
         ActionKind::Update,
         &w_id,
@@ -1128,7 +1030,7 @@ async fn edit_default_app(
     let args_for_audit = format!("{:?}", new_config.default_app_path);
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_default_app",
         ActionKind::Update,
         &w_id,
@@ -1221,7 +1123,7 @@ async fn edit_error_handler(
     }
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.edit_error_handler",
         ActionKind::Update,
         &w_id,
@@ -1263,7 +1165,7 @@ async fn set_environment_variable(
 
             audit_log(
                 &mut *tx,
-                &authed.username,
+                &authed,
                 "workspace.set_environment_variable",
                 ActionKind::Create,
                 &w_id,
@@ -1285,7 +1187,7 @@ async fn set_environment_variable(
 
             audit_log(
                 &mut *tx,
-                &authed.username,
+                &authed,
                 "workspace.delete_environment_variable",
                 ActionKind::Delete,
                 &w_id,
@@ -1325,6 +1227,7 @@ async fn get_encryption_key(
 #[derive(Deserialize)]
 struct SetEncryptionKeyRequest {
     new_key: String,
+    skip_reencrypt: Option<bool>,
 }
 
 async fn set_encryption_key(
@@ -1341,51 +1244,80 @@ async fn set_encryption_key(
         ));
     }
 
-    let mut tx = db.begin().await?;
-    let previous_encryption_key = build_crypt(&mut tx, w_id.as_str()).await?;
+    let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
         w_id
     )
-    .execute(&mut *tx)
-    .await?;
-    let new_encryption_key = build_crypt(&mut tx, w_id.as_str()).await?;
-
-    let mut truncated_new_key = request.new_key.clone();
-    truncated_new_key.truncate(8);
-    tracing::warn!(
-        "Re-encrypting all secrets for workspace {}. New key is {}***",
-        w_id,
-        truncated_new_key
-    );
-
-    let all_variables = sqlx::query!(
-        "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_all(&mut *tx)
+    .execute(&db)
     .await?;
 
-    for variable in all_variables {
-        if !variable.is_secret {
-            continue;
-        }
-        let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
-        let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
-        sqlx::query!(
-            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
-            new_encrypted_value,
+    if !request.skip_reencrypt.unwrap_or(false) {
+        let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
+
+        let mut truncated_new_key = request.new_key.clone();
+        truncated_new_key.truncate(8);
+        tracing::warn!(
+            "Re-encrypting all secrets for workspace {}. New key is {}***",
             w_id,
-            variable.path
+            truncated_new_key
+        );
+
+        let all_variables = sqlx::query!(
+            "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
+            w_id
         )
-        .execute(&mut *tx)
+        .fetch_all(&db)
         .await?;
+
+        for variable in all_variables {
+            if !variable.is_secret {
+                continue;
+            }
+            let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+            let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
+            sqlx::query!(
+                "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+                new_encrypted_value,
+                w_id,
+                variable.path
+            )
+            .execute(&db)
+            .await?;
+        }
     }
 
-    tx.commit().await?;
     return Ok(());
+}
+
+#[derive(Serialize)]
+struct UsedTriggers {
+    pub websocket_used: bool,
+    pub http_routes_used: bool,
+    pub kafka_used: bool,
+}
+
+async fn get_used_triggers(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<UsedTriggers> {
+    let mut tx = user_db.begin(&authed).await?;
+    let websocket_used = sqlx::query_as!(
+        UsedTriggers,
+        r#"SELECT 
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", 
+            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!",
+            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!""#,
+        w_id,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(websocket_used))
 }
 
 async fn list_workspaces_as_super_admin(
@@ -1582,36 +1514,40 @@ async fn create_workspace(
     .await?;
 
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
         nw.id,
+        username,
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
         nw.id,
+        username,
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
         nw.id,
+        username,
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
-        "INSERT INTO resource (workspace_id, path, value, description, resource_type) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme') ON CONFLICT DO NOTHING",
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme', $2, now()) ON CONFLICT DO NOTHING",
         nw.id,
+        username,
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.create",
         ActionKind::Create,
         &nw.id,
@@ -1643,7 +1579,7 @@ async fn edit_workspace(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspaces.update",
         ActionKind::Update,
         &w_id,
@@ -1659,9 +1595,9 @@ async fn edit_workspace(
 async fn archive_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
         .execute(&mut *tx)
@@ -1669,11 +1605,11 @@ async fn archive_workspace(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "workspaces.archive",
         ActionKind::Update,
         &w_id,
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
@@ -1685,24 +1621,24 @@ async fn archive_workspace(
 async fn leave_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { email, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
         &w_id,
-        &email
+        &authed.email
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "workspaces.leave",
         ActionKind::Delete,
         &w_id,
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
@@ -1714,9 +1650,9 @@ async fn leave_workspace(
 async fn unarchive_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
@@ -1724,11 +1660,11 @@ async fn unarchive_workspace(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "workspaces.unarchive",
         ActionKind::Update,
         &w_id,
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
@@ -1740,7 +1676,7 @@ async fn unarchive_workspace(
 async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { username, email, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -1752,7 +1688,7 @@ async fn delete_workspace(
         _ => Ok(w_id),
     }?;
     let mut tx = db.begin().await?;
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed.email).await?;
 
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1859,77 +1795,17 @@ async fn delete_workspace(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "workspaces.delete",
         ActionKind::Delete,
         &w_id,
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
     tx.commit().await?;
 
     Ok(format!("Deleted workspace {}", &w_id))
-}
-
-pub async fn invite_user_to_all_auto_invite_worspaces(
-    db: &DB,
-    email: &str,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-) -> Result<()> {
-    let mut tx = db.begin().await?;
-    let domain = email.split('@').last().unwrap();
-    let workspaces = sqlx::query!(
-        "SELECT workspace_id, auto_invite_operator, auto_add FROM workspace_settings ws WHERE (auto_invite_domain = $1 OR auto_invite_domain = '*') AND NOT EXISTS (SELECT 1 FROM usr WHERE workspace_id = ws.workspace_id AND email = $2)",
-        domain,
-        email
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let mut auto_added_workspace_usernames: Vec<(String, String)> = vec![];
-    for r in workspaces {
-        if r.auto_add.is_some() && r.auto_add.unwrap() {
-            let operator = r.auto_invite_operator.unwrap_or(false);
-            auto_add_user(email, &r.workspace_id, &operator, &mut tx).await?;
-            let username = sqlx::query_scalar!(
-                "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
-                r.workspace_id,
-                email
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            auto_added_workspace_usernames.push((r.workspace_id, username));
-        } else {
-            sqlx::query!(
-                "INSERT INTO workspace_invite
-                    (workspace_id, email, is_admin, operator)
-                    VALUES ($1, $2, false, $3)
-                    ON CONFLICT DO NOTHING",
-                r.workspace_id,
-                email,
-                r.auto_invite_operator
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-    tx.commit().await?;
-
-    for workspace_username_tuple in auto_added_workspace_usernames {
-        let (w_id, username) = workspace_username_tuple;
-        handle_deployment_metadata(
-            &email,
-            &username,
-            db,
-            &w_id,
-            windmill_git_sync::DeployedObject::User { email: email.to_string() },
-            Some(format!("Auto-added user '{}' to workspace", email)),
-            rsmq.clone(),
-            true,
-        )
-        .await?;
-    }
-    Ok(())
 }
 
 async fn invite_user(
@@ -1999,14 +1875,14 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 }
 
 async fn add_user(
-    ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     nu.email = nu.email.to_lowercase();
 
     let mut tx = db.begin().await?;
@@ -2023,7 +1899,7 @@ async fn add_user(
     if already_exists_email {
         return Err(Error::BadRequest(format!(
             "user with email {} already exists in workspace {}",
-            email, w_id
+            nu.email, w_id
         )));
     }
 
@@ -2091,11 +1967,11 @@ async fn add_user(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "users.add_to_workspace",
         ActionKind::Create,
         &w_id,
-        Some(&email),
+        Some(&nu.email),
         None,
     )
     .await?;
@@ -2103,8 +1979,8 @@ async fn add_user(
     tx.commit().await?;
 
     handle_deployment_metadata(
-        &email,
-        &username,
+        &authed.email,
+        &authed.username,
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
@@ -2117,9 +1993,10 @@ async fn add_user(
     send_email_if_possible(
         &format!("Added to Windmill's workspace: {w_id}"),
         &format!(
-            "You have been granted access to Windmill's workspace {w_id} by {email}
+            "You have been granted access to Windmill's workspace {w_id} by {}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
+            authed.email,
             BASE_URL.read().await.clone()
         ),
         &nu.email,
@@ -2222,6 +2099,8 @@ struct ScriptMetadata {
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_preprocessor: Option<bool>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -2289,6 +2168,7 @@ struct ArchiveQueryParams {
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
+    include_key: Option<bool>,
     default_ts: Option<String>,
 }
 
@@ -2377,12 +2257,13 @@ struct SimplifiedSettings {
     error_handler: Option<String>,
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
-    openai_resource_path: Option<String>,
+    ai_resource: Option<serde_json::Value>,
     code_completion_enabled: bool,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
     default_app: Option<String>,
     default_scripts: Option<Value>,
+    name: String,
 }
 
 async fn tarball_workspace(
@@ -2401,6 +2282,7 @@ async fn tarball_workspace(
         include_users,
         include_groups,
         include_settings,
+        include_key,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
@@ -2468,7 +2350,7 @@ async fn tarball_workspace(
                 ScriptLang::Mssql => "ms.sql",
                 ScriptLang::Graphql => "gql",
                 ScriptLang::Nativets => "fetch.ts",
-                ScriptLang::Bun => {
+                ScriptLang::Bun | ScriptLang::Bunnative => {
                     if default_ts.as_ref().is_some_and(|x| x == "bun") {
                         "ts"
                     } else {
@@ -2476,6 +2358,8 @@ async fn tarball_workspace(
                     }
                 }
                 ScriptLang::Php => "php",
+                ScriptLang::Rust => "rs",
+                ScriptLang::Ansible => "playbook.yml",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -2502,6 +2386,7 @@ async fn tarball_workspace(
                 no_main_func: script.no_main_func,
                 codebase: script.codebase,
                 concurrency_key: script.concurrency_key,
+                has_preprocessor: script.has_preprocessor,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -2549,7 +2434,10 @@ async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-            "SELECT * FROM flow WHERE workspace_id = $1 AND archived = false",
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+            FROM flow
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.workspace_id = $1 AND flow.archived = false",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -2566,15 +2454,15 @@ async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
             sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                "SELECT * FROM variable WHERE workspace_id = $1"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
             } else {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
             })
             .bind(&w_id)
             .fetch_all(&mut *tx)
             .await?;
 
-        let mc = build_crypt(&mut db.begin().await?, &w_id).await?;
+        let mc = build_crypt(&db, &w_id).await?;
 
         for mut var in variables {
             if plain_secret.or(plain_secrets).unwrap_or(false)
@@ -2734,22 +2622,47 @@ async fn tarball_workspace(
                 webhook, 
                 deploy_to, 
                 error_handler, 
-                openai_resource_path, 
+                ai_resource, 
                 code_completion_enabled, 
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
                 large_file_storage, 
-                git_sync, 
+                git_sync,
                 default_app,
-                default_scripts 
+                default_scripts,
+                workspace.name
             FROM workspace_settings
+            LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
             WHERE workspace_id = $1"#,
             &w_id
         ).fetch_one(&mut *tx).await?;
 
-        let settings_str = &to_string_without_metadata(&settings, true, None).unwrap();
+        let settings_str = serde_json::to_value(settings)
+            .map(|v| serde_json::to_string_pretty(&v).ok())
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InternalErr("Error serializing settings".to_string()))?;
+
         archive
             .write_to_archive(&settings_str, "settings.json")
+            .await?;
+    }
+
+    if include_key.unwrap_or(false) {
+        let key = sqlx::query_scalar!(
+            "SELECT key FROM workspace_key WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let key_json = serde_json::to_value(key)
+            .map(|v| serde_json::to_string_pretty(&v).ok())
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InternalErr("Error serializing enryption key".to_string()))?;
+        archive
+            .write_to_archive(&key_json, "encryption_key.json")
             .await?;
     }
 
@@ -2810,7 +2723,7 @@ async fn change_workspace_name(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspace.change_workspace_name",
         ActionKind::Update,
         &w_id,
@@ -2923,14 +2836,6 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE dependency_map SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
         "UPDATE deployment_metadata SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -2955,7 +2860,10 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET workspace_id = $1 WHERE workspace_id = $2",
+        "INSERT INTO flow 
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
+            FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -2963,12 +2871,16 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE flow_version SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &old_id)
+        .execute(&mut *tx)
+        .await?;
 
     // have to duplicate group_ with new workspace id because of foreign key constraint
     sqlx::query!(
@@ -2991,6 +2903,14 @@ async fn change_workspace_id(
     sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &old_id)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!(
+        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE input SET workspace_id = $1 WHERE workspace_id = $2",
@@ -3135,7 +3055,7 @@ async fn change_workspace_id(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "workspace.change_workspace_id",
         ActionKind::Update,
         &rw.new_id,
@@ -3163,4 +3083,94 @@ async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Re
     .await?
     .unwrap_or(0);
     Ok(usage.to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+    Query(params): Query<crate::utils::AlertQueryParams>,
+) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    crate::utils::get_critical_alerts(db, params, Some(w_id)).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, i32)>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_critical_alert() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::utils::acknowledge_all_critical_alerts(db, Some(w_id)).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_all_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct MuteCriticalAlertRequest {
+    pub mute_critical_alerts: Option<bool>,
+}
+
+#[cfg(feature = "enterprise")]
+async fn mute_critical_alerts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(m_r): Json<MuteCriticalAlertRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mute_alerts = m_r.mute_critical_alerts.unwrap_or(false);
+
+    if mute_alerts {
+        sqlx::query!(
+            "UPDATE alerts SET acknowledged_workspace = true, acknowledged = true WHERE workspace_id = $1",
+            &w_id
+        )
+    .execute(&db)
+    .await?;
+    }
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET mute_critical_alerts = $1 WHERE workspace_id = $2",
+        mute_alerts,
+        &w_id
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!("Updated mute criticital alert ui settings for workspace: {}", &w_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn mute_critical_alerts() -> Error {
+    Error::NotFound("Critical Alerts require EE".to_string())
 }

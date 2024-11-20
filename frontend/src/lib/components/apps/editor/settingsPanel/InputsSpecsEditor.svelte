@@ -18,11 +18,17 @@
 	export let acceptSelf: boolean = false
 	export let recomputeOnInputChanged = true
 	export let showOnDemandOnlyToggle = false
+	export let securedContext = false
 	export let overridenByComponent: string[] = []
 
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
 
 	const dispatch = createEventDispatcher()
+
+	const mapping = {
+		onSuccess: 'On success wizard',
+		onError: 'On error wizard'
+	}
 </script>
 
 {#if inputSpecs}
@@ -38,7 +44,7 @@
 			{:else if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
 					{acceptSelf}
-					key={k}
+					key={mapping[k] ?? k}
 					bind:oneOf={inputSpecs[k]}
 					{id}
 					{shouldCapitalize}
@@ -74,6 +80,7 @@
 					{displayType}
 					{recomputeOnInputChanged}
 					{showOnDemandOnlyToggle}
+					{securedContext}
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">

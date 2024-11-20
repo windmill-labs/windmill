@@ -2,46 +2,57 @@
 	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
+		createInlineScriptModule,
 		createBranchAll,
 		createBranches,
 		createLoop,
 		createWhileLoop,
 		deleteFlowStateById,
 		emptyModule,
-		pickScript
+		pickScript,
+		pickFlow
 	} from '$lib/components/flows/flowStateUtils'
-	import type { FlowModule } from '$lib/gen'
-	import { emptyFlowModuleState } from '../utils'
+	import type { FlowModule, RawScript, Script } from '$lib/gen'
+	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	import { dfs } from '../dfs'
-	import { FlowGraph } from '$lib/components/graph'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
-	import { copilotInfo, tutorialsToDo } from '$lib/stores'
+	import { copilotInfo, tutorialsToDo, workspaceStore } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
+	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import { replaceId } from '../flowStore'
+	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
 	export let disableStaticInputs = false
 	export let disableTutorials = false
 	export let disableAi = false
+	export let disableSettings = false
+	export let newFlow: boolean = false
 	export let smallErrorHandler = false
+	export let workspace: string | undefined = $workspaceStore
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore } =
+	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -55,37 +66,99 @@
 			| 'trigger'
 			| 'approval'
 			| 'end',
-		wsScript?: { path: string; summary: string; hash: string | undefined }
+		wsScript?: { path: string; summary: string; hash: string | undefined },
+		wsFlow?: { path: string; summary: string },
+		inlineScript?: {
+			language: RawScript['language']
+			kind: Script['kind']
+			subkind: 'pgsql' | 'flow'
+			id: string
+			summary?: string
+		}
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()
-		if (wsScript) {
-			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
-		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(
+		$flowStateStore[module.id] = state
+		if (wsFlow) {
+			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
+		} else if (wsScript) {
+			;[module, state] = await pickScript(
+				wsScript.path,
+				wsScript.summary,
 				module.id,
-				!disableAi && $copilotInfo.exists_openai_resource_path
+				wsScript.hash,
+				kind
 			)
+		} else if (kind == 'forloop') {
+			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.exists_ai_resource)
 		} else if (kind == 'whileloop') {
 			;[module, state] = await createWhileLoop(module.id)
 		} else if (kind == 'branchone') {
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
+		} else if (inlineScript) {
+			const { language, kind, subkind } = inlineScript
+			;[module, state] = await createInlineScriptModule(
+				language,
+				kind,
+				subkind,
+				module.id,
+				module.summary
+			)
+			$flowStateStore[module.id] = state
+			if (kind == 'trigger') {
+				module.summary = 'Trigger'
+			} else if (kind == 'approval') {
+				module.summary = 'Approval'
+			}
 		}
 		$flowStateStore[module.id] = state
-		if (kind == 'trigger') {
-			module.summary = 'Trigger'
-		} else if (kind == 'approval') {
-			module.summary = 'Approval'
+
+		if (kind == 'approval') {
+			module.suspend = { required_events: 1, timeout: 1800 }
+		} else if (kind == 'trigger') {
+			module.stop_after_if = {
+				expr: '!result || (Array.isArray(result) && result.length == 0)',
+				skip_if_stopped: true
+			}
 		} else if (kind == 'end') {
 			module.summary = 'Terminate flow'
 			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
 		}
+
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
 		return modules
+	}
+
+	async function insertNewPreprocessorModule(
+		inlineScript?: {
+			language: RawScript['language']
+			subkind: 'pgsql' | 'flow'
+		},
+		wsScript?: { path: string; summary: string; hash: string | undefined }
+	) {
+		var module: FlowModule = {
+			id: 'preprocessor',
+			value: { type: 'identity' }
+		}
+		var state = emptyFlowModuleState()
+
+		if (inlineScript) {
+			;[module, state] = await createInlineScriptModule(
+				inlineScript.language,
+				'script',
+				inlineScript.subkind,
+				'preprocessor'
+			)
+		} else if (wsScript) {
+			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		}
+
+		$flowStore.value.preprocessor_module = module
+		$flowStateStore[module.id] = state
 	}
 
 	function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -175,9 +248,40 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	async function updateFlowInputsStore() {
+		const keys = Object.keys(dependents ?? {})
+
+		for (const key of keys) {
+			const module = $flowStore.value.modules.find((m) => m.id === key)
+
+			if (!module) {
+				continue
+			}
+
+			if (!$flowInputsStore) {
+				$flowInputsStore = {}
+			}
+
+			$flowInputsStore[module.id] = {
+				flowStepWarnings: await initFlowStepWarnings(
+					module.value,
+					$flowStateStore?.[module.id]?.schema,
+					dfs($flowStore.value.modules, (fm) => fm.id)
+				)
+			}
+		}
+	}
+
+	function setExpr(module: FlowModule, expr: string) {
+		if (module.value.type == 'forloopflow') {
+			module.value.iterator = { type: 'javascript', expr }
+			module.value.parallel = true
+		}
+	}
 </script>
 
-<Portal>
+<Portal name="flow-module">
 	<ConfirmationModal
 		title="Confirm deleting step with dependents"
 		confirmationText="Delete step"
@@ -216,31 +320,48 @@
 		{#if $copilotCurrentStepStore !== undefined}
 			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 		{/if}
-		<FlowSettingsItem />
+		{#if !disableSettings}
+			<FlowSettingsItem />
+		{/if}
 		{#if !disableStaticInputs}
 			<FlowConstantsItem />
 		{/if}
 	</div>
 
-	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
-		<FlowGraph
+	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
+		<FlowGraphV2
+			triggerNode={true}
+			path={$pathStore}
+			{newFlow}
 			{disableAi}
 			insertable
 			scroll
 			{minHeight}
 			moving={$moving?.module.id}
-			rebuildOnChange={$flowStore}
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
+			preprocessorModule={$flowStore.value?.preprocessor_module}
 			{selectedId}
+			{flowInputsStore}
+			{workspace}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
-					selectNextId(e.id)
-					removeAtId($flowStore.value.modules, e.id)
+					if (e.id === 'preprocessor') {
+						$selectedId = 'Input'
+						$flowStore.value.preprocessor_module = undefined
+					} else {
+						selectNextId(e.id)
+						removeAtId($flowStore.value.modules, e.id)
+						if ($flowInputsStore) {
+							delete $flowInputsStore[e.id]
+						}
+					}
 					$flowStore = $flowStore
+
+					updateFlowInputsStore()
 				}
 
 				if (Object.keys(dependents).length > 0) {
@@ -257,7 +378,7 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					if (detail.modules) {
+					if (detail.modules && Array.isArray(detail.modules)) {
 						await tick()
 						if ($moving) {
 							push(history, $flowStore)
@@ -267,19 +388,41 @@
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
-							await insertNewModuleAtIndex(
-								detail.modules,
-								detail.index ?? 0,
-								detail.detail,
-								detail.script
-							)
-							$selectedId = detail.modules[detail.index ?? 0].id
+							if (detail.detail === 'preprocessor') {
+								insertNewPreprocessorModule(detail.inlineScript, detail.script)
+								$selectedId = 'preprocessor'
+							} else {
+								const index = detail.index ?? 0
+								await insertNewModuleAtIndex(
+									detail.modules,
+									index,
+									detail.kind,
+									detail.script,
+									detail.flow,
+									detail.inlineScript
+								)
+								const id = detail.modules[detail.index ?? 0].id
+								$selectedId = id
+
+								if (detail.kind == 'trigger') {
+									await insertNewModuleAtIndex(
+										detail.modules,
+										index + 1,
+										'forloop',
+										undefined,
+										undefined,
+										undefined
+									)
+									setExpr(detail.modules[index + 1], `results.${id}`)
+									setScheduledPollSchedule(primarySchedule, triggersCount)
+								}
+							}
 						}
 
-						if (['branchone', 'branchall'].includes(detail.detail)) {
+						if (['branchone', 'branchall'].includes(detail.kind)) {
 							await addBranch(detail.modules[detail.index ?? 0])
 						}
-
+						$flowStateStore = $flowStateStore
 						$flowStore = $flowStore
 						dispatch('change')
 					}
@@ -290,6 +433,46 @@
 					await addBranch(detail.module)
 					$flowStore = $flowStore
 				}
+			}}
+			on:select={async ({ detail }) => {
+				flowPropPickerConfig.set(undefined)
+			}}
+			on:changeId={({ detail }) => {
+				let { id, newId, deps } = detail
+				dfs($flowStore.value.modules, (mod) => {
+					if (deps[mod.id]) {
+						deps[mod.id].forEach((dep) => {
+							if (
+								mod.value.type == 'rawscript' ||
+								mod.value.type == 'script' ||
+								mod.value.type == 'flow'
+							) {
+								mod.value.input_transforms = Object.fromEntries(
+									Object.entries(mod.value.input_transforms).map(([k, v]) => {
+										if (v.type == 'javascript') {
+											return [k, { ...v, expr: replaceId(v.expr, id, newId) }]
+										} else {
+											return [k, v]
+										}
+									})
+								)
+							} else if (mod?.value?.type === 'forloopflow') {
+								if (mod.value.iterator.type === 'javascript') {
+									mod.value.iterator.expr = replaceId(mod.value.iterator.expr, id, newId)
+								}
+							} else if (mod?.value?.type === 'branchone') {
+								mod.value.branches.forEach((branch) => {
+									branch.expr = replaceId(branch.expr, id, newId)
+								})
+							}
+						})
+					}
+					if (mod.id == id) {
+						mod.id = newId
+					}
+				})
+				$flowStore = $flowStore
+				$selectedId = newId
 			}}
 			on:deleteBranch={async ({ detail }) => {
 				if (detail.module) {

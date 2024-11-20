@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import YAML from 'yaml'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils'
@@ -6,7 +7,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import { getContext } from 'svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
@@ -21,7 +22,7 @@
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argNames: string[] = []
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> } | undefined = undefined
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -56,14 +57,20 @@
 				results: pickableProperties?.priorIds,
 				flow_input: pickableProperties?.flow_input
 			}
-			const user = `I'm building a workflow which is a DAG of script steps. 
-The current step is ${selectedId}, you can find the details for the step and previous ones below:
+			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
+			const user = `I'm building a workflow which is a DAG of script steps.
+The current step is ${$selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
 Determine for all the inputs "${argNames.join(
 				'", "'
-			)}", what to pass either from the previous results of the flow inputs. 
-All possibles inputs either start with results. or flow_input. and are follow by the key of the input.			
+			)}", what to pass either from the previous results of the flow inputs.
+All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
+${
+	isInsideLoop
+		? 'As the step is in a loop, the iterator value is accessible as flow_input.iter.value.'
+		: 'As the step is not in a loop, flow_input.iter.value is not available.'
+}
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
@@ -76,7 +83,7 @@ Your answer has to be in the following format (one line per input):
 input_name1: expression1
 input_name2: expression2
 ...`
-
+			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -84,7 +91,8 @@ input_name2: expression2
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
@@ -123,7 +131,7 @@ input_name2: expression2
 		const properties = {
 			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
 			...newFlowInputs.reduce((acc, x) => {
-				acc[x] = (schema.properties ?? {})[x]
+				acc[x] = (schema?.properties ?? {})[x]
 				return acc
 			}, {})
 		}
@@ -161,7 +169,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+	{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -229,10 +237,10 @@ input_name2: expression2
 				</Button>
 			</svelte:fragment>
 			<p class="text-sm">
-				{#if !$copilotInfo.exists_openai_resource_path}
+				{#if !$copilotInfo.exists_ai_resource}
 					Enable Windmill AI in the{' '}
 					<a
-						href="/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

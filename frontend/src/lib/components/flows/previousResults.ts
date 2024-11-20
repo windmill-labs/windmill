@@ -18,7 +18,19 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
-export function dfs(id: string | undefined, flow: OpenFlow, getParents: boolean = true): FlowModule[] {
+export function dfs(
+	id: string | undefined,
+	flow: OpenFlow,
+	getParents: boolean = true
+): FlowModule[] {
+	return dfsByModule(id, flow.value.modules, getParents)
+}
+
+export function dfsByModule(
+	id: string | undefined,
+	modules: FlowModule[],
+	getParents: boolean = true
+): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -44,7 +56,7 @@ export function dfs(id: string | undefined, flow: OpenFlow, getParents: boolean 
 		return undefined
 	}
 
-	return rec(id, [flow.value.modules]) ?? []
+	return rec(id, [modules]) ?? []
 }
 
 function getFlowInput(
@@ -60,20 +72,26 @@ function getFlowInput(
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
 	if (parentState && parentModule) {
-		if (parentState.previewArgs) {
-			return {...topFlowInput, ...parentState.previewArgs }
+		if (
+			parentState.previewArgs &&
+			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1) &&
+			parentState &&
+			typeof parentState.previewArgs == 'object' &&
+			`iter` in parentState.previewArgs
+		) {
+			return { ...topFlowInput, ...parentState.previewArgs }
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 			if (parentModule.value.type === 'forloopflow') {
-				let parentFlowInputIter = {...parentFlowInput}
-				if (parentFlowInputIter.hasOwnProperty("iter")) {
-					parentFlowInputIter["iter_parent"] = parentFlowInputIter["iter"]
-					delete parentFlowInputIter["iter"]
+				let parentFlowInputIter = { ...parentFlowInput }
+				if (parentFlowInputIter.hasOwnProperty('iter')) {
+					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
+					delete parentFlowInputIter['iter']
 				}
-				let topFlowInputIter = {...topFlowInput}
-				if (topFlowInputIter.hasOwnProperty("iter")) {
-					topFlowInputIter["iter_parent"] = topFlowInputIter["iter"]
-					delete topFlowInputIter["iter"]
+				let topFlowInputIter = { ...topFlowInput }
+				if (topFlowInputIter.hasOwnProperty('iter')) {
+					topFlowInputIter['iter_parent'] = topFlowInputIter['iter']
+					delete topFlowInputIter['iter']
 				}
 				return {
 					...topFlowInputIter,
@@ -81,11 +99,10 @@ function getFlowInput(
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
-					},
+					}
 				}
 			} else {
-
-				return {...topFlowInput,  ...parentFlowInput }
+				return { ...topFlowInput, ...parentFlowInput }
 			}
 		}
 	} else {
@@ -111,6 +128,50 @@ export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean
 			}
 		})
 		.flat()
+}
+
+export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, args: any) {
+	const allIds = flow.value.modules.map((x) => x.id)
+	let priorIds = Object.fromEntries(
+		allIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+	)
+
+	const flowInput = getFlowInput(
+		dfs(flow.value.modules?.[0]?.id, flow),
+		flowState,
+		args,
+		flow.schema as Schema
+	)
+
+	return {
+		pickableProperties: {
+			flow_input: schemaToObject(flow.schema as any, args),
+			priorIds: priorIds,
+			previousId: undefined,
+			hasResume: false
+		},
+		extraLib: `
+/**
+* Error object
+*/
+declare const error: {
+	message: string
+	name: string
+	stack: string
+	step_id: string
+}
+
+/**
+* result by id
+*/
+declare const results = ${JSON.stringify(priorIds)}
+
+/**
+* flow input as an object
+*/
+declare const flow_input = ${JSON.stringify(flowInput)};
+		`
+	}
 }
 
 export function getStepPropPicker(
@@ -201,4 +262,38 @@ declare const approvers: string
 		: ''
 }
 `
+}
+
+export function buildPrefixRegex(words: string[]): Array<{ regex: RegExp; word: string }> {
+	return words.map((word) => {
+		const prefixes: string[] = []
+		for (let i = 1; i <= word.length; i++) {
+			prefixes.push(word.slice(0, i) + '$')
+		}
+		prefixes.push(word + '\\.')
+		prefixes.push(word + '\\[')
+
+		return {
+			regex: new RegExp(`^(${prefixes.join('|')}).*`),
+			word
+		}
+	})
+}
+
+export function filterNestedObject(obj: any, nestedKeys: string[]) {
+	if (nestedKeys.length === 0) return {}
+	if (nestedKeys.length === 1) {
+		if (nestedKeys[0] === '') {
+			return obj
+		}
+
+		return Object.fromEntries(Object.entries(obj).filter(([key]) => key.startsWith(nestedKeys[0])))
+	}
+	const [key, ...rest] = nestedKeys
+	if (obj && typeof obj === 'object' && key in obj) {
+		const result = {}
+		result[key] = filterNestedObject(obj[key], rest)
+		return result
+	}
+	return {}
 }

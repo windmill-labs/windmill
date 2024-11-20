@@ -9,7 +9,6 @@
 	import ColorInput from './ColorInput.svelte'
 	import TabSelectInput from './TabSelectInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Settings } from 'lucide-svelte'
@@ -22,6 +21,8 @@
 	import Label from '$lib/components/Label.svelte'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 	import DBTableSelect from './DBTableSelect.svelte'
+	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
+	import AppPicker from '$lib/components/wizards/AppPicker.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -30,7 +31,6 @@
 	export let placeholder: string | undefined = undefined
 	export let format: string | undefined = undefined
 	export let id: string | undefined
-	export let dragging: boolean = false
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -70,7 +70,7 @@
 				</select>
 			{/if}
 		{:else if fieldType === 'icon-select'}
-			<IconSelectInput bind:componentInput />
+			<IconSelectInput bind:value={componentInput.value} />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
 		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'bigquery'].includes(subFieldType)}
@@ -154,24 +154,18 @@
 				/>
 			{:else}
 				<div class="flex w-full flex-col">
-					{#if dragging}
-						<div class="text-xs text-secondary whitespace-pre border p-1"
-							>{JSON.stringify(componentInput.value, null, 2)}</div
-						>
-					{:else}
-						<JsonEditor
-							small
-							bind:value={componentInput.value}
-							code={JSON.stringify(componentInput.value, null, 2)}
-						/>
-					{/if}
+					<JsonEditor
+						small
+						bind:value={componentInput.value}
+						code={JSON.stringify(componentInput.value, null, 2)}
+					/>
 				</div>
 			{/if}
 		{:else if fieldType === 'array'}
 			<ArrayStaticInputEditor {id} {subFieldType} bind:componentInput on:deleteArrayItem />
 		{:else if fieldType === 'schema'}
 			<div class="w-full">
-				<SchemaEditor bind:schema={componentInput.value} lightMode />
+				<EditableSchemaDrawer bind:schema={componentInput.value} />
 			</div>
 		{:else if fieldType === 'ag-grid'}
 			<div class="flex flex-row rounded-md bg-surface items-center h-full">
@@ -320,6 +314,8 @@
 					</Label>
 				</div>
 			</div>
+		{:else if fieldType === 'app-path'}
+			<AppPicker bind:value={componentInput.value} />
 		{:else}
 			<div class="flex gap-1 relative w-full">
 				<textarea

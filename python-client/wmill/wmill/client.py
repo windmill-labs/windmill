@@ -26,7 +26,7 @@ JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 class Windmill:
     def __init__(self, base_url=None, token=None, workspace=None, verify=True):
-        base = base_url or os.environ.get("BASE_INTERNAL_URL")
+        base = base_url or os.environ.get("BASE_INTERNAL_URL") or os.environ.get("WM_BASE_URL")
 
         self.base_url = f"{base}/api"
         self.token = token or os.environ.get("WM_TOKEN")
@@ -108,14 +108,19 @@ class Windmill:
         path: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        # can only be set to false if this the job will be fully await and not concurrent with any other job
+        # as otherwise the child flow and its own child will store their state in the parent job which will
+        # lead to incorrectness and failures
+        do_not_track_in_parent: bool = True,
     ) -> str:
         """Create a flow job and return its job id."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
-        if os.environ.get("WM_JOB_ID"):
-            params["parent_job"] = os.environ.get("WM_JOB_ID")
-        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
-            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        if not do_not_track_in_parent:
+            if os.environ.get("WM_JOB_ID"):
+                params["parent_job"] = os.environ.get("WM_JOB_ID")
+            if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+                params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/f/{path}"
         else:
@@ -142,9 +147,7 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         job_id = self.run_script_async(path=path, hash_=hash_, args=args)
-        return self.wait_job(
-            job_id, timeout, verbose, cleanup, assert_result_is_not_none
-        )
+        return self.wait_job(job_id, timeout, verbose, cleanup, assert_result_is_not_none)
 
     def wait_job(
         self,
@@ -183,7 +186,7 @@ class Windmill:
                 atexit.unregister(cancel_job)
 
             if completed:
-                result =  result_res["result"]
+                result = result_res["result"]
                 if success:
                     if result is None and assert_result_is_not_none:
                         raise Exception("Result was none")
@@ -203,9 +206,7 @@ class Windmill:
             if verbose:
                 logger.info(f"sleeping 0.5 seconds for {job_id = }")
 
-            
             time.sleep(0.5)
-
 
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
@@ -247,7 +248,6 @@ class Windmill:
         job_id = job_id or os.environ.get("WM_JOB_ID")
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
 
-
     def get_id_token(self, audience: str) -> str:
         return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
 
@@ -257,10 +257,7 @@ class Windmill:
         assert job_type, f"{job} is not a valid job"
         if job_type.lower() == "completedjob":
             return "COMPLETED"
-        additional_properties = job.get("additional_properties", {})
-        if "running" not in additional_properties:
-            raise Exception(f"{job_id} is not running")
-        if additional_properties.get("running"):
+        if job.get("running"):
             return "RUNNING"
         return "WAITING"
 
@@ -346,13 +343,42 @@ class Windmill:
     def set_state(self, value: Any):
         self.set_resource(value, path=self.state_path, resource_type="state")
 
+    def set_progress(self, value: int, job_id: Optional[str] = None):
+        workspace = get_workspace()
+        flow_id = os.environ.get("WM_FLOW_JOB_ID")
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        if job_id != None:
+            job = self.get_job(job_id)
+            flow_id = job.get("parent_job")
+
+        self.post(
+            f"/w/{workspace}/job_metrics/set_progress/{job_id}",
+            json={
+                "percent": value,
+                "flow_job_id": flow_id or None,
+            },
+        )
+
+    def get_progress(self, job_id: Optional[str] = None) -> Any:
+        workspace = get_workspace()
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        r = self.get(
+            f"/w/{workspace}/job_metrics/get_progress/{job_id}",
+        )
+        if r.status_code == 404:
+            print(f"Job {job_id} does not exist")
+            return None
+        else:
+            return r.json()
+
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value,  raise_for_status=False)
+        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value, raise_for_status=False)
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
-
 
     def get_flow_user_state(self, key: str) -> Any:
         """Get the user state of a flow at a given key"""
@@ -446,7 +472,13 @@ class Windmill:
             print(file_reader.read())
         '''
         """
-        reader = S3BufferedReader(f"{self.workspace}", self.client, s3object["s3"], s3_resource_path)
+        reader = S3BufferedReader(
+            f"{self.workspace}",
+            self.client,
+            s3object["s3"],
+            s3_resource_path,
+            s3object["storage"] if "storage" in s3object else None,
+        )
         return reader
 
     def write_s3_file(
@@ -454,6 +486,8 @@ class Windmill:
         s3object: S3Object | None,
         file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
+        content_type: str | None = None,
+        content_disposition: str | None = None,
     ) -> S3Object:
         """
         Write a file to the workspace S3 bucket
@@ -485,6 +519,12 @@ class Windmill:
             query_params["file_key"] = s3object["s3"]
         if s3_resource_path is not None and s3_resource_path != "":
             query_params["s3_resource_path"] = s3_resource_path
+        if s3object is not None and "storage" in s3object and s3object["storage"] is not None:
+            query_params["storage"] = s3object["storage"]
+        if content_type is not None:
+            query_params["content_type"] = content_type
+        if content_disposition is not None:
+            query_params["content_disposition"] = content_disposition
 
         try:
             # need a vanilla client b/c content-type is not application/json here
@@ -568,7 +608,7 @@ class Windmill:
     @staticmethod
     def get_shared_state(path: str = "state.json") -> None:
         """
-        Set the state in the shared folder using pickle
+        Get the state in the shared folder using pickle
         """
         import json
 
@@ -582,6 +622,14 @@ class Windmill:
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
             params={"approver": approver},
         ).json()
+
+    def username_to_email(self, username: str) -> str:
+        """
+        Get email from workspace username
+        This method is particularly useful for apps that require the email address of the viewer.
+        Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+        """
+        return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
 
 
 def init_global_client(f):
@@ -617,6 +665,7 @@ def deprecate(in_favor_of: str):
 def get_workspace() -> str:
     return _client.workspace
 
+
 @init_global_client
 def get_root_job_id(job_id: str | None = None) -> str:
     return _client.get_root_job_id(job_id)
@@ -650,11 +699,16 @@ def run_flow_async(
     path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
+    # can only be set to false if this the job will be fully await and not concurrent with any other job
+    # as otherwise the child flow and its own child will store their state in the parent job which will
+    # lead to incorrectness and failures
+    do_not_track_in_parent: bool = True,
 ) -> str:
     return _client.run_flow_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        do_not_track_in_parent=do_not_track_in_parent,
     )
 
 
@@ -775,11 +829,19 @@ def write_s3_file(
     s3object: S3Object | None,
     file_content: BufferedReader | bytes,
     s3_resource_path: str | None = None,
+    content_type: str | None = None,
+    content_disposition: str | None = None,
 ) -> S3Object:
     """
     Upload a file to S3
+
+    Content type will be automatically guessed from path extension if left empty
+
+    See MDN for content_disposition: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition
+    and content_type: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type
+
     """
-    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None)
+    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None, content_type, content_disposition)
 
 
 @init_global_client
@@ -803,7 +865,7 @@ def get_state() -> Any:
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
-) -> str | dict | None:
+) -> dict | None:
     """Get resource from Windmill"""
     return _client.get_resource(path, none_if_undefined)
 
@@ -822,6 +884,22 @@ def set_state(value: Any) -> None:
     Set the state
     """
     return _client.set_state(value)
+
+
+@init_global_client
+def set_progress(value: int, job_id: Optional[str] = None) -> None:
+    """
+    Set the progress
+    """
+    return _client.set_progress(value, job_id)
+
+
+@init_global_client
+def get_progress(job_id: Optional[str] = None) -> Any:
+    """
+    Get the progress
+    """
+    return _client.get_progress(job_id)
 
 
 def set_shared_state_pickle(value: Any, path="state.pickle") -> None:
@@ -848,7 +926,7 @@ def set_shared_state(value: Any, path="state.json") -> None:
 
 def get_shared_state(path="state.json") -> None:
     """
-    Set the state in the shared folder using pickle
+    Get the state in the shared folder using pickle
     """
     return Windmill.get_shared_state(path=path)
 
@@ -875,6 +953,7 @@ def get_flow_user_state(key: str) -> Any:
     Get the user state of a flow at a given key
     """
     return _client.get_flow_user_state(key)
+
 
 @init_global_client
 def set_flow_user_state(key: str, value: Any) -> None:
@@ -922,10 +1001,22 @@ def run_script(
     )
 
 
+@init_global_client
+def username_to_email(username: str) -> str:
+    """
+    Get email from workspace username
+    This method is particularly useful for apps that require the email address of the viewer.
+    Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+    """
+    return _client.username_to_email(username)
+
+
 def task(*args, **kwargs):
     from inspect import signature
+
     def f(func, tag: str | None = None):
         if os.environ.get("WM_JOB_ID") is None or os.environ.get("MAIN_OVERRIDE") == func.__name__:
+
             def inner(*args, **kwargs):
                 return func(*args, **kwargs)
 
@@ -963,9 +1054,8 @@ def task(*args, **kwargs):
                 return r
 
             return inner
+
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         return f(args[0], None)
     else:
         return lambda x: f(x, kwargs.get("tag"))
-
-

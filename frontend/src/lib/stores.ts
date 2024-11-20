@@ -2,6 +2,7 @@ import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList } from './gen'
 import type { IntrospectionQuery } from 'graphql'
+import { getLocalSetting } from './utils'
 
 export interface UserExt {
 	email: string
@@ -33,7 +34,7 @@ export const enterpriseLicense = writable<string | undefined>(undefined)
 export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
 export const workspaceUsageStore = writable<number>(0)
-export const runFormStore = writable<any>()
+export const initialArgsStore = writable<any>(undefined)
 export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
@@ -69,17 +70,28 @@ export const userWorkspaces: Readable<
 	}
 })
 export const copilotInfo = writable<{
-	exists_openai_resource_path: boolean
+	ai_provider: string
+	exists_ai_resource: boolean
 	code_completion_enabled: boolean
 }>({
-	exists_openai_resource_path: false,
+	ai_provider: '',
+	exists_ai_resource: false,
 	code_completion_enabled: false
 })
 export const codeCompletionLoading = writable<boolean>(false)
-export const codeCompletionSessionEnabled = writable<boolean>(true)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
-export const formatOnSave = writable<boolean>(true)
+export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
+export const VIM_MODE_SETTING_NAME = 'vimMode'
+export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
+export const formatOnSave = writable<boolean>(
+	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
+)
+export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
+export const codeCompletionSessionEnabled = writable<boolean>(
+	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
+)
+export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
@@ -111,3 +123,7 @@ export type DBSchema = SQLSchema | GraphqlSchema
 export type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
+
+export const instanceSettingsSelectedTab = writable('Core')
+
+export const isCriticalAlertsUIOpen = writable(false)

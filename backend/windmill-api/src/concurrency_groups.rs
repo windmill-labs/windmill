@@ -120,14 +120,16 @@ struct ObscuredJob {
 }
 #[derive(Deserialize)]
 struct ExtendedJobsParams {
-    concurrency_key: Option<String>,
     row_limit: Option<i64>,
 }
 
-fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
+pub fn join_concurrency_key<'c>(
+    concurrency_key: Option<&String>,
+    mut sqlb: SqlBuilder,
+) -> SqlBuilder {
     if let Some(key) = concurrency_key {
         sqlb.join("concurrency_key")
-            .on_eq("id", "job_id")
+            .on_eq("id", "concurrency_key.job_id")
             .and_where_eq("key", "?".bind(key));
     }
 
@@ -142,7 +144,7 @@ async fn get_concurrent_intervals(
     Query(iq): Query<ExtendedJobsParams>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> JsonResult<ExtendedJobs> {
-    check_scopes(&authed, || format!("listjobs"))?;
+    check_scopes(&authed, || format!("jobs:listjobs"))?;
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
@@ -151,7 +153,6 @@ async fn get_concurrent_intervals(
     }
 
     let row_limit = iq.row_limit.unwrap_or(1000);
-    let concurrency_key = iq.concurrency_key;
 
     let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
     let lqc = lq.clone();
@@ -177,10 +178,10 @@ async fn get_concurrent_intervals(
         .limit(row_limit)
         .clone();
 
-    sqlb_q = join_concurrency_key(concurrency_key.as_ref(), sqlb_q);
-    sqlb_c = join_concurrency_key(concurrency_key.as_ref(), sqlb_c);
-    sqlb_q_user = join_concurrency_key(concurrency_key.as_ref(), sqlb_q_user);
-    sqlb_c_user = join_concurrency_key(concurrency_key.as_ref(), sqlb_c_user);
+    sqlb_q = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_q);
+    sqlb_c = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_c);
+    sqlb_q_user = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_q_user);
+    sqlb_c_user = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_c_user);
 
     let should_fetch_obscured_jobs = match lq {
         ListCompletedQuery {
@@ -197,21 +198,23 @@ async fn get_concurrent_intervals(
             args: None,
             result: None,
             tag: None,
-            scheduled_for_before_now: None,
             has_null_parent: None,
             label: None,
-            is_not_schedule: None,
+            scheduled_for_before_now: _,
+            is_not_schedule: _,
             started_before: _,
             started_after: _,
             created_before: _,
             created_after: _,
             created_or_started_before: _,
             created_or_started_after: _,
+            created_or_started_after_completed_jobs: _,
             order_desc: _,
             job_kinds: _,
             is_flow_step: _,
             all_workspaces: _,
-        } => concurrency_key.is_some(),
+            concurrency_key: Some(_),
+        } => true,
         _ => false,
     };
 
@@ -221,31 +224,25 @@ async fn get_concurrent_intervals(
     // the workspace.
     // To avoid infering information through filtering, don't return obscured
     // jobs if the filters are too specific
-    if should_fetch_obscured_jobs {
-        let (sqlb_q, sqlb_c) = if w_id != "admin" {
-            // By default get obscured jobs from all workspaces, unless in
-            // admin workspace where admins can select to get all or not
-            (
-                filter_list_queue_query(
-                    sqlb_q,
-                    &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
-                    "admins",
-                ),
-                filter_list_completed_query(
-                    sqlb_c,
-                    &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
-                    "admins",
-                ),
-            )
-        } else {
-            (
-                filter_list_queue_query(sqlb_q, &lqq, w_id.as_str()),
-                filter_list_completed_query(sqlb_c, &lq, w_id.as_str()),
-            )
-        };
+    if should_fetch_obscured_jobs && w_id != "admins" {
+        // Get the obscured jobs from all workspaces (concurrency key could be global)
+        let (sqlb_q, sqlb_c) = (
+            filter_list_queue_query(
+                sqlb_q,
+                &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
+                "admins",
+                true,
+            ),
+            filter_list_completed_query(
+                sqlb_c,
+                &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
+                "admins",
+                true,
+            ),
+        );
 
-        sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str());
-        sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str());
+        sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str(), true);
+        sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str(), true);
 
         let sql_q_user = sqlb_q_user.query()?;
         let sql_c_user = sqlb_c_user.query()?;
@@ -311,6 +308,8 @@ async fn get_concurrent_intervals(
             omitted_obscured_jobs: !should_fetch_obscured_jobs,
         }))
     } else {
+        sqlb_q = filter_list_queue_query(sqlb_q, &lqq, w_id.as_str(), true);
+        sqlb_c = filter_list_completed_query(sqlb_c, &lq, w_id.as_str(), true);
         let sql_q = sqlb_q.query()?;
         let sql_c = sqlb_c.query()?;
 

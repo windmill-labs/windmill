@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
@@ -66,6 +67,7 @@
 	bind:watchJob
 	on:done={onDone}
 />
+
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
 		<div class="flex gap-2 flex-wrap">
@@ -75,7 +77,11 @@
 				</Badge>
 			{/if}
 			{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-				<DurationMs duration_ms={job.duration_ms} />
+				<DurationMs
+					duration_ms={job.duration_ms}
+					self_wait_time_ms={job?.self_wait_time_ms}
+					aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
+				/>
 			{/if}
 			{#if job?.['mem_peak']}
 				<Badge large>
@@ -118,7 +124,7 @@
 			{/if}
 		</div>
 		<a
-			href="/run/{job?.id}?workspace={job?.workspace_id}"
+			href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
 			class="flex flex-row gap-1 items-center"
 			target={blankLink ? '_blank' : undefined}
 		>
@@ -129,7 +135,11 @@
 		<span class="font-semibold text-xs leading-6">Arguments</span>
 
 		<div class="w-full">
-			<JobArgs args={job?.args} />
+			<JobArgs
+				id={job?.id}
+				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+				args={job?.args}
+			/>
 		</div>
 
 		{#if job?.type === 'CompletedJob'}
@@ -176,7 +186,7 @@
 										jobId={job.id}
 										duration={job?.['duration_ms']}
 										mem={job?.['mem_peak']}
-										isLoading={!(job && 'logs' in job && job.logs)}
+										isLoading={job?.['running'] == false}
 										content={job?.logs}
 										tag={job?.tag}
 									/>
@@ -217,7 +227,7 @@
 						duration={job?.['duration_ms']}
 						mem={job?.['mem_peak']}
 						content={job?.logs}
-						isLoading
+						isLoading={job?.['running'] == false}
 						tag={job?.tag}
 					/>
 				{/if}

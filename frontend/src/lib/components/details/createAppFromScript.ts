@@ -5,7 +5,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 				'3': {
 					fixed: false,
 					x: 0,
-					y: 0,
+					y: 2,
 					w: 2,
 					h: 8,
 					fullHeight: false
@@ -13,7 +13,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 				'12': {
 					fixed: false,
 					x: 0,
-					y: 0,
+					y: 2,
 					w: 12,
 					h: 21,
 					fullHeight: false
@@ -27,6 +27,38 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					id: 'a'
 				},
 				id: 'a'
+			},
+			{
+				'3': {
+					fixed: false,
+					x: 0,
+					y: 8,
+					fullHeight: false,
+					w: 6,
+					h: 2
+				},
+				'12': {
+					fixed: false,
+					x: 0,
+					y: 0,
+					fullHeight: false,
+					w: 12,
+					h: 2
+				},
+				data: {
+					type: 'containercomponent',
+					configuration: {},
+					customCss: {
+						container: {
+							class: '!p-0',
+							style: ''
+						}
+					},
+					actions: [],
+					numberOfSubgrids: 1,
+					id: 'topbar'
+				},
+				id: 'topbar'
 			}
 		],
 		fullscreen: false,
@@ -34,6 +66,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 		hiddenInlineScripts: [],
 		css: {},
 		norefreshbar: false,
+		hideLegacyTopBar: true,
 		subgrids: {
 			'a-0': [
 				{
@@ -376,6 +409,116 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					},
 					id: 'f'
 				}
+			],
+			'topbar-0': [
+				{
+					'3': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						fullHeight: false,
+						w: 6,
+						h: 1
+					},
+					'12': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						fullHeight: false,
+						w: 6,
+						h: 1
+					},
+					data: {
+						type: 'textcomponent',
+						configuration: {
+							style: {
+								type: 'static',
+								value: 'Body'
+							},
+							copyButton: {
+								type: 'static',
+								value: false
+							},
+							tooltip: {
+								type: 'evalv2',
+								value: '',
+								fieldType: 'text',
+								expr: '`Author: ${ctx.author}`',
+								connections: [
+									{
+										componentId: 'ctx',
+										id: 'author'
+									}
+								]
+							},
+							disableNoText: {
+								type: 'static',
+								value: true,
+								fieldType: 'boolean'
+							}
+						},
+						componentInput: {
+							type: 'templatev2',
+							fieldType: 'template',
+							eval: '${ctx.summary}',
+							connections: [
+								{
+									id: 'summary',
+									componentId: 'ctx'
+								}
+							]
+						},
+						customCss: {
+							text: {
+								class: 'text-xl font-semibold whitespace-nowrap truncate',
+								style: ''
+							},
+							container: {
+								class: '',
+								style: ''
+							}
+						},
+						actions: [],
+						horizontalAlignment: 'left',
+						verticalAlignment: 'center',
+						id: 'title'
+					},
+					id: 'title'
+				},
+				{
+					'3': {
+						fixed: false,
+						x: 0,
+						y: 1,
+						fullHeight: false,
+						w: 3,
+						h: 1
+					},
+					'12': {
+						fixed: false,
+						x: 6,
+						y: 0,
+						fullHeight: false,
+						w: 6,
+						h: 1
+					},
+					data: {
+						type: 'recomputeallcomponent',
+						configuration: {},
+						customCss: {
+							container: {
+								style: '',
+								class: ''
+							}
+						},
+						actions: [],
+						menuItems: [],
+						horizontalAlignment: 'right',
+						verticalAlignment: 'center',
+						id: 'recomputeall'
+					},
+					id: 'recomputeall'
+				}
 			]
 		}
 	}
@@ -385,10 +528,12 @@ type Field = {
 	type: 'static' | 'connected'
 	value: any
 	fieldType?: string
+	format?: string
 	connection?: {
 		componentId: string
 		path: string
 	}
+	allowUserResources?: boolean
 }
 
 function convertSchemaToFields(schema: Record<string, any> | undefined): { [key: string]: Field } {
@@ -403,6 +548,8 @@ function convertSchemaToFields(schema: Record<string, any> | undefined): { [key:
 			type: 'connected',
 			value: fieldInfo.default,
 			fieldType: fieldInfo.type,
+			format: fieldInfo.format,
+			allowUserResources: true,
 			connection: {
 				componentId: 'c',
 				path: `values.${fieldName}`
@@ -420,7 +567,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 				'3': {
 					fixed: false,
 					x: 0,
-					y: 0,
+					y: 2,
 					w: 2,
 					h: 8,
 					fullHeight: false
@@ -428,7 +575,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 				'12': {
 					fixed: false,
 					x: 0,
-					y: 0,
+					y: 2,
 					w: 12,
 					h: 21,
 					fullHeight: false
@@ -442,6 +589,38 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					id: 'a'
 				},
 				id: 'a'
+			},
+			{
+				'3': {
+					fixed: true,
+					x: 0,
+					y: 8,
+					fullHeight: false,
+					w: 6,
+					h: 2
+				},
+				'12': {
+					fixed: true,
+					x: 0,
+					y: 0,
+					fullHeight: false,
+					w: 12,
+					h: 2
+				},
+				data: {
+					type: 'containercomponent',
+					configuration: {},
+					customCss: {
+						container: {
+							class: '!p-0',
+							style: ''
+						}
+					},
+					actions: [],
+					numberOfSubgrids: 1,
+					id: 'topbar'
+				},
+				id: 'topbar'
 			}
 		],
 		fullscreen: false,
@@ -449,6 +628,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 		hiddenInlineScripts: [],
 		css: {},
 		norefreshbar: false,
+		hideLegacyTopBar: true,
 		subgrids: {
 			'a-0': [
 				{
@@ -791,6 +971,116 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						id: 'f'
 					},
 					id: 'f'
+				}
+			],
+			'topbar-0': [
+				{
+					'3': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						fullHeight: false,
+						w: 6,
+						h: 1
+					},
+					'12': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						fullHeight: false,
+						w: 6,
+						h: 1
+					},
+					data: {
+						type: 'textcomponent',
+						configuration: {
+							style: {
+								type: 'static',
+								value: 'Body'
+							},
+							copyButton: {
+								type: 'static',
+								value: false
+							},
+							tooltip: {
+								type: 'evalv2',
+								value: '',
+								fieldType: 'text',
+								expr: '`Author: ${ctx.author}`',
+								connections: [
+									{
+										componentId: 'ctx',
+										id: 'author'
+									}
+								]
+							},
+							disableNoText: {
+								type: 'static',
+								value: true,
+								fieldType: 'boolean'
+							}
+						},
+						componentInput: {
+							type: 'templatev2',
+							fieldType: 'template',
+							eval: '${ctx.summary}',
+							connections: [
+								{
+									id: 'summary',
+									componentId: 'ctx'
+								}
+							]
+						},
+						customCss: {
+							text: {
+								class: 'text-xl font-semibold whitespace-nowrap truncate',
+								style: ''
+							},
+							container: {
+								class: '',
+								style: ''
+							}
+						},
+						actions: [],
+						horizontalAlignment: 'left',
+						verticalAlignment: 'center',
+						id: 'title'
+					},
+					id: 'title'
+				},
+				{
+					'3': {
+						fixed: false,
+						x: 0,
+						y: 1,
+						fullHeight: false,
+						w: 3,
+						h: 1
+					},
+					'12': {
+						fixed: false,
+						x: 6,
+						y: 0,
+						fullHeight: false,
+						w: 6,
+						h: 1
+					},
+					data: {
+						type: 'recomputeallcomponent',
+						configuration: {},
+						customCss: {
+							container: {
+								style: '',
+								class: ''
+							}
+						},
+						actions: [],
+						menuItems: [],
+						horizontalAlignment: 'right',
+						verticalAlignment: 'center',
+						id: 'recomputeall'
+					},
+					id: 'recomputeall'
 				}
 			]
 		}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
+	import { base } from '$lib/base'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
@@ -532,11 +533,11 @@
 	>
 {:else if notSet == true}
 	<Alert type="error" title="Staging/Prod deploy not set up"
-		>As an admin, go to "Workspace {'->'} Dev/Staging/Prod"</Alert
+		>As an admin, go to Settings {'->'} Workspace {'->'} Deployment UI</Alert
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
-		>Share this <a href="/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
+		>Share this <a href="{base}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
 		user do the deployment</Alert
 	>
 

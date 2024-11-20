@@ -17,8 +17,12 @@ use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
+pub mod auth;
+#[cfg(feature = "benchmark")]
+pub mod bench;
 pub mod db;
 pub mod ee;
+pub mod email_ee;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
@@ -30,8 +34,8 @@ pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod queue;
 pub mod s3_helpers;
-
 pub mod schedule;
 pub mod scripts;
 pub mod server;
@@ -46,8 +50,20 @@ pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
+pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+
+#[macro_export]
+macro_rules! add_time {
+    ($bench:expr, $name:expr) => {
+        #[cfg(feature = "benchmark")]
+        {
+            $bench.add_timing($name);
+            // println!("{}: {:?}", $z, $y.elapsed());
+        }
+    };
+}
 
 lazy_static::lazy_static! {
     pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")
@@ -70,6 +86,8 @@ lazy_static::lazy_static! {
     pub static ref METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("METRICS_PORT").is_ok() || std::env::var("METRICS_ADDR").is_ok());
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
+    pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
+
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -77,6 +95,11 @@ lazy_static::lazy_static! {
 
 
     pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
+
+    pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+
+    pub static ref INSTANCE_NAME: String = rd_string(5);
+
 }
 
 pub async fn shutdown_signal(
@@ -115,7 +138,7 @@ pub async fn shutdown_signal(
         },
     }
 
-    println!("signal received, starting graceful shutdown");
+    tracing::info!("signal received, starting graceful shutdown");
     let _ = tx.send(());
     Ok(())
 }
@@ -123,6 +146,7 @@ pub async fn shutdown_signal(
 use tokio::sync::RwLock;
 #[cfg(feature = "prometheus")]
 use tokio::task::JoinHandle;
+use utils::rd_string;
 
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(
@@ -162,7 +186,7 @@ pub async fn serve_metrics(
         if let Err(e) = axum::serve(listener, router.into_make_service())
             .with_graceful_shutdown(async move {
                 rx.recv().await.ok();
-                println!("Graceful shutdown of metrics");
+                tracing::info!("Graceful shutdown of metrics");
             })
             .await
         {
@@ -184,7 +208,10 @@ async fn reset() -> () {
     todo!()
 }
 
-pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+pub async fn connect_db(
+    server_mode: bool,
+    indexer_mode: bool,
+) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
     use std::env::var;
     use tokio::fs::File;
@@ -210,12 +237,17 @@ pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Po
             if server_mode {
                 DEFAULT_MAX_CONNECTIONS_SERVER
             } else {
-                DEFAULT_MAX_CONNECTIONS_WORKER
-                    * std::env::var("NUM_WORKERS")
-                        .ok()
-                        .map(|x| x.parse().ok())
-                        .flatten()
-                        .unwrap_or(1)
+                if indexer_mode {
+                    DEFAULT_MAX_CONNECTIONS_INDEXER
+                } else {
+                    DEFAULT_MAX_CONNECTIONS_WORKER
+                        + std::env::var("NUM_WORKERS")
+                            .ok()
+                            .map(|x| x.parse().ok())
+                            .flatten()
+                            .unwrap_or(1)
+                        - 1
+                }
             }
         }
     };
@@ -242,8 +274,8 @@ type Tag = String;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn get_latest_deployed_hash_for_path(
-    db: &DB,
+pub async fn get_latest_deployed_hash_for_path<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
     w_id: &str,
     script_path: &str,
 ) -> error::Result<(
@@ -258,9 +290,10 @@ pub async fn get_latest_deployed_hash_for_path(
     Option<i16>,
     Option<bool>,
     Option<i32>,
+    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -283,6 +316,7 @@ pub async fn get_latest_deployed_hash_for_path(
         script.priority,
         script.delete_after_use,
         script.timeout,
+        script.has_preprocessor,
     ))
 }
 

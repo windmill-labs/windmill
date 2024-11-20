@@ -152,5 +152,25 @@
       "vismanet_erp_interactive_api:read",
       "vismanet_erp_interactive_api:update"
     ]
-  }
+  },
+  "spotify": {
+    "auth_url": "https://accounts.spotify.com/authorize",
+    "token_url": "https://accounts.spotify.com/api/token",
+    "scopes": [
+      "user-read-playback-state",
+      "user-modify-playback-state",
+      "user-read-currently-playing",
+      "playlist-read-private",
+      "playlist-read-collaborative",
+      "playlist-modify-private",
+      "playlist-modify-public",
+      "user-follow-read",
+      "user-read-playback-position",
+      "user-read-recently-played",
+      "user-top-read",
+      "user-library-modify",
+      "user-library-read"
+    ]
+  },
+  "snowflake_oauth": {}
 }

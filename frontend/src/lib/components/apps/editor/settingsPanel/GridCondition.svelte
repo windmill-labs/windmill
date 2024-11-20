@@ -2,7 +2,7 @@
 	import type { AppInputSpec } from '../../inputType'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import PanelSection from './common/PanelSection.svelte'
-	import { dndzone } from 'svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { GripVertical, Plus, X } from 'lucide-svelte'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import { generateRandomString } from '$lib/utils'
@@ -15,7 +15,6 @@
 
 	export let conditions: RichConfiguration[] = []
 	export let component: AppComponent
-	let dragDisabled = true
 
 	let items = conditions.slice(0, -1).map((condition, index) => {
 		return { value: condition, id: generateRandomString(), originalIndex: index }
@@ -68,19 +67,6 @@
 				const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)
 				$componentControl[component.id]?.setTab?.(targetIndex)
 			})
-		}
-
-		dragDisabled = true
-	}
-
-	function startDrag(event) {
-		event.preventDefault()
-		dragDisabled = false
-	}
-
-	function handleKeyDown(event: KeyboardEvent): void {
-		if ((event.key === 'Enter' || event.key === ' ') && dragDisabled) {
-			dragDisabled = false
 		}
 	}
 
@@ -150,11 +136,10 @@
 	{/if}
 	<div class="w-full flex flex-col mt-2">
 		<section
-			use:dndzone={{
+			use:dragHandleZone={{
 				items: items,
 				flipDurationMs: 200,
-				dropTargetStyle: {},
-				dragDisabled
+				dropTargetStyle: {}
 			}}
 			on:consider={handleConsider}
 			on:finalize={handleFinalize}
@@ -163,27 +148,23 @@
 				{@const condition = item.value}
 				<div class="w-full flex flex-row gap-2 items-center relative">
 					<div class={twMerge('grow border p-3 my-2 rounded-md bg-surface relative')}>
-						{#if dragDisabled}
-							<InputsSpecEditor
-								key={`condition${index + 1}`}
-								bind:componentInput={item.value}
-								id={component.id}
-								userInputEnabled={false}
-								shouldCapitalize={true}
-								resourceOnly={false}
-								fieldType={condition?.['fieldType']}
-								subFieldType={condition?.['subFieldType']}
-								format={condition?.['format']}
-								selectOptions={condition?.['selectOptions']}
-								tooltip={condition?.['tooltip']}
-								fileUpload={condition?.['fileUpload']}
-								placeholder={condition?.['placeholder']}
-								customTitle={condition?.['customTitle']}
-								displayType={false}
-							/>
-						{:else}
-							<pre><code>{condition?.['expr']}</code></pre>
-						{/if}
+						<InputsSpecEditor
+							key={`condition${index + 1}`}
+							bind:componentInput={item.value}
+							id={component.id}
+							userInputEnabled={false}
+							shouldCapitalize={true}
+							resourceOnly={false}
+							fieldType={condition?.['fieldType']}
+							subFieldType={condition?.['subFieldType']}
+							format={condition?.['format']}
+							selectOptions={condition?.['selectOptions']}
+							tooltip={condition?.['tooltip']}
+							fileUpload={condition?.['fileUpload']}
+							placeholder={condition?.['placeholder']}
+							customTitle={condition?.['customTitle']}
+							displayType={false}
+						/>
 					</div>
 
 					<div class="flex flex-col justify-center gap-2">
@@ -195,15 +176,7 @@
 
 						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div
-							tabindex={dragDisabled ? 0 : -1}
-							class="w-4 h-4"
-							on:mousedown={startDrag}
-							on:touchstart={startDrag}
-							on:keydown={handleKeyDown}
-							aria-label="drag-handle"
-							style={dragDisabled ? 'cursor: grab' : 'cursor: grabbing'}
-						>
+						<div use:dragHandle class="w-4 h-4 handle" aria-label="drag-handle">
 							<GripVertical size={16} />
 						</div>
 					</div>

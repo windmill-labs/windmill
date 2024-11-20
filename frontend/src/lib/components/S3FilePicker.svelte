@@ -12,6 +12,7 @@
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
+	import { base } from '$lib/base'
 	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -21,6 +22,7 @@
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
+	import PdfViewer from './display/PdfViewer.svelte'
 
 	let deletionModalOpen = false
 	let fileDeletionInProgress = false
@@ -116,7 +118,8 @@
 			workspace: $workspaceStore!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			prefix: filter.trim() != '' ? filter : undefined
+			prefix: filter.trim() != '' ? filter : undefined,
+			storage: storage
 		})
 		if (
 			availableFiles.restricted_access === null ||
@@ -195,7 +198,8 @@
 		fileInfoLoading = true
 		let fileMetadataRaw = await HelpersService.loadFileMetadata({
 			workspace: $workspaceStore!,
-			fileKey: fileKey
+			fileKey: fileKey,
+			storage: storage
 		})
 
 		if (fileMetadataRaw !== undefined) {
@@ -221,7 +225,8 @@
 			csvSeparator: csvSeparatorChar,
 			csvHasHeader: csvHasHeader,
 			readBytesFrom: 0,
-			readBytesLength: 128 * 1024 // For now static limit of 128Kb per file
+			readBytesLength: 128 * 1024, // For now static limit of 128Kb per file,
+			storage: storage
 		})
 
 		let filePreviewContent = filePreviewRaw.content
@@ -241,6 +246,16 @@
 				contentPreview: filePreviewContent,
 				contentType: filePreviewRaw.content_type
 			}
+			if (fileMetadata) {
+				fileMetadata.mimeType =
+					((fileKey.endsWith('.png') ||
+						fileKey.endsWith('.jpg') ||
+						fileKey.endsWith('.jpeg') ||
+						fileKey.endsWith('.webp')) &&
+						'Image') ||
+					(fileKey.endsWith('.pdf') && 'PDF') ||
+					filePreview.contentType
+			}
 		}
 		filePreviewLoading = false
 		fileInfoLoading = false
@@ -254,7 +269,8 @@
 		try {
 			await HelpersService.deleteS3File({
 				workspace: $workspaceStore!,
-				fileKey: fileKey
+				fileKey: fileKey,
+				storage: storage
 			})
 		} finally {
 			fileDeletionInProgress = false
@@ -279,7 +295,8 @@
 			await HelpersService.moveS3File({
 				workspace: $workspaceStore!,
 				srcFileKey: srcFileKey,
-				destFileKey: destFileKey!
+				destFileKey: destFileKey!,
+				storage: storage
 			})
 		} finally {
 			fileMoveInProgress = false
@@ -291,7 +308,11 @@
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
-	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
+	let storage: string | undefined = undefined
+	export async function open(
+		preSelectedFileKey: { s3: string; storage?: string } | undefined = undefined
+	) {
+		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
 			selectedFileKey = { ...preSelectedFileKey }
@@ -313,10 +334,13 @@
 			initialFileKeyInternalCopy = { ...initialFileKey }
 		}
 		try {
-			await HelpersService.datasetStorageTestConnection({ workspace: $workspaceStore! })
+			await HelpersService.datasetStorageTestConnection({
+				workspace: $workspaceStore!,
+				storage: storage
+			})
 			workspaceSettingsInitialized = true
 		} catch (e) {
-			console.error('Workspace not connected to S3 bucket: ', e)
+			console.error('Workspace not connected to object storage: ', e)
 			workspaceSettingsInitialized = false
 			return
 		}
@@ -415,7 +439,7 @@
 						<p class="text-clip grow min-w-0">
 							The workspace needs to be connected to an S3 storage to use this feature. You can <a
 								target="_blank"
-								href="/workspace_settings?tab=windmill_lfs">configure it here</a
+								href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
 							>.
 						</p>
 						<Button
@@ -438,7 +462,7 @@
 						</p>
 						<p>
 							More info in <a
-								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket"
+								href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
 								target="_blank">Windmill's documentation</a
 							></p
 						></Alert
@@ -555,7 +579,9 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${fileMetadata?.fileKey}`}
+											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${
+												fileMetadata?.fileKey
+											}${storage ? `&storage=${storage}` : ''}`}
 											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
@@ -593,8 +619,27 @@
 					{/if}
 
 					<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
-						{#if fileMetadata !== undefined && filePreview !== undefined}
+						{#if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
+							<div>
+								<img
+									src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
+										(storage ? `&storage=${storage}` : '')}
+									alt="S3 preview"
+								/>
+							</div>
+						{:else if fileMetadata?.fileKey.endsWith('.pdf')}
+							<div class="w-full h-[950px] border">
+								<PdfViewer
+									source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
+										(storage ? `&storage=${storage}` : '')}
+								/>
+							</div>
+						{:else if filePreviewLoading}
 							<div class="flex h-6 items-center text-tertiary mb-4">
+								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
+							</div>
+						{:else if fileMetadata !== undefined && filePreview !== undefined}
+							<div class="flex items-center text-tertiary mb-4">
 								{#if filePreview.contentType === 'Unknown'}
 									Type of file not supported for preview.
 								{:else if filePreview.contentType === 'Csv'}
@@ -638,13 +683,13 @@
 									Previewing a {filePreview.contentType?.toLowerCase()} file.
 								{/if}
 							</div>
-							<pre class="grow whitespace-no-wrap break-words"
-								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
-							>
-						{:else if filePreviewLoading}
-							<div class="flex h-6 items-center text-tertiary mb-4">
-								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
-							</div>
+							<pre class="grow whitespace-no-wrap break-words">
+									{#if !emptyString(filePreview.contentPreview)}
+									{filePreview.contentPreview}
+								{:else if filePreview.contentType !== undefined}
+									Preview impossible.
+								{/if}
+							</pre>
 						{/if}
 					</div>
 				</div>

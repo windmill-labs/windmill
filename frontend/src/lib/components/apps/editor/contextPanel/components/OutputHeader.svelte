@@ -8,6 +8,7 @@
 	import IdEditor from './IdEditor.svelte'
 	import type { AppComponent } from '../../component'
 	import type { Runnable } from '$lib/components/apps/inputType'
+	import DocLink from '../../settingsPanel/DocLink.svelte'
 
 	export let id: string
 	export let name: string
@@ -218,7 +219,7 @@
 			$selectedComponent?.includes(id)
 				? openBackground[color]
 				: $connectingInput.hoveredComponent === id
-				? 'bg-orange-300 '
+				? 'bg-[#fab157]'
 				: 'bg-surface-secondary',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : '',
@@ -257,12 +258,22 @@
 					<IdEditor
 						{id}
 						on:selected={() => ($selectedComponent = [id])}
-						on:change={({ detail }) => renameId(detail)}
+						on:save={({ detail }) => renameId(detail)}
 					/></div
 				>
 			{/if}
 		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
+			{#if ['ctx', 'state'].includes(id)}
+				<DocLink
+					docLink={id === 'state'
+						? 'https://www.windmill.dev/docs/apps/outputs#state'
+						: id === 'ctx'
+						? 'https://www.windmill.dev/docs/apps/outputs#app-context'
+						: ''}
+					size="xs2"
+				/>
+			{/if}
 			{name}
 			<div class={classNames('bg-surface-secondary rounded-sm')}>
 				{#if !open}

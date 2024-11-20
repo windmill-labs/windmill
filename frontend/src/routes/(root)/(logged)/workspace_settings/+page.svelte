@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -16,11 +16,11 @@
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
-		type LargeFileStorage,
 		OauthService,
 		WorkspaceService,
 		JobService,
-		ResourceService
+		ResourceService,
+		SettingService
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -29,10 +29,11 @@
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		hubBaseUrlStore
+		hubBaseUrlStore,
+		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
+	import { emptyString, tryEvery } from '$lib/utils'
 	import {
 		Code2,
 		Slack,
@@ -42,17 +43,29 @@
 		X,
 		Plus,
 		Loader2,
-		Save
+		Save,
+		ExternalLink
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
-	import Portal from 'svelte-portal'
+	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { fade } from 'svelte/transition'
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
+	import {
+		convertBackendSettingsToFrontendSettings,
+		convertFrontendToBackendSetting,
+		type S3ResourceSettings
+	} from '$lib/workspace_settings'
+	import { base } from '$lib/base'
+	import { hubPaths } from '$lib/hub'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type { AiProviderTypes } from '$lib/components/copilot/lib'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -96,11 +109,16 @@
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
-	let openaiResourceInitialPath: string | undefined = undefined
-	let s3ResourceSettings: {
-		resourceType: 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity'
-		resourcePath: string | undefined
-		publicResource: boolean | undefined
+	let criticalAlertUIMuted: boolean | undefined = undefined
+	let initialCriticalAlertUIMuted: boolean | undefined = undefined
+	let aiResourceInitialPath: string | undefined = undefined
+	let aiResourceInitialProvider: string | undefined = undefined
+
+	let s3ResourceSettings: S3ResourceSettings = {
+		resourceType: 's3',
+		resourcePath: undefined,
+		publicResource: undefined,
+		secondaryStorage: undefined
 	}
 	let gitSyncSettings: {
 		include_path: string[]
@@ -123,6 +141,7 @@
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
+	let selected: AiProviderTypes = 'openai'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -134,31 +153,7 @@
 			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
 
-	const latestGitSyncHubScript = `hub/8855/sync-script-to-git-repo-windmill`
-	// function getDropDownItems(username: string): DropdownItem[] {
-	// 	return [
-	// 		{
-	// 			displayName: 'Manage user',
-	// 			href: `/admin/user/manage/${username}`
-	// 		},
-	// 		{
-	// 			displayName: 'Delete',
-	// 			action: () => deleteUser(username)
-	// 		}
-	// 	];
-	// }
-
-	// async function deleteUser(username: string): Promise<void> {
-	// 	try {
-	// 		await UserService.deleteUser({ workspace: $workspaceStore!, username });
-	// 		users = await UserService.listUsers({ workspace: $workspaceStore! });
-	// 		fuse?.setCollection(users);
-	// 		sendUserToast(`User ${username} has been removed`);
-	// 	} catch (err) {
-	// 		console.error(err);
-	// 		sendUserToast(`Cannot delete user: ${err}`, true);
-	// 	}
-	// }
+	const latestGitSyncHubScript = hubPaths.gitSync
 
 	async function editSlackCommand(): Promise<void> {
 		initialPath = scriptPath
@@ -194,31 +189,37 @@
 		}
 	}
 
-	async function editCopilotConfig(openaiResourcePath: string): Promise<void> {
+	async function editCopilotConfig(aiResourcePath: string, aiProvider: string): Promise<void> {
 		// in JS, an empty string is also falsy
-		openaiResourceInitialPath = openaiResourcePath
-		if (openaiResourcePath) {
+		aiResourceInitialPath = aiResourcePath
+		aiResourceInitialProvider = aiProvider
+		if (aiResourcePath) {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					openai_resource_path: openaiResourcePath,
+					ai_resource: {
+						path: aiResourcePath,
+						provider: aiProvider
+					},
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
 			copilotInfo.set({
-				exists_openai_resource_path: true,
+				ai_provider: aiProvider,
+				exists_ai_resource: true,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					openai_resource_path: undefined,
+					ai_resource: undefined,
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
 			copilotInfo.set({
-				exists_openai_resource_path: true,
+				ai_provider: '',
+				exists_ai_resource: false,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		}
@@ -226,44 +227,15 @@
 	}
 
 	async function editWindmillLFSSettings(): Promise<void> {
-		if (!emptyString(s3ResourceSettings.resourcePath)) {
-			let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
-			let params = {
-				public_resource: s3ResourceSettings.publicResource
+		const large_file_storage = convertFrontendToBackendSetting(s3ResourceSettings)
+		await WorkspaceService.editLargeFileStorageConfig({
+			workspace: $workspaceStore!,
+			requestBody: {
+				large_file_storage: large_file_storage
 			}
-			if (s3ResourceSettings.resourceType === 'azure_blob') {
-				let typ: LargeFileStorage['type'] = 'AzureBlobStorage'
-				params['type'] = typ
-				params['azure_blob_resource_path'] = resourcePathWithPrefix
-			} else if (s3ResourceSettings.resourceType === 'azure_workload_identity') {
-				let typ: LargeFileStorage['type'] = 'AzureWorkloadIdentity'
-				params['type'] = typ
-				params['azure_blob_resource_path'] = resourcePathWithPrefix
-			} else if (s3ResourceSettings.resourceType === 's3_aws_oidc') {
-				let typ: LargeFileStorage['type'] = 'S3AwsOidc'
-				params['type'] = typ
-				params['s3_resource_path'] = resourcePathWithPrefix
-			} else {
-				let typ: LargeFileStorage['type'] = 'S3Storage'
-				params['type'] = typ
-				params['s3_resource_path'] = resourcePathWithPrefix
-			}
-			await WorkspaceService.editLargeFileStorageConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					large_file_storage: params
-				}
-			})
-			sendUserToast(`Large file storage settings updated`)
-		} else {
-			await WorkspaceService.editLargeFileStorageConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					large_file_storage: undefined
-				}
-			})
-			sendUserToast(`Large file storage settings reset`)
-		}
+		})
+		console.log('Large file storage settings changed', large_file_storage)
+		sendUserToast(`Large file storage settings changed`)
 	}
 
 	async function editWindmillGitSyncSettings(): Promise<void> {
@@ -421,11 +393,15 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		openaiResourceInitialPath = settings.openai_resource_path
+		aiResourceInitialPath = settings.ai_resource?.path
+		aiResourceInitialProvider = settings.ai_resource?.provider
+		selected = aiResourceInitialProvider as AiProviderTypes ?? 'openai'
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
+		criticalAlertUIMuted = settings.mute_critical_alerts
+		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -440,37 +416,8 @@
 		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
-		if (settings.large_file_storage?.type === 'S3Storage') {
-			s3ResourceSettings = {
-				resourceType: 's3',
-				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else if (settings.large_file_storage?.type === 'AzureBlobStorage') {
-			s3ResourceSettings = {
-				resourceType: 'azure_blob',
-				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else if (settings.large_file_storage?.type === 'AzureWorkloadIdentity') {
-			s3ResourceSettings = {
-				resourceType: 'azure_workload_identity',
-				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else if (settings.large_file_storage?.type === 'S3AwsOidc') {
-			s3ResourceSettings = {
-				resourceType: 's3_aws_oidc',
-				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else {
-			s3ResourceSettings = {
-				resourceType: 's3',
-				resourcePath: undefined,
-				publicResource: undefined
-			}
-		}
+		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
+
 		if (settings.git_sync !== undefined && settings.git_sync !== null) {
 			gitSyncTestJobs = []
 			gitSyncSettings = {
@@ -537,6 +484,22 @@
 			}
 			gitSyncTestJobs = []
 		}
+		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
+			deployUiSettings = {
+				include_path:
+					settings.deploy_ui.include_path?.length ?? 0 > 0
+						? settings.deploy_ui.include_path ?? []
+						: [],
+				include_type: {
+					scripts: (settings.deploy_ui.include_type?.indexOf('script') ?? -1) >= 0,
+					flows: (settings.deploy_ui.include_type?.indexOf('flow') ?? -1) >= 0,
+					apps: (settings.deploy_ui.include_type?.indexOf('app') ?? -1) >= 0,
+					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
+					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
+					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0
+				}
+			}
+		}
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
@@ -545,11 +508,19 @@
 		})
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadSettings()
+	let deployUiSettings: {
+		include_path: string[]
+		include_type: {
+			scripts: boolean
+			flows: boolean
+			apps: boolean
+			resources: boolean
+			variables: boolean
+			secrets: boolean
 		}
 	}
+
+	$: $workspaceStore && loadSettings()
 
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
@@ -592,7 +563,8 @@
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
-			path: 'hub/7925/git-repo-test-read-write-windmill',
+			path: hubPaths.gitSyncTest,
+			skipPreprocessor: true,
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}
@@ -626,9 +598,25 @@
 			timeout: 5000
 		})
 	}
+
+	async function editCriticalAlertMuteSetting() {
+		await SettingService.workspaceMuteCriticalAlertsUi({
+			workspace: $workspaceStore!,
+			requestBody: {
+				mute_critical_alerts: criticalAlertUIMuted
+			}
+		})
+		sendUserToast(
+			`Critical alert UI mute setting for workspace is set to ${criticalAlertUIMuted}\nreloading page...`
+		)
+		// reload page after change of setting
+		setTimeout(() => {
+			window.location.reload()
+		}, 3000)
+	}
 </script>
 
-<Portal>
+<Portal name="workspace-settings">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
 </Portal>
 
@@ -651,7 +639,9 @@
 			<Tabs
 				bind:selected={tab}
 				on:selected={() => {
-					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
+					// setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
+					$page.url.searchParams.set('tab', tab)
+					goto(`?${$page.url.searchParams.toString()}`)
 				}}
 			>
 				<Tab size="xs" value="users">
@@ -681,11 +671,11 @@
 				<Tab size="xs" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
-				<Tab size="xs" value="openai">
+				<Tab size="xs" value="ai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
-					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
+					<div class="flex gap-2 items-center my-1"> Object Storage (S3)</div>
 				</Tab>
 				<Tab size="xs" value="default_app">
 					<div class="flex gap-2 items-center my-1"> Default App </div>
@@ -718,7 +708,7 @@
 				</div>
 			</div>
 			{#if $enterpriseLicense}
-				<DeployToSetting bind:workspaceToDeployTo />
+				<DeployToSetting bind:workspaceToDeployTo bind:deployUiSettings />
 			{:else}
 				<div class="my-2"
 					><Alert type="error" title="Enterprise license required"
@@ -763,11 +753,11 @@
 						<Button
 							size="sm"
 							endIcon={{ icon: Code2 }}
-							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+							href="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="{base}/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>
@@ -776,7 +766,7 @@
 						<Button
 							size="xs"
 							color="dark"
-							href="/api/oauth/connect_slack"
+							href="{base}/api/oauth/connect_slack"
 							startIcon={{ icon: Slack }}
 						>
 							Connect to Slack
@@ -844,7 +834,7 @@
 			<div class="flex justify-start">
 				<Button
 					size="sm"
-					href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+					href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
 					target="_blank"
 				>
 					Export workspace as zip file
@@ -932,6 +922,7 @@
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
+				<div class="pb-2" />
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -960,7 +951,7 @@
 				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
-				customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fworkspace_error_handler_template"
+				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}
 			>
@@ -1008,7 +999,42 @@
 					Save
 				</Button>
 			</div>
-		{:else if tab == 'openai'}
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
+					<div class="text-tertiary text-xs">
+						Critical alerts within the scope of a workspace are sent to the workspace admins through
+						a UI notification.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
+					<div class="flex flex-col mt-5 gap-5 items-start">
+						<Button
+							disabled={!$enterpriseLicense}
+							size="sm"
+							on:click={() => isCriticalAlertsUIOpen.set(true)}
+						>
+							Show Critical Alerts
+						</Button>
+						<Toggle
+							disabled={!$enterpriseLicense}
+							bind:checked={criticalAlertUIMuted}
+							options={{ right: 'Mute critical alerts UI for this workspace' }}
+						/>
+						<Button
+							disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
+							size="sm"
+							on:click={editCriticalAlertMuteSetting}
+						>
+							Save Mute Setting
+						</Button>
+					</div>
+				</div>
+			</div>
+		{:else if tab == 'ai'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Windmill AI</div>
@@ -1016,8 +1042,7 @@
 						Select an OpenAI resource to unlock Windmill AI features.
 					</div>
 					<div class="text-tertiary text-xs">
-						Windmill AI uses OpenAI's GPT-3.5-turbo for code completion and GPT-4 Turbo for all
-						other AI features.
+						Windmill AI supports integration with your preferred AI provider for all AI features.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
 							target="_blank"
@@ -1026,19 +1051,32 @@
 					</div>
 				</div>
 			</div>
+			<ToggleButtonGroup
+				bind:selected
+				on:selected={() => {
+					aiResourceInitialPath = ''
+				}}
+			>
+				<ToggleButton value="openai" label="OpenAI" />
+				<ToggleButton value="anthropic" label="Anthropic" />
+				<ToggleButton value="mistral" label="Mistral" />
+			</ToggleButtonGroup>
 			<div class="mt-5 flex gap-1">
-				{#key [openaiResourceInitialPath, usingOpenaiClientCredentialsOauth]}
+				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}
 					<ResourcePicker
 						resourceType={usingOpenaiClientCredentialsOauth
 							? 'openai_client_credentials_oauth'
-							: 'openai'}
-						initialValue={openaiResourceInitialPath}
+							: selected}
+						initialValue={aiResourceInitialPath}
 						on:change={(ev) => {
-							editCopilotConfig(ev.detail)
+							editCopilotConfig(ev.detail, selected)
 						}}
 					/>
+					<TestAiKey
+						disabled={!aiResourceInitialPath || aiResourceInitialProvider != selected}
+						aiProvider={selected}
+					/>
 				{/key}
-				<TestOpenaiKey disabled={!openaiResourceInitialPath} />
 			</div>
 			<div class="mt-3">
 				<Toggle
@@ -1046,18 +1084,21 @@
 					bind:checked={codeCompletionEnabled}
 					options={{ right: 'Enable code completion' }}
 					on:change={() => {
-						editCopilotConfig(openaiResourceInitialPath || '')
+						editCopilotConfig(aiResourceInitialPath || '', aiResourceInitialProvider || '')
 					}}
 				/>
 			</div>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">S3 Storage</div>
+					<div class=" text-primary text-lg font-semibold"
+						>Workspace object storage (S3/Azure Blob)</div
+					>
 					<div class="text-tertiary text-xs">
-						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage.
+						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable
+						users to read and write from S3 without having to have access to the credentials.
 						<a
-							href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
+							href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 							target="_blank"
 							class="text-blue-500">Learn more</a
 						>.
@@ -1074,8 +1115,11 @@
 				<Alert type="info" title="Logs storage is set at the instance level">
 					This setting is only for storage of large files allowing to upload files directly to
 					object storage using S3Object and use the wmill sdk to read and write large files backed
-					by an object storage. The automatics large logs storage is set by the superadmins in the
-					instance settings UI.
+					by an object storage. Large-scale log management and distributed dependency caching is
+					under <a
+						href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage"
+						class="text-blue-500">Instance object storage</a
+					>, set by the superadmins in the instance settings UI.
 				</Alert>
 			{/if}
 			{#if s3ResourceSettings}
@@ -1115,7 +1159,7 @@
 								right:
 									'S3 resource details and content can be accessed by all users of this workspace',
 								rightTooltip:
-									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
+									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details and the "open preview" button. This effectively by-pass the permissions set on the resource and makes it public to everyone.'
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
@@ -1151,6 +1195,75 @@
 						{/if}
 					</div>
 				{/if}
+				<div class="mt-6">
+					<div class="flex mt-2 flex-col gap-y-4 max-w-3xl">
+						{#each s3ResourceSettings.secondaryStorage ?? [] as secondaryStorage, idx}
+							<div class="flex gap-1 items-center">
+								<input
+									class="max-w-[200px]"
+									type="text"
+									bind:value={secondaryStorage[0]}
+									placeholder="Storage name"
+								/>
+								<select class="max-w-[125px]" bind:value={secondaryStorage[1].resourceType}>
+									<option value="s3">S3</option>
+									<option value="azure_blob">Azure Blob</option>
+									<option value="s3_aws_oidc">AWS OIDC</option>
+									<option value="azure_workload_identity">Azure Workload Identity</option>
+								</select>
+								<ResourcePicker
+									resourceType={secondaryStorage[1].resourceType}
+									bind:value={secondaryStorage[1].resourcePath}
+								/>
+								<Button
+									size="sm"
+									variant="contained"
+									color="dark"
+									disabled={emptyString(secondaryStorage[1].resourcePath)}
+									on:click={async () => {
+										if ($workspaceStore) {
+											s3FileViewer?.open?.({ s3: '', storage: secondaryStorage[0] })
+										}
+									}}>Browse content (save first)</Button
+								>
+								<button
+									transition:fade|local={{ duration: 100 }}
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+									aria-label="Clear"
+									on:click={() => {
+										if (s3ResourceSettings.secondaryStorage) {
+											s3ResourceSettings.secondaryStorage.splice(idx, 1)
+											s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
+										}
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						<div class="flex gap-1">
+							<Button
+								size="xs"
+								variant="border"
+								on:click={() => {
+									if (s3ResourceSettings.secondaryStorage === undefined) {
+										s3ResourceSettings.secondaryStorage = []
+									}
+									s3ResourceSettings.secondaryStorage.push([
+										`storage_${s3ResourceSettings.secondaryStorage.length + 1}`,
+										{ resourcePath: '', resourceType: 's3', publicResource: false }
+									])
+									s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
+								}}><Plus size={14} />Add secondary storage</Button
+							>
+							<Tooltip>
+								Secondary storage is a feature that allows you to read and write from storage that
+								isn't your main storage by specifying it in the s3 object as "secondary_storage"
+								with the name of it
+							</Tooltip>
+						</div>
+					</div>
+				</div>
 				<div class="flex mt-5 mb-5 gap-1">
 					<Button
 						color="blue"
@@ -1158,7 +1271,7 @@
 						on:click={() => {
 							editWindmillLFSSettings()
 							console.log('Saving S3 settings', s3ResourceSettings)
-						}}>Save S3 settings</Button
+						}}>Save storage settings</Button
 					>
 				</div>
 			{/if}
@@ -1186,26 +1299,33 @@
 				<div class="mb-2" />
 			{/if}
 			{#if gitSyncSettings != undefined}
-				{#if $enterpriseLicense}
-					<div class="flex mt-5 mb-5 gap-1">
-						<Button
-							color="blue"
-							disabled={gitSyncSettings?.repositories?.some((elmt) =>
+				<div class="flex mt-5 mb-5 gap-8">
+					<Button
+						color="blue"
+						disabled={!$enterpriseLicense ||
+							gitSyncSettings?.repositories?.some((elmt) =>
 								emptyString(elmt.git_repo_resource_path)
 							)}
-							on:click={() => {
-								editWindmillGitSyncSettings()
-								console.log('Saving git sync settings', gitSyncSettings)
-							}}>Save Git sync settings</Button
-						>
-					</div>
-				{/if}
+						on:click={() => {
+							editWindmillGitSyncSettings()
+							console.log('Saving git sync settings', gitSyncSettings)
+						}}>Save git sync settings {!$enterpriseLicense ? '(ee only)' : ''}</Button
+					>
+
+					<Button
+						color="dark"
+						target="_blank"
+						endIcon={{ icon: ExternalLink }}
+						href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}
+						>See sync jobs</Button
+					>
+				</div>
 
 				<div class="flex flex-wrap gap-20">
 					<div class="max-w-md w-full">
 						{#if Array.isArray(gitSyncSettings?.include_path)}
 							<h4 class="flex gap-2 mb-4"
-								>Filter on path<Tooltip>
+								>Path filters<Tooltip>
 									Only scripts, flows and apps with their path matching one of those filters will be
 									synced to the Git repositories below. The filters allow '*'' and '**' characters,
 									with '*'' matching any character allowed in paths until the next slash (/) and
@@ -1245,11 +1365,16 @@
 								Add filter
 							</Button>
 						</div>
+						<div class="pt-2" />
+						<Alert type="info" title="Only new updates trigger git sync">
+							Only new changes matching the filters will trigger a git sync. You still need to
+							initalize the repo to the desired state first.
+						</Alert>
 					</div>
 
 					<div class="max-w-md w-full">
 						<h4 class="flex gap-2 mb-4"
-							>Filter on type<Tooltip>
+							>Type filters<Tooltip>
 								On top of the filter path above, you can include only certain type of object to be
 								synced with the Git repository.
 								<br />By default everything is synced.
@@ -1570,13 +1695,15 @@
 
 						<br />
 
-						. For the git repo to be representative of the entire workspace, it is recommended to
-						set it up using the Windmill CLI before turning this option on.
+						For the git repo to be representative of the entire workspace, it is recommended to set
+						it up using the Windmill CLI before turning this option on.
 
 						<br /><br />
 
 						Not familiar with Windmill CLI?
-						<a href="https://www.windmill.dev/docs/advanced/cli">Check out the docs</a>
+						<a href="https://www.windmill.dev/docs/advanced/cli" class="text-primary"
+							>Check out the docs</a
+						>
 
 						<br /><br />
 
@@ -1587,9 +1714,11 @@
 
 						<pre class="overflow-auto max-h-screen"
 							><code
-								>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
-echo 'includes: ["f/**"]' > wmill.yaml
-wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
+								>npm install -g windmill-cli
+wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
+wmill init
+# adjust wmill.yaml file configuraton as needed
+wmill sync pull
 git add -A
 git commit -m 'Initial commit'
 git push</code

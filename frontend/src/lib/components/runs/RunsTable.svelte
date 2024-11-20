@@ -7,16 +7,20 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
+	import { isJobCancelable } from '$lib/utils'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
 	export let externalJobs: Job[] = []
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
-	export let selectedId: string | undefined = undefined
+	export let isSelectingJobsToCancel: boolean = false
+	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
 	// const loadMoreQuantity: number = 100
+	export let lastFetchWentToEnd = false
 
 	function getTime(job: Job): string | undefined {
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
@@ -136,9 +140,27 @@
 	}
 	*/
 
-	function jobCountString(jobCount: number) {
+	let allSelected: boolean = false
+
+	function selectAll() {
+		if (allSelected) {
+			allSelected = false
+			selectedIds = []
+		} else {
+			allSelected = true
+			selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
+		}
+	}
+	let cancelableJobCount: number = 0
+	$: isSelectingJobsToCancel && (allSelected = selectedIds.length === cancelableJobCount)
+	$: isSelectingJobsToCancel && (cancelableJobCount = jobs?.filter(isJobCancelable).length ?? 0)
+
+	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
+		if (jobCount === undefined) {
+			return ''
+		}
 		const jc = jobCount
-		const isTruncated = jc == 1000
+		const isTruncated = jc >= 1000 && !lastFetchWentToEnd
 
 		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
@@ -150,6 +172,19 @@
 		computeHeight()
 	})
 	const dispatch = createEventDispatcher()
+
+	let scrollToIndex = 0
+
+	export function scrollToRun(ids: string[]) {
+		if (flatJobs && ids.length > 0) {
+			const i = flatJobs.findIndex(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === ids[0]
+			)
+			if (i !== -1) {
+				scrollToIndex = i
+			}
+		}
+	}
 </script>
 
 <svelte:window on:resize={() => computeHeight()} />
@@ -159,94 +194,146 @@
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
-	<div
-		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4"
-		bind:clientHeight={header}
-	>
-		{#if showExternalJobs && externalJobs.length > 0}
-			<div class="w-1/12 text-2xs">
-				<div class="flex flex-row">
-					{jobs && jobCountString(jobs.length + externalJobs.length)}<Tooltip
-						>{externalJobs.length} jobs obscured</Tooltip
-					>
+	<div bind:clientHeight={header}>
+		{#if isSelectingJobsToCancel && cancelableJobCount != 0}
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div
+				class={twMerge(
+					'hover:bg-surface-hover bg-surface-primary cursor-pointer',
+					allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+					'flex flex-row items-center sticky w-full p-2 pr-4 top-0 font-semibold border-t text-sm'
+				)}
+				on:click={selectAll}
+			>
+				<div class="px-2">
+					<input on:focus type="checkbox" checked={allSelected} />
 				</div>
+				Select all
 			</div>
-		{:else if $workspaceStore !== 'admins' &&  omittedObscuredJobs}
-			<div class="w-1/12 text-2xs flex flex-row">
-				{jobs && jobCountString(jobs.length)}
-				<Popover>
-					<AlertTriangle size={16} class="ml-0.5 text-yellow-500"/>
-					<svelte:fragment slot="text">
-						Too specific filtering may have caused the omission of obscured jobs. This is done for security reasons. To see obscured jobs, try removing some filters.
-					</svelte:fragment>
-				</Popover>
-			</div>
-		{:else}
-			<div class="w-1/12 text-2xs">{jobs && jobCountString(jobs.length)}</div>
 		{/if}
-		<div class="w-4/12 text-xs font-semibold">Timestamp</div>
-		<div class="w-4/12 text-xs font-semibold">Path</div>
-		{#if containsLabel}
-			<div class="w-3/12 text-xs font-semibold">Label</div>
-		{/if}
-		<div class="w-3/12 text-xs font-semibold">Triggered by</div>
+		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4">
+			{#if showExternalJobs && externalJobs.length > 0}
+				<div class="w-1/12 text-2xs">
+					<div class="flex flex-row">
+						{jobs
+							? jobCountString(jobs.length + externalJobs.length, lastFetchWentToEnd)
+							: ''}<Tooltip>{externalJobs.length} jobs obscured</Tooltip>
+					</div>
+				</div>
+			{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
+				<div class="w-1/12 text-2xs flex flex-row">
+					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
+					<Popover>
+						<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
+						<svelte:fragment slot="text">
+							Too specific filtering may have caused the omission of obscured jobs. This is done for
+							security reasons. To see obscured jobs, try removing some filters.
+						</svelte:fragment>
+					</Popover>
+				</div>
+			{:else}
+				<div class="w-1/12 text-2xs"
+					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
+				>
+			{/if}
+			<div class="w-4/12 text-xs font-semibold" />
+			<div class="w-4/12 text-xs font-semibold">Path</div>
+			{#if containsLabel}
+				<div class="w-3/12 text-xs font-semibold">Label</div>
+			{/if}
+			<div class="w-3/12 text-xs font-semibold">Triggered by</div>
+		</div>
 	</div>
+	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
+		<tr>
+			<td colspan="4" class="text-center p-8">
+				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
+			</td>
+		</tr>
+	{:else}
+		<VirtualList
+			width="100%"
+			height={tableHeight - header}
+			itemCount={flatJobs?.length ?? 3}
+			itemSize={42}
+			overscanCount={20}
+			{stickyIndices}
+			{scrollToIndex}
+			scrollToAlignment="center"
+			scrollToBehaviour="smooth"
+		>
+			<div slot="item" let:index let:style {style} class="w-full">
+				{#if flatJobs}
+					{@const jobOrDate = flatJobs[index]}
 
-	<VirtualList
-		width="100%"
-		height={tableHeight - header}
-		itemCount={flatJobs?.length ?? 3}
-		itemSize={42}
-		{stickyIndices}
-	>
-		<div slot="item" let:index let:style {style} class="w-full">
-			{#if flatJobs}
-				{@const jobOrDate = flatJobs[index]}
-
-				{#if jobOrDate}
-					{#if jobOrDate?.type === 'date'}
-						<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
-							{jobOrDate.date}
-						</div>
+					{#if jobOrDate}
+						{#if jobOrDate?.type === 'date'}
+							<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+								{jobOrDate.date}
+							</div>
+						{:else}
+							<div class="flex flex-row items-center h-full w-full">
+								<RunRow
+									{containsLabel}
+									job={jobOrDate.job}
+									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+									{isSelectingJobsToCancel}
+									on:select={() => {
+										const jobId = jobOrDate.job.id
+										if (isSelectingJobsToCancel) {
+											if (selectedIds.includes(jobOrDate.job.id)) {
+												selectedIds = selectedIds.filter((id) => id != jobId)
+											} else {
+												selectedIds.push(jobId)
+												selectedIds = selectedIds
+											}
+										} else {
+											selectedWorkspace = jobOrDate.job.workspace_id
+											selectedIds = [jobOrDate.job.id]
+											dispatch('select')
+										}
+									}}
+									{activeLabel}
+									on:filterByLabel
+									on:filterByPath
+									on:filterByUser
+									on:filterByFolder
+									on:filterByConcurrencyKey
+									on:filterBySchedule
+									{containerWidth}
+								/>
+							</div>
+						{/if}
 					{:else}
-						<div class="flex flex-row items-center h-full w-full">
-							<RunRow
-								{containsLabel}
-								job={jobOrDate.job}
-								{selectedId}
-								on:select={() => {
-									selectedWorkspace = jobOrDate.job.workspace_id
-									selectedId = jobOrDate.job.id
-									dispatch('select')
-								}}
-								{activeLabel}
-								on:filterByLabel
-								on:filterByPath
-								on:filterByUser
-								on:filterByFolder
-								on:filterByConcurrencyKey
-								{containerWidth}
-							/>
-						</div>
+						{JSON.stringify(jobOrDate)}
 					{/if}
 				{:else}
-					{JSON.stringify(jobOrDate)}
+					<div class="flex flex-row items-center h-full w-full">
+						<div class="w-1/12 text-2xs">...</div>
+						<div class="w-4/12 text-xs">...</div>
+						<div class="w-4/12 text-xs">...</div>
+						<div class="w-3/12 text-xs">...</div>
+					</div>
 				{/if}
-			{:else}
-				<div class="flex flex-row items-center h-full w-full">
-					<div class="w-1/12 text-2xs">...</div>
-					<div class="w-4/12 text-xs">...</div>
-					<div class="w-4/12 text-xs">...</div>
-					<div class="w-3/12 text-xs">...</div>
-				</div>
-			{/if}
-		</div>
-	</VirtualList>
+			</div>
+			<div slot="footer"
+				>{#if !lastFetchWentToEnd && jobs && jobs.length >= 1000}
+					<button
+						class="text-xs text-blue-600 text-center w-full pb-2"
+						on:click={() => {
+							dispatch('loadExtra')
+						}}>Load next 1000 jobs</button
+					>
+				{/if}</div
+			>
+		</VirtualList>
+	{/if}
 </div>
-{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
-	<tr>
-		<td colspan="4" class="text-center py-8">
-			<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
-		</td>
-	</tr>
-{/if}
+
+<style>
+	:global(.virtual-list-wrapper:hover::-webkit-scrollbar) {
+		width: 8px !important;
+		height: 8px !important;
+	}
+</style>

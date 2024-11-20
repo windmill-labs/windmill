@@ -1,6 +1,13 @@
 <script lang="ts">
 	import MenuLink from './MenuLink.svelte'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		usedTriggerKinds,
+		userStore,
+		workspaceStore,
+		isCriticalAlertsUIOpen,
+		enterpriseLicense
+	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -9,6 +16,7 @@
 		Calendar,
 		DollarSign,
 		Eye,
+		Logs,
 		FolderCog,
 		FolderOpen,
 		Github,
@@ -17,9 +25,13 @@
 		LogOut,
 		Newspaper,
 		Play,
+		Route,
 		ServerCog,
 		Settings,
-		UserCog
+		UserCog,
+		Plus,
+		Unplug,
+		AlertCircle
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -29,23 +41,40 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clearStores } from '$lib/storeUtils'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
+	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
+	import { page } from '$app/stores'
+	import SideBarNotification from './SideBarNotification.svelte'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
+
+	export let numUnacknowledgedCriticalAlerts = 0
 
 	$: mainMenuLinks = [
-		{ label: 'Home', href: '/', icon: Home },
-		{ label: 'Runs', href: '/runs', icon: Play },
-		{ label: 'Variables', href: '/variables', icon: DollarSign, disabled: $userStore?.operator },
-		{ label: 'Resources', href: '/resources', icon: Boxes, disabled: $userStore?.operator },
+		{ label: 'Home', href: `${base}/`, icon: Home },
+		{ label: 'Runs', href: `${base}/runs`, icon: Play },
+		{
+			label: 'Variables',
+			href: `${base}/variables`,
+			icon: DollarSign,
+			disabled: $userStore?.operator
+		},
+		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator }
+	]
+
+	$: triggerMenuLinks = [
 		{
 			label: 'Schedules',
-			href: '/schedules',
+			href: `${base}/schedules`,
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
-		}
+		},
+		...defaultExtraTriggerLinks.filter(
+			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
+		)
 	]
 
 	async function leaveWorkspace() {
@@ -54,6 +83,34 @@
 		clearStores()
 		goto('/user/workspaces')
 	}
+
+	const defaultExtraTriggerLinks = [
+		{
+			label: 'HTTP',
+			href: '/routes',
+			icon: Route,
+			disabled: $userStore?.operator,
+			kind: 'http'
+		},
+		{
+			label: 'Websockets',
+			href: '/websocket_triggers',
+			icon: Unplug,
+			disabled: $userStore?.operator,
+			kind: 'ws'
+		},
+		{
+			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/kafka_triggers',
+			icon: KafkaIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'kafka'
+		}
+	]
+
+	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
+		return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
+	})
 
 	$: secondaryMenuLinks = [
 		// {
@@ -76,7 +133,7 @@
 					? [
 							{
 								label: 'Workspace',
-								href: '/workspace_settings',
+								href: `${base}/workspace_settings`,
 								icon: FolderCog,
 								faIcon: undefined
 							}
@@ -108,21 +165,21 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Workers', href: '/workers', icon: Bot, disabled: $userStore?.operator },
+		{ label: 'Workers', href: `${base}/workers`, icon: Bot, disabled: $userStore?.operator },
 		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,
 			subItems: [
 				{
 					label: 'Folders',
-					href: '/folders',
+					href: `${base}/folders`,
 					icon: FolderOpen,
 					disabled: $userStore?.operator,
 					faIcon: undefined
 				},
 				{
 					label: 'Groups',
-					href: '/groups',
+					href: `${base}/groups`,
 					icon: UserCog,
 					disabled: $userStore?.operator,
 					faIcon: undefined
@@ -130,7 +187,45 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
+		$superadmin || $userStore?.is_admin
+			? {
+					label: 'Logs',
+					icon: Logs,
+					subItems: [
+						{
+							label: 'Audit Logs',
+							href: `${base}/audit_logs`,
+							icon: Eye
+						},
+						...($superadmin
+							? [
+									{
+										label: 'Service Logs',
+										href: `${base}/service_logs`,
+										icon: Logs
+									}
+							  ]
+							: []),
+						...($enterpriseLicense
+							? [
+									{
+										label: 'Critical Alerts',
+										action: () => {
+											isCriticalAlertsUIOpen.set(true)
+										},
+										icon: AlertCircle,
+										notificationCount: numUnacknowledgedCriticalAlerts
+									}
+							  ]
+							: [])
+					]
+			  }
+			: {
+					label: 'Audit Logs',
+					href: `${base}/audit_logs`,
+					icon: Eye,
+					disabled: $userStore?.operator
+			  }
 	]
 
 	let hasNewChangelogs = false
@@ -183,6 +278,14 @@
 	export let noGap: boolean = false
 
 	let leaveWorkspaceModal = false
+
+	function computeAllNotificationsCount(menuItems: any[]) {
+		let count = 0
+		for (const menuItem of menuItems) {
+			count += menuItem?.['notificationCount'] ?? 0
+		}
+		return count
+	}
 </script>
 
 <nav
@@ -191,26 +294,73 @@
 		noGap ? 'gap-0' : 'gap-16'
 	)}
 >
-	<div class={twMerge('space-y-1 pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
-		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
-		{/each}
+	<div class={twMerge('pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
+		<div class="space-y-1">
+			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+			{/each}
+		</div>
+		<div class="pt-4">
+			<div
+				class="text-gray-400 text-[0.5rem] uppercase transition-opacity"
+				class:opacity-0={isCollapsed}>Triggers</div
+			>
+			<div class="space-y-1">
+				{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+				{/each}
+				{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
+					<Menu>
+						<div
+							slot="trigger"
+							class="w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded"
+						>
+							<Plus size={14} />
+						</div>
+						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+							<MenuItem>
+								<div class="py-1" role="none">
+									<a
+										href={subItem.disabled ? '' : subItem.href}
+										class={twMerge(
+											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary',
+											subItem.disabled ? 'pointer-events-none opacity-50' : ''
+										)}
+										role="menuitem"
+										tabindex="-1"
+									>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<svelte:component this={subItem.icon} size={16} />
+											{/if}
+
+											{subItem.label}
+										</div>
+									</a>
+								</div>
+							</MenuItem>
+						{/each}
+					</Menu>
+				{/if}
+			</div>
+		</div>
 	</div>
 	<div class="flex flex-col h-full justify-end">
 		<div class={twMerge('space-y-0.5 mb-6 md:mb-10', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
 			<UserMenu {isCollapsed} />
 			{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				{#if menuLink.subItems}
+					{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
 					<Menu>
 						<div slot="trigger">
-							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {notificationsCount} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
 								<div class="py-1" role="none">
 									{#if subItem?.['action']}
 										<button
-											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+											class="text-secondary font-normal w-full block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
 											on:click={subItem?.['action']}
 										>
 											<div class="flex flex-row items-center gap-2">
@@ -219,14 +369,17 @@
 												{/if}
 
 												{subItem.label}
+												{#if subItem?.['notificationCount']}
+													<div class="ml-auto">
+														<SideBarNotification notificationCount={subItem['notificationCount']} />
+													</div>
+												{/if}
 											</div>
 										</button>
 									{:else}
 										<a
 											href={subItem.href}
-											class={twMerge(
-												'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
-											)}
+											class="text-secondary font-normal block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
 											role="menuitem"
 											tabindex="-1"
 										>
@@ -236,6 +389,12 @@
 												{/if}
 
 												{subItem.label}
+
+												{#if subItem?.['notificationCount']}
+													<div class="ml-auto">
+														<SideBarNotification notificationCount={subItem['notificationCount']} />
+													</div>
+												{/if}
 											</div>
 										</a>
 									{/if}

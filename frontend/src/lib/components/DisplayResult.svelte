@@ -2,6 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
+	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -11,9 +12,11 @@
 		Table2,
 		Braces,
 		Highlighter,
-		InfoIcon
+		InfoIcon,
+		ArrowDownFromLine
 	} from 'lucide-svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -22,11 +25,16 @@
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
-	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
+	import ParqetTableRenderer from './ParqetCsvTableRenderer.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
 	import Popover from './Popover.svelte'
+	import DownloadCsv from './table/DownloadCsv.svelte'
+	import { convertJsonToCsv } from './table/tableUtils'
+	import Tooltip from './Tooltip.svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
+	import PdfViewer from './display/PdfViewer.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -37,6 +45,8 @@
 	export let hideAsJson: boolean = false
 	export let noControls: boolean = false
 	export let drawerOpen = false
+	export let nodeId: string | undefined = undefined
+	export let language: string | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -61,6 +71,8 @@
 		| 'plain'
 		| 'markdown'
 		| 'map'
+		| 'nondisplayable'
+		| 'pdf'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -106,17 +118,23 @@
 	let largeObject: boolean | undefined = undefined
 
 	function checkIfS3(result: any, keys: string[]) {
-		return keys.length === 1 && keys.includes('s3') && typeof result.s3 === 'string'
+		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
 	let is_render_all = false
+	let download_as_csv = false
 	function inferResultKind(result: any) {
-		if (result == 'WINDMILL_TOO_BIG') {
-			largeObject = true
-			return 'json'
+		try {
+			if (result === 'WINDMILL_TOO_BIG') {
+				largeObject = true
+				return 'json'
+			}
+		} catch (err) {
+			return 'nondisplayable'
 		}
 
 		if (result !== undefined) {
+			download_as_csv = false
 			if (typeof result === 'string') {
 				length = 0
 				largeObject = false
@@ -124,7 +142,7 @@
 				return 'plain'
 			}
 			try {
-				let keys = result && typeof result == 'object' ? Object.keys(result) : []
+				let keys = result && typeof result === 'object' ? Object.keys(result) : []
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -136,12 +154,17 @@
 					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
 				}
 
-				const tableLargeObject = roughSizeOfObject(result) > TABLE_MAX_SIZE
+				let size = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = tableLargeObject || roughSizeOfObject(result) > DISPLAY_MAX_SIZE
 
-				if (tableLargeObject) {
+				if (size > TABLE_MAX_SIZE) {
+					largeObject = true
+					if (Array.isArray(result) && isTableRowObject(result)) {
+						download_as_csv = true
+					}
 					return 'json'
+				} else {
+					largeObject = size > DISPLAY_MAX_SIZE
 				}
 
 				if (Array.isArray(result)) {
@@ -174,18 +197,20 @@
 				}
 
 				if (keys.length != 0) {
-					if (keys.length == 1 && keys[0] == 'html') {
+					if (keys.length == 1 && keys[0] === 'html') {
 						return 'html'
-					} else if (keys.length == 1 && keys[0] == 'map') {
+					} else if (keys.length == 1 && keys[0] === 'map') {
 						return 'map'
-					} else if (keys.length == 1 && keys[0] == 'file') {
+					} else if (keys.length == 1 && keys[0] === 'pdf') {
+						return 'pdf'
+					} else if (keys.length == 1 && keys[0] === 'file') {
 						return 'file'
 					} else if (
 						keys.includes('windmill_content_type') &&
 						result['windmill_content_type'].startsWith('text/')
 					) {
 						return 'plain'
-					} else if (keys.length == 1 && keys[0] == 'error') {
+					} else if (keys.length == 1 && keys[0] === 'error') {
 						return 'error'
 					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
 						return 'file'
@@ -229,14 +254,24 @@
 	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
-		return JSON.stringify(result ?? null, null, 4) ?? 'null'
+		try {
+			// console.log(result)
+			return JSON.stringify(result ?? null, null, 4) ?? 'null'
+		} catch (e) {
+			return 'error stringifying object: ' + e.toString()
+		}
 	}
 
-	function contentOrRootString(obj: string | { filename: string; content: string }) {
+	function contentOrRootString(obj: string | { filename: string; content: string } | undefined) {
+		if (obj == undefined || obj == null) {
+			return ''
+		}
 		if (typeof obj === 'string') {
 			return obj
+		} else if (typeof obj === 'object') {
+			return obj?.['content']
 		} else {
-			return obj.content
+			return ''
 		}
 	}
 
@@ -326,8 +361,11 @@
 	}
 
 	let globalForceJson: boolean = false
+
+	let seeS3PreviewFileFromList = ''
 </script>
 
+<HighlightTheme />
 {#if is_render_all}
 	<div class="flex flex-col w-full gap-6">
 		{#if !noControls}
@@ -353,23 +391,22 @@
 				{filename}
 				{disableExpand}
 				{jobId}
+				{nodeId}
 				{workspaceId}
 				forceJson={globalForceJson}
 				hideAsJson={true}
 			/>
 		{/each}</div
 	>
-{:else}
-	<div
+{:else if resultKind === 'nondisplayable'}<div class="text-red-400">Non displayable object</div
+	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
-			: 'min-h-[200px]'}"
-	>
-		{#if result != undefined && length != undefined && largeObject != undefined}
-			<div class="flex justify-between items-center w-full">
-				<div class="text-tertiary text-sm">
-					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}
-						<ToggleButtonGroup
+			: 'min-h-[160px]'}"
+		>{#if result != undefined && length != undefined && largeObject != undefined}<div
+				class="flex justify-between items-center w-full"
+				><div class="text-tertiary text-sm">
+					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
@@ -388,6 +425,17 @@
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
+						<a
+							download="{filename ?? 'result'}.json"
+							class="-mt-1 text-current"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+						>
+							<Download size={14} />
+						</a>
 						<Popover
 							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 						>
@@ -407,258 +455,379 @@
 						</button>
 					{/if}
 				</div>
-			</div>{#if !forceJson && resultKind == 'table-col'}
-				{@const data = 'table-col' in result ? result['table-col'] : result}
-				<AutoDataTable objects={objectOfArraysToObjects(data)} />
-			{:else if !forceJson && resultKind == 'table-row'}
-				{@const data = 'table-row' in result ? result['table-row'] : result}
-				<AutoDataTable objects={arrayOfRowsToObjects(data)} />
-			{:else if !forceJson && resultKind == 'table-row-object'}
-				{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
-				<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
-			{:else if !forceJson && resultKind == 'html'}
-				<div class="h-full">
-					{#if !requireHtmlApproval || enableHtml}
-						{@html result.html}
-					{:else}
-						<div class="font-main text-sm">
-							<div class="flex flex-col">
-								<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
-									Warning
-								</div>
-								<p
-									class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
-									>Rendering HTML can expose you to <a
-										href="https://owasp.org/www-community/attacks/xss/"
-										target="_blank"
-										rel="noreferrer"
-										class="hover:underline">XSS attacks</a
-									>. Only enable it if you trust the author of the script.
-								</p>
-							</div>
-							<div class="center-center">
-								<Button size="sm" color="dark" on:click={() => (enableHtml = true)}>
-									Enable HTML rendering
-								</Button>
-							</div>
-						</div>
-					{/if}
-				</div>
-			{:else if !forceJson && resultKind == 'map'}
-				<div class="h-full">
-					<MapResult
-						lat={result.map.lat}
-						lon={result.map.lon}
-						zoom={result.map.zoom}
-						markers={result.map.markers}
-					/>
-				</div>
-			{:else if !forceJson && resultKind == 'png'}
-				<div class="h-full">
-					<img
-						alt="png rendered"
-						class="w-auto h-full"
-						src="data:image/png;base64,{contentOrRootString(result.png)}"
-					/>
-				</div>
-			{:else if !forceJson && resultKind == 'jpeg'}
-				<div class="h-full">
-					<img
-						alt="jpeg rendered"
-						class="w-auto h-full"
-						src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
-					/>
-				</div>
-			{:else if !forceJson && resultKind == 'svg'}
-				<div
-					><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a>
-				</div>
-				<div class="h-full overflow-auto">{@html result.svg} </div>
-			{:else if !forceJson && resultKind == 'gif'}
-				<div class="h-full">
-					<img
-						alt="gif rendered"
-						class="w-auto h-full"
-						src="data:image/gif;base64,{contentOrRootString(result.gif)}"
-					/>
-				</div>
-			{:else if !forceJson && resultKind == 'plain'}<div class="h-full text-2xs"
-					><pre>{typeof result == 'string' ? result : result?.['result']}</pre>{#if !noControls}
-						<div class="flex">
-							<Button
-								on:click={() =>
-									copyToClipboard(typeof result == 'string' ? result : result?.['result'])}
-								color="light"
-								size="xs"
-							>
-								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-							</Button>
-						</div>
-					{/if}
-				</div>
-			{:else if !forceJson && resultKind == 'file'}
-				<div>
-					<a
-						download={result.filename ?? result.file?.filename ?? 'windmill.file'}
-						href="data:application/octet-stream;base64,{contentOrRootString(result.file)}"
-						>Download</a
-					>
-				</div>
-			{:else if !forceJson && resultKind == 'error' && result?.error}
-				<div class="flex flex-col items-start">
-					<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
-						>{#if result.error.name || result.error.message}{result.error.name}: {result.error
-								.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
-					>
-					<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
-					<slot />
-				</div>
-			{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
-					<Button
-						color="green"
-						variant="border"
-						on:click={() =>
-							fetch(result['resume'], {
-								method: 'POST',
-								body: JSON.stringify({}),
-								headers: { 'Content-Type': 'application/json' }
-							})}
-					>
-						Resume</Button
-					>
-					<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}
-						>Cancel</Button
-					>
-					<div class="center-center"
-						><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a
-						></div
-					>
-				</div>
-			{:else if !forceJson && resultKind == 's3object'}
-				<div
-					class="h-full w-full {typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')
-						? 'h-min-[600px]'
-						: ''}"
-				>
-					<div class="flex flex-col gap-2">
-						<Toggle
-							class="flex"
-							bind:checked={s3FileDisplayRawMode}
-							size="xs"
-							options={{ right: 'Raw S3 object input' }}
-						/>
-						{#if s3FileDisplayRawMode}
-							<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
-							<button
-								class="text-secondary underline text-2xs whitespace-nowrap"
-								on:click={() => {
-									s3FileViewer?.open?.(result)
-								}}
-								><span class="flex items-center gap-1"
-									><PanelRightOpen size={12} />open preview</span
-								>
-							</button>
+			</div><div class="grow"
+				>{#if !forceJson && resultKind === 'table-col'}
+					{@const data = 'table-col' in result ? result['table-col'] : result}
+					<AutoDataTable objects={objectOfArraysToObjects(data)} />
+				{:else if !forceJson && resultKind === 'table-row'}
+					{@const data = 'table-row' in result ? result['table-row'] : result}
+					<AutoDataTable objects={arrayOfRowsToObjects(data)} />
+				{:else if !forceJson && resultKind === 'table-row-object'}
+					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
+					<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
+				{:else if !forceJson && resultKind === 'html'}
+					<div class="h-full">
+						{#if !requireHtmlApproval || enableHtml}
+							{@html result.html}
 						{:else}
-							<FileDownload s3object={result} />
-							<button
-								class="text-secondary underline text-2xs whitespace-nowrap"
-								on:click={() => {
-									s3FileViewer?.open?.(result)
-								}}
-								><span class="flex items-center gap-1"
-									><PanelRightOpen size={12} />open preview</span
-								>
-							</button>
+							<div class="font-main text-sm">
+								<div class="flex flex-col">
+									<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
+										Warning
+									</div>
+									<p
+										class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+										>Rendering HTML can expose you to <a
+											href="https://owasp.org/www-community/attacks/xss/"
+											target="_blank"
+											rel="noreferrer"
+											class="hover:underline">XSS attacks</a
+										>. Only enable it if you trust the author of the script.
+									</p>
+								</div>
+								<div class="center-center">
+									<Button size="sm" color="dark" on:click={() => (enableHtml = true)}>
+										Enable HTML rendering
+									</Button>
+								</div>
+							</div>
 						{/if}
 					</div>
-					{#if typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')}
-						<ParqetTableRenderer s3resource={result?.s3} />
-					{/if}
-				</div>
-			{:else if !forceJson && resultKind == 's3object-list'}
-				<div class="h-full w-full">
-					<div class="flex flex-col gap-2">
-						<Toggle
-							class="flex"
-							bind:checked={s3FileDisplayRawMode}
-							size="xs"
-							options={{ right: 'Raw S3 object input' }}
+				{:else if !forceJson && resultKind === 'map'}
+					<div class="h-full">
+						<MapResult
+							lat={result.map.lat}
+							lon={result.map.lon}
+							zoom={result.map.zoom}
+							markers={result.map.markers}
 						/>
-						{#each result as s3object}
-							{#if s3FileDisplayRawMode}
-								<Highlight
-									class=""
-									language={json}
-									code={toJsonStr(s3object).replace(/\\n/g, '\n')}
-								/>
-								<button
-									class="text-secondary text-2xs whitespace-nowrap"
-									on:click={() => {
-										s3FileViewer?.open?.(s3object)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />open preview</span
-									>
-								</button>
-							{:else}
-								<FileDownload {s3object} />
-							{/if}
-						{/each}
 					</div>
-				</div>
-			{:else if !forceJson && resultKind == 'markdown'}
-				<div class="prose-xs dark:prose-invert !list-disc !list-outside">
-					<Markdown md={result?.md ?? result?.markdown} />
-				</div>
-			{:else if largeObject}
-				{#if result && typeof result == 'object' && 'file' in result}
+				{:else if !forceJson && resultKind === 'png'}
+					<div class="h-full">
+						<img
+							alt="png rendered"
+							class="w-auto h-full"
+							src="data:image/png;base64,{contentOrRootString(result.png)}"
+						/>
+					</div>
+				{:else if !forceJson && resultKind === 'jpeg'}
+					<div class="h-full">
+						<img
+							alt="jpeg rendered"
+							class="w-auto h-full"
+							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
+						/>
+					</div>
+				{:else if !forceJson && resultKind === 'svg'}
 					<div
-						><a
+						><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a
+						>
+					</div>
+					<div class="h-full overflow-auto">{@html result.svg} </div>
+				{:else if !forceJson && resultKind === 'gif'}
+					<div class="h-full">
+						<img
+							alt="gif rendered"
+							class="w-auto h-full"
+							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
+						/>
+					</div>
+				{:else if !forceJson && resultKind === 'pdf'}
+					<div class="h-96 mt-2 border">
+						<PdfViewer
+							allowFullscreen
+							source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
+						/>
+					</div>
+				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
+						><pre>{typeof result === 'string' ? result : result?.['result']}</pre>{#if !noControls}
+							<div class="flex">
+								<Button
+									on:click={() =>
+										copyToClipboard(typeof result === 'string' ? result : result?.['result'])}
+									color="light"
+									size="xs"
+								>
+									<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+								</Button>
+							</div>
+						{/if}
+					</div>
+				{:else if !forceJson && resultKind === 'file'}
+					<div>
+						<a
 							download={result.filename ?? result.file?.filename ?? 'windmill.file'}
 							href="data:application/octet-stream;base64,{contentOrRootString(result.file)}"
 							>Download</a
 						>
 					</div>
-				{:else}
-					<div class="text-sm text-tertiary"
-						><a
-							download="{filename ?? 'result'}.json"
-							href={workspaceId && jobId
-								? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+				{:else if !forceJson && resultKind === 'error' && result?.error}
+					<div class="flex flex-col items-start">
+						<span class="text-red-500 pt-2 font-semibold !text-xs whitespace-pre-wrap"
+							>{#if result.error.name || result.error.message}{result.error.name}: {result.error
+									.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 						>
-							Download {filename ? '' : 'as JSON'}
-						</a>
+						<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
+							>{result.error.stack ?? ''}</pre
+						>
+						{#if result.error?.extra}
+							<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
+								>{JSON.stringify(result.error.extra, null, 4)}</pre
+							>
+						{/if}
+						<slot />
 					</div>
-
-					<div class="mt-1 mb-2">
-						<Alert
-							size="xs"
-							title="Large result detected"
-							type="warning"
-							tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
-							documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
-						/>
-					</div>
-					{#if result && result != 'WINDMILL_TOO_BIG'}
-						<ObjectViewer json={result} />
+					{#if language === 'bun'}
+						<div class="pt-20" />
+						<Alert size="xs" type="info" title="Seeing an odd error?">
+							Bun script are bundled for performance reasons. If you see an odd error that doesn't
+							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
+							> at the top of your script to disable bundling and feel free to mention it to the Windmill's
+							team.
+						</Alert>
 					{/if}
-				{/if}
-			{:else if typeof result == 'string' && result.length > 0}
-				<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
-						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-						</Button>
+				{:else if !forceJson && resultKind === 'approval'}<div
+						class="flex flex-col gap-3 mt-2 mx-4"
+					>
+						<Button
+							color="green"
+							variant="border"
+							on:click={() =>
+								fetch(result['resume'], {
+									method: 'POST',
+									body: JSON.stringify({}),
+									headers: { 'Content-Type': 'application/json' }
+								})}
+						>
+							Resume</Button
+						>
+						<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}
+							>Cancel</Button
+						>
+						<div class="center-center"
+							><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a
+							></div
+						>
 					</div>
+				{:else if !forceJson && resultKind === 's3object'}
+					<div
+						class="h-full w-full {typeof result?.s3 === 'string' && result?.s3?.endsWith('.parquet')
+							? 'h-min-[600px]'
+							: ''}"
+					>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								class="flex"
+								bind:checked={s3FileDisplayRawMode}
+								size="xs"
+								options={{ right: 'Raw S3 object' }}
+							/>
+
+							{#if s3FileDisplayRawMode}
+								<Highlight
+									class=""
+									language={json}
+									code={toJsonStr(result).replace(/\\n/g, '\n')}
+								/>
+								<button
+									class="text-secondary underline text-2xs whitespace-nowrap"
+									on:click={() => {
+										s3FileViewer?.open?.(result)
+									}}
+									><span class="flex items-center gap-1"
+										><PanelRightOpen size={12} />object store explorer<Tooltip
+											>Require admin privilege or "S3 resource details and content can be accessed
+											by all users of this workspace" of S3 Storage to be set in the workspace
+											settings</Tooltip
+										></span
+									>
+								</button>
+							{:else if !result?.disable_download}
+								<FileDownload {workspaceId} s3object={result} />
+								<button
+									class="text-secondary underline text-2xs whitespace-nowrap"
+									on:click={() => {
+										s3FileViewer?.open?.(result)
+									}}
+									><span class="flex items-center gap-1"
+										><PanelRightOpen size={12} />object store explorer<Tooltip
+											>Require admin privilege or "S3 resource details and content can be accessed
+											by all users of this workspace" of S3 Storage to be set in the workspace
+											settings</Tooltip
+										></span
+									>
+								</button>
+							{/if}
+						</div>
+						{#if typeof result?.s3 === 'string'}
+							{#if result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv')}
+								{#key result.s3}
+									<ParqetTableRenderer
+										disable_download={result?.disable_download}
+										{workspaceId}
+										s3resource={result?.s3}
+										storage={result?.storage}
+									/>
+								{/key}
+							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
+								<div class="h-full mt-2">
+									<img
+										alt="preview rendered"
+										class="w-auto h-full"
+										src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
+							{:else if result?.s3?.endsWith('.pdf')}
+								<div class="h-96 mt-2 border">
+									<PdfViewer
+										allowFullscreen
+										source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
+							{/if}
+						{/if}
+					</div>
+				{:else if !forceJson && resultKind === 's3object-list'}
+					<div class="h-full w-full">
+						<div class="flex flex-col gap-2">
+							<Toggle
+								class="flex mt-1"
+								bind:checked={s3FileDisplayRawMode}
+								size="xs"
+								options={{ right: 'Raw S3 object' }}
+							/>
+							{#each result as s3object}
+								{#if s3FileDisplayRawMode}
+									<Highlight
+										class=""
+										language={json}
+										code={toJsonStr(s3object).replace(/\\n/g, '\n')}
+									/>
+									<button
+										class="text-secondary text-2xs whitespace-nowrap"
+										on:click={() => {
+											s3FileViewer?.open?.(s3object)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />open preview</span
+										>
+									</button>
+								{:else if !s3object?.disable_download}
+									<FileDownload {s3object} />
+								{:else}
+									<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
+								{/if}
+								{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
+									{#if seeS3PreviewFileFromList == s3object?.s3}
+										<ParqetTableRenderer
+											disable_download={s3object?.disable_download}
+											{workspaceId}
+											s3resource={s3object?.s3}
+											storage={s3object?.storage}
+										/>{:else}
+										<button
+											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											on:click={() => {
+												seeS3PreviewFileFromList = s3object?.s3
+											}}
+											>open table preview <ArrowDownFromLine />
+										</button>
+									{/if}
+								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+									{#if seeS3PreviewFileFromList == s3object?.s3}
+										<div class="h-full mt-2">
+											<img
+												alt="preview rendered"
+												class="w-auto h-full"
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										</div>
+									{:else}
+										<button
+											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											on:click={() => {
+												seeS3PreviewFileFromList = s3object?.s3
+											}}
+											>open image preview <ArrowDownFromLine />
+										</button>
+									{/if}
+								{:else if s3object?.s3?.endsWith('.pdf')}
+									<div class="h-96 mt-2 border">
+										<PdfViewer
+											allowFullscreen
+											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+												(s3object.storage ? `&storage=${s3object.storage}` : '')}
+										/>
+									</div>
+								{/if}
+							{/each}
+						</div>
+					</div>
+				{:else if !forceJson && resultKind === 'markdown'}
+					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
+						<Markdown md={result?.md ?? result?.markdown} />
+					</div>
+				{:else if largeObject}
+					{#if result && typeof result === 'object' && 'file' in result}
+						<div
+							><a
+								download={result.filename ?? result.file?.filename ?? 'windmill.file'}
+								href="data:application/octet-stream;base64,{contentOrRootString(result.file)}"
+								>Download</a
+							>
+						</div>
+					{:else}
+						<div class="text-sm text-tertiary"
+							><a
+								download="{filename ?? 'result'}.json"
+								href={workspaceId && jobId
+									? nodeId
+										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							>
+								Download {filename ? '' : 'as JSON'}
+							</a>
+							{#if download_as_csv}
+								<DownloadCsv
+									getContent={() => convertJsonToCsv(result)}
+									customText="Download as CSV"
+								/>
+							{/if}
+						</div>
+
+						<div class="mt-1 mb-2">
+							<Alert
+								size="xs"
+								title="Large result detected"
+								type="warning"
+								tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
+								documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
+							/>
+						</div>
+						{#if result && result != 'WINDMILL_TOO_BIG'}
+							<ObjectViewer json={result} />
+						{/if}
+					{/if}
+				{:else if typeof result === 'string' && result.length > 0}
+					<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
+							<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+							</Button>
+						</div>
+					{/if}
+				{:else}
+					<Highlight
+						class={forceJson ? 'pt-1' : 'h-full w-full'}
+						language={json}
+						code={toJsonStr(result).replace(/\\n/g, '\n')}
+					/>
 				{/if}
-			{:else}
-				<Highlight
-					class={forceJson ? '' : 'h-full w-full'}
-					language={json}
-					code={toJsonStr(result).replace(/\\n/g, '\n')}
-				/>
-			{/if}
-		{:else if typeof result == 'string' && resultKind == 'plain'}
+			</div>
+		{:else if typeof result === 'string' && resultKind === 'plain'}
 			<div class="h-full text-xs">
 				<pre>{result}</pre>
 				{#if !noControls}
@@ -681,7 +850,9 @@
 					<Button
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
-							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							? nodeId
+								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						startIcon={{ icon: Download }}
 						color="light"
@@ -706,6 +877,7 @@
 					{requireHtmlApproval}
 					{filename}
 					{jobId}
+					{nodeId}
 					{workspaceId}
 					{hideAsJson}
 					{forceJson}
@@ -714,7 +886,7 @@
 			</DrawerContent>
 		</Drawer>
 
-		<Portal>
+		<Portal name="s3filepicker">
 			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 		</Portal>
 	{/if}

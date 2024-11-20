@@ -8,8 +8,11 @@ npx --yes @hey-api/openapi-ts@0.43.0  --input "${script_dirpath}/../backend/wind
 cat <<EOF - src/core/OpenAPI.ts > temp_file && mv temp_file src/core/OpenAPI.ts
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
+    if (typeof process !== "undefined") {
+      return process?.env?.[key];
+    }
     // node
-    return process?.env?.[key];
+    return globalThis?.process?.env?.[key];
   }
   // browser
   return window?.process?.env?.[key];
@@ -31,4 +34,4 @@ cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"
 echo 'export type { S3Object, DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"
-echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, task, runScript, runScriptAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState } from "./client";' >> "${script_dirpath}/src/index.ts"
+echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, task, runScript, runScriptAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail } from "./client";' >> "${script_dirpath}/src/index.ts"

@@ -1,0 +1,32 @@
+[package]
+name = "windmill-indexer"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_indexer"
+path = "src/lib.rs"
+
+[features]
+default = []
+parquet = ["dep:object_store"]
+enterprise = []
+
+[dependencies]
+windmill-common.workspace = true
+tantivy.workspace = true
+tokio.workspace = true
+sqlx.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+futures.workspace = true
+tempfile.workspace = true
+bytes.workspace = true
+object_store = { workspace = true, optional = true}
+tokio-tar.workspace = true
+lazy_static.workspace = true

@@ -10,6 +10,7 @@
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 
+	export let waitingForExecutor: boolean = false
 	export let result: any
 	export let logs: string | undefined
 	export let col: boolean = false
@@ -17,9 +18,11 @@
 	export let loading: boolean
 	export let filename: string | undefined = undefined
 	export let jobId: string | undefined = undefined
+	export let tag: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let refreshLog: boolean = false
 	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
+	export let downloadLogs = true
 
 	let lastJobId: string | undefined = undefined
 	let drawer: Drawer | undefined = undefined
@@ -66,9 +69,9 @@
 	class:border={!noBorder}
 	class="grid {!col
 		? 'grid-cols-2'
-		: 'grid-rows-2'} shadow border border-tertiary-inverse h-full max-h-[70vh]"
+		: 'grid-rows-2'} shadow border border-tertiary-inverse grow overflow-hidden"
 >
-	<div class="bg-surface {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
+	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
 		{#if result !== undefined}
 			<DisplayResult {workspaceId} {jobId} {filename} {result} />
@@ -78,10 +81,16 @@
 			<div class="text-gray-400">No result (result is undefined)</div>
 		{/if}
 	</div>
-	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
-		<div class="absolute z-40 text-sm top-1.5 left-2"
+	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
+		<div class="absolute z-40 text-xs top-0 left-1"
 			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
 		>
-		<LogViewer content={logs ?? ''} {jobId} isLoading={false} tag={undefined} />
+		<LogViewer
+			download={downloadLogs}
+			content={logs ?? ''}
+			{jobId}
+			isLoading={waitingForExecutor}
+			{tag}
+		/>
 	</div>
 </div>

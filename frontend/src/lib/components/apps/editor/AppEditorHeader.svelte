@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -33,14 +33,16 @@
 		Smartphone,
 		FileClock
 	} from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
 		cleanValueProperties,
 		copyToClipboard,
 		truncateRev,
-		orderedJsonStringify
+		orderedJsonStringify,
+		type Value,
+		replaceFalseWithUndefined
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -72,7 +74,6 @@
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
@@ -83,6 +84,11 @@
 	import { getUpdateInput } from '../components/display/dbtable/queries/update'
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
+	import Summary from '$lib/components/Summary.svelte'
+	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
+	import HideButton from './settingsPanel/HideButton.svelte'
+	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
 
 	async function hash(message) {
 		try {
@@ -115,6 +121,14 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let leftPanelHidden: boolean = false
+	export let rightPanelHidden: boolean = false
+	export let bottomPanelHidden: boolean = false
+
+	let deployedValue: Value | undefined = undefined // Value to diff against
+	let deployedBy: string | undefined = undefined // Author
+	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
+	let open: boolean = false // Is confirmation modal open
 
 	const {
 		app,
@@ -125,7 +139,8 @@
 		jobsById,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen, refreshComponents } =
@@ -174,9 +189,20 @@
 				})
 		)
 	}
+
+	type TriggerableV2 = {
+		static_inputs: Record<string, any>
+		one_of_inputs?: Record<string, any[] | undefined>
+		allow_user_resources?: string[]
+	}
+
 	async function computeTriggerables() {
-		const allTriggers = (await Promise.all(
-			allItems($app.grid, $app.subgrids)
+		const items = allItems($app.grid, $app.subgrids)
+
+		console.log('items', items)
+
+		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
+			items
 				.flatMap((x) => {
 					let c = x.data as AppComponent
 					let r: { input: AppInput | undefined; id: string }[] = [
@@ -223,6 +249,11 @@
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
+								console.log(
+									x.id,
+									getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									columnDefs
+								)
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
@@ -257,39 +288,93 @@
 							}
 						})
 
-					return processed
+					return processed as Promise<[string, TriggerableV2] | undefined>[]
 				})
 				.concat(
 					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
 						return await processRunnable(BG_PREFIX + i, v, v.fields)
-					})
+					}) as Promise<[string, TriggerableV2] | undefined>[]
 				)
-		)) as ([string, Record<string, any>] | undefined)[]
+		)) as ([string, TriggerableV2] | undefined)[]
 
 		delete policy.triggerables
-		policy.triggerables_v2 = Object.fromEntries(
-			allTriggers.filter(Boolean) as [string, Record<string, any>][]
+		const ntriggerables: Record<string, TriggerableV2> = Object.fromEntries(
+			allTriggers.filter(Boolean) as [string, TriggerableV2][]
 		)
+		policy.triggerables_v2 = ntriggerables
+
+		const s3_inputs = items
+			.filter((x) => (x.data as AppComponent).type === 's3fileinputcomponent')
+			.map((x) => {
+				const c = x.data as AppComponent
+				const config = c.configuration as any
+				return computeS3FileInputPolicy(config?.type?.configuration?.s3, $app)
+			})
+			.filter(Boolean) as {
+			allowed_resources: string[]
+			allow_user_resources: boolean
+			file_key_regex: string
+		}[]
+
+		if (
+			items.findIndex((x) => {
+				const c = x.data as AppComponent
+				if (c.type === 'schemaformcomponent') {
+					return (
+						Object.values((c.componentInput as any)?.value?.properties ?? {}).findIndex(
+							(p: any) => p?.type === 'object' && p?.format === 'resource-s3_object'
+						) !== -1
+					)
+				} else if (c.type === 'formbuttoncomponent' || c.type === 'formcomponent') {
+					return (
+						Object.values((c.componentInput as any)?.fields ?? {}).findIndex(
+							(p: any) => p?.fieldType === 'object' && p?.format === 'resource-s3_object'
+						) !== -1
+					)
+				} else {
+					return false
+				}
+			}) !== -1
+		) {
+			s3_inputs.push(computeWorkspaceS3FileInputPolicy())
+		}
+
+		policy.s3_inputs = s3_inputs
 	}
 
 	async function processRunnable(
 		id: string,
 		runnable: Runnable,
 		fields: Record<string, any>
-	): Promise<[string, Record<string, any>] | undefined> {
+	): Promise<[string, TriggerableV2] | undefined> {
 		const staticInputs = collectStaticFields(fields)
 		const oneOfInputs = collectOneOfFields(fields, $app)
-		if (runnable?.type == 'runnableByName') {
-			console.log('processRunnable:content', runnable.inlineScript?.content)
+		const allowUserResources: string[] = Object.entries(fields)
+			.map(([k, v]) => {
+				return v['allowUserResources'] ? k : undefined
+			})
+			.filter(Boolean) as string[]
 
+		if (runnable?.type == 'runnableByName') {
 			let hex = await hash(runnable.inlineScript?.content)
 			console.log('hex', hex, id)
-			return [`${id}:rawscript/${hex}`, { static_inputs: staticInputs, one_of_inputs: oneOfInputs }]
+			return [
+				`${id}:rawscript/${hex}`,
+				{
+					static_inputs: staticInputs,
+					one_of_inputs: oneOfInputs,
+					allow_user_resources: allowUserResources
+				}
+			]
 		} else if (runnable?.type == 'runnableByPath') {
 			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
 			return [
 				`${id}:${prefix}/${runnable.path}`,
-				{ static_inputs: staticInputs, one_of_inputs: oneOfInputs }
+				{
+					static_inputs: staticInputs,
+					one_of_inputs: oneOfInputs,
+					allow_user_resources: allowUserResources
+				}
 			]
 		}
 	}
@@ -309,7 +394,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: cloneDeep($app),
+				value: structuredClone($app),
 				path: path,
 				policy: policy
 			}
@@ -324,6 +409,62 @@
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
+	}
+
+	async function handleUpdateApp(npath: string) {
+		// We have to make sure there is no updates when we clicked the button
+		await compareVersions()
+
+		if (onLatest) {
+			// Handle directly
+			await updateApp(npath)
+		} else {
+			// There is onLatest, but we need more information while deploying
+			// We need it to show diff
+			// Handle through confirmation modal
+			await syncWithDeployed()
+			if (
+				deployedValue &&
+				savedApp &&
+				$app &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({
+						summary: $summary,
+						value: $app,
+						path: newPath || savedApp.draft?.path || savedApp.path,
+						policy
+					}))
+			) {
+				await updateApp(npath)
+			} else {
+				confirmCallback = async () => {
+					open = false
+					await updateApp(npath)
+				}
+				// Open confirmation modal
+				open = true
+			}
+		}
+	}
+
+	async function syncWithDeployed() {
+		const deployedApp = await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path: appPath,
+			withStarredInfo: true
+		})
+
+		deployedBy = deployedApp.created_by
+
+		// Strip off extra information
+		deployedValue = replaceFalseWithUndefined({
+			...deployedApp,
+			id: undefined,
+			created_at: undefined,
+			created_by: undefined,
+			versions: undefined,
+			extra_perms: undefined
+		})
 	}
 
 	async function updateApp(npath: string) {
@@ -341,7 +482,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: cloneDeep($app),
+			value: structuredClone($app),
 			path: npath,
 			policy
 		}
@@ -365,7 +506,7 @@
 
 	let secretUrl: string | undefined = undefined
 
-	$: secretUrl == undefined && policy.execution_mode == 'anonymous' && getSecretUrl()
+	$: appPath != '' && secretUrl == undefined && getSecretUrl()
 
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -375,15 +516,16 @@
 	}
 
 	async function setPublishState() {
+		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: appPath,
 			requestBody: { policy }
 		})
 		if (policy.execution_mode == 'anonymous') {
-			sendUserToast('App made visible publicly at the secret URL.')
+			sendUserToast('App require no login to be accessed')
 		} else {
-			sendUserToast('App made unaccessible publicly')
+			sendUserToast('App require login and read-access')
 		}
 	}
 
@@ -423,13 +565,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: cloneDeep($app),
+				value: structuredClone($app),
 				path: newPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: cloneDeep($app),
+					value: structuredClone($app),
 					path: newPath,
 					policy
 				}
@@ -508,14 +650,14 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: cloneDeep($app),
+							value: structuredClone($app),
 							path: savedApp.draft_only ? newPath || path : path,
 							policy
 					  }
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: cloneDeep($app),
+					value: structuredClone($app),
 					path: newPath || path,
 					policy
 				}
@@ -542,12 +684,18 @@
 		if (version === undefined) {
 			return
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
-			workspace: $workspaceStore!,
-			path: appPath
-		})
-		onLatest = version === appHistory[0]?.version
+		try {
+			const appVersion = await AppService.getAppLatestVersion({
+				workspace: $workspaceStore!,
+				path: appPath
+			})
+			onLatest = version === appVersion?.version
+		} catch (e) {
+			console.error('Error comparing versions', e)
+			onLatest = true
+		}
 	}
+
 	$: saveDrawerOpen && compareVersions()
 
 	let selectedJobId: string | undefined = undefined
@@ -671,14 +819,18 @@
 		{
 			displayName: 'Diff',
 			icon: DiffIcon,
-			action: () => {
+			action: async () => {
 				if (!savedApp) {
 					return
 				}
+
+				// deployedValue should be syncronized when we open Diff
+				await syncWithDeployed()
+
 				diffDrawer?.openDrawer()
 				diffDrawer?.setDiff({
 					mode: 'normal',
-					deployed: savedApp,
+					deployed: deployedValue ?? savedApp,
 					draft: savedApp.draft,
 					current: {
 						summary: $summary,
@@ -713,16 +865,31 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-
 <UnsavedConfirmationModal
 	{diffDrawer}
 	savedValue={savedApp}
 	modifiedValue={{
+		summary: $summary,
+		value: $app,
+		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		policy
+	}}
+/>
+
+<DeployOverrideConfirmationModal
+	bind:deployedBy
+	bind:confirmCallback
+	bind:open
+	{diffDrawer}
+	bind:deployedValue
+	currentValue={{
 		summary: $summary,
 		value: $app,
 		path: newPath || savedApp?.draft?.path || savedApp?.path,
@@ -787,8 +954,8 @@
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#if !onLatest}
-			<Alert title="You're not on the latest app version" type="warning">
-				By deploying, you may overwrite changes made by other users.
+			<Alert title="You're not on the latest app version. " type="warning">
+				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
 			<div class="py-2" />
 		{/if}
@@ -844,15 +1011,18 @@
 				variant="border"
 				color="light"
 				disabled={!savedApp || savedApp.draft_only}
-				on:click={() => {
+				on:click={async () => {
 					if (!savedApp) {
 						return
 					}
+					// deployedValue should be syncronized when we open Diff
+					await syncWithDeployed()
+
 					saveDrawerOpen = false
 					diffDrawer?.openDrawer()
 					diffDrawer?.setDiff({
 						mode: 'normal',
-						deployed: savedApp,
+						deployed: deployedValue ?? savedApp,
 						draft: savedApp.draft,
 						current: {
 							summary: $summary,
@@ -866,7 +1036,7 @@
 								if (appPath == '') {
 									createApp(newPath)
 								} else {
-									updateApp(newPath)
+									handleUpdateApp(newPath)
 								}
 							}
 						}
@@ -885,7 +1055,7 @@
 					if (appPath == '') {
 						createApp(newPath)
 					} else {
-						updateApp(newPath)
+						handleUpdateApp(newPath)
 					}
 				}}
 			>
@@ -899,35 +1069,41 @@
 			</Alert>
 		{:else}
 			<Alert title="App executed on behalf of you">
-				A viewer of the app will execute the runnables of the app on behalf of the publisher (you).
+				A viewer of the app will execute the runnables of the app on behalf of the publisher (you)
 				<Tooltip>
-					This is to ensure that all resources/runnable available at time of creating the app would
-					prevent the good execution of the app. To guarantee tight security, a policy is computed
-					at time of deployment of the app which only allow the scripts/flows referred to in the app
-					to be called on behalf of, and the resources are passed by reference so that their actual
-					value is . Furthermore, static parameters are not overridable. Hence, users will only be
-					able to use the app as intended by the publisher without risk for leaking resources not
-					used in the app.
+					It ensures that all required resources/runnable visible for publisher but not for viewer
+					at time of creating the app would prevent the execution of the app. To guarantee tight
+					security, a policy is computed at time of deployment of the app which only allow the
+					scripts/flows referred to in the app to be called on behalf of. Furthermore, static
+					parameters are not overridable. Hence, users will only be able to use the app as intended
+					by the publisher without risk for leaking resources not used in the app.
 				</Tooltip>
 			</Alert>
-			<div class="mt-4" />
-			<Toggle
-				options={{
-					left: `Require read-access`,
-					right: `Publish publicly for anyone knowing the secret url`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
-				}}
-			/>
 
-			{#if policy.execution_mode == 'anonymous' && secretUrl}
-				{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
-				{@const href = $page.url.protocol + '//' + url}
-				<div class="my-6 box">
-					Public url:
+			<div class="mt-10" />
+
+			<h2>Public URL</h2>
+			<div class="mt-4" />
+
+			<div class="flex gap-2 items-center">
+				<Toggle
+					options={{
+						left: `Require login and read-access`,
+						right: `No login required`
+					}}
+					checked={policy.execution_mode == 'anonymous'}
+					on:change={(e) => {
+						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
+						setPublishState()
+					}}
+				/>
+			</div>
+
+			<div class="my-6 box">
+				Public url:
+				{#if secretUrl}
+					{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
+					{@const href = $page.url.protocol + '//' + url}
 					<a
 						on:click={(e) => {
 							e.preventDefault()
@@ -941,12 +1117,21 @@
 							<Clipboard />
 						</span>
 					</a>
-				</div>
+				{:else}<Loader2 class="animate-spin" />
+				{/if}
+				<div class="text-xs text-secondary"
+					>Share this url directly or embed it using an iframe (if requiring login, top-level domain
+					of embedding app must be the same as the one of Windmill)</div
+				>
+			</div>
+			<Alert type="info" title="Only latest deployed app is publicly available">
+				You will still need to deploy the app to make visible the latest changes
+			</Alert>
 
-				<Alert type="info" title="Only latest saved app is publicly available">
-					Once made public, you will still need to deploy the app to make visible the latest changes
-				</Alert>
-			{/if}
+			<a
+				href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
+				class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
+			>
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -1094,7 +1279,11 @@
 										{/if}
 										{#if job?.args}
 											<div class="p-2">
-												<JobArgs args={job?.args} />
+												<JobArgs
+													id={job.id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={job?.args}
+												/>
 											</div>
 										{/if}
 										{#if job?.raw_code}
@@ -1111,14 +1300,14 @@
 														duration={job?.['duration_ms']}
 														jobId={job?.id}
 														content={job?.logs}
-														isLoading={testIsLoading}
+														isLoading={testIsLoading && job?.['running'] == false}
 														tag={job?.tag}
 													/>
 												</Pane>
 												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}
-														<div class="relative h-full px-2">
-															<DisplayResult
+													{#if job != undefined && 'result' in job && job.result != undefined}<div
+															class="relative h-full px-2"
+															><DisplayResult
 																workspaceId={$workspaceStore}
 																jobId={selectedJobId}
 																result={job.result}
@@ -1217,15 +1406,7 @@
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<div class="min-w-64 w-64">
-			<input
-				type="text"
-				placeholder="App summary"
-				class="text-sm w-full font-semibold"
-				bind:value={$summary}
-				on:keydown|stopPropagation
-			/>
-		</div>
+		<Summary bind:value={$summary} />
 		<div class="flex gap-2">
 			<UndoRedo
 				undoProps={{ disabled: $history?.index === 0 }}
@@ -1254,25 +1435,71 @@
 					/>
 				</ToggleButtonGroup>
 			{/if}
-			<div>
+			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value="sm"
-						iconProps={{ size: 16 }}
-					/>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
-						value="lg"
+						value={'lg'}
 						iconProps={{ size: 16 }}
 					/>
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						value={'sm'}
+						iconProps={{ size: 16 }}
+					/>
+					{#if $breakpoint === 'sm'}
+						<ToggleEnable
+							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
+							label="Enable mobile view for smaller screens"
+							bind:checked={$app.mobileViewOnSmallerScreens}
+							iconProps={{ size: 16 }}
+							iconOnly={false}
+						/>
+					{/if}
 				</ToggleButtonGroup>
 			</div>
 		</div>
 	</div>
 
+	{#if $mode !== 'preview'}
+		<div class="flex gap-1">
+			<HideButton
+				direction="left"
+				hidden={leftPanelHidden}
+				on:click={() => {
+					if (leftPanelHidden) {
+						dispatch('showLeftPanel')
+					} else {
+						dispatch('hideLeftPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={bottomPanelHidden}
+				direction="bottom"
+				on:click={() => {
+					if (bottomPanelHidden) {
+						dispatch('showBottomPanel')
+					} else {
+						dispatch('hideBottomPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={rightPanelHidden}
+				direction="right"
+				on:click={() => {
+					if (rightPanelHidden) {
+						dispatch('showRightPanel')
+					} else {
+						dispatch('hideRightPanel')
+					}
+				}}
+			/>
+		</div>
+	{/if}
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
+	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema } from '$lib/utils'
@@ -154,7 +155,7 @@
 				startIcon={{ icon: Pen }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
-				href="/flows/edit/{runnable.path}?nodraft=true">Edit</Button
+				href="{base}/flows/edit/{runnable.path}?nodraft=true">Edit</Button
 			>
 			<Button
 				variant="border"
@@ -163,7 +164,7 @@
 				startIcon={{ icon: Eye }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
-				href="/flows/get/{runnable.path}?workspace={$workspaceStore}"
+				href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
 			>
 				Details
 			</Button>
@@ -217,7 +218,7 @@
 			class="!text-xs !rounded-xs"
 		/>
 	</div>
-	<div class="w-full">
+	<div class="w-full grow overflow-y-auto">
 		{#key $stateId}
 			{#if notFound}
 				<div class="text-red-400"

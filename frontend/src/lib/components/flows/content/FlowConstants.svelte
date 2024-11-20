@@ -32,10 +32,10 @@
 						let val: { argName: string; type: string } | undefined = undefined
 
 						const [k, inputTransform] = x
-						const v = schema.properties[k]
+						const v = schema?.properties[k]
 
 						if (
-							v.format?.includes('resource') &&
+							v?.format?.includes('resource') &&
 							inputTransform.type === 'static' &&
 							(inputTransform.value === '' ||
 								inputTransform.value === undefined ||
@@ -66,7 +66,7 @@
 					Object.entries(v.input_transforms)
 						.filter((x) => {
 							const shouldDisplay = hideOptional
-								? $flowStateStore[m.id]?.schema.required?.includes(x[0])
+								? $flowStateStore[m.id]?.schema?.required?.includes(x[0])
 								: true
 							return x[1].type == 'static' && shouldDisplay
 						})
@@ -77,6 +77,7 @@
 		.filter(([i, f, m]) => f.length > 0)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
+		inputMatches: writable(undefined),
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearFocus: () => {}
@@ -88,8 +89,8 @@
 		<Toggle slot="header" bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"
-				>This page centralizes the static inputs of every steps. It is akin to a file containing all
-				constants. Modifying a value here modify it in the step input directly. It is especially
+				>This page centralizes the static inputs of every steps. It is aking to a file containing all
+				constants. Modifying a value here modifies it in the step input directly. It is especially
 				useful when forking a flow to get an overview of all the variables to parametrize that are
 				not exposed directly as flow inputs.</Alert
 			>
@@ -121,7 +122,7 @@
 					</Alert>
 				{/if}
 			{/if}
-			{#each steps as [args, filter, m] (m.id)}
+			{#each steps as [args, filter, m], index (m.id + index)}
 				{#if filter.length > 0}
 					<div class="relative h-full border-t p-4">
 						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">

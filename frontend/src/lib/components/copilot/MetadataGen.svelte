@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getCompletion } from './lib'
+	import { getCompletion, getResponseFromEvent, type AiProviderTypes } from './lib'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
@@ -118,11 +118,11 @@ Generate a description for the flow below:
 					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
-			const response = await getCompletion(messages, abortController)
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
+			const response = await getCompletion(messages, abortController, aiProvider)
 			generatedContent = ''
 			for await (const chunk of response) {
-				const toks = chunk.choices[0]?.delta?.content || ''
-				generatedContent += toks
+				generatedContent += getResponseFromEvent(chunk, aiProvider)
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -138,7 +138,7 @@ Generate a description for the flow below:
 	}
 
 	if (
-		$copilotInfo.exists_openai_resource_path &&
+		$copilotInfo.exists_ai_resource &&
 		$metadataCompletionEnabled &&
 		generateOnAppear &&
 		!content &&
@@ -158,7 +158,7 @@ Generate a description for the flow below:
 	}
 
 	$: active =
-		$copilotInfo.exists_openai_resource_path &&
+		$copilotInfo.exists_ai_resource &&
 		$metadataCompletionEnabled &&
 		!content &&
 		(loading || focused || !!generatedContent) &&
@@ -192,7 +192,7 @@ Generate a description for the flow below:
 	class={twMerge('relative', $$props.class)}
 	bind:clientWidth={width}
 	on:keydown={(event) => {
-		if (!$copilotInfo.exists_openai_resource_path || !$metadataCompletionEnabled) {
+		if (!$copilotInfo.exists_ai_resource || !$metadataCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -265,7 +265,7 @@ Generate a description for the flow below:
 	</div>
 	{#if elementType === 'textarea'}
 		<div>
-			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-4">GH Markdown</div>
+			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
 			<textarea
 				bind:this={el}
 				bind:value={content}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
@@ -54,7 +54,7 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectedId} and represents a for-loop. You can find the details of all the steps below:
+The current step is ${$selectedId} and represents a for-loop. You can find the details of all the steps below:
 ${flowDetails}
 Determine the iterator expression to pass either from the previous results or the flow inputs. Here's a summary of the available data:
 <available>
@@ -62,7 +62,7 @@ ${YAML.stringify(availableData)}</available>
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only output the expression, do not explain or discuss.`
-
+			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -70,7 +70,8 @@ Only output the expression, do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -82,7 +83,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_openai_resource_path || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -117,7 +118,7 @@ Only output the expression, do not explain or discuss.`
 		cancelOnOutOfFocus()
 	}
 
-	$: if ($copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled && focused) {
+	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
 	}
 
@@ -131,7 +132,7 @@ Only output the expression, do not explain or discuss.`
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
-{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
 		<Button
 			size="xs"

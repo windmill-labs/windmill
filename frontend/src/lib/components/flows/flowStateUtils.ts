@@ -30,7 +30,11 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
-		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
+
+		return {
+			schema,
+			previewResult: NEVER_TESTED_THIS_FAR
+		}
 	} catch (e) {
 		console.debug(e)
 		return emptyFlowModuleState()
@@ -41,11 +45,12 @@ export async function pickScript(
 	path: string,
 	summary: string,
 	id: string,
-	hash?: string
+	hash?: string,
+	kind?: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const flowModule: FlowModule & { value: PathScript } = {
 		id,
-		value: { type: 'script', path, hash, input_transforms: {} },
+		value: { type: 'script', path, hash, input_transforms: {}, is_trigger: kind === 'trigger' },
 		summary
 	}
 
@@ -78,7 +83,13 @@ export async function createInlineScriptModule(
 	const flowModule: FlowModule = {
 		id,
 		summary,
-		value: { type: 'rawscript', content: code, language, input_transforms: {} }
+		value: {
+			type: 'rawscript',
+			content: code,
+			language,
+			input_transforms: {},
+			is_trigger: kind === 'trigger'
+		}
 	}
 
 	return [flowModule, await loadFlowModuleState(flowModule)]
@@ -137,7 +148,8 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 		id,
 		value: {
 			type: 'branchall',
-			branches: [{ modules: [] }]
+			branches: [{ modules: [] }],
+			parallel: true
 		},
 		summary: ''
 	}
@@ -205,8 +217,7 @@ export function emptyModule(flowState: FlowState, fullFlow: OpenFlow, flow?: boo
 export async function createScriptFromInlineScript(
 	flowModule: FlowModule,
 	suffix: string,
-	schema: Schema,
-	flow: OpenFlow,
+	schema: Schema | undefined,
 	flowPath: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const user = get(userStore)

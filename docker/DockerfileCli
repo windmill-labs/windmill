@@ -1,0 +1,5 @@
+FROM node:slim
+
+RUN npm install -g windmill-cli
+
+ENTRYPOINT [ "wmill" ]

@@ -64,3 +64,6 @@
     SELECT is_secret FROM account
   error: |-
     ExecutionError: db error: ERROR: column "is_secret" does not exist
+- lang: php
+  type: gen
+  description: list all customers from stripe

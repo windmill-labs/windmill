@@ -31,6 +31,7 @@ services:
     restart: unless-stopped
     expose:
       - 8000
+      - 2525
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=server
@@ -70,22 +71,24 @@ services:
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
-      replicas: 2
+      replicas: 1
       resources:
         limits:
-          cpus: "0.1"
-          memory: 128M
+          cpus: "1"
+          memory: 2048M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=native
+      - NUM_WORKERS=8
+      - SLEEP_QUEUE=200
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
-  ## This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  # This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
   #   pull_policy: always
@@ -108,6 +111,33 @@ services:
   #     # mount the docker socket to allow to run docker containers from within the workers
   #     - /var/run/docker.sock:/var/run/docker.sock
   #     - worker_dependency_cache:/tmp/windmill/cache
+  #     - worker_logs:/tmp/windmill/logs
+
+  # The indexer powers full-text job and log search, an EE feature.
+  windmill_indexer:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 0 # set to 1 to enable full-text job and log search
+    restart: unless-stopped
+    expose:
+      - 8001
+    environment:
+      - PORT=8001
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=indexer
+      - TANTIVY_MAX_INDEXED_JOB_LOG_SIZE__MB=1 # job logs bigger than this will be truncated before indexing
+      - TANTIVY_S3_BACKUP_PERIOD__S=3600 # how often to backup the index into object storage
+      - TANTIVY_INDEX_WRITER_MEMORY_BUDGET__MB=100 # higher budget for higher indexing throughput
+      - TANTIVY_REFRESH_INDEX_PERIOD__S=300 #how often to start indexing new jobs
+      - TANTIVY_DOC_COMMIT_MAX_BATCH_SIZE=100000 #how many documents to batch in one commit
+      - TANTIVY_SHOW_MEMORY_EVERY=10000 #log memory usage and progress every so many documents indexed
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - windmill_index:/tmp/windmill/search
+      - worker_logs:/tmp/windmill/logs
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
@@ -127,9 +157,8 @@ services:
       - 3002
 
   caddy:
-    image: caddy:2.5.2-alpine
+    image: ghcr.io/windmill-labs/caddy-l4:latest
     restart: unless-stopped
-
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
@@ -137,6 +166,7 @@ services:
     ports:
       # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
+      - 25:25
       # - 443:443 # Uncomment to enable HTTPS handling by Caddy
     environment:
       - BASE_URL=":80"
@@ -147,4 +177,5 @@ volumes:
   db_data: null
   worker_dependency_cache: null
   worker_logs: null
+  windmill_index: null
   lsp_cache: null

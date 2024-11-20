@@ -79,6 +79,7 @@
 						on:appChanged
 						on:rawAppChanged
 						on:reload
+						{showCode}
 						depth={depth + 1}
 					/>
 				{/each}
@@ -144,6 +145,7 @@
 						on:appChanged
 						on:rawAppChanged
 						on:reload
+						{showCode}
 						depth={depth + 1}
 					/>
 				{/each}

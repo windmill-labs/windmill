@@ -16,11 +16,11 @@ serde-wasm-bindgen.workspace = true
 [dependencies]
 windmill-parser.workspace = true
 swc_common.workspace = true
+triomphe.workspace = true
 swc_ecma_parser.workspace = true
 swc_ecma_ast.workspace = true
 swc_ecma_visit.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-convert_case.workspace = true
 regex.workspace = true
 lazy_static.workspace = true

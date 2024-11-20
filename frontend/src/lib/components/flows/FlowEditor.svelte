@@ -4,22 +4,38 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
 
+	import { writable } from 'svelte/store'
+	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
+	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
+	export let disableStaticInputs = false
+	export let disableTutorials = false
+	export let disableAi = false
+	export let disableSettings = false
+	export let disabledFlowInputs = false
+	export let smallErrorHandler = false
+	export let newFlow: boolean = false
 
-	let size = 40
+	let size = 50
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
+
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 </script>
 
 <div
+	id="flow-editor"
 	class={classNames(
 		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
@@ -35,7 +51,16 @@
 						{/each}
 					</div>
 				{:else if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} on:reload />
+					<FlowModuleSchemaMap
+						{disableStaticInputs}
+						{disableTutorials}
+						{disableAi}
+						{disableSettings}
+						{smallErrorHandler}
+						{newFlow}
+						bind:modules={$flowStore.value.modules}
+						on:reload
+					/>
 				{/if}
 			</div>
 		</Pane>
@@ -47,7 +72,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel enableAi />
+				<FlowEditorPanel {disabledFlowInputs} {newFlow} enableAi={!disableAi} />
 			{/if}
 		</Pane>
 	</Splitpanes>

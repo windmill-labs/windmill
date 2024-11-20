@@ -13,6 +13,7 @@
 	import LogViewer from './LogViewer.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
+	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
@@ -20,7 +21,7 @@
 	import ScriptFix from './copilot/ScriptFix.svelte'
 
 	export let mod: FlowModule
-	export let schema: Schema
+	export let schema: Schema | { properties?: Record<string, any> }
 	export let pickableProperties: PickableProperties | undefined
 	export let lang: Script['language']
 	export let editor: Editor | undefined
@@ -31,9 +32,12 @@
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
+	let scriptProgress = undefined
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
+
+	let jobProgressReset: () => void
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
 		Object.keys(schema.properties ?? {}).map((k) => [
@@ -49,6 +53,9 @@
 	}
 
 	export async function runTest(args: any) {
+		// Not defined if JobProgressBar not loaded
+		if (jobProgressReset) jobProgressReset()
+
 		const val = mod.value
 		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
@@ -56,7 +63,7 @@
 				val.path ?? ($pathStore ?? '') + '/' + mod.id,
 				val.content,
 				val.language,
-				args,
+				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 				$flowStore?.tag ?? val.tag
 			)
 		} else if (val.type == 'script') {
@@ -68,11 +75,16 @@
 				script.content,
 				script.language,
 				args,
-				$flowStore?.tag ?? script.tag
+				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag)
 			)
 		} else if (val.type == 'flow') {
 			await testJobLoader?.abstractRun(() =>
-				JobService.runFlowByPath({ workspace: $workspaceStore!, path: val.path, requestBody: args })
+				JobService.runFlowByPath({
+					workspace: $workspaceStore!,
+					path: val.path,
+					requestBody: args,
+					skipPreprocessor: true
+				})
 			)
 		} else {
 			throw Error('Not supported module type')
@@ -87,11 +99,14 @@
 			}
 		}
 	}
+
+	let forceJson = false
 </script>
 
 <TestJobLoader
 	toastError={noEditor}
 	on:done={() => jobDone()}
+	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -136,14 +151,23 @@
 					duration={testJob?.['duration_ms']}
 					mem={testJob?.['mem_peak']}
 					content={testJob?.logs}
-					isLoading={testIsLoading}
+					isLoading={testIsLoading && testJob?.['running'] == false}
 					tag={testJob?.tag}
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
+				{#if scriptProgress}
+					<JobProgressBar
+						job={testJob}
+						bind:scriptProgress
+						bind:reset={jobProgressReset}
+						compact={true}
+					/>
+				{/if}
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
+							bind:forceJson
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
 							result={testJob.result}
@@ -164,7 +188,9 @@
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}
-							<Loader2 class="animate-spin" />
+							{#if !scriptProgress}
+								<Loader2 class="animate-spin" />
+							{/if}
 						{:else}
 							Test to see the result here
 						{/if}

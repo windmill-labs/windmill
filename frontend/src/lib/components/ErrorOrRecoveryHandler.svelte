@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
+	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import {
@@ -18,11 +18,13 @@
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
+	import { hubPaths } from '$lib/hub'
 
-	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
-	const slackHandlerScriptPath = 'hub/6512/workspace-or-schedule-error-handler-slack'
+	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
+	const slackHandlerScriptPath = hubPaths.slackErrorHandler
+	const slackSuccessHandler = hubPaths.slackSuccessHandler
 
-	export let errorOrRecovery: 'error' | 'recovery'
+	export let errorOrRecovery: 'error' | 'recovery' | 'success'
 	export let isEditable: boolean
 	export let slackToggleText: string = 'Enable'
 	export let showScriptHelpText: boolean = false
@@ -134,10 +136,12 @@
 				scriptPath.startsWith('hub/') &&
 				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
 			)
-		} else {
+		} else if (errorOrRecovery == 'recovery') {
 			return (
 				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
 			)
+		} else {
+			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-slack')
 		}
 	}
 
@@ -229,13 +233,17 @@
 	{/if}
 	{#if handlerPath}
 		<p class="font-semibold text-sm mt-4 mb-2">Extra arguments</p>
-		<SchemaForm
-			disabled={!isEditable}
-			schema={customHandlerSchema}
-			bind:args={handlerExtraArgs}
-			shouldHideNoInputs
-			class="text-xs"
-		/>
+		{#await import('$lib/components/SchemaForm.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				disabled={!isEditable}
+				schema={customHandlerSchema}
+				bind:args={handlerExtraArgs}
+				shouldHideNoInputs
+				class="text-xs"
+			/>
+		{/await}
 		{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
 			<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
 		{/if}
@@ -251,6 +259,8 @@
 					handlerPath = slackHandlerScriptPath
 				} else if (e.detail && errorOrRecovery === 'recovery') {
 					handlerPath = slackRecoveryHandler
+				} else if (e.detail && errorOrRecovery === 'success') {
+					handlerPath = slackSuccessHandler
 				} else {
 					handlerPath = undefined
 				}
@@ -258,19 +268,23 @@
 		/>
 	</span>
 	{#if workspaceConnectedToSlack}
-		<SchemaForm
-			disabled={!$enterpriseLicense || !isSlackHandler(handlerPath)}
-			schema={slackHandlerSchema}
-			schemaSkippedValues={['slack']}
-			schemaFieldTooltip={{
-				channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
-			}}
-			bind:args={handlerExtraArgs}
-			shouldHideNoInputs
-			class="text-xs"
-		/>
+		{#await import('$lib/components/SchemaForm.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				disabled={!$enterpriseLicense || !isSlackHandler(handlerPath)}
+				schema={slackHandlerSchema}
+				schemaSkippedValues={['slack']}
+				schemaFieldTooltip={{
+					channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
+				}}
+				bind:args={handlerExtraArgs}
+				shouldHideNoInputs
+				class="text-xs"
+			/>
+		{/await}
 	{:else if workspaceConnectedToSlack == undefined}
-		<Loader2 class="animate-spin" />
+		<Loader2 class="animate-spin" size={10} />
 	{/if}
 	{#if $enterpriseLicense && isSlackHandler(handlerPath)}
 		{#if workspaceConnectedToSlack == false}
@@ -279,7 +293,7 @@
 					<p class="text-clip grow min-w-0">
 						The workspace needs to be connected to Slack to use this feature. You can <a
 							target="_blank"
-							href="/workspace_settings?tab=slack">configure it here</a
+							href="{base}/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
 					<Button
@@ -310,7 +324,7 @@
 					Message sent via Windmill job
 					<a
 						target="_blank"
-						href={`/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
+						href={`${base}/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
 					>
 						{slackConnectionTestJob.uuid}
 					</a>

@@ -30,6 +30,8 @@ pub enum Error {
     NotFound(String),
     #[error("Not authorized: {0}")]
     NotAuthorized(String),
+    #[error("Metric not found: {0}")]
+    MetricNotFound(String),
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
     #[error("Require Admin privileges for {0}")]
@@ -52,12 +54,12 @@ pub enum Error {
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status: {0}")]
     ExitStatus(i32),
-    #[error(transparent)]
+    #[error("Err: {0:#}")]
     Anyhow(#[from] anyhow::Error),
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
     #[error("{0}")]
-    OpenAIError(String),
+    AiError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
 }
@@ -66,6 +68,10 @@ impl Error {
     /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
     pub fn alt(&self) -> String {
         format!("{:#}", self)
+    }
+
+    pub fn dbg(&self) -> String {
+        format!("{:?}", self)
     }
 }
 
@@ -84,7 +90,7 @@ impl IntoResponse for Error {
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
             Self::SqlErr(_)
             | Self::BadRequest(_)
-            | Self::OpenAIError(_)
+            | Self::AiError(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };

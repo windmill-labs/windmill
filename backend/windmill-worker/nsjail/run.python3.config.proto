@@ -34,6 +34,7 @@ mount {
     src: "/lib64"
     dst: "/lib64"
 	is_bind: true
+    mandatory: false
 }
 
 
@@ -80,6 +81,7 @@ mount {
     src: "{JOB_DIR}/args.json"
     dst: "/tmp/args.json"
     is_bind: true
+    rw: true
 }
 
 mount {
@@ -93,6 +95,13 @@ mount {
     src: "/etc"
     dst: "/etc"
 	is_bind: true
+}
+
+mount {
+    dst: "/dev/shm"
+    fstype: "tmpfs"
+    rw: true
+    is_bind: false
 }
 
 mount {

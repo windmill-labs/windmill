@@ -15,7 +15,8 @@
 		WorkspaceService,
 		type InputTransform,
 		type RawScript,
-		type PathScript
+		type PathScript,
+		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
@@ -32,17 +33,24 @@
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history'
-	import type { FlowEditorContext } from './flows/types'
+	import type { FlowEditorContext, FlowInput } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
-	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 	import { pickScript } from './flows/flowStateUtils'
-	import type { Schedule } from './flows/scheduleUtils'
-
+	import {
+		approximateFindPythonRelativePath,
+		isTypescriptRelativePath,
+		parseTypescriptDeps
+	} from '$lib/relative_imports'
+	import Tooltip from './Tooltip.svelte'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import { initAllAiWorkspace } from './copilot/lib'
+	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
+	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -50,7 +58,8 @@
 
 	$: if (token) {
 		OpenAPI.WITH_CREDENTIALS = true
-		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+		OpenAPI.TOKEN = token
+		loadUser()
 	}
 
 	let flowCopilotContext: FlowCopilotContext = {
@@ -101,12 +110,13 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			workspacedOpenai.init(workspace, token)
+			initAllAiWorkspace(workspace)
 			try {
 				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 			} catch (err) {
 				copilotInfo.set({
-					exists_openai_resource_path: false,
+					ai_provider: '',
+					exists_ai_resource: false,
 					code_completion_enabled: false
 				})
 
@@ -124,8 +134,12 @@
 	}
 
 	async function loadUser() {
-		const user = await getUserExt(workspace!)
-		$userStore = user
+		try {
+			const user = await getUserExt(workspace!)
+			$userStore = user
+		} catch (e) {
+			sendUserToast(`Failed to load user ${e}`, true)
+		}
 	}
 
 	let darkModeToggle: DarkModeToggle
@@ -180,7 +194,7 @@
 	let timeout: NodeJS.Timeout | undefined = undefined
 
 	let loadingCodebaseButton = false
-	let lastBundleCommandId = ''
+	let lastCommandId = ''
 
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
@@ -191,12 +205,26 @@
 			mode = 'script'
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
-			if (event.data.id == lastBundleCommandId) {
-				testBundle(event.data.file)
+			if (event.data.id == lastCommandId) {
+				testBundle(event.data.file, event.data.isTar)
 			} else {
-				sendUserToast(`Bundle received ${lastBundleCommandId} was obsolete, ignoring`, true)
+				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
+			}
+		} else if (event.data.type == 'testPreviewBundle') {
+			if (event.data.id == lastCommandId && currentScript) {
+				testJobLoader.runPreview(
+					currentScript.path,
+					event.data.file,
+					currentScript.language,
+					args,
+					currentScript.tag,
+					useLock ? currentScript.lock : undefined
+				)
+			} else {
+				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
 			}
 		} else if (event.data.type == 'testBundleError') {
+			loadingCodebaseButton = false
 			sendUserToast(
 				typeof event.data.error == 'object' ? JSON.stringify(event.data.error) : event.data.error,
 				true
@@ -231,7 +259,7 @@
 				shiftKey: e.shiftKey
 			}
 
-			if (obj.ctrlKey && obj.key == 'a') {
+			if ((obj.ctrlKey || obj.metaKey) && obj.key == 'a') {
 				e.stopPropagation()
 				return
 			}
@@ -240,7 +268,7 @@
 		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
-	async function testBundle(file: string) {
+	async function testBundle(file: string, isTar: boolean) {
 		testJobLoader?.abstractRun(async () => {
 			try {
 				const form = new FormData()
@@ -248,14 +276,25 @@
 					'preview',
 					JSON.stringify({
 						content: currentScript?.content,
-						kind: 'bundle',
+						kind: isTar ? 'tarbundle' : 'bundle',
 						path: currentScript?.path,
 						args,
 						language: currentScript?.language,
 						tag: currentScript?.tag
 					})
 				)
-				form.append('file', file)
+				// sendUserToast(JSON.stringify(file))
+				if (isTar) {
+					var array: number[] = []
+					file = atob(file)
+					for (var i = 0; i < file.length; i++) {
+						array.push(file.charCodeAt(i))
+					}
+					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+					form.append('file', blob)
+				} else {
+					form.append('file', file)
+				}
 
 				const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
 
@@ -314,6 +353,7 @@
 		}
 	}
 
+	let typescriptBundlePreviewMode = false
 	function runTest() {
 		if (mode == 'script') {
 			if (!currentScript) {
@@ -321,18 +361,26 @@
 			}
 			if (currentScript.isCodebase) {
 				loadingCodebaseButton = true
-				lastBundleCommandId = Math.random().toString(36).substring(7)
-				window.parent?.postMessage({ type: 'testBundle', id: lastBundleCommandId }, '*')
+				lastCommandId = Math.random().toString(36).substring(7)
+				window.parent?.postMessage({ type: 'testBundle', id: lastCommandId }, '*')
 			} else {
-				//@ts-ignore
-				testJobLoader.runPreview(
-					currentScript.path,
-					currentScript.content,
-					currentScript.language,
-					args,
-					currentScript.tag,
-					useLock ? currentScript.lock : undefined
-				)
+				if (relativePaths.length > 0 && typescriptBundlePreviewMode) {
+					lastCommandId = Math.random().toString(36).substring(7)
+					window.parent?.postMessage(
+						{ type: 'testPreviewBundle', external: ['!/*'], id: lastCommandId },
+						'*'
+					)
+				} else {
+					//@ts-ignore
+					testJobLoader.runPreview(
+						currentScript.path,
+						currentScript.content,
+						currentScript.language,
+						args,
+						currentScript.tag,
+						useLock ? currentScript.lock : undefined
+					)
+				}
 			}
 		} else {
 			flowPreviewButtons?.openPreview()
@@ -357,24 +405,33 @@
 			document.execCommand('copy')
 		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
 			document.execCommand('cut')
+		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
+			event.preventDefault()
+			document.execCommand('paste')
 		}
 	}
 
+	let relativePaths: any[] = []
 	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
 		currentScript = lastEdit
 		if (lastPath !== lastEdit.path) {
 			schema = emptySchema()
+			relativePaths = []
 		}
 		try {
 			await inferArgs(lastEdit.language, lastEdit.content, schema)
+			if (lastEdit?.language == 'bun') {
+				relativePaths = await parseTypescriptDeps(lastEdit.content).filter(isTypescriptRelativePath)
+			} else if (lastEdit?.language == 'python3') {
+				relativePaths = approximateFindPythonRelativePath(lastEdit.content)
+			}
 			schema = schema
 			lastPath = lastEdit.path
 			validCode = true
 		} catch (e) {
 			console.error(e)
 			validCode = false
-			schema = emptySchema()
 		}
 	}
 
@@ -413,13 +470,7 @@
 	}
 
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable<Schedule>({
-		args: {},
-		cron: '',
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		enabled: false,
-		summary: undefined
-	})
+
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
@@ -427,10 +478,20 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
+	>('webhooks')
 
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
+	setContext<TriggerContext>('TriggerContext', {
+		primarySchedule: primaryScheduleStore,
+		selectedTrigger: selectedTriggerStore,
+		triggersCount: triggersCount,
+		simplifiedPoll: writable(false)
+	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
-		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
@@ -440,9 +501,15 @@
 		flowStore,
 		testStepStore,
 		saveDraft: () => {},
-		initialPath: ''
+		initialPath: '',
+		flowInputsStore: writable<FlowInput>({}),
+		customUi: {},
+		insertButtonOpen: writable(false)
 	})
-
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined
@@ -504,7 +571,7 @@
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}
-		<div class="flex flex-col h-full">
+		<div class="flex flex-col min-h-full overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 			</div>
@@ -533,6 +600,32 @@
 					options={{ left: 'Infer lockfile', right: 'Use current lockfile' }}
 				/>
 			</div>
+			{#if (currentScript?.language == 'bun' || currentScript?.language == 'python3') && currentScript?.content != undefined}
+				{#if relativePaths.length > 0}
+					<div class="flex flex-row-reverse py-1">
+						{#if currentScript?.language == 'bun'}
+							<Toggle
+								size="xs"
+								bind:checked={typescriptBundlePreviewMode}
+								options={{
+									left: '',
+									right: 'bundle relative paths for preview',
+									rightTooltip:
+										'(Beta) Instead of only sending the current file for preview and rely on already deployed code for the common logic, bundle all code that is imported in relative paths'
+								}}
+							/>
+						{:else if currentScript?.language == 'python3'}
+							<div class="text-xs text-yellow-500"
+								>relative imports detected<Tooltip
+									>Beware that when using relative imports, the code used in preview for those is
+									the one that is already deployed. If you make update to the common logic, you will
+									need to `wmill sync push` to see it reflected in the preview runs.</Tooltip
+								></div
+							>
+						{/if}
+					</div>
+				{/if}
+			{/if}
 			<div class="flex justify-center pt-1">
 				{#if testIsLoading}
 					<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">

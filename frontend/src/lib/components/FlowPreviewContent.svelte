@@ -36,7 +36,7 @@
 		runPreview($previewArgs, undefined)
 	}
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
@@ -114,6 +114,7 @@
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	let inputLibraryDrawer: Drawer
+	let renderCount: number = 0
 </script>
 
 <CapturePayload bind:this={capturePayload} />
@@ -129,6 +130,7 @@
 			on:selected_args={(e) => {
 				$previewArgs = JSON.parse(JSON.stringify(e.detail))
 				inputLibraryDrawer?.closeDrawer()
+				renderCount++
 			}}
 		/>
 	</DrawerContent>
@@ -308,19 +310,24 @@
 		{/if}
 		<FlowProgressBar {job} bind:reset={jobProgressReset} />
 	</div>
-	<div class="overflow-y-auto grow pr-4">
-		<div class="max-h-1/2 overflow-auto border-b">
-			<SchemaForm
-				noVariablePicker
-				compact
-				class="py-4 max-w-3xl"
-				schema={$flowStore.schema}
-				bind:args={$previewArgs}
-			/>
+
+	<div class="overflow-y-auto grow flex flex-col pr-4">
+		<div class="border-b">
+			{#key renderCount}
+				<SchemaForm
+					noVariablePicker
+					compact
+					class="py-4 max-w-3xl"
+					schema={$flowStore.schema}
+					bind:args={$previewArgs}
+				/>
+			{/key}
 		</div>
-		<div class="pt-4 grow">
+		<div class="pt-4 flex flex-col grow">
 			{#if jobId}
 				<FlowStatusViewer
+					hideDownloadInGraph={customUi?.downloadLogs === false}
+					wideResults
 					{flowStateStore}
 					{jobId}
 					on:jobsLoaded={({ detail }) => {

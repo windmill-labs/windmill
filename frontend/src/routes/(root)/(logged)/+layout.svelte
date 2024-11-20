@@ -11,10 +11,12 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { classNames } from '$lib/utils'
+	import { classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
+	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
+		enterpriseLicense,
 		copilotInfo,
 		isPremiumStore,
 		starStore,
@@ -25,10 +27,12 @@
 		workspaceStore,
 		type UserExt,
 		defaultScripts,
-		hubBaseUrlStore
+		hubBaseUrlStore,
+		usedTriggerKinds
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
+	import { afterNavigate, beforeNavigate } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -37,14 +41,19 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft } from 'lucide-svelte'
+	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { workspacedOpenai } from '$lib/components/copilot/lib'
+	import { initAllAiWorkspace } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
+	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import { setContext } from 'svelte'
+	import { base } from '$app/paths'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
+	let globalSearchModal: GlobalSearchModal | undefined = undefined
 	let isCollapsed = false
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -76,7 +85,9 @@
 			$workspaceStore = queryWorkspace
 		}
 
-		menuHidden = $page.url.searchParams.get('nomenubar') === 'true'
+		menuHidden =
+			$page.url.searchParams.get('nomenubar') === 'true' ||
+			$page.url.pathname.startsWith('/oauth/callback/')
 	}
 
 	$: updateUserStore($workspaceStore)
@@ -116,6 +127,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadUsedTriggerKinds()
 	}
 
 	async function loadUsage() {
@@ -129,14 +141,16 @@
 
 	async function loadHubBaseUrl() {
 		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ??
+			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			'https://hub.windmill.dev'
 	}
 
 	async function loadFavorites() {
 		const scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? '',
-			starredOnly: true
+			starredOnly: true,
+			includeWithoutMain: true
 		})
 		const flows = await FlowService.listFlows({
 			workspace: $workspaceStore ?? '',
@@ -153,35 +167,54 @@
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `/scripts/get/${s.hash}`,
+				href: `${base}/scripts/get/${s.hash}`,
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `/flows/get/${f.path}`,
+				href: `${base}/flows/get/${f.path}`,
 				kind: 'flow' as 'flow'
 			})),
 			...apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `/apps/get/${f.path}`,
+				href: `${base}/apps/get/${f.path}`,
 				kind: 'app' as 'app'
 			})),
 			...raw_apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `/apps/get_raw/${f.version}/${f.path}`,
+				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]
 	}
 
+	async function loadUsedTriggerKinds() {
+		let usedKinds: string[] = []
+		const { http_routes_used, websocket_used, kafka_used } = await WorkspaceService.getUsedTriggers(
+			{
+				workspace: $workspaceStore ?? ''
+			}
+		)
+		if (http_routes_used) {
+			usedKinds.push('http')
+		}
+		if (websocket_used) {
+			usedKinds.push('ws')
+		}
+		if (kafka_used) {
+			usedKinds.push('kafka')
+		}
+		$usedTriggerKinds = usedKinds
+	}
+
 	function pathInAppMode(pathname: string | undefined): boolean {
 		if (!pathname) return false
 		return (
-			pathname.startsWith('/apps') ||
-			pathname.startsWith('/flows/add') ||
-			pathname.startsWith('/flows/edit') ||
-			pathname.startsWith('/scripts/add') ||
-			pathname.startsWith('/scripts/edit')
+			pathname.startsWith(base + '/apps') ||
+			pathname.startsWith(base + '/flows/add') ||
+			pathname.startsWith(base + '/flows/edit') ||
+			pathname.startsWith(base + '/scripts/add') ||
+			pathname.startsWith(base + '/scripts/edit')
 		)
 	}
 	afterNavigate((n) => {
@@ -198,15 +231,17 @@
 		}
 	}
 
-	let devOnly = $page.url.pathname.startsWith('/scripts/dev')
+	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
-		workspacedOpenai.init(workspace)
+		initAllAiWorkspace(workspace)
 		try {
 			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 		} catch (err) {
+			console.log(err)
 			copilotInfo.set({
-				exists_openai_resource_path: false,
+				ai_provider: '',
+				exists_ai_resource: false,
 				code_completion_enabled: false
 			})
 			console.error('Could not get copilot info')
@@ -243,6 +278,44 @@
 	$: if (isCollapsed && $userStore?.operator) {
 		isCollapsed = false
 	}
+
+	function openSearchModal(text?: string): void {
+		globalSearchModal?.openSearchWithPrefilledText(text)
+	}
+
+	setContext('openSearchWithPrefilledText', openSearchModal)
+
+	$: {
+		if ($enterpriseLicense && $workspaceStore && $userStore && ($superadmin || $userStore.is_admin)) {
+			mountModal = true
+			loadCriticalAlertsMuted()
+		}
+	}
+
+	let numUnacknowledgedCriticalAlerts = 0
+	let mountModal = false
+	let isCriticalAlertsUiMuted = true
+	let muteSettings = {
+		global: true,
+		workspace: true
+	}
+	async function loadCriticalAlertsMuted() {
+		let g_muted = true
+		const ws_muted =
+			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
+			false
+
+		if ($superadmin) {
+			g_muted = (await SettingService.getGlobal({
+				key: 'critical_alert_mute_ui'
+			})) as boolean
+			isCriticalAlertsUiMuted = g_muted
+		} else {
+			isCriticalAlertsUiMuted = ws_muted
+		}
+
+		muteSettings = { global: g_muted, workspace: ws_muted }
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -257,8 +330,12 @@
 		</div>
 	</CenteredModal>
 {:else if $userStore}
+	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
+	{/if}
+	{#if mountModal}
+		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div>
 		{#if !menuHidden}
@@ -323,13 +400,26 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => openSearchModal()}
+											isCollapsed={false}
+											icon={Search}
+											label="Search"
+											class="!text-xs"
+											shortcut={`${getModifierKey()}k`}
+										/>
 									</div>
 
-									<SidebarContent isCollapsed={false} />
+									<SidebarContent
+										isCollapsed={false}
+										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+											? 0
+											: numUnacknowledgedCriticalAlerts}
+									/>
 								</div>
 							</div>
 						</div>
@@ -366,9 +456,23 @@
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
+									{isCollapsed}
+									icon={Search}
+									label="Search"
+									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
+								/>
 							</div>
 
-							<SidebarContent {isCollapsed} />
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
@@ -445,9 +549,23 @@
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 								<WorkspaceMenu />
 								<FavoriteMenu {favoriteLinks} />
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
+									{isCollapsed}
+									icon={Search}
+									label="Search"
+									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
+								/>
 							</div>
 
-							<SidebarContent {isCollapsed} />
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 						</div>
 					</div>
 				</div>

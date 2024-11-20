@@ -27,6 +27,7 @@
 			size="xs2"
 			iconOnly
 			startIcon={{ icon: Database }}
+			title="Cache settings"
 		/>
 	</svelte:fragment>
 	<div class="block text-primary">

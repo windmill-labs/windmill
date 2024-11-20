@@ -11,8 +11,8 @@
 	<div class="text-sm" role="alert" id="dynamic-input-help-box">
 		<ul class="pl-0 pt-2 list-decimal list-inside flex flex-col gap-2">
 			<li>
-				Install the latest wmill CLI from deno.land:
-				<ClipboardPanel content={'deno install -q -A https://deno.land/x/wmill/main.ts'} />
+				Install the latest wmill CLI from npm:
+				<ClipboardPanel content={'npm install -g windmill-cli'} />
 			</li>
 
 			<li>

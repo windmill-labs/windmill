@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
 	import RowInputEditor from './inputEditor/RowInputEditor.svelte'
@@ -12,10 +11,12 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Loader2, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Loader2, Pen, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
-	import { Button } from '$lib/components/common'
+	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
+
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -41,6 +42,7 @@
 	export let showOnDemandOnlyToggle = true
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
+	export let securedContext = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -67,6 +69,24 @@
 			value: undefined
 		}
 	}
+
+	function closeConnection() {
+		$connectingInput = {
+			opened: false,
+			hoveredComponent: undefined,
+			input: undefined,
+			onConnect: () => {}
+		}
+	}
+
+	function openConnection() {
+		$connectingInput = {
+			opened: true,
+			input: undefined,
+			hoveredComponent: undefined,
+			onConnect: applyConnection
+		}
+	}
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
@@ -74,7 +94,7 @@
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
 				<div class="flex items-center">
-					<span class="text-xs font-semibold truncate text-primary">
+					<span class="!text-2xs font-semibold text-ellipsis text-primary">
 						{customTitle
 							? customTitle
 							: shouldCapitalize
@@ -119,7 +139,7 @@
 						}}
 					>
 						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
-						{#if userInputEnabled && !format?.startsWith('resource-')}
+						{#if userInputEnabled}
 							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
 						{/if}
 						{#if fileUpload}
@@ -133,25 +153,7 @@
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
-					<div>
-						<Button
-							size="xs"
-							variant="border"
-							color="light"
-							title="Connect"
-							on:click={() => {
-								$connectingInput = {
-									opened: true,
-									input: undefined,
-									hoveredComponent: undefined,
-									onConnect: applyConnection
-								}
-							}}
-							id="schema-plug"
-						>
-							<Plug size={14} />
-						</Button>
-					</div>
+					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
 			</div>
 		</div>
@@ -184,11 +186,30 @@
 				{fixedOverflowWidgets}
 				{recomputeOnInputChanged}
 				{showOnDemandOnlyToggle}
+				{securedContext}
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
+		{/if}
+		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
+			<div class="flex flex-row items-center">
+				<Toggle
+					size="xs"
+					bind:checked={componentInput.allowUserResources}
+					options={{
+						left: 'static resource select only',
+						right: 'resources from users allowed'
+					}}
+				/>
+				<Tooltip
+					>Apps are executed on behalf of publishers and by default cannot access viewer's
+					resources. If the resource passed here as a reference does not come from a static
+					'Resource Select' component (which will be whitelisted by the auto-generated policy), you
+					need to toggle this.</Tooltip
+				>
+			</div>
 		{/if}
 	</div>
 {/if}

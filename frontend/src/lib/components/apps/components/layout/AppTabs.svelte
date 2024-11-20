@@ -23,6 +23,7 @@
 	export let customCss: ComponentCustomCSS<'tabscomponent'> | undefined = undefined
 	export let render: boolean
 	export let disabledTabs: RichConfiguration[]
+	export let onTabChange: string[] | undefined = undefined
 
 	let resolvedConfig = initConfig(
 		components['tabscomponent'].initialData.configuration,
@@ -36,7 +37,8 @@
 		selectedComponent,
 		mode,
 		componentControl,
-		connectingInput
+		connectingInput,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
@@ -49,6 +51,8 @@
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
 		outputs?.selectedTabIndex.set(selectedIndex)
+
+		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {

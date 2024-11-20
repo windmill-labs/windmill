@@ -21,7 +21,6 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -82,6 +81,14 @@
 
 	let listItems: { label: string; value: string; created?: boolean }[] = []
 
+	function setContextValue(value: any) {
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
+		}
+		if (rowContext && rowInputs) {
+			rowInputs.set(id, value)
+		}
+	}
 	function handleItems() {
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
@@ -98,6 +105,10 @@
 					}
 			  })
 			: []
+
+		if (value != undefined && listItems.some((x) => x.value === value)) {
+			return
+		}
 		let rawValue
 		if (resolvedConfig.defaultValue !== undefined) {
 			rawValue = resolvedConfig.defaultValue
@@ -108,12 +119,7 @@
 			value = JSON.stringify(rawValue)
 			outputs?.result.set(rawValue)
 		}
-		if (iterContext && listInputs) {
-			listInputs.set(id, rawValue)
-		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, rawValue)
-		}
+		setContextValue(rawValue)
 	}
 
 	onDestroy(() => {
@@ -137,6 +143,12 @@
 		}
 	}
 
+	function onNativeChange(e: Event) {
+		const target = e.target as HTMLSelectElement
+		const value = target.value
+		setValue(value)
+	}
+
 	function setValue(nvalue: any) {
 		let result: any = undefined
 		try {
@@ -144,12 +156,7 @@
 		} catch (_) {}
 		value = nvalue
 		outputs?.result.set(result)
-		if (iterContext && listInputs) {
-			listInputs.set(id, result)
-		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, result)
-		}
+		setContextValue(result)
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
 		}
@@ -158,31 +165,40 @@
 	function onClear() {
 		value = undefined
 		outputs?.result.set(undefined, true)
-		if (iterContext && listInputs) {
-			listInputs.set(id, undefined)
-		}
+		setContextValue(undefined)
 	}
 
 	let css = initCss($app.css?.selectcomponent, customCss)
 
+	let previsousFilter = ''
+
 	function handleFilter(e) {
-		if (resolvedConfig.create) {
-			if (e.detail.length === 0 && filterText.length > 0) {
-				const prev = listItems.filter((i) => !i.created)
-				listItems = [
-					...prev,
-					{ value: JSON.stringify(filterText), label: filterText, created: true }
-				]
+		if (resolvedConfig.create && filterText !== previsousFilter) {
+			previsousFilter = filterText
+			if (filterText.length > 0) {
+				const prev = listItems?.filter((i) => !i.created)
+
+				const exists = listItems?.some(
+					(item) => item.label.toLowerCase() === filterText.toLowerCase()
+				)
+				if (!exists) {
+					listItems = [
+						...prev,
+						{ value: JSON.stringify(filterText), label: filterText, created: true }
+					]
+				}
 			}
 		}
 	}
 
-	$: resolvedConfig.defaultValue && handleDefault()
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	function handleDefault() {
-		if (resolvedConfig.defaultValue) {
-			value = JSON.stringify(resolvedConfig.defaultValue)
-			outputs?.result.set(resolvedConfig.defaultValue)
+		if (resolvedConfig.defaultValue != undefined) {
+			const nvalue = resolvedConfig.defaultValue
+			value = JSON.stringify(nvalue)
+			outputs?.result.set(nvalue)
+			setContextValue(nvalue)
 		}
 	}
 	let filterText = ''
@@ -223,34 +239,46 @@
 		}}
 	>
 		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
-			<Select
-				inAppEditor={true}
-				--border-radius="0.250rem"
-				--clear-icon-color="#6b7280"
-				bind:filterText
-				on:filter={handleFilter}
-				on:clear={onClear}
-				on:change={onChange}
-				items={listItems}
-				listAutoWidth={resolvedConfig.fullWidth}
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={($darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-				{value}
-				class={twMerge($darkMode ? '!border-gray-500' : '!border-gray-300', css?.input?.class)}
-				placeholder={resolvedConfig.placeholder}
-				disabled={resolvedConfig.disabled}
-				on:focus={() => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
-				}}
-			>
-				<svelte:fragment slot="item" let:item
-					>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
-				</svelte:fragment>
-			</Select>
+			{#if resolvedConfig.nativeHtmlSelect}
+				<select class={css?.input?.class} style={css?.input?.style} on:change={onNativeChange}>
+					{#if resolvedConfig.placeholder}
+						<option value="" disabled selected>{resolvedConfig.placeholder}</option>
+					{/if}
+					{#each listItems as item (item.value)}
+						<option value={item.value} selected={item.value === value}>{item.label}</option>
+					{/each}
+				</select>
+			{:else}
+				<Select
+					inAppEditor={true}
+					--border-radius="0.250rem"
+					--clear-icon-color="#6b7280"
+					--border={$darkMode ? '1px solid #6b7280' : '1px solid #d1d5db'}
+					bind:filterText
+					on:filter={handleFilter}
+					on:clear={onClear}
+					on:change={onChange}
+					items={listItems}
+					listAutoWidth={resolvedConfig.fullWidth}
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={($darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+					{value}
+					class={css?.input?.class}
+					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
+					on:focus={() => {
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+						}
+					}}
+				>
+					<svelte:fragment slot="item" let:item
+						>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
+					</svelte:fragment>
+				</Select>
+			{/if}
 		{:else}
 			<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
 				<div

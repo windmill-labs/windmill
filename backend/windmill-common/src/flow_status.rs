@@ -29,6 +29,7 @@ pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: Box<FlowStatusModuleWParent>,
+    pub preprocessor_module: Option<FlowStatusModule>,
 
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
@@ -116,14 +117,18 @@ struct UntaggedFlowStatusModule {
     type_: String,
     id: Option<String>,
     count: Option<u16>,
+    progress: Option<u8>,
     job: Option<Uuid>,
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
+    flow_jobs_success: Option<Vec<Option<bool>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
     while_loop: Option<bool>,
     approvers: Option<Vec<Approval>>,
+    failed_retries: Option<Vec<Uuid>>,
+    skipped: Option<bool>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -145,9 +150,13 @@ pub enum FlowStatusModule {
         id: String,
         job: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         iterator: Option<Iterator>,
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,10 +172,15 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         approvers: Vec<Approval>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        failed_retries: Vec<Uuid>,
+        skipped: bool,
     },
     Failure {
         id: String,
@@ -174,7 +188,11 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        failed_retries: Vec<Uuid>,
     },
 }
 
@@ -220,10 +238,12 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 iterator: untagged.iterator,
                 flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
                 while_loop: untagged.while_loop.unwrap_or(false),
+                progress: untagged.progress,
             }),
             "Success" => Ok(FlowStatusModule::Success {
                 id: untagged
@@ -233,8 +253,11 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .job
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
+                failed_retries: untagged.failed_retries.unwrap_or_default(),
+                skipped: untagged.skipped.unwrap_or(false),
             }),
             "Failure" => Ok(FlowStatusModule::Failure {
                 id: untagged
@@ -244,7 +267,9 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .job
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
                 branch_chosen: untagged.branch_chosen,
+                failed_retries: untagged.failed_retries.unwrap_or_default(),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -288,6 +313,24 @@ impl FlowStatusModule {
         }
     }
 
+    pub fn branch_chosen(&self) -> Option<BranchChosen> {
+        match self {
+            FlowStatusModule::InProgress { branch_chosen, .. } => branch_chosen.clone(),
+            FlowStatusModule::Success { branch_chosen, .. } => branch_chosen.clone(),
+            FlowStatusModule::Failure { branch_chosen, .. } => branch_chosen.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn flow_jobs_success(&self) -> Option<Vec<Option<bool>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            FlowStatusModule::Success { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            FlowStatusModule::Failure { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            _ => None,
+        }
+    }
+
     pub fn job_result(&self) -> Option<JobResult> {
         self.flow_jobs()
             .map(JobResult::ListJob)
@@ -316,7 +359,11 @@ impl FlowStatusModule {
 impl FlowStatus {
     pub fn new(f: &FlowValue) -> Self {
         Self {
-            step: 0,
+            step: if f.preprocessor_module.is_some() {
+                -1
+            } else {
+                0
+            },
             approval_conditions: None,
             modules: f
                 .modules
@@ -333,6 +380,13 @@ impl FlowStatus {
                         .unwrap_or_else(|| "failure".to_string()),
                 },
             }),
+            preprocessor_module: if f.preprocessor_module.is_some() {
+                Some(FlowStatusModule::WaitingForPriorSteps {
+                    id: f.preprocessor_module.as_ref().unwrap().id.clone(),
+                })
+            } else {
+                None
+            },
             cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,
