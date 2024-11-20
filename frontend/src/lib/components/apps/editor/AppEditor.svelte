@@ -130,6 +130,7 @@
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
 	const initialized = writable({ initialized: false, initializedComponents: [] })
+	const panzoomActive = writable(false)
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
@@ -173,7 +174,8 @@
 			componentNumber: 0,
 			refreshing: [],
 			progress: 100
-		})
+		}),
+		panzoomActive
 	})
 
 	let scale = writable(100)
@@ -688,7 +690,7 @@
 	let testJob: Job | undefined = undefined
 	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 
-	$: updateCursorStyle(!!$connectingInput.opened)
+	$: updateCursorStyle(!!$connectingInput.opened && !$panzoomActive)
 
 	function updateCursorStyle(disabled: boolean) {
 		if (disabled) {
@@ -751,6 +753,11 @@
 			}
 		})
 
+		// Handle pointerdown when connecting
+		node.addEventListener('pointerdown_connecting', (e) => {
+			instance.handleDown(e)
+		})
+
 		// Update scale store when zoom changes
 		instance.on('zoom', (e) => {
 			const currentScale = e.getTransform().scale * 100
@@ -762,6 +769,7 @@
 		return {
 			destroy() {
 				instance.dispose()
+				node.removeEventListener('pointerdown_connecting', instance.handleDown)
 			}
 		}
 	}
@@ -779,10 +787,8 @@
 		isModifierKeyPressed = false
 	}
 
-	$: console.log('dbg isModifierKeyPressed', isModifierKeyPressed)
-
-	$: console.log('dbg transfor origine', instance?.getTransformOrigin())
-	$: panzoomActive = isModifierKeyPressed && !$componentActive
+	let mouseOverGridView = false
+	$: $panzoomActive = isModifierKeyPressed && !$componentActive && mouseOverGridView
 </script>
 
 <svelte:head>
@@ -886,7 +892,7 @@
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer h-full overflow-visible',
-										panzoomActive ? 'cursor-grab' : ''
+										$panzoomActive ? 'cursor-grab' : '',
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 									bind:clientWidth={centerPanelWidth}
@@ -922,7 +928,10 @@
 										</div>
 									{/if}
 
-									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
+									<div
+										class="absolute bottom-2 left-2 z-50 border bg-surface"
+										data-connection-button
+									>
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
 												color="light"
@@ -962,10 +971,16 @@
 									<div
 										bind:this={box}
 										on:scroll={parseScroll}
+										on:mouseenter={() => {
+											mouseOverGridView = true
+										}}
+										on:mouseleave={() => {
+											mouseOverGridView = false
+										}}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
 											$appStore.fullscreen ? '' : 'max-w-7xl',
-											$componentActive ? 'absolute right-0 left-0' : 'overflow-auto'
+											$componentActive ? 'absolute right-0 left-0' : 'overflow-auto',
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
@@ -975,12 +990,11 @@
 											{/if}
 
 											<div
-												on:pointerdown|stopPropagation
 												class={twMerge(
 													width,
 													'mx-auto',
 													'z-10000',
-													panzoomActive ? 'pointer-events-none' : ''
+													$panzoomActive ? 'pointer-events-none' : '',
 												)}
 												use:initPanzoom
 											>
