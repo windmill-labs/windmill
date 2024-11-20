@@ -687,7 +687,7 @@
 	:where(div.multiselect.open) {
 		/* increase z-index when open to ensure the dropdown of one <MultiSelect />
     displays above that of another slightly below it on the page */
-		z-index: var(--sms-open-z-index, 20);
+		z-index: var(--sms-open-z-index, 4);
 	}
 	:where(div.multiselect:focus-within) {
 		border: var(--sms-focus-border, 1pt solid var(--sms-active-color, cornflowerblue));
