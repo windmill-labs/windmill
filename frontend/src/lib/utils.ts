@@ -175,6 +175,7 @@ interface ClickOutsideOptions {
 	capture?: boolean
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
+	customEventName?: string
 }
 
 export function clickOutside(
@@ -211,6 +212,10 @@ export function clickOutside(
 				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 			}
 		}
+
+		if (opts?.customEventName) {
+			node.dispatchEvent(new CustomEvent<MouseEvent>(opts.customEventName, { detail: event }))
+		}
 	}
 
 	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
@@ -231,6 +236,14 @@ export function pointerDownOutside(
 	options?: ClickOutsideOptions
 ): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
 	const handlePointerDown = async (event: PointerEvent) => {
+		if (options?.customEventName) {
+			node.dispatchEvent(
+				new CustomEvent<PointerEvent>(options.customEventName, {
+					detail: event,
+					bubbles: true
+				})
+			)
+		}
 		const target = event.target as HTMLElement
 
 		let excludedElements: HTMLElement[] = []
