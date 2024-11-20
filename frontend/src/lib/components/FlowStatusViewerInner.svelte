@@ -81,11 +81,11 @@
 	export let subflowParentsGlobalModuleStates: Writable<Record<string, GraphModuleState>>[] = []
 	export let subflowParentsDurationStatuses: Writable<Record<string, DurationStatus>>[] = []
 	export let isForloopSelected = false
-	export let parentRecursiveRefresh: Record<string, (clear, root) => void> = {}
+	export let parentRecursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 	export let job: Job | undefined = undefined
 	
 
-	let recursiveRefresh: Record<string, (clear, root) => void> = {}
+	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 
 
 	let jobResults: any[] =
@@ -111,13 +111,7 @@
 		}
 	}
 
-	// let lastSize = 0
-	// $: {
-	// 	let len = (flowJobIds?.flowJobs ?? []).length
-	// 	if (len != lastSize) {
-	// 		updateForloop(len)
-	// 	}
-	// }
+
 
 	function updateModuleStates(
 		moduleState: Writable<Record<string, GraphModuleState>>,
@@ -128,6 +122,9 @@
 		moduleState.update((x) => {
 
 			if (newValue.selectedForloop != undefined && x[key]?.selectedForloop != undefined && newValue.selectedForloop != x[key].selectedForloop) {
+				if (newValue.type == 'InProgress') {
+					x[key].type = 'InProgress'
+				}
 				return x
 			}
 
@@ -169,16 +166,40 @@
 		
 		let modId = flowJobIds?.moduleId
 
-			
 		if (clearLoop) {
-			if (modId && !root) {
-				globalModuleStates?.[globalModuleStates?.length - 1]?.update((x) => {
-					if (modId) {
-						delete x[modId]
-					}
-					return x
-				})
-			}
+			if (!root) {
+				let topLevelModuleStates = globalModuleStates?.[globalModuleStates?.length - 1]
+				if (modId) {
+					topLevelModuleStates?.update((x) => {
+						if (modId) {
+							delete x[modId]
+						}
+						return x
+					})
+				}
+
+				if (subflowParentsGlobalModuleStates.length > 0) {
+					subflowParentsGlobalModuleStates?.[subflowParentsGlobalModuleStates?.length - 1]?.update((x) => {
+						for (let mod of innerModules ?? []) {
+								if (mod.id) {
+									delete x[buildSubflowKey(mod.id, prefix)]
+								}
+							}
+							
+						return x
+					})
+				} else {
+					topLevelModuleStates?.update((x) => {
+						for (let mod of innerModules ?? []) {
+							if (mod.id) {
+								delete x[mod.id]
+							}
+						}
+						
+						return x
+					})
+				}
+			} 
 		} else {
 
 			let state = modId ? getTopModuleStates()?.[modId] : undefined
@@ -189,19 +210,19 @@
 			}
 		}
 
-		await Promise.all(Object.entries(recursiveRefresh).map(async ([key, v]) => {
-				await tick()
-				await v(clearLoop, false)
-		}))
-		
-
+		for (let rec of Object.values(recursiveRefresh)) {
+			await tick()
+			await rec(clearLoop, false)
+		}
 	
 	}
 
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
 				parentRecursiveRefresh[jobId] = async (clear, root) => { 
-					(globalModuleStates.length > 0 || isSubflow) && (await refresh(clear, root))
+					if (globalModuleStates.length > 0 || isSubflow) {
+						await refresh(clear, root)
+					}
 				}
 			}
 	}
@@ -216,9 +237,9 @@
 	) {
 		let newValue = { ...($localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual($localModuleStates[key], value) || force) {
-			;[localModuleStates, ...globalModuleStates].forEach((s) =>
+			;[localModuleStates, ...globalModuleStates].forEach((s) => {
 				updateModuleStates(s, key, newValue, keepType)
-			)
+			})
 			if (prefix) {
 				subflowParentsGlobalModuleStates.forEach((s) =>
 					updateModuleStates(s, buildSubflowKey(key, prefix), newValue, keepType)
