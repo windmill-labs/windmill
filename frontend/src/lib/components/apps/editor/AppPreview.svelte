@@ -139,7 +139,8 @@
 			componentNumber: 0,
 			refreshing: [],
 			progress: 100
-		})
+		}),
+		panzoomActive: writable(false)
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
