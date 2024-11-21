@@ -28,7 +28,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath, ScheduleType},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{schedule::push_scheduled_job, QueueTransaction};
@@ -75,6 +75,7 @@ pub struct NewSchedule {
     pub retry: Option<serde_json::Value>,
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
+    pub cron_version: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -153,7 +154,9 @@ async fn create_schedule(
 
     let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
 
-    cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
+    // Check schedule for error
+    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref())?;
+
     check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
     check_flow_conflict(
         tx.transaction_mut(),
@@ -169,9 +172,9 @@ async fn create_schedule(
             is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, \
             on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, \
             on_success, on_success_extra_args, \
-            ws_error_handler_muted, retry, summary, no_flow_overlap, tag, paused_until \
+            ws_error_handler_muted, retry, summary, no_flow_overlap, tag, paused_until, cron_version \
         ) VALUES ( \
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25 \
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26 \
         ) RETURNING *")
         .bind(&w_id)
         .bind(&ns.path)
@@ -198,6 +201,7 @@ async fn create_schedule(
         .bind(&ns.no_flow_overlap.unwrap_or(false))
         .bind(&ns.tag)
         .bind(&ns.paused_until)
+        .bind(&ns.cron_version.unwrap_or("v2".to_string()))
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
@@ -255,7 +259,8 @@ async fn edit_schedule(
     let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq.clone(), user_db.begin(&authed).await?).into();
 
-    cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
+    // Check schedule for error
+    ScheduleType::from_str(&es.schedule, es.cron_version.as_deref())?;
 
     clear_schedule(tx.transaction_mut(), path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
@@ -263,7 +268,7 @@ async fn edit_schedule(
             on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
             on_recovery_extra_args = $10, on_success = $11, on_success_extra_args = $12, \
             ws_error_handler_muted = $13, retry = $14, summary = $15, \
-            no_flow_overlap = $16, tag = $17, paused_until = $18
+            no_flow_overlap = $16, tag = $17, paused_until = $18, cron_version = COALESCE($21, cron_version) \
         WHERE path = $19 AND workspace_id = $20 RETURNING *")
         .bind(&es.schedule)
         .bind(&es.timezone)
@@ -285,6 +290,7 @@ async fn edit_schedule(
         .bind(&es.paused_until)
         .bind(&path)
         .bind(&w_id)
+        .bind(&es.cron_version)
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e:#}")))?;
@@ -401,6 +407,7 @@ pub struct ScheduleWJobs {
     pub no_flow_overlap: bool,
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
+    pub cron_version: Option<String>
 }
 
 async fn list_schedule_with_jobs(
@@ -463,23 +470,19 @@ async fn exists_schedule(
 pub struct PreviewPayload {
     pub schedule: String,
     pub timezone: String,
+    pub cron_version: Option<String>
 }
 
 pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
 ) -> JsonResult<Vec<DateTime<Utc>>> {
-    let schedule = cron::Schedule::from_str(&payload.schedule)
+
+    let schedule = ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref())?;
+
+    let tz = chrono_tz::Tz::from_str(&payload.timezone)
         .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-    let tz =
-        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
-
-    let upcoming: Vec<DateTime<Utc>> = schedule
-        .upcoming(tz)
-        .take(5)
-        // Convert back to UTC for a standardised API response. The client will convert to the local timezone.
-        .map(|x| x.with_timezone(&Utc))
-        .collect();
+    let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 
     Ok(Json(upcoming))
 }
@@ -846,6 +849,7 @@ pub struct EditSchedule {
     pub no_flow_overlap: Option<bool>,
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
+    pub cron_version: Option<String>,
 }
 
 pub async fn clear_schedule<'c>(

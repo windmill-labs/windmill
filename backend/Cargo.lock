@@ -1995,6 +1995,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "croner"
+version = "2.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09b42c74d1c9fc4680c245ca7287bd631fe73eb364657268b0e65bafdec83d47"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
 name = "crossbeam"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10850,9 +10859,11 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
+ "chrono-tz 0.10.0",
  "const_format",
  "crc",
  "cron",
+ "croner",
  "futures-core",
  "gethostname",
  "git-version",
@@ -11110,6 +11121,7 @@ dependencies = [
  "chrono",
  "chrono-tz 0.10.0",
  "cron",
+ "futures",
  "futures-core",
  "hex",
  "hmac",

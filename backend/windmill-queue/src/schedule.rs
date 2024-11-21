@@ -23,7 +23,7 @@ use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
     users::username_to_permissioned_as,
-    utils::{now_from_db, StripPath},
+    utils::{now_from_db, ScheduleType, StripPath},
 };
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
@@ -39,8 +39,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         ));
     }
 
-    let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
-        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let sched = ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref())?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
@@ -64,10 +63,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     };
 
-    let next = sched
-        .after(&starting_from)
-        .next()
-        .expect("a schedule should have a next event");
+    let next = sched.find_next(&starting_from);
 
     // println!("next event ({:?}): {}", tz, next);
     // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
