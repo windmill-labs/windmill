@@ -41,7 +41,7 @@
 
 {#if object != undefined && Object.keys(object).length > 0}
 	{#if $hasResult[componentId] || $search == ''}
-		<div class="pl-2 !cursor-pointer connection-access" data-connection-button>
+		<div class="pl-2 !cursor-pointer" data-connection-button>
 			<ObjectViewer
 				json={filtered}
 				on:select

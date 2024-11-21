@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.429.0](https://github.com/windmill-labs/windmill/compare/v1.428.1...v1.429.0) (2024-11-20)
+
+
+### Features
+
+* app editor ctrl nav ([#4757](https://github.com/windmill-labs/windmill/issues/4757)) ([3731886](https://github.com/windmill-labs/windmill/commit/37318861ac356b73f6da652c0ef8b4fc23436e3f))
+* svix integration ([#3814](https://github.com/windmill-labs/windmill/issues/3814)) ([68f781e](https://github.com/windmill-labs/windmill/commit/68f781ea6f5f53a3aafbc2c4b5dd71496254c68e))
+
+
+### Bug Fixes
+
+* add cancellable icons refresh in apps ([2c325ef](https://github.com/windmill-labs/windmill/commit/2c325ef8524e3c74844e566ecf42c245f87a2918))
+* **frontend:** pdf viewer fullscreen z-index ([#4762](https://github.com/windmill-labs/windmill/issues/4762)) ([a23cd4f](https://github.com/windmill-labs/windmill/commit/a23cd4f9e7c3e327eea099aade8c3fcd30cc2b87))
+
+## [1.428.1](https://github.com/windmill-labs/windmill/compare/v1.428.0...v1.428.1) (2024-11-20)
+
+
+### Bug Fixes
+
+* grant all to new job table ([#4758](https://github.com/windmill-labs/windmill/issues/4758)) ([ff7c94c](https://github.com/windmill-labs/windmill/commit/ff7c94c5a7caf94d571a2654f5dc48c494c7bc2e))
+
 ## [1.428.0](https://github.com/windmill-labs/windmill/compare/v1.427.0...v1.428.0) (2024-11-19)
 
 

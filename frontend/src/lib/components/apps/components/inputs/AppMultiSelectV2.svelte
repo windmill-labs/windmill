@@ -16,6 +16,7 @@
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -30,7 +31,7 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let items: string[]
+	let items: (string | { value: string; label: any })[] = []
 
 	const resolvedConfig = initConfig(
 		components['multiselectcomponent'].initialData.configuration,
@@ -41,12 +42,33 @@
 		result: [] as string[]
 	})
 
-	let value: string[] | undefined = [...new Set(outputs?.result.peak())] as string[]
+	let selectedItems: (string | { value: string; label: any })[] | undefined = [
+		...new Set(outputs?.result.peak())
+	] as string[]
+
+	function setResultsFromSelectedItems() {
+		outputs?.result.set([
+			...(selectedItems?.map((item) => {
+				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
+					return item?.value ?? `NOT_STRING`
+				} else if (typeof item == 'string') {
+					return item
+				} else if (typeof item == 'object' && item.label != undefined) {
+					return item.label
+				} else {
+					return 'NOT_STRING'
+				}
+			}) ?? [])
+		])
+	}
 
 	$componentControl[id] = {
 		setValue(nvalue: string[]) {
-			value = [...new Set(nvalue)]
-			outputs?.result.set([...(value ?? [])])
+			if (Array.isArray(nvalue)) {
+				setSelectedItemsFromValues(nvalue)
+			} else {
+				console.error('Invalid value for multiselect component, expected array', nvalue)
+			}
 		}
 	}
 
@@ -54,21 +76,33 @@
 
 	function handleItems() {
 		if (Array.isArray(resolvedConfig.items)) {
-			items = resolvedConfig.items?.map((label) => {
-				return typeof label === 'string' ? label : `NOT_STRING`
+			items = resolvedConfig.items?.map((item) => {
+				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
+					return item
+				}
+				return typeof item === 'string' ? item : `NOT_STRING`
 			})
 		}
 	}
 
-	$: resolvedConfig.defaultItems && handleDefaultItems()
+	$: resolvedConfig.defaultItems && setSelectedItemsFromValues(resolvedConfig.defaultItems)
 
-	function handleDefaultItems() {
-		if (Array.isArray(resolvedConfig.defaultItems)) {
-			const nvalue = resolvedConfig.defaultItems?.map((label) => {
-				return typeof label === 'string' ? label : `NOT_STRING`
-			})
-			value = [...new Set(nvalue)]
-			outputs?.result.set([...(value ?? [])])
+	function setSelectedItemsFromValues(values: any[]) {
+		if (Array.isArray(values)) {
+			const nvalue = values
+				.map((value) => {
+					return (
+						items.find((item) => {
+							if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
+								return deepEqual(item.value, value)
+							}
+							return item == value
+						}) ?? (typeof value == 'string' ? value : undefined)
+					)
+				})
+				.filter((item) => item != undefined)
+			selectedItems = [...new Set(nvalue)] as (string | { value: string; label: any })[]
+			setResultsFromSelectedItems()
 		}
 	}
 
@@ -143,7 +177,7 @@
 		use:floatingRef
 		bind:clientWidth={w}
 	>
-		{#if !value || Array.isArray(value)}
+		{#if !selectedItems || Array.isArray(selectedItems)}
 			<MultiSelect
 				bind:outerDiv
 				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
@@ -151,7 +185,7 @@
 				--sms-border={'none'}
 				--sms-min-height={'32px'}
 				--sms-focus-border={'none'}
-				bind:selected={value}
+				bind:selected={selectedItems}
 				options={items}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
@@ -159,7 +193,7 @@
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
 					} else {
-						outputs?.result.set([...(value ?? [])])
+						setResultsFromSelectedItems()
 					}
 				}}
 				on:open={() => {
@@ -181,7 +215,7 @@
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
 				>
-					{option}
+					{typeof option == 'object' ? option?.label ?? 'NO_LABEL' : option}
 				</div>
 			</MultiSelect>
 			<Portal name="app-multiselect-v2">
@@ -197,7 +231,7 @@
 				</div>
 			</Portal>
 		{:else}
-			Value {value} is not an array
+			Value {selectedItems} is not an array
 		{/if}
 	</div>
 </AlignWrapper>
