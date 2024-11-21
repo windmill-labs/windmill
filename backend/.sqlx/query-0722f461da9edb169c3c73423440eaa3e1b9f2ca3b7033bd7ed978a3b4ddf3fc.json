@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"\n            FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "raw_flow!: Json<Box<JsonRawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0722f461da9edb169c3c73423440eaa3e1b9f2ca3b7033bd7ed978a3b4ddf3fc"
+}

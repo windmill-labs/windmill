@@ -16,7 +16,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
-    error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
 };
@@ -651,30 +650,4 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             skip_if: None,
         });
     }
-}
-
-pub async fn has_failure_module<'c>(flow: sqlx::types::Uuid, db: &sqlx::Pool<sqlx::Postgres>, completed: bool) -> Result<bool, Error> {
-    if completed {
-        sqlx::query_scalar!(
-            "SELECT raw_flow->'failure_module' != 'null'::jsonb
-            FROM completed_job_view
-            WHERE id = $1",
-            flow
-        )
-    } else {
-        sqlx::query_scalar!(
-            "SELECT raw_flow->'failure_module' != 'null'::jsonb
-            FROM queue_view
-            WHERE id = $1",
-            flow
-        )
-    }
-    .fetch_one(db)
-    .await
-    .map_err(|e| {
-        Error::InternalErr(format!(
-            "error during retrieval of has_failure_module: {e:#}"
-        ))
-    })
-    .map(|v| v.unwrap_or(false))
 }

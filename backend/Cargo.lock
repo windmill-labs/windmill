@@ -11110,6 +11110,7 @@ dependencies = [
  "chrono",
  "chrono-tz 0.10.0",
  "cron",
+ "futures",
  "futures-core",
  "hex",
  "hmac",

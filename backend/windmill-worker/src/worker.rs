@@ -54,8 +54,8 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PushArgs,
-    PushIsolationLevel, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PulledJob,
+    PushArgs, PushIsolationLevel, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -1190,7 +1190,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
-                let r = sqlx::query_as::<_, QueuedJob>(
+                let r = sqlx::query_as::<_, PulledJob>(
                     "UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *",
                 )
                 .bind(same_worker_job.job_id)
@@ -1327,7 +1327,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         };
                         if let Some(key) = key_o {
                             if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
-                                if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
+                                if let Err(e) = dedicated_worker_tx.send(Arc::new(job.job)).await {
                                     tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                                 }
 
@@ -1346,7 +1346,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     add_time!(bench, "send job completed START");
                     job_completed_tx
                         .send(JobCompleted {
-                            job: Arc::new(job),
+                            job: Arc::new(job.job),
                             success: true,
                             result: Arc::new(empty_result()),
                             mem_peak: 0,
@@ -1464,10 +1464,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let tag = job.tag.clone();
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
+                    let PulledJob { job, raw_code, raw_lock, raw_flow } = job;
                     let arc_job = Arc::new(job);
                     add_time!(bench, "handle_queued_job START");
                     match handle_queued_job(
                         arc_job.clone(),
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
                         db,
                         &authed_client,
                         &hostname,
@@ -1754,6 +1758,9 @@ pub struct PreviousResult<'a> {
 #[tracing::instrument(name = "job", level = "info", skip_all, fields(job_id = %job.id))]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: Arc<QueuedJob>,
+    raw_code: Option<String>,
+    raw_lock: Option<String>,
+    raw_flow: Option<Json<Box<RawValue>>>,
     db: &DB,
     client: &AuthedClientBackgroundTask,
     hostname: &str,
@@ -1829,16 +1836,18 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         None
     };
 
-    let (raw_code, raw_lock, raw_flow) =
-        sqlx::query!(
+    let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
+        (None, None, None) => sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
             &job.id, job.workspace_id
         )
         .fetch_one(db)
         .await
         .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
-        .unwrap_or_default();
+        .unwrap_or_default(),
+        (raw_code, raw_lock, raw_flow) => (raw_code, raw_lock, raw_flow),
+    };
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
