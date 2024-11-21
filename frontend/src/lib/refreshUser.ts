@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import { UserService } from '$lib/gen'
-import { superadmin } from './stores.js'
+import { superadmin, devopsRole } from './stores.js'
 import { goto } from '$lib/navigation'
 
 export async function refreshSuperadmin(): Promise<void> {
@@ -14,6 +14,20 @@ export async function refreshSuperadmin(): Promise<void> {
 			}
 		} catch {
 			superadmin.set(false)
+			goto('/user/logout')
+		}
+	}
+
+	if (get(devopsRole) == undefined) {
+		try {
+			const me = await UserService.globalWhoami()
+			if (me.devops) {
+				devopsRole.set(me.email)
+			} else {
+				devopsRole.set(false)
+			}
+		} catch {
+			devopsRole.set(false)
 			goto('/user/logout')
 		}
 	}
