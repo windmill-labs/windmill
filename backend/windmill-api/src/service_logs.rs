@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::utils::content_plain;
+use crate::utils::{content_plain, require_devops_role};
 use axum::{body::Body, extract::Query, response::Response, routing::get, Extension, Json, Router};
 use serde::Serialize;
 
@@ -15,10 +15,7 @@ use windmill_common::{
     utils::Pagination,
 };
 
-use crate::{
-    db::{ApiAuthed, DB},
-    utils::require_super_admin,
-};
+use crate::db::{ApiAuthed, DB};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -51,7 +48,7 @@ async fn list_files(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<LogFileQuery>,
 ) -> JsonResult<Vec<LogFile>> {
-    require_super_admin(&db, &email).await?;
+    require_devops_role(&db, &email).await?;
     let (per_page, offset) = windmill_common::utils::paginate(pagination);
 
     let mut sqlb = sql_builder::SqlBuilder::select_from("log_file")
@@ -98,7 +95,7 @@ async fn get_log_file(
 ) -> windmill_common::error::Result<Response> {
     use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
 
-    require_super_admin(&db, &email).await?;
+    require_devops_role(&db, &email).await?;
     let path = path.to_path();
     #[cfg(feature = "parquet")]
     let s3_client = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS

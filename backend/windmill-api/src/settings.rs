@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::{
     db::{ApiAuthed, DB},
     ee::validate_license_key,
-    utils::{generate_instance_username_for_all_users, require_super_admin},
+    utils::{require_devops_role, generate_instance_username_for_all_users, require_super_admin},
     HTTP_CLIENT,
 };
 
@@ -440,7 +440,7 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     crate::utils::get_critical_alerts(db, params, None).await
 }
