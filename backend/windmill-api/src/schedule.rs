@@ -268,7 +268,7 @@ async fn edit_schedule(
             on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
             on_recovery_extra_args = $10, on_success = $11, on_success_extra_args = $12, \
             ws_error_handler_muted = $13, retry = $14, summary = $15, \
-            no_flow_overlap = $16, tag = $17, paused_until = $18, cron_version = COALESCE($21, 'v1') \
+            no_flow_overlap = $16, tag = $17, paused_until = $18, cron_version = COALESCE($21, cron_version) \
         WHERE path = $19 AND workspace_id = $20 RETURNING *")
         .bind(&es.schedule)
         .bind(&es.timezone)
