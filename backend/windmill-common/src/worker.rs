@@ -119,8 +119,9 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
             canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as,
             flow_status,  is_flow_step,  language,  suspend,  suspend_until,
             same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
-             root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
-             timeout,  flow_step_id,  cache_ttl, priority", wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", "));
+            root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
+            timeout,  flow_step_id,  cache_ttl, priority,
+            raw_code, raw_lock, raw_flow", wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", "));
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
     *l = query;
 }
@@ -150,8 +151,9 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
         canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as,
         flow_status,  is_flow_step,  language,  suspend,  suspend_until,
         same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
-         root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
-         timeout,  flow_step_id,  cache_ttl, priority", tags.tags.iter().map(|x| format!("'{x}'")).join(", "));
+        root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
+        timeout,  flow_step_id,  cache_ttl, priority,
+        raw_code, raw_lock, raw_flow", tags.tags.iter().map(|x| format!("'{x}'")).join(", "));
 
         queries.push(query);
     }
