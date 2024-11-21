@@ -686,6 +686,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             {
                                 tracing::error!("Error deleting log file: {:?}", e);
                             }
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM job WHERE id = ANY($1)",
+                                &deleted_jobs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting job: {:?}", e);
+                            }
                         }
                     }
                     Err(e) => {
