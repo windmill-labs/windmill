@@ -170,18 +170,23 @@
 			error = 'Required'
 			valid && (valid = false)
 		} else {
-			if (pattern && !testRegex(pattern, v)) {
-				if (!emptyString(customErrorMessage)) {
-					error = customErrorMessage ?? ''
-				} else if (format == 'email') {
-					error = 'invalid email address'
-				} else {
-					error = `should match ${pattern}`
-				}
-				valid && (valid = false)
-			} else {
+			if (!required && (v == undefined || v == null || v === '')) {
 				error = ''
 				!valid && (valid = true)
+			} else {
+				if (pattern && !testRegex(pattern, v)) {
+					if (!emptyString(customErrorMessage)) {
+						error = customErrorMessage ?? ''
+					} else if (format == 'email') {
+						error = 'invalid email address'
+					} else {
+						error = `should match ${pattern}`
+					}
+					valid && (valid = false)
+				} else {
+					error = ''
+					!valid && (valid = true)
+				}
 			}
 		}
 	}
