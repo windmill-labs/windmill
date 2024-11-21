@@ -3113,6 +3113,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         summary: None,
         tag: None,
         paused_until: None,
+        cron_version: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3180,6 +3181,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 no_flow_overlap: None,
                 tag: None,
                 paused_until: None,
+                cron_version: None,
             },
         )
         .await
@@ -3262,6 +3264,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         summary: None,
         tag: None,
         paused_until: None,
+        cron_version: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3330,6 +3333,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 no_flow_overlap: None,
                 tag: None,
                 paused_until: None,
+                cron_version: None,
             },
         )
         .await

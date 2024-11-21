@@ -16,12 +16,15 @@ use anyhow::Context;
 use gethostname::gethostname;
 use git_version::git_version;
 
+use chrono::Utc;
+use croner::Cron;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use reqwest::Client;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
-use semver::Version;
+use std::str::FromStr;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -31,6 +34,7 @@ pub const GIT_VERSION: &str =
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::sync::atomic::Ordering;
+use std::panic::{self, AssertUnwindSafe};
 
 use crate::worker::CLOUD_HOSTED;
 
@@ -277,7 +281,8 @@ pub async fn report_critical_error(
     // we ack_global if mute_global is true, or if mute_workspace is true
     // but we ignore global mute setting for ack_workspace
     let acknowledge_workspace = mute_workspace;
-    let acknowledge_global = mute_global || mute_workspace || ( workspace_id.is_some() && *CLOUD_HOSTED);
+    let acknowledge_global =
+        mute_global || mute_workspace || (workspace_id.is_some() && *CLOUD_HOSTED);
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
@@ -376,5 +381,137 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
             );
             Err(Error::SqlErr(err))
         }
+    }
+}
+
+pub enum ScheduleType {
+    Croner(Cron),
+    Cron(cron::Schedule),
+}
+
+impl ScheduleType {
+    pub fn find_next(
+        &self,
+        starting_from: &chrono::DateTime<chrono_tz::Tz>,
+    ) -> chrono::DateTime<chrono_tz::Tz> {
+        match self {
+            ScheduleType::Croner(croner_schedule) => croner_schedule
+                .find_next_occurrence(starting_from, false)
+                .expect("cron: a schedule should have a next event"),
+            ScheduleType::Cron(schedule) => schedule
+                .after(starting_from)
+                .next()
+                .expect("cron: a schedule should have a next event"),
+        }
+    }
+
+    pub fn from_str(schedule_str: &str, version: Option<&str>) -> Result<ScheduleType> {
+        tracing::debug!(
+            "Attempting to parse schedule string: {}, with version: {:?}",
+            schedule_str,
+            version
+        );
+
+        match version {
+            Some("v1") | None => {
+                // Use Cron for v1 or if not provided
+                cron::Schedule::from_str(schedule_str)
+                    .map(ScheduleType::Cron)
+                    .map_err(|e| {
+                        tracing::error!(
+                            "Failed to parse schedule string '{}' using Cron: {}",
+                            schedule_str,
+                            e
+                        );
+                        Error::BadRequest(format!("cron: {}", e))
+                    })
+            }
+            Some("v2") | Some(_) => {
+                // Use Croner for v2
+                let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
+                    Cron::new(schedule_str)
+                        .with_seconds_optional()
+                        .parse()
+                }))
+                .map_err(|_| {
+                    tracing::error!(
+                        "A panic occurred while parsing schedule string '{}' using Croner",
+                        schedule_str,
+                    );
+                    Error::BadRequest(format!("cron: a panic occurred during schedule parsing"))
+                })
+                .and_then(|parse_result| {
+                    parse_result.map(ScheduleType::Croner).map_err(|e| {
+                        tracing::error!(
+                            "Failed to parse schedule string '{}' using Croner: {}",
+                            schedule_str,
+                            e
+                        );
+                        Error::BadRequest(format!("cron: {}", e))
+                    })
+                });
+
+                // Additional check to make sure the provided schedule can generate a next event
+                if let Ok(ScheduleType::Croner(croner_schedule)) = &schedule_type_result {
+                    let test_time = chrono::Utc::now().with_timezone(&chrono_tz::UTC);
+                    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                        croner_schedule
+                            .find_next_occurrence(&test_time, false)
+                            .expect("cron: a schedule should have a next event");
+                    }));
+                    if let Err(_) = result {
+                        tracing::error!("A panic occurred while finding the next occurrence");
+                        return Err(Error::BadRequest(format!(
+                            "cron: a panic occurred during find_next_occurrence"
+                        )));
+                    }
+
+                    if let Err(e) = result {
+                        tracing::error!("An error occurred while finding the next occurrence: {:?}", e);
+                        return Err(Error::BadRequest(format!("cron: error during find_next_occurrence: {:?}", e)));
+                    }
+                }
+
+                schedule_type_result
+            }
+        }
+    }
+
+    pub fn upcoming(
+        &self,
+        tz: chrono_tz::Tz,
+        count: usize, // Number of upcoming events to take
+    ) -> Result<Vec<chrono::DateTime<Utc>>> {
+        let start_time = Utc::now().with_timezone(&tz);
+
+        let mut events: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(count);
+
+        match self {
+            ScheduleType::Croner(croner_schedule) => {
+                croner_schedule
+                    .iter_from(start_time)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .take(count)
+                    .for_each(|event| events.push(event));
+            }
+            ScheduleType::Cron(schedule) => {
+                schedule
+                    .upcoming(tz)
+                    .map(|x| x.with_timezone(&Utc))
+                    .take(count)
+                    .for_each(|event| events.push(event));
+            }
+        };
+
+        // Make sure the schedule is valid and can actually generate "count" events
+        if events.len() != count {
+            return Err(Error::BadRequest(format!(
+                "cron: failed to generate the requested number of events. Expected {}, got {}",
+                count,
+                events.len()
+            )));
+        }
+
+        Ok(events)
     }
 }
