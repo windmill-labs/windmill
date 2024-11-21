@@ -48,6 +48,7 @@
 	export let loading = false
 	export let noVariablePicker = false
 	export let viewKeybinding = false
+	export let noUrlChange = false
 
 	export let scheduledForStr: string | undefined
 	export let invisible_to_owner: boolean | undefined
@@ -73,6 +74,9 @@
 	let debounced: NodeJS.Timeout | undefined = undefined
 
 	function onArgsChange(args: any) {
+		if (noUrlChange) {
+			return
+		}
 		try {
 			debounced && clearTimeout(debounced)
 			debounced = setTimeout(() => {
@@ -148,7 +152,7 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm py-4 italic">No arguments</div>
 		{:else}
-			{#key reloadArgs}
+			{#key `${runnable?.hash}-${reloadArgs}`}
 				<SchemaForm
 					helperScript={runnable.hash
 						? {
