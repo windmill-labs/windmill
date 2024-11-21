@@ -48,17 +48,17 @@ use windmill_common::{
         Approval, BranchAllStatus, BranchChosen, FlowStatus, FlowStatusModule, RetryStatus,
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
-    flows::{has_failure_module, FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job,
-    CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
+    CanceledBy, PulledJob, PushArgs, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
-use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTransaction};
+use windmill_queue::{canceled_job_to_result, push, QueueTransaction};
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion<
@@ -214,8 +214,8 @@ pub async fn update_flow_status_after_job_completion_internal<
         let (old_status, current_module) = sqlx::query!(
             "SELECT
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
-                raw_flow->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"
-            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+                coalesce(job.raw_flow, queue.raw_flow)->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"
+            FROM queue LEFT JOIN job USING(id, workspace_id) WHERE id = $1 AND workspace_id = $2 LIMIT 1",
             flow, w_id
         )
         .fetch_one(db)
@@ -290,17 +290,15 @@ pub async fn update_flow_status_after_job_completion_internal<
                 Step::Step(i) => Some(i),
             };
 
-            let is_flow = if let Some(step) = step {
-                sqlx::query_scalar!(
-                    "SELECT raw_flow->'modules'->($1)::text->'value'->>'type' = 'flow' FROM queue_view WHERE id = $2 LIMIT 1",
-                    step as i32, flow
-                )
-                .fetch_one(db)
-                .await
-                .map_err(|e| {
-                    Error::InternalErr(format!("error during retrieval of step's type: {e:#}"))
-                })?
-                .unwrap_or(false)
+            let is_flow = if let Some(_) = step {
+                #[derive(Deserialize)]
+                struct GetType<'j> { r#type: &'j str }
+
+                current_module
+                    .as_ref()
+                    .map(|module| serde_json::from_str::<GetType>(module.value.get()).map(|v| v.r#type == "flow"))
+                    .unwrap_or(Ok(false))
+                    .unwrap_or(false)
             } else {
                 false
             };
@@ -915,8 +913,12 @@ pub async fn update_flow_status_after_job_completion_internal<
             .context("remove flow status retry")?;
         }
 
-        let flow_job = get_queued_job_tx(flow, w_id, tx.transaction_mut())
-            .await?
+        let flow_job = sqlx::query_as::<_, PulledJob>("SELECT * FROM queue WHERE id = $1 AND workspace_id = $2")
+            .bind(flow)
+            .bind(w_id)
+            .fetch_optional(&mut tx)
+            .await
+            .map_err(Into::<Error>::into)?
             .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;
 
@@ -926,14 +928,19 @@ pub async fn update_flow_status_after_job_completion_internal<
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
-        let raw_flow = sqlx::query_scalar!(
-            "SELECT raw_flow AS \"raw_flow!: Json<Box<sqlx::types::JsonRawValue>>\"
-            FROM queue_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &flow_job.id, w_id
-        )
-        .fetch_one(db)
-        .await
-        .ok();
+        let PulledJob { job: flow_job, raw_flow, .. } = flow_job;
+        let raw_flow = if let Some(raw_flow) = raw_flow {
+            Some(raw_flow)
+        } else {
+            sqlx::query_scalar!(
+                "SELECT raw_flow AS \"raw_flow!: Json<Box<sqlx::types::JsonRawValue>>\"
+                FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+                &flow_job.id, w_id
+            )
+            .fetch_one(db)
+            .await
+            .ok()
+        };
         let flow_value = raw_flow
             .as_ref()
             .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok());
@@ -965,7 +972,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             false
                 if !is_failure_step
                     && !skip_error_handler
-                    && has_failure_module(flow, db, false).await? =>
+                    && flow_value.as_ref().map(|v| v.failure_module.is_some()).unwrap_or(false) =>
             {
                 true
             }

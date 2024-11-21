@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                flow_status AS \"flow_status!: Json<Box<RawValue>>\",\n                coalesce(job.raw_flow, queue.raw_flow)->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"\n            FROM queue LEFT JOIN job USING(id, workspace_id) WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flow_status!: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "module: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "b3a9ab85a78edf292ddb0af33f7435bbcc84f63c9079e29d84043f258eba208e"
+}
