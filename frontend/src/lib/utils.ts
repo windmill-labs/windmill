@@ -525,6 +525,20 @@ export function formatCron(inp: string): string {
 	}
 }
 
+export function cronV1toV2(inp: string): string {
+	let splitted = inp.split(' ')
+	splitted = splitted.filter(String)
+	// subtract 1 from day of week (last element of array if element is a number >= 1 )
+	let dowStr = splitted[splitted.length - 1]
+	if (dowStr && !isNaN(parseInt(dowStr))) {
+		let dow = parseInt(dowStr)
+		if (dow > 0) {
+			splitted[splitted.length - 1] = (dow - 1).toString()
+		}
+	}
+	return splitted.concat(Array(6 - splitted.length).fill('*')).join(' ')
+}
+
 export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
