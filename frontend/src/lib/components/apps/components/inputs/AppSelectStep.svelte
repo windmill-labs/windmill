@@ -37,10 +37,11 @@
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			selected = nvalue
-			selectedIndex = resolvedConfig.items.findIndex((item) => item.value === nvalue)
+			selectedIndex = resolvedConfig.items.findIndex((item) => getValue(item) === nvalue)
 		},
 		setTab(index) {
-			selected = resolvedConfig.items?.[index]?.value
+			let item = resolvedConfig.items?.[index]
+			selected = getValue(item)
 			selectedIndex = index
 		}
 	}
@@ -48,11 +49,11 @@
 	function setDefaultValue() {
 		if (resolvedConfig.defaultValue != undefined) {
 			selectedIndex = resolvedConfig.items.findIndex(
-				(item) => item.value === resolvedConfig.defaultValue
+				(item) => getValue(item) === resolvedConfig.defaultValue
 			)
 		}
 		if (selectedIndex === -1 || resolvedConfig.defaultValue == undefined) {
-			selected = resolvedConfig.items[0].value
+			selected = getValue(resolvedConfig.items[0])
 		} else if (resolvedConfig.defaultValue) {
 			selected = resolvedConfig.items[selectedIndex].value
 		}
@@ -70,6 +71,13 @@
 		if (!e.shiftKey) {
 			e.stopPropagation()
 		}
+	}
+
+	function getValue(item: string | { label: string; value: string }) {
+		return typeof item == 'string' ? item : item.value
+	}
+	function getLabel(item: string | { label: string; value: string }) {
+		return typeof item == 'string' ? item : item.label
 	}
 
 	let css = initCss($app.css?.selectstepcomponent, customCss)
@@ -106,14 +114,15 @@
 >
 	<div class="w-full" on:pointerdown={onPointerDown}>
 		<Stepper
-			tabs={(resolvedConfig?.items ?? []).map((item) => item.label)}
+			tabs={(resolvedConfig?.items ?? []).map((item) => getLabel(item))}
 			hasValidations={false}
 			allowStepNavigation={true}
 			{selectedIndex}
 			on:click={(e) => {
 				const index = e.detail.index
 				selectedIndex = index
-				outputs?.result.set(resolvedConfig?.items[index].value)
+				let item = resolvedConfig?.items[index]
+				outputs?.result.set(getValue(item))
 			}}
 		/>
 	</div>

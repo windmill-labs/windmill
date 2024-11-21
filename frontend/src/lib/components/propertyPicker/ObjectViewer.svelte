@@ -73,7 +73,7 @@
 		dispatch('select', fullKey)
 	}
 
-	$: keyLimit = isArray ? 1 : 100
+	$: keyLimit = isArray ? 5 : 100
 
 	$: fullyCollapsed = keys.length > 1 && collapsed
 </script>

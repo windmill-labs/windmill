@@ -152,6 +152,12 @@
 						: undefined}
 					showSchemaExplorer
 				/>
+			{:else if fieldType == 'labeledselect' && typeof componentInput.value == 'string'}
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value}
+					placeholder="Label"
+				/>
 			{:else}
 				<div class="flex w-full flex-col">
 					<JsonEditor
