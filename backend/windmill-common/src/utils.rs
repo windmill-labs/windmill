@@ -404,16 +404,15 @@ impl ScheduleType {
     }
 
     pub fn from_str(schedule_str: &str, version: Option<&str>) -> Result<ScheduleType> {
-        let version_to_use = version.unwrap_or("v2");
         tracing::debug!(
-            "Attempting to parse schedule string: {}, using version: {}",
+            "Attempting to parse schedule string: {}, with version: {:?}",
             schedule_str,
-            version_to_use
+            version
         );
 
-        match version_to_use {
-            "v1" => {
-                // Use Cron for v1
+        match version {
+            Some("v1") | None => {
+                // Use Cron for v1 or if not provided
                 cron::Schedule::from_str(schedule_str)
                     .map(ScheduleType::Cron)
                     .map_err(|e| {
@@ -425,7 +424,7 @@ impl ScheduleType {
                         Error::BadRequest(format!("cron: {}", e))
                     })
             }
-            _ => {
+            Some("v2") | Some(_) => {
                 // Use Croner for v2
                 let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
                     Cron::new(schedule_str)
