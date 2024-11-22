@@ -42,7 +42,7 @@ lazy_static::lazy_static! {
     static ref UV_PATH: String =
     std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
-    static ref PY_CONCURRENT_DOWNLOADS: u32 =
+    static ref PY_CONCURRENT_DOWNLOADS: usize =
     std::env::var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
     static ref FLOCK_PATH: String =
@@ -1167,7 +1167,20 @@ pub async fn handle_python_reqs(
     // Wheels to install
     let total_to_install = req_with_penv.len();
     // Parallelism level (N)
-    let parallel_limit = if no_uv_install { 1 } else { 20 };
+    let parallel_limit = if no_uv_install {
+        1
+    } else {
+        *PY_CONCURRENT_DOWNLOADS
+    };
+
+    tracing::info!(
+        workspace_id = %w_id,
+        // is_ok = out,
+        "Parallel limit: {}, job: {}",
+        parallel_limit,
+        job_id
+    );
+
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
     let mut handles = Vec::with_capacity(total_to_install);
     let counter = Arc::new(AtomicU32::new(0));
