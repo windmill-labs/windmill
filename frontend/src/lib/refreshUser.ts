@@ -21,7 +21,7 @@ export async function refreshSuperadmin(): Promise<void> {
 	if (get(devopsRole) == undefined) {
 		try {
 			const me = await UserService.globalWhoami()
-			if (me.devops) {
+			if (me.devops || me.super_admin) {
 				devopsRole.set(me.email)
 			} else {
 				devopsRole.set(false)

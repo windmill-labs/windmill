@@ -456,8 +456,7 @@ pub async fn acknowledge_critical_alert(
     authed: ApiAuthed,
     Path(id): Path<i32>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
-    
+    require_devops_role(&db, &authed.email).await?;
     crate::utils::acknowledge_critical_alert(db, None, id).await
 }
 

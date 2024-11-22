@@ -3108,8 +3108,8 @@ pub async fn acknowledge_critical_alert(
     Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 
+    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
+    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 
 #[cfg(not(feature = "enterprise"))]
