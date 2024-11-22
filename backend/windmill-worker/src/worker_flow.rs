@@ -2253,6 +2253,7 @@ async fn push_next_flow_job(
                 Ok(
                     FlowModuleValue::Script { input_transforms, .. }
                     | FlowModuleValue::RawScript { input_transforms, .. }
+                    | FlowModuleValue::FlowScript { input_transforms, .. }
                     | FlowModuleValue::Flow { input_transforms, .. },
                 ) => {
                     let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
@@ -2994,10 +2995,10 @@ async fn compute_next_flow_transform(
     if is_skipped {
         return trivial_next_job(JobPayload::Identity);
     }
-    match &module.get_value()? {
+    match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
-            let payload = flow_to_payload(path, &delete_after_use);
+            let payload = flow_to_payload(&path, &delete_after_use);
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
@@ -3005,7 +3006,7 @@ async fn compute_next_flow_transform(
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             let payload =
-                script_to_payload(script_hash, script_path, db, flow_job, module, tag_override)
+                script_to_payload(&script_hash, &script_path, db, flow_job, module, &tag_override)
                     .await?;
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
@@ -3036,14 +3037,14 @@ async fn compute_next_flow_transform(
             });
             let payload = raw_script_to_payload(
                 path,
-                content,
-                language,
-                lock,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+                &content,
+                &language,
+                &lock,
+                &custom_concurrency_key,
+                &concurrent_limit,
+                &concurrency_time_window_s,
                 module,
-                tag,
+                &tag,
                 &delete_after_use,
             );
             Ok(NextFlowTransform::Continue(
@@ -3051,9 +3052,37 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
+        FlowModuleValue::FlowScript {
+            id, // flow_node(id).
+            tag,
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            ..
+        } => {
+            let payload = JobPayloadWithTag {
+                payload: JobPayload::FlowScript {
+                    id,
+                    language,
+                    custom_concurrency_key: custom_concurrency_key.clone(),
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl: module.cache_ttl.map(|x| x as i32),
+                    dedicated_worker: None,
+                },
+                tag: tag.clone(),
+                delete_after_use,
+                timeout: module.timeout,
+            };
+            Ok(NextFlowTransform::Continue(
+                ContinuePayload::SingleJob(payload),
+                NextStatus::NextStep,
+            ))
+        },
         FlowModuleValue::WhileloopFlow { modules, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = is_simple_modules(modules, flow);
+            let is_simple = is_simple_modules(&modules, flow);
             let (flow_jobs, flow_jobs_success) = match status_module {
                 FlowStatusModule::InProgress {
                     flow_jobs: Some(flow_jobs),
@@ -3077,7 +3106,7 @@ async fn compute_next_flow_transform(
                     },
                     while_loop: true,
                 },
-                modules,
+                &modules,
                 flow_job,
                 is_simple,
                 db,
@@ -3089,12 +3118,13 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = !parallel && is_simple_modules(modules, flow);
+            let is_simple = !parallel && is_simple_modules(&modules, flow);
 
             // if is_simple {
             //     match value {
             //         FlowModuleValue::Script { input_transforms, .. }
             //         | FlowModuleValue::RawScript { input_transforms, .. }
+            //         | FlowModuleValue::FlowScript { input_transforms, .. }
             //         | FlowModuleValue::Flow { input_transforms, .. } => {
             //             Some(input_transforms.clone())
             //         }
@@ -3106,14 +3136,14 @@ async fn compute_next_flow_transform(
                 flow_job,
                 previous_id,
                 status,
-                iterator,
+                &iterator,
                 arc_last_job_result,
                 resumes,
                 resume,
                 approvers,
                 arc_flow_job_args,
                 client,
-                parallel,
+                &parallel,
             )
             .await?;
 
@@ -3124,7 +3154,7 @@ async fn compute_next_flow_transform(
                         flow,
                         status,
                         ns,
-                        modules,
+                        &modules,
                         flow_job,
                         is_simple,
                         db,
@@ -3150,7 +3180,7 @@ async fn compute_next_flow_transform(
 
                         let continue_payload = {
                             let flow_value = FlowValue {
-                                modules: (*modules).clone(),
+                                modules,
                                 failure_module: flow.failure_module.clone(),
                                 same_worker: flow.same_worker,
                                 concurrent_limit: None,
@@ -3181,6 +3211,7 @@ async fn compute_next_flow_transform(
                                 //     match value {
                                 //         FlowModuleValue::Script { input_transforms, .. }
                                 //         | FlowModuleValue::RawScript { input_transforms, .. }
+                                //         | FlowModuleValue::FlowScript { input_transforms, .. }
                                 //         | FlowModuleValue::Flow { input_transforms, .. } => {
                                 //             Some(input_transforms.clone())
                                 //         }
@@ -3281,7 +3312,7 @@ async fn compute_next_flow_transform(
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     if branches.is_empty() {
                         return Ok(NextFlowTransform::EmptyInnerFlows);
-                    } else if *parallel {
+                    } else if parallel {
                         return Ok(NextFlowTransform::Continue(
                             ContinuePayload::BranchAllJobs(
                                 branches
@@ -3346,7 +3377,7 @@ async fn compute_next_flow_transform(
                     flow_jobs: Some(flow_jobs),
                     flow_jobs_success,
                     ..
-                } if !*parallel => (
+                } if !parallel => (
                     BranchAllStatus { branch: branch + 1, len: len.clone() },
                     flow_jobs.clone(),
                     flow_jobs_success.clone(),
@@ -3439,6 +3470,7 @@ async fn next_loop_iteration(
                     match value {
                         FlowModuleValue::Script { input_transforms, .. }
                         | FlowModuleValue::RawScript { input_transforms, .. }
+                        | FlowModuleValue::FlowScript { input_transforms, .. }
                         | FlowModuleValue::Flow { input_transforms, .. } => {
                             Some(input_transforms.clone())
                         }

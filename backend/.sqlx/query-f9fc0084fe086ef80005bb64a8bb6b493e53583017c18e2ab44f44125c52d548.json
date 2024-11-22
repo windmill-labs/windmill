@@ -46,7 +46,8 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "singlescriptflow"
+                "singlescriptflow",
+                "flowscript"
               ]
             }
           }

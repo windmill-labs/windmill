@@ -398,6 +398,11 @@ pub enum InputTransform {
     },
 }
 
+/// Id in the `flow_node` table.
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash)]
+#[serde(transparent)]
+pub struct FlowNodeId(pub i64);
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Branch {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -480,6 +485,24 @@ pub enum FlowModuleValue {
         is_trigger: Option<bool>,
     },
     Identity,
+    // Internal only, never exposed to the frontend.
+    FlowScript {
+        #[serde(default)]
+        #[serde(alias = "input_transform", serialize_with = "ordered_map")]
+        input_transforms: HashMap<String, InputTransform>,
+        id: FlowNodeId,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
+        language: ScriptLang,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        custom_concurrency_key: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        concurrent_limit: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
@@ -510,6 +533,7 @@ struct UntaggedFlowModuleValue {
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
     is_trigger: Option<bool>,
+    id: Option<FlowNodeId>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -573,6 +597,20 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("content"))?,
                 lock: untagged.lock,
                 path: untagged.path,
+                tag: untagged.tag,
+                language: untagged
+                    .language
+                    .ok_or_else(|| serde::de::Error::missing_field("language"))?,
+                custom_concurrency_key: untagged.custom_concurrency_key,
+                concurrent_limit: untagged.concurrent_limit,
+                concurrency_time_window_s: untagged.concurrency_time_window_s,
+                is_trigger: untagged.is_trigger,
+            }),
+            "flowscript" => Ok(FlowModuleValue::FlowScript {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
                 tag: untagged.tag,
                 language: untagged
                     .language

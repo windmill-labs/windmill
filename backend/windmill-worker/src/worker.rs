@@ -1862,7 +1862,11 @@ async fn handle_queued_job(
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
-            format!("script_{}", h.to_string())
+            if matches!(job.job_kind, JobKind::FlowScript) {
+                format!("flowscript_{}", h.to_string())
+            } else {
+                format!("script_{}", h.to_string())
+            }
         } else if let Some(rc) = raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
@@ -2273,6 +2277,22 @@ async fn handle_code_execution_job(
             )
             .await?
         }
+        JobKind::FlowScript => {
+            let (lockfile, content) = sqlx::query!(
+                "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
+                job.script_hash.unwrap_or(ScriptHash(0)).0
+            )
+            .fetch_one(db)
+            .await
+            .map(|record| (record.lock, record.code))?;
+            ContentReqLangEnvs {
+                content,
+                lockfile,
+                language: job.language.to_owned(),
+                envs: None,
+                codebase: None,
+            }
+        },
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
         }

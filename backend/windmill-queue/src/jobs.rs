@@ -2930,11 +2930,6 @@ lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
 }
 
-#[derive(sqlx::FromRow)]
-struct FlowRawValue {
-    pub value: sqlx::types::Json<Box<RawValue>>,
-}
-
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
     _db: &Pool<Postgres>,
@@ -3192,6 +3187,29 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
+        JobPayload::FlowScript {
+            id, // flow_node(id).
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker
+        } => (
+            Some(id.0),
+            None,
+            None,
+            JobKind::FlowScript,
+            None,
+            None,
+            Some(language),
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker,
+            None,
+        ),
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -3292,13 +3310,12 @@ pub async fn push<'c, 'd>(
         ),
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_as::<_, FlowRawValue>("SELECT value FROM flow_version WHERE id = $1",)
-                    .bind(&version),
+                sqlx::query_scalar!("SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM flow_version WHERE id = $1 LIMIT 1", &version),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
             let value =
-                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
                     Error::InternalErr(format!(
                         "could not convert json to flow for {path}: {err:?}"
                     ))
@@ -3465,19 +3482,20 @@ pub async fn push<'c, 'd>(
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_as::<_, FlowRawValue>(
-                    "SELECT flow_version.value FROM flow 
+                sqlx::query_scalar!(
+                    "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
                     LEFT JOIN flow_version
                         ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    WHERE flow.path = $1 AND flow.workspace_id = $2",
-                )
-                .bind(&path)
-                .bind(&workspace_id),
+                    LEFT JOIN flow_version_lite 
+                        ON flow_version_lite.id = flow_version.id
+                    WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
+                    &path, &workspace_id
+                ),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
             let mut value =
-                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
                     Error::InternalErr(format!(
                         "could not convert json to flow for {path}: {err:?}"
                     ))
@@ -3936,6 +3954,7 @@ pub async fn push<'c, 'd>(
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
             JobKind::AppDependencies => "jobs.run.app_dependencies",
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
+            JobKind::FlowScript => "jobs.run.flow_script",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

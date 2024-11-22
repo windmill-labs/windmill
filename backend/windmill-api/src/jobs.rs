@@ -4415,10 +4415,12 @@ async fn add_batch_jobs(
                 (value, JobKind::FlowPreview, None)
             } else if let Some(path) = batch_info.path {
                 let value_json = sqlx::query!(
-                    "SELECT flow_version.value AS \"value: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                    "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
                     LEFT JOIN flow_version
                         ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    WHERE flow.path = $1 AND flow.workspace_id = $2",
+                    LEFT JOIN flow_version_lite 
+                        ON flow_version_lite.id = flow_version.id
+                    WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
                     &path, &w_id
                 )
                 .fetch_optional(&db)
