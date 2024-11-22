@@ -11,7 +11,7 @@ use regex::Regex;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
-    auth::is_super_admin_email,
+    auth::{is_devops_email, is_super_admin_email},
     error::{self, Error},
     DB,
 };
@@ -32,10 +32,22 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
 
     if !is_admin {
         Err(Error::NotAuthorized(
-            "This endpoint require caller to be a super admin".to_owned(),
+            "This endpoint requires the caller to be a super admin".to_owned(),
         ))
     } else {
         Ok(())
+    }
+}
+
+pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
+    let is_devops = is_devops_email(db, email).await?;
+
+    if is_devops {
+        Ok(())
+    } else {
+        Err(Error::NotAuthorized(
+            "This endpoint requires the caller to have the `devops` role".to_string(),
+        ))
     }
 }
 

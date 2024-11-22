@@ -6,7 +6,10 @@
 		userStore,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
-		enterpriseLicense
+		enterpriseLicense,
+
+		devopsRole
+
 	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -187,7 +190,7 @@
 			],
 			disabled: $userStore?.operator
 		},
-		$superadmin || $userStore?.is_admin
+		$devopsRole || $userStore?.is_admin
 			? {
 					label: 'Logs',
 					icon: Logs,
@@ -197,7 +200,7 @@
 							href: `${base}/audit_logs`,
 							icon: Eye
 						},
-						...($superadmin
+						...($devopsRole
 							? [
 									{
 										label: 'Service Logs',

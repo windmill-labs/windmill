@@ -73,6 +73,20 @@ pub async fn is_super_admin_email(db: &DB, email: &str) -> Result<bool> {
     Ok(is_admin)
 }
 
+pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
+    if is_super_admin_email(db, email).await? {
+        return Ok(true)
+    }
+
+    let is_devops = sqlx::query_scalar!("SELECT devops FROM password WHERE email = $1", email)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
+        .unwrap_or(false);
+
+    Ok(is_devops)
+}
+
 pub fn permissioned_as_to_username(permissioned_as: &str) -> String {
     if let Some((prefix, name)) = permissioned_as.split_once('/') {
         if prefix == "u" {

@@ -72,8 +72,7 @@
                 "php",
                 "bunnative",
                 "rust",
-                "ansible",
-                "csharp"
+                "ansible"
               ]
             }
           }

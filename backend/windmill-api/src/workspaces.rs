@@ -54,7 +54,7 @@ use windmill_common::{
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     scripts::{Schema, Script, ScriptLang},
-    utils::{paginate, rd_string, require_admin, Pagination},
+    utils::{paginate, rd_string, require_admin, require_admin_or_devops, Pagination},
     variables::ExportableListableVariable,
 };
 use windmill_git_sync::handle_deployment_metadata;
@@ -3092,7 +3092,7 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
-    require_admin(authed.is_admin, &authed.username)?;
+    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
 
     crate::utils::get_critical_alerts(db, params, Some(w_id)).await
 }
@@ -3108,8 +3108,8 @@ pub async fn acknowledge_critical_alert(
     Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 
+    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
+    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 
 #[cfg(not(feature = "enterprise"))]

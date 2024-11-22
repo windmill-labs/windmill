@@ -796,6 +796,7 @@ pub struct GlobalUserInfo {
     email: String,
     login_type: Option<String>,
     super_admin: bool,
+    devops: bool,
     verified: bool,
     name: Option<String>,
     company: Option<String>,
@@ -853,6 +854,7 @@ pub struct DeclineInvite {
 #[derive(Deserialize)]
 pub struct EditUser {
     pub is_super_admin: Option<bool>,
+    pub is_devops: Option<bool>,
     pub name: Option<String>,
 }
 
@@ -1042,10 +1044,10 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, name, company, username
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
             FROM password
             WHERE email IN (SELECT email FROM active_users)
-            ORDER BY super_admin DESC
+            ORDER BY super_admin DESC, devops DESC
             LIMIT $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -1055,7 +1057,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -1218,7 +1220,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
          email = $1",
         email
     )
@@ -1233,6 +1235,7 @@ async fn global_whoami(
             email: email.clone(),
             login_type: Some("superadmin_secret".to_string()),
             super_admin: true,
+            devops: false,
             verified: true,
             name: None,
             company: None,
@@ -1870,6 +1873,16 @@ async fn update_user(
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
             sa,
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(dv) = eu.is_devops {
+        sqlx::query_scalar!(
+            "UPDATE password SET devops = $1 WHERE email = $2",
+            dv,
             &email_to_update
         )
         .execute(&mut *tx)
