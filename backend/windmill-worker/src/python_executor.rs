@@ -1086,83 +1086,6 @@ pub async fn handle_python_reqs(
         }
     }
 
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    enum PullFromTar {
-        Pulled(String),
-        NotPulled(String, String),
-    }
-
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if req_with_penv.len() > 0 {
-        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-            let (done_tx, mut done_rx) = tokio::sync::mpsc::channel(1);
-            let job_id_2 = job_id.clone();
-            let db_2 = db.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::select! {
-                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                            if let Err(e) = sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", &job_id_2)
-                            .execute(&db_2)
-                            .await {
-                                tracing::error!("failed to update last_ping: {}", e);
-                            }
-                        }
-                        _ = done_rx.recv() => {
-                            break;
-                        }
-                    }
-                }
-            });
-
-            let start = std::time::Instant::now();
-            let futures = req_with_penv
-                .clone()
-                .into_iter()
-                .map(|(req, venv_p)| {
-                    let os = os.clone();
-                    async move {
-                        if pull_from_tar(os, venv_p.clone(), no_uv_install)
-                            .await
-                            .is_ok()
-                        {
-                            PullFromTar::Pulled(venv_p.to_string())
-                        } else {
-                            PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
-                        }
-                    }
-                })
-                .collect::<Vec<_>>();
-            let results = futures::future::join_all(futures).await;
-            req_with_penv.clear();
-            done_tx.send(()).await.expect("failed to send done");
-            let mut pulled = vec![];
-            for result in results {
-                match result {
-                    PullFromTar::Pulled(venv_p) => {
-                        pulled.push(venv_p.split("/").last().unwrap_or_default().to_string());
-                        req_paths.push(venv_p);
-                    }
-                    PullFromTar::NotPulled(req, venv_p) => {
-                        req_with_penv.push((req, venv_p));
-                    }
-                }
-            }
-            if pulled.len() > 0 {
-                append_logs(
-                    &job_id,
-                    &w_id,
-                    format!(
-                        "pulled {} from distributed cache in {}ms",
-                        pulled.join(", "),
-                        start.elapsed().as_millis()
-                    ),
-                    db,
-                )
-                .await;
-            }
-        }
-    }
     // TODO: Expose via ENV VAR
     // Wheels to install
     let total_to_install = req_with_penv.len();
@@ -1373,18 +1296,83 @@ pub async fn handle_python_reqs(
         let req = req.clone();
         let venv_p = venv_p.clone();
         let counter = counter.clone();
+        let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
 
         handles.push(task::spawn(async move {
+            let job_id_2 = job_id.clone();
+            let db_2 = db.clone();
+
+            // Notify server that we are still alive
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+                            if let Err(e) = sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", &job_id_2)
+                            .execute(&db_2)
+                            .await {
+                                tracing::error!("failed to update last_ping: {}", e);
+                            }
+                        }
+                        _ = done_rx.recv() => {
+                            break;
+                        }
+                    }
+                }
+            });
+
             tracing::info!(
                 workspace_id = %w_id,
                 // is_ok = out,
                 "Starting thread to install wheel {}",
                 job_id
             );
-            let out = child.wait_with_output().await.unwrap();
-            if out.stderr.len() > 0 {
-                let e = str::from_utf8(&out.stderr)?.to_owned();
 
+            let start = std::time::Instant::now();
+
+            let print_success = |db, is_s3, is_s3_upload| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let current = counter.load(std::sync::atomic::Ordering::Relaxed);
+
+                append_logs(
+                    &job_id,
+                    &w_id,
+                    format!(
+                        "\n[{current}/{total_to_install}]  +  {}{req} in {}ms {}",
+                        if is_s3 { "(S3) " } else { "" },
+                        start.elapsed().as_millis(),
+                        if is_s3_upload { "  ==> Uploading to S3 in background" } else { "" },
+                    ),
+                    db,
+                )
+            };
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            {
+                // TODO: Move outside loop
+                if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                    tracing::info!(
+                        workspace_id = %w_id,
+                        "Attempting to pull from S3 {}",
+                        job_id
+                    );
+
+                    if pull_from_tar(os, venv_p.clone(), no_uv_install)
+                        .await
+                        .is_ok()
+                    {
+                        done_tx.send(()).await.expect("failed to send done");
+                        print_success(db, true, false).await;
+                        drop(permit); // Release the permit
+                        return Ok(venv_p);
+                    }
+                }
+            }
+
+            let output = child.wait_with_output().await.unwrap();
+            if output.stderr.len() > 0 {
+                let e = str::from_utf8(&output.stderr)?.to_owned();
+
+                // TODO: Better error handler
                 tracing::warn!(
                     workspace_id = %w_id,
                     "Installation failed, removing cache dir: {:?}",
@@ -1407,61 +1395,40 @@ pub async fn handle_python_reqs(
                 )
                 .await;
 
+                drop(permit);
                 // TODO: Better Error message
                 bail!(e);
-            } else {
-                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let current = counter.load(std::sync::atomic::Ordering::Relaxed);
+            } 
 
-                append_logs(
-                    &job_id,
-                    &w_id,
-                    format!("\n[{current}/{total_to_install}]  +  {}", req),
-                    db,
-                )
-                .await;
+            done_tx.send(()).await.expect("failed to send done");
+
+            print_success(db.clone(), false, true).await;
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                if matches!(get_license_plan().await, LicensePlan::Pro) {
+                    tracing::warn!("S3 cache not available in the pro plan");
+                } else {
+                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), no_uv_install));
+                }
             }
+            
             tracing::info!(
                 workspace_id = %w_id,
                 // is_ok = out,
-                "finished setting up python dependencies {}",
+                "finished setting up python dependency {}",
                 job_id
             );
 
-            drop(permit); // Release the permit
-            return Ok(venv_p);
+            drop(permit);
+            Ok(venv_p)
         }));
-
-        // let child = handle_child(
-        //     &job_id,
-        //     db,
-        //     mem_peak,
-        //     canceled_by,
-        //     child,
-        //     false,
-        //     worker_name,
-        //     &w_id,
-        //     &format!("uv pip install {req}"),
-        //     None,
-        //     false,
-        //     occupancy_metrics,
-        // )
-        // .await;
     }
 
     // TODO: Make it pull finished jobs.
     // TODO: If one fails, other canceled?
     for handle in handles {
         let venv_p = handle.await.unwrap()?;
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-            if matches!(get_license_plan().await, LicensePlan::Pro) {
-                tracing::warn!("S3 cache not available in the pro plan");
-            } else {
-                let venv_p = venv_p.clone();
-                tokio::spawn(build_tar_and_push(os, venv_p, no_uv_install));
-            }
-        }
         req_paths.push(venv_p);
     }
     Ok(req_paths)
