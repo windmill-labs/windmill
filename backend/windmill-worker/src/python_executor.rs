@@ -1230,7 +1230,11 @@ pub async fn handle_python_reqs(
         } else {
             let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
             #[cfg(unix)]
-            let req = format!("'{}'", req);
+            let req = if no_uv_install {
+                format!("'{}'", req)
+            } else {
+                req.clone()
+            };
 
             #[cfg(windows)]
             let req = format!("{}", req);
@@ -1312,25 +1316,36 @@ pub async fn handle_python_reqs(
 
             #[cfg(unix)]
             {
-                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-                flock_cmd
-                    .env_clear()
-                    .envs(PROXY_ENVS.clone())
-                    .envs(envs)
-                    .args([
-                        "-x",
-                        &format!(
-                            "{}/{}-{}.lock",
-                            LOCK_CACHE_DIR,
-                            if no_uv_install { "pip" } else { "py311" },
-                            fssafe_req
-                        ),
-                        "--command",
-                        &command_args.join(" "),
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
+                if no_uv_install {
+                    let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+                    flock_cmd
+                        .env_clear()
+                        .envs(PROXY_ENVS.clone())
+                        .envs(envs)
+                        .args([
+                            "-x",
+                            &format!(
+                                "{}/{}-{}.lock",
+                                LOCK_CACHE_DIR,
+                                if no_uv_install { "pip" } else { "py311" },
+                                fssafe_req
+                            ),
+                            "--command",
+                            &command_args.join(" "),
+                        ])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
+                    start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
+                } else {
+                    let mut cmd = Command::new(command_args[0]);
+                    cmd.env_clear()
+                        .envs(PROXY_ENVS.clone())
+                        .envs(envs)
+                        .args(&command_args[1..])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
+                    start_child_process(cmd, UV_PATH.as_str()).await?
+                }
             }
 
             #[cfg(windows)]
