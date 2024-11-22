@@ -1,5 +1,13 @@
-use std::{collections::HashMap, fs, process::Stdio};
+use core::str;
+use std::{
+    collections::HashMap,
+    fs,
+    process::Stdio,
+    sync::{atomic::AtomicU32, Arc},
+};
 
+use anyhow::bail;
+use futures::executor::block_on;
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
@@ -8,6 +16,8 @@ use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
+    sync::Semaphore,
+    task,
 };
 use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -31,6 +41,9 @@ lazy_static::lazy_static! {
 
     static ref UV_PATH: String =
     std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+
+    static ref PY_CONCURRENT_DOWNLOADS: u32 =
+    std::env::var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
     static ref FLOCK_PATH: String =
     std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
@@ -1150,17 +1163,33 @@ pub async fn handle_python_reqs(
             }
         }
     }
+    // TODO: Expose via ENV VAR
+    // Wheels to install
+    let total_to_install = req_with_penv.len();
+    // Parallelism level (N)
+    let parallel_limit = if no_uv_install { 1 } else { 20 };
+    let semaphore = Arc::new(Semaphore::new(parallel_limit));
+    let mut handles = Vec::with_capacity(total_to_install);
+    let counter = Arc::new(AtomicU32::new(0));
 
-    for (req, venv_p) in req_with_penv {
+    if total_to_install > 0 {
         let mut logs1 = String::new();
         if no_uv_install {
             logs1.push_str("\n\n--- PIP INSTALL ---\n");
         } else {
             logs1.push_str("\n\n--- UV PIP INSTALL ---\n");
         }
-        logs1.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
-        append_logs(&job_id, w_id, logs1, db).await;
+        logs1.push_str("\nTo be installed: \n\n");
 
+        for (req, _) in &req_with_penv {
+            logs1.push_str(&format!("{} \n", &req));
+        }
+        logs1.push_str(&format!("\nStarting installation... \n"));
+        append_logs(&job_id, w_id, logs1, db).await;
+    }
+
+    for (req, venv_p) in req_with_penv {
+        let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
         tracing::info!(
             workspace_id = %w_id,
             "started setup python dependencies"
@@ -1232,6 +1261,7 @@ pub async fn handle_python_reqs(
                     "--target",
                     venv_p.as_str(),
                     "--no-cache",
+                    "-q",
                 ]
             };
             let pip_extra_index_url = PIP_EXTRA_INDEX_URL
@@ -1309,39 +1339,92 @@ pub async fn handle_python_reqs(
             }
         };
 
-        let child = handle_child(
-            &job_id,
-            db,
-            mem_peak,
-            canceled_by,
-            child,
-            false,
-            worker_name,
-            &w_id,
-            &format!("uv pip install {req}"),
-            None,
-            false,
-            occupancy_metrics,
-        )
-        .await;
-        tracing::info!(
-            workspace_id = %w_id,
-            is_ok = child.is_ok(),
-            "finished setting up python dependencies {}",
-            job_id
-        );
-        if child.is_err() {
-            
-            if let Err(e) = fs::remove_dir_all(&venv_p) {
+        let db = db.clone();
+        let job_id = job_id.clone();
+        let w_id = w_id.to_owned();
+        let req = req.clone();
+        let venv_p = venv_p.clone();
+        let counter = counter.clone();
+
+        handles.push(task::spawn(async move {
+            tracing::info!(
+                workspace_id = %w_id,
+                // is_ok = out,
+                "Starting thread to install wheel {}",
+                job_id
+            );
+            let out = child.wait_with_output().await.unwrap();
+            if out.stderr.len() > 0 {
+                let e = str::from_utf8(&out.stderr)?.to_owned();
+
                 tracing::warn!(
                     workspace_id = %w_id,
-                    "failed to remove cache dir: {:?}",
+                    "Installation failed, removing cache dir: {:?}",
                     e
                 );
-            }
-        }
-        child?;
+                // TODO: Can something else fail and this is not fired
+                if let Err(e) = fs::remove_dir_all(&venv_p) {
+                    tracing::warn!(
+                        workspace_id = %w_id,
+                        "failed to remove cache dir: {:?}",
+                        e
+                    );
+                }
 
+                append_logs(
+                    &job_id,
+                    w_id,
+                    format!("\nError while installing {}:\n{}", req, e),
+                    db,
+                )
+                .await;
+
+                // TODO: Better Error message
+                bail!(e);
+            } else {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let current = counter.load(std::sync::atomic::Ordering::Relaxed);
+
+                append_logs(
+                    &job_id,
+                    &w_id,
+                    format!("\n[{current}/{total_to_install}]  +  {}", req),
+                    db,
+                )
+                .await;
+            }
+            tracing::info!(
+                workspace_id = %w_id,
+                // is_ok = out,
+                "finished setting up python dependencies {}",
+                job_id
+            );
+
+            drop(permit); // Release the permit
+            return Ok(venv_p);
+        }));
+
+        // let child = handle_child(
+        //     &job_id,
+        //     db,
+        //     mem_peak,
+        //     canceled_by,
+        //     child,
+        //     false,
+        //     worker_name,
+        //     &w_id,
+        //     &format!("uv pip install {req}"),
+        //     None,
+        //     false,
+        //     occupancy_metrics,
+        // )
+        // .await;
+    }
+
+    // TODO: Make it pull finished jobs.
+    // TODO: If one fails, other canceled?
+    for handle in handles {
+        let venv_p = handle.await.unwrap()?;
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
