@@ -22,6 +22,7 @@
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
+	import PdfViewer from './display/PdfViewer.svelte'
 
 	let deletionModalOpen = false
 	let fileDeletionInProgress = false
@@ -244,6 +245,16 @@
 				fileKey: fileKey,
 				contentPreview: filePreviewContent,
 				contentType: filePreviewRaw.content_type
+			}
+			if (fileMetadata) {
+				fileMetadata.mimeType =
+					((fileKey.endsWith('.png') ||
+						fileKey.endsWith('.jpg') ||
+						fileKey.endsWith('.jpeg') ||
+						fileKey.endsWith('.webp')) &&
+						'Image') ||
+					(fileKey.endsWith('.pdf') && 'PDF') ||
+					filePreview.contentType
 			}
 		}
 		filePreviewLoading = false
@@ -614,6 +625,13 @@
 									src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
 										(storage ? `&storage=${storage}` : '')}
 									alt="S3 preview"
+								/>
+							</div>
+						{:else if fileMetadata?.fileKey.endsWith('.pdf')}
+							<div class="w-full h-[950px] border">
+								<PdfViewer
+									source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
+										(storage ? `&storage=${storage}` : '')}
 								/>
 							</div>
 						{:else if filePreviewLoading}

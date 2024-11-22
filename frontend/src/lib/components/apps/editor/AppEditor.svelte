@@ -33,17 +33,15 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Job, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
-	import { Component, Minus, Paintbrush, Plus, Smartphone } from 'lucide-svelte'
+	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
-	import ConnectionInstructions from './ConnectionInstructions.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
 	import {
 		SecondaryMenu,
 		secondaryMenuLeft,
 		secondaryMenuLeftStore,
-		secondaryMenuRight,
 		secondaryMenuRightStore
 	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
@@ -56,6 +54,7 @@
 	import { goto, replaceState } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
+	import panzoom from 'panzoom'
 
 	export let app: App
 	export let path: string
@@ -131,6 +130,7 @@
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
 	const initialized = writable({ initialized: false, initializedComponents: [] })
+	const panzoomActive = writable(false)
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
@@ -174,7 +174,8 @@
 			componentNumber: 0,
 			refreshing: [],
 			progress: 100
-		})
+		}),
+		panzoomActive
 	})
 
 	let scale = writable(100)
@@ -225,7 +226,7 @@
 	$: width =
 		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
 			? 'min-w-[400px] max-w-[656px]'
-			: 'min-w-[710px] w-full'
+			: `min-w-[710px] ${$appStore.fullscreen ? 'w-full' : 'max-w-7xl'}`
 
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
@@ -294,15 +295,6 @@
 		hasResult: writable<Record<string, boolean>>({})
 	})
 
-	$: if ($connectingInput.opened) {
-		secondaryMenuRight.open(ConnectionInstructions, {}, () => {
-			$connectingInput.opened = false
-		})
-		secondaryMenuLeft.close()
-	} else {
-		secondaryMenuRight.close()
-	}
-
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
@@ -323,28 +315,6 @@
 
 	let toggled = false
 	let cssToggled = false
-
-	$: if ($connectingInput.opened && !toggled) {
-		tmpRunnablePanelSize = runnablePanelSize
-		tmpGridPanelSize = gridPanelSize
-
-		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
-
-		toggled = true
-	} else if (!$connectingInput.opened && toggled) {
-		animateTo(
-			runnablePanelSize,
-			tmpRunnablePanelSize,
-			(newValue: number) => (runnablePanelSize = newValue)
-		)
-		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
-
-		tmpRunnablePanelSize = -1
-		tmpGridPanelSize = -1
-
-		toggled = false
-	}
 
 	// Animation logic for cssInput
 	$: animateCssInput($cssEditorOpen)
@@ -546,27 +516,58 @@
 
 	let centerPanelWidth = 0
 
-	function hideLeftPanel() {
+	function hideLeftPanel(animate: boolean = false) {
 		storedLeftPanelSize = leftPanelSize
-		leftPanelSize = 0
+		if (animate) {
+			animateTo(leftPanelSize, 0, (newValue: number) => (leftPanelSize = newValue))
+		} else {
+			leftPanelSize = 0
+		}
 		centerPanelSize = centerPanelSize + storedLeftPanelSize
+		if ($connectingInput.opened) {
+			$connectingInput.opened = false
+		}
 	}
 
 	function hideRightPanel() {
 		storedRightPanelSize = rightPanelSize
 		rightPanelSize = 0
 		centerPanelSize = centerPanelSize + storedRightPanelSize
+		if ($connectingInput.opened) {
+			$connectingInput.opened = false
+		}
 	}
 
-	function hideBottomPanel() {
+	function hideBottomPanel(animate: boolean = false) {
+		if (runnablePanelSize === 0) {
+			return
+		}
 		storedBottomPanelSize = runnablePanelSize
-		gridPanelSize = 99
-		runnablePanelSize = 0
+		if (animate) {
+			tmpRunnablePanelSize = runnablePanelSize
+			tmpGridPanelSize = gridPanelSize
+
+			animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+			animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+		} else {
+			runnablePanelSize = 0
+			gridPanelSize = 99
+		}
 	}
 
-	function showLeftPanel() {
-		leftPanelSize = storedLeftPanelSize
-		centerPanelSize = centerPanelSize - storedLeftPanelSize
+	function showLeftPanel(animate: boolean = false) {
+		if (leftPanelSize !== 0) {
+			return
+		}
+		if (animate) {
+			animateTo(
+				leftPanelSize,
+				storedLeftPanelSize,
+				(newValue: number) => (leftPanelSize = newValue)
+			)
+		} else {
+			leftPanelSize = storedLeftPanelSize
+		}
 		storedLeftPanelSize = 0
 	}
 
@@ -576,9 +577,25 @@
 		storedRightPanelSize = 0
 	}
 
-	function showBottomPanel() {
-		runnablePanelSize = storedBottomPanelSize
-		gridPanelSize = gridPanelSize - storedBottomPanelSize
+	function showBottomPanel(animate: boolean = false) {
+		if (runnablePanelSize !== 0) {
+			return
+		}
+		if (animate) {
+			animateTo(
+				runnablePanelSize,
+				storedBottomPanelSize,
+				(newValue: number) => (runnablePanelSize = newValue)
+			)
+			animateTo(
+				gridPanelSize,
+				gridPanelSize - storedBottomPanelSize,
+				(newValue: number) => (gridPanelSize = newValue)
+			)
+		} else {
+			runnablePanelSize = storedBottomPanelSize
+			gridPanelSize = gridPanelSize - storedBottomPanelSize
+		}
 		storedBottomPanelSize = 0
 	}
 
@@ -590,6 +607,8 @@
 		) {
 			return
 		}
+
+		isModifierKeyPressed = event.ctrlKey || event.metaKey
 
 		switch (event.key) {
 			case 'b': {
@@ -630,10 +649,149 @@
 				}
 				break
 			}
+
+			case 'Escape': {
+				if ($connectingInput.opened) {
+					$connectingInput.opened = false
+				}
+				if (handMode) {
+					handMode = false
+				}
+				break
+			}
 		}
 	}
+
+	let previousLeftPanelHidden: boolean = false
+	let previousBottomPanelHidden: boolean = false
+
+	async function updatePannelInConnecting() {
+		if ($connectingInput.opened && !toggled) {
+			previousLeftPanelHidden = leftPanelSize === 0
+			previousBottomPanelHidden = runnablePanelSize === 0
+			if (previousLeftPanelHidden) {
+				showLeftPanel(true)
+			}
+			if (!previousBottomPanelHidden) {
+				hideBottomPanel(true)
+			}
+			secondaryMenuLeft.close()
+			toggled = true
+		} else if (!$connectingInput.opened && toggled) {
+			if (previousLeftPanelHidden) {
+				hideLeftPanel(true)
+			}
+			if (!previousBottomPanelHidden) {
+				showBottomPanel(true)
+			}
+			toggled = false
+		}
+	}
+
+	$: $connectingInput.opened, updatePannelInConnecting()
+
 	let testJob: Job | undefined = undefined
 	let jobToWatch: { componentId: string; job: string } | undefined = undefined
+
+	$: updateCursorStyle(!!$connectingInput.opened && !$panzoomActive)
+
+	function updateCursorStyle(disabled: boolean) {
+		if (disabled) {
+			// Select all elements that don't have data-connection-button and aren't children of elements with data-connection-button
+			const elements = document.querySelectorAll(
+				':not([data-connection-button]):not([data-connection-button] *)'
+			)
+			elements.forEach((element) => {
+				;(element as HTMLElement).style.cursor = 'not-allowed'
+			})
+		} else {
+			// Reset cursor style for all elements
+			const elements = document.querySelectorAll('*')
+			elements.forEach((element) => {
+				;(element as HTMLElement).style.removeProperty('cursor')
+			})
+		}
+	}
+
+	let instance: any
+	let isModifierKeyPressed = false
+	function resetView() {
+		if (instance && box) {
+			instance.moveTo(0.5, 0)
+			instance.zoomAbs(0.5, 0, 1)
+			box.scrollTop = 0
+		}
+	}
+
+	function zoomTo(x: number, y: number, scale: number) {
+		if (instance) {
+			instance.zoomAbs(x, y, scale)
+		}
+	}
+
+	function initPanzoom(node: HTMLElement) {
+		instance = panzoom(node, {
+			bounds: true,
+			boundsPadding: 0.1,
+			maxZoom: 1.5,
+			minZoom: 0.3,
+			zoomDoubleClickSpeed: 1,
+			smoothScroll: false,
+			initialZoom: 1,
+			beforeMouseDown: (e) => {
+				if (e.ctrlKey || e.metaKey || handMode) {
+					// Prevent event propagation to children when panning
+					e.stopPropagation()
+					return false
+				}
+				return true
+			},
+			beforeWheel: (e) => {
+				if (e.ctrlKey || e.metaKey || handMode) {
+					// Prevent event propagation to children when zooming
+					e.stopPropagation()
+					return false
+				}
+				return true
+			}
+		})
+
+		// Handle pointerdown when connecting
+		node.addEventListener('pointerdown_connecting', (e) => {
+			instance.handleDown(e)
+		})
+
+		// Update scale store when zoom changes
+		instance.on('zoom', (e) => {
+			const currentScale = e.getTransform().scale * 100
+			if (currentScale !== $scale) {
+				$scale = currentScale
+			}
+		})
+
+		return {
+			destroy() {
+				instance.dispose()
+				node.removeEventListener('pointerdown_connecting', instance.handleDown)
+			}
+		}
+	}
+
+	function handleKeyUp(e: KeyboardEvent) {
+		isModifierKeyPressed = false
+	}
+
+	let mouseOverGridView = false
+	let handMode = false
+	let forceDeactivatePanzoom = false
+
+	$: $panzoomActive =
+		(isModifierKeyPressed || handMode) &&
+		!forceDeactivatePanzoom &&
+		!$componentActive &&
+		mouseOverGridView
+
+	$: forceDeactivatePanzoom = isModifierKeyPressed && handMode
 </script>
 
 <svelte:head>
@@ -642,7 +800,16 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<svelte:window on:hashchange={hashchange} on:keydown={keydown} />
+<svelte:window
+	on:hashchange={hashchange}
+	on:keydown={keydown}
+	on:keyup={handleKeyUp}
+	on:focus={() => {
+		if (isModifierKeyPressed) {
+			isModifierKeyPressed = false
+		}
+	}}
+/>
 
 {#if !$userStore?.operator}
 	{#if $appStore}
@@ -704,6 +871,12 @@
 				</div>
 			{/if}
 
+			{#if $connectingInput.opened}
+				<div class="absolute z-50 inset-0 w-min h-min whitespace-nowrap mx-auto pt-0.5">
+					<Alert title="Press Esc to exit connection mode." size="xs" class="h-10 py-1" />
+				</div>
+			{/if}
+
 			<SplitPanesWrapper>
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
@@ -730,7 +903,8 @@
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer h-full overflow-visible'
+										'wm-app-viewer h-full overflow-visible',
+										$panzoomActive ? 'cursor-grab' : ''
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 									bind:clientWidth={centerPanelWidth}
@@ -739,7 +913,7 @@
 										<div class="absolute top-0.5 left-0.5 z-50">
 											<HideButton
 												on:click={() => showLeftPanel()}
-												direction="right"
+												direction="left"
 												hidden
 												btnClasses="border bg-surface"
 											/>
@@ -749,7 +923,7 @@
 										<div class="absolute top-0.5 right-0.5 z-50">
 											<HideButton
 												on:click={() => showRightPanel()}
-												direction="left"
+												direction="right"
 												hidden
 												btnClasses="border bg-surface"
 											/>
@@ -766,56 +940,115 @@
 										</div>
 									{/if}
 
-									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
+									<div
+										class="absolute bottom-2 left-2 z-50 border bg-surface"
+										data-connection-button
+										on:pointerdown|stopPropagation
+									>
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
 												color="light"
 												size="xs2"
 												disabled={$scale <= 30}
 												on:click={() => {
-													$scale -= 10
+													zoomTo(0.5, 0, Math.round(($scale - 10) / 10) / 10)
 												}}
 											>
 												<Minus size={14} />
 											</Button>
 											<div class="w-8 flex justify-center text-2xs h-full items-center">
-												{$scale}%
+												{Math.round($scale)}%
 											</div>
 											<Button
 												color="light"
 												size="xs2"
-												disabled={$scale >= 100}
+												disabled={$scale >= 150}
 												on:click={() => {
-													$scale += 10
+													zoomTo(0.5, 0, Math.round(($scale + 10) / 10) / 10)
 												}}
 											>
 												<Plus size={14} />
 											</Button>
+											<Button color="light" size="xs2" disabled={false} on:click={resetView}>
+												<Scan size={14} />
+											</Button>
+											<Popover disappearTimeout={0} notClickable placement="bottom">
+												<svelte:fragment slot="text">
+													<div class="flex flex-row gap-2">
+														<div class="flex-1">
+															Hand Mode
+															<br />
+															<span class="ml-2">Pan</span>
+															<br />
+															<span class="ml-2">Zoom</span>
+
+															<br />
+															<span class="ml-2">Exit</span>
+														</div>
+														<div>
+															<span class="float-left text-tertiary-inverse"
+																>hold {getModifierKey()}</span
+															>
+															<br />
+															<span class="float-left text-tertiary-inverse">click & drag</span>
+															<br />
+															<span class="float-left text-tertiary-inverse">scroll</span>
+															<br />
+															<span class="float-left text-tertiary-inverse">esc</span>
+														</div>
+													</div>
+												</svelte:fragment>
+												<Button
+													color="light"
+													size="xs2"
+													disabled={false}
+													on:click={() => (handMode = !handMode)}
+													btnClasses={handMode ? 'bg-surface-hover' : ''}
+												>
+													{#if $panzoomActive}
+														<Grab size={14} />
+													{:else}
+														<Hand size={14} />
+													{/if}
+												</Button>
+											</Popover>
 										</div>
 									</div>
 
 									<div id="app-editor-top-level-drawer" />
 									<div
-										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
 									/>
 
 									<!-- svelte-ignore a11y-no-static-element-interactions -->
 									<div
 										bind:this={box}
 										on:scroll={parseScroll}
+										on:mouseenter={() => {
+											mouseOverGridView = true
+										}}
+										on:mouseleave={() => {
+											mouseOverGridView = false
+										}}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
-											$appStore.fullscreen ? '' : 'max-w-7xl',
 											$componentActive ? 'absolute right-0 left-0' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
 										{#if $appStore.grid}
-											<ComponentNavigation />
+											{#if !$connectingInput?.opened}
+												<ComponentNavigation />
+											{/if}
 
 											<div
-												on:pointerdown|stopPropagation
-												class={twMerge(width, 'mx-auto', 'z-10000')}
+												class={twMerge(
+													width,
+													'mx-auto',
+													'z-10000',
+													$panzoomActive ? 'pointer-events-none' : ''
+												)}
+												use:initPanzoom
 											>
 												<GridEditor {policy} />
 											</div>
@@ -948,14 +1181,7 @@
 										</Tab>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
-										<HideButton
-											on:click={() => {
-												storedRightPanelSize = rightPanelSize
-												rightPanelSize = 0
-												centerPanelSize = centerPanelSize + storedRightPanelSize
-											}}
-											direction="right"
-										/>
+										<HideButton on:click={() => hideRightPanel()} direction="right" />
 									</div>
 									<div slot="content" class="h-full overflow-y-auto">
 										<TabContent class="overflow-auto h-full" value="settings">

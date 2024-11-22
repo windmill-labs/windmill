@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.430.0](https://github.com/windmill-labs/windmill/compare/v1.429.0...v1.430.0) (2024-11-22)
+
+
+### Features
+
+* Add a devops role to act as a "readonly admin" ([#4775](https://github.com/windmill-labs/windmill/issues/4775)) ([4facf3c](https://github.com/windmill-labs/windmill/commit/4facf3ca3ee10e07a82668f8594372b9bd6d8b63))
+* allow labeled values in app multiselect ([d5da75c](https://github.com/windmill-labs/windmill/commit/d5da75c031b7ac560d4e6d2801937462ddb8eb9d))
+* Indexer improvements: s3 backup logic reworked, settings on the frontend ([#4763](https://github.com/windmill-labs/windmill/issues/4763)) ([8f198ba](https://github.com/windmill-labs/windmill/commit/8f198ba68ceaa1f503cddfc246ecbbfc7f90f11d))
+* **schedule:** support for extended cron syntax  ([#4754](https://github.com/windmill-labs/windmill/issues/4754)) ([8909bea](https://github.com/windmill-labs/windmill/commit/8909bea935088918c5eab5b4508fa7014cfac253))
+
+
+### Bug Fixes
+
+* allow non already existing resources in audit logs ([b7a9cec](https://github.com/windmill-labs/windmill/commit/b7a9cec289c4e671b8deb3f39d60503135bed06d))
+* garbage collect `job` table + delete leaked ones ([#4767](https://github.com/windmill-labs/windmill/issues/4767)) ([c99d360](https://github.com/windmill-labs/windmill/commit/c99d360c3c8ce2b95f086ebbdc1ff235286c46b9))
+* infer python list inner type from default if unknown inner ([#4771](https://github.com/windmill-labs/windmill/issues/4771)) ([b49ba59](https://github.com/windmill-labs/windmill/commit/b49ba59da7bf0f419638d3f506c5f67b975e4e85))
+
+## [1.429.0](https://github.com/windmill-labs/windmill/compare/v1.428.1...v1.429.0) (2024-11-20)
+
+
+### Features
+
+* app editor ctrl nav ([#4757](https://github.com/windmill-labs/windmill/issues/4757)) ([3731886](https://github.com/windmill-labs/windmill/commit/37318861ac356b73f6da652c0ef8b4fc23436e3f))
+* svix integration ([#3814](https://github.com/windmill-labs/windmill/issues/3814)) ([68f781e](https://github.com/windmill-labs/windmill/commit/68f781ea6f5f53a3aafbc2c4b5dd71496254c68e))
+
+
+### Bug Fixes
+
+* add cancellable icons refresh in apps ([2c325ef](https://github.com/windmill-labs/windmill/commit/2c325ef8524e3c74844e566ecf42c245f87a2918))
+* **frontend:** pdf viewer fullscreen z-index ([#4762](https://github.com/windmill-labs/windmill/issues/4762)) ([a23cd4f](https://github.com/windmill-labs/windmill/commit/a23cd4f9e7c3e327eea099aade8c3fcd30cc2b87))
+
+## [1.428.1](https://github.com/windmill-labs/windmill/compare/v1.428.0...v1.428.1) (2024-11-20)
+
+
+### Bug Fixes
+
+* grant all to new job table ([#4758](https://github.com/windmill-labs/windmill/issues/4758)) ([ff7c94c](https://github.com/windmill-labs/windmill/commit/ff7c94c5a7caf94d571a2654f5dc48c494c7bc2e))
+
+## [1.428.0](https://github.com/windmill-labs/windmill/compare/v1.427.0...v1.428.0) (2024-11-19)
+
+
+### Features
+
+* improve app connection UX [#4687](https://github.com/windmill-labs/windmill/issues/4687)  ([2fd80f7](https://github.com/windmill-labs/windmill/commit/2fd80f7cdd21e3938311914ec733d769e13993d6))
+* pdf file preview ([#4753](https://github.com/windmill-labs/windmill/issues/4753)) ([b3a7cb0](https://github.com/windmill-labs/windmill/commit/b3a7cb058384b61328e2956f8ccd782ebd7b5900))
+
+
+### Bug Fixes
+
+* prevent groups to be ill-defined with non writer owners ([f59c0c0](https://github.com/windmill-labs/windmill/commit/f59c0c007675886d41b57647dc7e93b63444e3f9))
+
 ## [1.427.0](https://github.com/windmill-labs/windmill/compare/v1.426.1...v1.427.0) (2024-11-19)
 
 

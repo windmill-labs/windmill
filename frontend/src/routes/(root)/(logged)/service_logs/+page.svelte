@@ -4,14 +4,14 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import ServiceLogsInner from '$lib/components/ServiceLogsInner.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { superadmin } from '$lib/stores'
+	import { devopsRole } from '$lib/stores'
 	import { Search, AlertTriangle } from 'lucide-svelte'
 
 	let searchTerm = $page.url.searchParams.get('query') ?? ''
 	let queryParseErrors: string[] | undefined = undefined
 </script>
 
-<div class="w-full h-screen">
+<div class="w-full h-screen px-2">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
 			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
@@ -23,9 +23,9 @@
 		</div>
 	</div>
 
-	{#if !$superadmin}
+	{#if !$devopsRole}
 		<Alert title="Service logs are only available to superadmins" type="warning">
-			Service logs are only available to superadmins
+			Service logs are only available to superadmins (or devops)
 		</Alert>
 	{:else}
 		<div class="m-1 px-2 flex flex-row gap-1 items-center border-2 rounded-lg">

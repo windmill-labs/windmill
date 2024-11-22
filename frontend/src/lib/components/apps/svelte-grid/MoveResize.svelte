@@ -38,6 +38,7 @@
 	export let moveMode: 'move' | 'insert' = 'move'
 	export let type: string | undefined = undefined
 	export let fakeShadow: GridShadow | undefined = undefined
+	export let disableMove: boolean = true
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
@@ -507,7 +508,7 @@
 		  } transform: translate(${left}px, ${top}px); `} "
 >
 	<slot />
-	{#if moveMode === 'move'}
+	{#if moveMode === 'move' && !disableMove}
 		<div
 			class="svlt-grid-resizer-bottom"
 			on:pointerdown={(e) => resizePointerDown(e, 'vertical')}

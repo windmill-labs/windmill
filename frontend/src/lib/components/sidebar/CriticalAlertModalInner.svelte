@@ -2,18 +2,11 @@
 	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import {
-		CheckCircle2,
-		AlertCircle,
-		RefreshCw,
-		CheckSquare2,
-		AlertTriangle,
-	} from 'lucide-svelte'
+	import { CheckCircle2, AlertCircle, RefreshCw, CheckSquare2, AlertTriangle } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
-	import { instanceSettingsSelectedTab } from '$lib/stores'
+	import { devopsRole, workspaceStore, instanceSettingsSelectedTab, superadmin, userStore } from '$lib/stores'
 	import { goto } from '$app/navigation'
-	import { superadmin, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Section from '$lib/components/Section.svelte'
 
@@ -35,7 +28,10 @@
 
 	$: muteSettings
 	$: {
-		if (initialMuteSettings.workspace !== muteSettings.workspace || initialMuteSettings.global !== muteSettings.global) {
+		if (
+			initialMuteSettings.workspace !== muteSettings.workspace ||
+			initialMuteSettings.global !== muteSettings.global
+		) {
 			saveMuteSettings()
 		}
 	}
@@ -199,7 +195,7 @@
 				>
 			</div>
 
-			{#if $superadmin}
+			{#if $devopsRole}
 				<div class="flex flex-row py-2 pb-3">
 					<Toggle
 						bind:checked={workspaceContext}
@@ -209,29 +205,27 @@
 				</div>
 			{/if}
 
-			<Section
-				label="Mute Settings"
-				collapsable={true}
-				small={true}
-			>
-				{#if $superadmin}
+			{#if $superadmin || $userStore?.is_admin}
+				<Section label="Mute Settings" collapsable={true} small={true}>
+					{#if $superadmin}
+						<div class="flex flex-row pb-1">
+							<Toggle
+								bind:checked={muteSettings.global}
+								options={{ right: 'Mute critical alerts instance wide' }}
+								size="xs"
+							/>
+						</div>
+					{/if}
+
 					<div class="flex flex-row pb-1">
 						<Toggle
-							bind:checked={muteSettings.global}
-							options={{ right: 'Mute critical alerts instance wide' }}
+							bind:checked={muteSettings.workspace}
+							options={{ right: 'Mute critical alerts for current workspace' }}
 							size="xs"
 						/>
 					</div>
-				{/if}
-
-				<div class="flex flex-row pb-1">
-					<Toggle
-						bind:checked={muteSettings.workspace}
-						options={{ right: 'Mute critical alerts for current workspace' }}
-						size="xs"
-					/>
-				</div>
-			</Section>
+				</Section>
+			{/if}
 
 			<div class="pt-2 flex justify-between items-center">
 				<div class="pr-2">
@@ -261,7 +255,7 @@
 					<th class="w-[60px] px-4 py-2 text-center">Type</th>
 					<th class="px-4 py-2 text-center">Message</th>
 					<th class="w-[150px] px-4 py-2 text-center">Created At</th>
-					{#if $superadmin}
+					{#if $devopsRole}
 						<th class="w-[80px] px-4 py-2 text-center">Workspace</th>
 					{/if}
 					<th class="w-[180px] px-4 py-2 text-center">Acknowledge</th>
@@ -285,7 +279,7 @@
 							<td class="border px-4 py-2">{message}</td>
 							<!-- Flexible width -->
 							<td class="border px-4 py-2 w-[150px]">{formatDate(created_at)}</td>
-							{#if $superadmin}
+							{#if $devopsRole}
 								<td class="border px-4 py-2 w-[150px]">{workspace_id ? workspace_id : 'global'}</td>
 							{/if}
 							<td class="border px-4 py-2 w-[180px]">

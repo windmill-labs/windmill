@@ -2199,13 +2199,12 @@ This is a paragraph.
 				items: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'text',
-					value: ['Foo', 'Bar']
+					subFieldType: 'labeledselect',
+					value: ['Foo', 'Bar'] as (string | { label: string; value: string })[]
 				} as StaticAppInput,
 				defaultItems: {
 					type: 'static',
-					fieldType: 'array',
-					subFieldType: 'text',
+					fieldType: 'object',
 					value: []
 				} as StaticAppInput,
 				placeholder: {
@@ -3384,7 +3383,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
-					]
+					] as (string | { label: string; value: string })[]
 				} as StaticAppInput,
 
 				defaultValue: {
@@ -3419,14 +3418,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'labeledselect',
-					value: [
-						{ value: 'foo', label: 'Foo' },
-						{ value: 'bar', label: 'Bar' }
-					]
+					value: ['Foo', 'Bar'] as (string | { label: string; value: string })[]
 				} as StaticAppInput,
 				defaultValue: {
 					type: 'static',
-					value: undefined as { value: string; label: string } | undefined,
+					value: undefined as any,
 					fieldType: 'object'
 				}
 			}

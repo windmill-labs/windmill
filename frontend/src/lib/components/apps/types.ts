@@ -287,6 +287,7 @@ export type AppViewerContext = {
 		progress?: number | undefined
 		loading?: boolean | undefined
 	}>
+	panzoomActive: Writable<boolean>
 }
 
 export type AppEditorContext = {

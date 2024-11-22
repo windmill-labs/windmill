@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"\n            FROM completed_job_view WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+  "query": "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"\n            FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       true
     ]
   },
-  "hash": "e0e895527d6807699c918ca87e0b016751c9b5a1dab632dc4abdb1dd6aa1fcbc"
+  "hash": "0722f461da9edb169c3c73423440eaa3e1b9f2ca3b7033bd7ed978a3b4ddf3fc"
 }
