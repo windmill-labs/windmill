@@ -34,7 +34,7 @@ pub async fn build_tar_and_push(
     } else {
         PY311_CACHE_DIR
     };
-    let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
+    let tar_path = format!("tar/{prefix}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
