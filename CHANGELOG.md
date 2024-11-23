@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.430.1](https://github.com/windmill-labs/windmill/compare/v1.430.0...v1.430.1) (2024-11-23)
+
+
+### Bug Fixes
+
+* expose DISABLE_DENO_LOCK ([495d448](https://github.com/windmill-labs/windmill/commit/495d4487bc2109a85ea3941c104f736b7f79c355))
+
 ## [1.430.0](https://github.com/windmill-labs/windmill/compare/v1.429.0...v1.430.0) (2024-11-22)
 
 
