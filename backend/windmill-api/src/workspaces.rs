@@ -54,10 +54,13 @@ use windmill_common::{
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     scripts::{Schema, Script, ScriptLang},
-    utils::{paginate, rd_string, require_admin, require_admin_or_devops, Pagination},
+    utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
 };
 use windmill_git_sync::handle_deployment_metadata;
+
+#[cfg(feature = "enterprise")]
+use crate::utils::require_devops_role;
 
 use crate::oauth2_ee::InstanceEvent;
 use crate::variables::{decrypt, encrypt};
@@ -121,8 +124,14 @@ pub fn workspaced_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
-        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
-        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts))
+        .route(
+            "/critical_alerts/:id/acknowledge",
+            post(acknowledge_critical_alert),
+        )
+        .route(
+            "/critical_alerts/acknowledge_all",
+            post(acknowledge_all_critical_alerts),
+        )
         .route("/critical_alerts/mute", post(mute_critical_alerts));
 
     #[cfg(feature = "stripe")]
@@ -3132,7 +3141,6 @@ pub async fn acknowledge_all_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
 }
 
-
 #[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 pub struct MuteCriticalAlertRequest {
@@ -3167,7 +3175,10 @@ async fn mute_critical_alerts(
     .execute(&db)
     .await?;
 
-    Ok(format!("Updated mute criticital alert ui settings for workspace: {}", &w_id))
+    Ok(format!(
+        "Updated mute criticital alert ui settings for workspace: {}",
+        &w_id
+    ))
 }
 
 #[cfg(not(feature = "enterprise"))]

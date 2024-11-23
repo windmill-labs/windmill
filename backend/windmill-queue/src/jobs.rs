@@ -60,8 +60,9 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
-        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, MIN_VERSION_IS_AT_LEAST_1_427,
-        NO_LOGS, WORKER_CONFIG, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+        MIN_VERSION_IS_AT_LEAST_1_427, NO_LOGS, WORKER_CONFIG, WORKER_PULL_QUERIES,
+        WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -583,7 +584,8 @@ pub async fn add_completed_job<
         sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<JsonRawValue>>\"
             FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &job_id, &queued_job.workspace_id
+            &job_id,
+            &queued_job.workspace_id
         )
         .fetch_one(db)
         .map_ok(|record| (record.raw_code, record.raw_lock, record.raw_flow))
@@ -591,7 +593,8 @@ pub async fn add_completed_job<
             sqlx::query!(
                 "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<JsonRawValue>>\"
                 FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-                &job_id, &queued_job.workspace_id
+                &job_id,
+                &queued_job.workspace_id
             )
             .fetch_one(db)
             .map_ok(|record| (record.raw_code, record.raw_lock, record.raw_flow))
@@ -941,7 +944,7 @@ pub async fn add_completed_job<
                 .unwrap_or(Some(false))
                 .unwrap_or(false)
         }
-        
+
         if queued_job.email == ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
             let w_id = &queued_job.workspace_id;
@@ -1294,6 +1297,9 @@ pub async fn send_error_to_workspace_handler<
     Ok(())
 }
 
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
+
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     rsmq: Option<R>,
@@ -1310,35 +1316,57 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     );
 
     if schedule.enabled && script_path == schedule.script_path {
-        let push_next_job_future = async {
-            let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-            tx = push_scheduled_job(db, tx, &schedule, None).await?;
-            tx.commit().await?;
-            Ok::<(), Error>(())
-        };
+        let push_next_job_future = (|| {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
+                tx = push_scheduled_job(db, tx, &schedule, None).await?;
+                tx.commit().await?;
+                Ok::<(), Error>(())
+            })
+            .map_err(|e| Error::InternalErr(format!("Pushing next scheduled job timedout: {e:#}")))
+        })
+        .retry(
+            ConstantBuilder::default()
+                .with_delay(std::time::Duration::from_secs(5))
+                .with_max_times(10)
+                .build(),
+        )
+        .notify(|err, dur| {
+            tracing::error!(
+                "Could not push next scheduled job, retrying in {dur:#?}, err: {err:#?}"
+            );
+        })
+        .sleep(tokio::time::sleep);
         match push_next_job_future.await {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                match sqlx::query!(
+            Ok(Ok(())) => Ok(()),
+            err @ _ => {
+                let err_str = match &err {
+                    Ok(Ok(())) => unreachable!(),
+                    Ok(Err(err)) => err.to_string(),
+                    Err(err) => err.to_string(),
+                };
+                let update_schedule = sqlx::query!(
                     "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
+                    err_str,
                     &schedule.workspace_id,
                     &schedule.path
                 )
-                .execute(db).await {
+                .execute(db)
+                .await;
+                match update_schedule {
                     Ok(_) => {
                         match err {
-                            Error::QuotaExceeded(_) => {}
+                            Ok(Err(Error::QuotaExceeded(_))) => {}
                             _ => {
                                 report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db,
-                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err)
+                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err_str)
                                 ).await;
                             }
                         }
                         Ok(())
                     }
                     Err(disable_err) => match err {
-                        Error::QuotaExceeded(_) => Err(err),
+                        Ok(Err(err2 @ Error::QuotaExceeded(_))) => Err(err2),
                         _ => {
                             report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db,
                                     format!("Could not schedule next job for {} and could not disable schedule with err {}. Will retry", schedule.path, disable_err)
@@ -4154,19 +4182,20 @@ async fn restarted_flows_resolution(
         raw_flow: Option<Json<Box<RawValue>>>,
     }
 
-    let CompletedJobWithRawFlow { completed_job, raw_flow } = sqlx::query_as::<_, CompletedJobWithRawFlow>(
-        "SELECT *, null as labels FROM completed_job WHERE id = $1 and workspace_id = $2",
-    )
-    .bind(completed_flow_id)
-    .bind(workspace_id)
-    .fetch_one(db) // TODO: should we try to use the passed-in `tx` here?
-    .await
-    .map_err(|err| {
-        Error::InternalErr(format!(
-            "completed job not found for UUID {} in workspace {}: {}",
-            completed_flow_id, workspace_id, err
-        ))
-    })?;
+    let CompletedJobWithRawFlow { completed_job, raw_flow } =
+        sqlx::query_as::<_, CompletedJobWithRawFlow>(
+            "SELECT *, null as labels FROM completed_job WHERE id = $1 and workspace_id = $2",
+        )
+        .bind(completed_flow_id)
+        .bind(workspace_id)
+        .fetch_one(db) // TODO: should we try to use the passed-in `tx` here?
+        .await
+        .map_err(|err| {
+            Error::InternalErr(format!(
+                "completed job not found for UUID {} in workspace {}: {}",
+                completed_flow_id, workspace_id, err
+            ))
+        })?;
 
     let flow_value = if let Some(flow_value) = flow_value_if_any {
         Some(flow_value)
@@ -4176,13 +4205,15 @@ async fn restarted_flows_resolution(
         sqlx::query_scalar!(
             "SELECT raw_flow AS \"raw_flow!: Json<Box<JsonRawValue>>\"
             FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &completed_flow_id, workspace_id
+            &completed_flow_id,
+            workspace_id
         )
         .fetch_one(db)
         .await
         .ok()
         .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok())
-    }.ok_or(Error::InternalErr(format!(
+    }
+    .ok_or(Error::InternalErr(format!(
         "Unable to parse raw definition for job {} in workspace {}",
         completed_flow_id, workspace_id,
     )))?;
@@ -4197,7 +4228,11 @@ async fn restarted_flows_resolution(
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
     for module in flow_status.modules {
-        let Some(module_definition) = flow_value.modules.iter().find(|flow_value_module| flow_value_module.id == module.id()) else {
+        let Some(module_definition) = flow_value
+            .modules
+            .iter()
+            .find(|flow_value_module| flow_value_module.id == module.id())
+        else {
             // skip module as it doesn't appear in the flow_value anymore
             continue;
         };
