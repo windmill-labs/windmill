@@ -38,9 +38,9 @@
 	let edit = true
 	let schedule: string = '0 0 12 * *'
 	let cronVersion: string = 'v2'
-	let isLatestCron = true;
+	let isLatestCron = true
 	let initialCronVersion: string = 'v2'
-	let initialSchedule: string;
+	let initialSchedule: string
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 	let paused_until: string | undefined = undefined
 
@@ -432,7 +432,7 @@
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
 					paused_until: paused_until,
-					cron_version: cronVersion,
+					cron_version: cronVersion
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -466,7 +466,7 @@
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
 					paused_until: paused_until,
-					cron_version: cronVersion,
+					cron_version: cronVersion
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -507,11 +507,15 @@
 	$: !showPauseUntil && (paused_until = undefined)
 
 	function onVersionChange() {
-		cronVersion = isLatestCron? 'v2' : 'v1'
+		cronVersion = isLatestCron ? 'v2' : 'v1'
 		if (cronVersion === 'v2' && initialCronVersion === 'v1') {
 			// switches day-of-week from v1 -> v2
 			schedule = cronV1toV2(schedule)
-		} else if (cronVersion === 'v1' && initialCronVersion === 'v1' && (schedule !== initialSchedule)) {
+		} else if (
+			cronVersion === 'v1' &&
+			initialCronVersion === 'v1' &&
+			schedule !== initialSchedule
+		) {
 			// revert back to original
 			schedule = initialSchedule
 		}
@@ -635,25 +639,41 @@
 
 				<Section label="Schedule">
 					<svelte:fragment slot="header">
-						<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+						{#if cronVersion === 'v1'}
+							<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+						{:else}
+							<Tooltip
+								>Schedules use <a
+									href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
+									>extended CRON syntax</a
+								>.</Tooltip
+							>
+						{/if}
 					</svelte:fragment>
 					{#if initialCronVersion !== 'v2'}
-					<div class='flex flex-row'>
-						<AlertTriangle color='orange' class='mr-2' size={16} />
-						<Toggle
-							options={{
-								right: 'enable latest Cron syntax',
-								rightTooltip:
-									'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
-							}}
-							size='xs'
-							bind:checked={isLatestCron}
-							on:change={onVersionChange}
-						/>
-					</div>
+						<div class="flex flex-row">
+							<AlertTriangle color="orange" class="mr-2" size={16} />
+							<Toggle
+								options={{
+									right: 'enable latest Cron syntax',
+									rightTooltip:
+										'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
+									rightDocumentationLink:
+										'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
+								}}
+								size="xs"
+								bind:checked={isLatestCron}
+								on:change={onVersionChange}
+							/>
+						</div>
 					{/if}
-					<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON bind:cronVersion />
+					<CronInput
+						disabled={!can_write}
+						bind:schedule
+						bind:timezone
+						bind:validCRON
+						bind:cronVersion
+					/>
 					<Toggle
 						options={{
 							right: 'Pause schedule until...',
