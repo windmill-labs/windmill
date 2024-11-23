@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::{
     db::{ApiAuthed, DB},
     ee::validate_license_key,
-    utils::{require_devops_role, generate_instance_username_for_all_users, require_super_admin},
+    utils::{generate_instance_username_for_all_users, require_super_admin},
     HTTP_CLIENT,
 };
 
@@ -23,6 +23,9 @@ use axum::{
 
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
+
+#[cfg(feature = "enterprise")]
+use crate::utils::require_devops_role;
 
 use serde::Deserialize;
 #[cfg(feature = "enterprise")]
@@ -60,8 +63,14 @@ pub fn global_service() -> Router {
         .route("/customer_portal", post(create_customer_portal_session))
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
-        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
-        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts));
+        .route(
+            "/critical_alerts/:id/acknowledge",
+            post(acknowledge_critical_alert),
+        )
+        .route(
+            "/critical_alerts/acknowledge_all",
+            post(acknowledge_all_critical_alerts),
+        );
 
     #[cfg(feature = "parquet")]
     {
