@@ -96,7 +96,6 @@ deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 quote.workspace = true
 
-
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
 tikv-jemalloc-sys = { optional = true, workspace = true }
@@ -281,6 +280,13 @@ tar = "^0"
 http = "^1"
 async-stream = "^0"
 
+opentelemetry = "0.27.0"
+tracing-opentelemetry = "0.28.0"
+opentelemetry-stdout = { version = "0.27.0", features = ["trace"] }
+opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.27.0"
+opentelemetry-semantic-conventions = "*"
+
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
@@ -288,6 +294,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "^0"
 
 tantivy = "0.22.0"
+
 
 # Macro-related
 proc-macro2 = "1.0"

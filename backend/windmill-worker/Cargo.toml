@@ -92,6 +92,9 @@ convert_case.workspace = true
 yaml-rust.workspace = true
 swc_ecma_parser.workspace = true
 
+opentelemetry.workspace = true
+tracing-opentelemetry.workspace = true
+
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }

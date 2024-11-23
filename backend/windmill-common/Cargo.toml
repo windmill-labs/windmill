@@ -60,5 +60,12 @@ crc.workspace = true
 windmill-macros.workspace = true
 semver.workspace = true
 
+opentelemetry-semantic-conventions.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry.workspace = true
+tracing-opentelemetry.workspace = true
+opentelemetry-stdout.workspace = true
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

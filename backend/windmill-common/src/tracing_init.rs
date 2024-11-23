@@ -7,6 +7,8 @@
  */
 
 use const_format::concatcp;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::{trace, Resource};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{
     fmt::{format, Layer},
@@ -34,7 +36,7 @@ pub const LOGS_SERVICE: &str = "logs/services/";
 
 pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
 
-pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
+pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
     if std::env::var("RUST_LOG").is_ok_and(|x| x == "debug" || x == "info") {
@@ -43,6 +45,29 @@ pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
             &format!("windmill={}", std::env::var("RUST_LOG").unwrap()),
         )
     }
+
+    // let exporter: opentelemetry_stdout::SpanExporter = opentelemetry_stdout::SpanExporter::default();
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()
+        .unwrap();
+    // Then pass it into provider builder
+    let tracer = opentelemetry_sdk::trace::TracerProvider::builder()
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_config(trace::Config::default().with_resource(Resource::new(vec![
+            opentelemetry::KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                format!("windmill-{}", mode.to_string().to_lowercase()),
+            ),
+            opentelemetry::KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+                GIT_VERSION,
+            ),
+        ])))
+        .build()
+        .tracer("windmill");
+
+    let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let env_filter = EnvFilter::from_default_env();
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -82,6 +107,7 @@ pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
             .with(CountingLayer::new())
             .init(),
         false => ts_base
+            .with(opentelemetry)
             .with(
                 compact_layer()
                     .with_writer(stdout_and_log_file_writer)
@@ -118,6 +144,8 @@ use std::{
 };
 use tracing::Event;
 use tracing_subscriber::layer::Context;
+
+use crate::utils::{Mode, GIT_VERSION};
 
 lazy_static::lazy_static! {
     pub static ref LOG_COUNTING_BY_MIN: Arc<RwLock<HashMap<String, LogCounter>>> = Arc::new(RwLock::new(HashMap::new()));

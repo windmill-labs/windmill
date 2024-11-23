@@ -6,6 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use opentelemetry::trace::{FutureExt, TraceContextExt};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
@@ -20,7 +23,7 @@ use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 
-use tracing::Instrument;
+use tracing::{Instrument, Span};
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
@@ -54,8 +57,8 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PulledJob,
-    PushArgs, PushIsolationLevel, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PulledJob, PushArgs,
+    PushIsolationLevel, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -607,6 +610,21 @@ impl JobCompletedSender {
         &self,
         jc: JobCompleted,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
+        let active_context = opentelemetry::Context::current();
+
+        // Extract the active span from the context
+        let active_span = opentelemetry::trace::TraceContextExt::span(&active_context);
+
+        // Retrieve the SpanContext from the active span
+        let span_context = active_span.span_context();
+
+        if span_context.is_valid() {
+            tracing::error!("Trace ID: {}", span_context.trace_id());
+            tracing::error!("Span ID: {}", span_context.span_id());
+            tracing::error!("Trace Flags: {:?}", span_context.trace_flags());
+        } else {
+            tracing::error!("No valid active span context!");
+        }
         self.0.send(SendResult::JobCompleted(jc)).await
     }
 }
@@ -1774,6 +1792,19 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     occupancy_metrics: &mut OccupancyMetrics,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
+    // Extract the active span from the context
+    let otel_context = Span::current();
+    let ctx = otel_context.context();
+    let span = ctx.span();
+    let cx = span.span_context();
+    if cx.is_valid() {
+        // Access the SpanId
+        let span_id = cx.span_id();
+        tracing::error!("Current OpenTelemetry SpanId: {:?}", span_id);
+    } else {
+        tracing::error!("No OpenTelemetry context found.");
+    }
+
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -1840,7 +1871,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         (None, None, None) => sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
             FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &job.id, job.workspace_id
+            &job.id,
+            job.workspace_id
         )
         .fetch_one(db)
         .await
@@ -2099,6 +2131,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             new_args,
             db,
         )
+        .with_context(ctx)
         .await
     }
 }
@@ -2246,8 +2279,7 @@ async fn handle_code_execution_job(
             };
 
             ContentReqLangEnvs {
-                content: raw_code
-                    .unwrap_or_else(|| "no raw code".to_owned()),
+                content: raw_code.unwrap_or_else(|| "no raw code".to_owned()),
                 lockfile: raw_lock,
                 language: job.language.to_owned(),
                 envs: None,

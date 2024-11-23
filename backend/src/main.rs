@@ -8,7 +8,8 @@
 
 use anyhow::Context;
 use monitor::{
-    reload_indexer_config, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
+    reload_indexer_config, reload_timeout_wait_result_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store,
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -29,7 +30,15 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -210,8 +219,62 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let hostname = hostname();
 
+    let mut enable_standalone_indexer: bool = false;
+
+    let mode = std::env::var("MODE")
+    .map(|x| x.to_lowercase())
+    .map(|x| {
+        if &x == "server" {
+            tracing::info!("Binary is in 'server' mode");
+            Mode::Server
+        } else if &x == "worker" {
+            tracing::info!("Binary is in 'worker' mode");
+            Mode::Worker
+        } else if &x == "agent" {
+            tracing::info!("Binary is in 'agent' mode");
+            if std::env::var("BASE_INTERNAL_URL").is_err() {
+                panic!("BASE_INTERNAL_URL is required in agent mode")
+            }
+            if std::env::var("JOB_TOKEN").is_err() {
+                tracing::warn!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
+            }
+
+            #[cfg(not(feature = "enterprise"))]
+            {
+                panic!("Agent mode is only available in the EE, ignoring...");
+            }
+            #[cfg(feature = "enterprise")]
+            Mode::Agent
+        } else if &x == "indexer" {
+            tracing::info!("Binary is in 'indexer' mode");
+            #[cfg(not(feature = "tantivy"))]
+            {
+                tracing::error!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                panic!("Indexer mode requires compiling with the tantivy feature flag.");
+            }
+            #[cfg(feature = "tantivy")]
+            Mode::Indexer
+        } else if &x == "standalone+search"{
+                enable_standalone_indexer = true;
+                tracing::info!("Binary is in 'standalone' mode with search enabled");
+                Mode::Standalone
+        }
+        else {
+            if &x != "standalone" {
+                tracing::error!("mode not recognized, defaulting to standalone: {x}");
+            } else {
+                tracing::info!("Binary is in 'standalone' mode");
+            }
+            Mode::Standalone
+        }
+    })
+    .unwrap_or_else(|_| {
+        tracing::info!("Mode not specified, defaulting to standalone");
+        Mode::Standalone
+    });
+
     #[cfg(not(feature = "flamegraph"))]
-    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname);
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode);
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     tracing::info!("jemalloc enabled");
@@ -244,60 +307,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
         _ => {}
     }
-
-    let mut enable_standalone_indexer: bool = false;
-
-    let mode = std::env::var("MODE")
-        .map(|x| x.to_lowercase())
-        .map(|x| {
-            if &x == "server" {
-                tracing::info!("Binary is in 'server' mode");
-                Mode::Server
-            } else if &x == "worker" {
-                tracing::info!("Binary is in 'worker' mode");
-                Mode::Worker
-            } else if &x == "agent" {
-                tracing::info!("Binary is in 'agent' mode");
-                if std::env::var("BASE_INTERNAL_URL").is_err() {
-                    panic!("BASE_INTERNAL_URL is required in agent mode")
-                }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
-                }
-
-                #[cfg(not(feature = "enterprise"))]
-                {
-                    panic!("Agent mode is only available in the EE, ignoring...");
-                }
-                #[cfg(feature = "enterprise")]
-                Mode::Agent
-            } else if &x == "indexer" {
-                tracing::info!("Binary is in 'indexer' mode");
-                #[cfg(not(feature = "tantivy"))]
-                {
-                    tracing::error!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
-                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
-                }
-                #[cfg(feature = "tantivy")]
-                Mode::Indexer
-            } else if &x == "standalone+search"{
-                    enable_standalone_indexer = true;
-                    tracing::info!("Binary is in 'standalone' mode with search enabled");
-                    Mode::Standalone
-            }
-            else {
-                if &x != "standalone" {
-                    tracing::error!("mode not recognized, defaulting to standalone: {x}");
-                } else {
-                    tracing::info!("Binary is in 'standalone' mode");
-                }
-                Mode::Standalone
-            }
-        })
-        .unwrap_or_else(|_| {
-            tracing::info!("Mode not specified, defaulting to standalone");
-            Mode::Standalone
-        });
 
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {

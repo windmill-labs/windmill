@@ -1,3 +1,4 @@
+use opentelemetry::trace::FutureExt;
 use serde::Serialize;
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
@@ -196,7 +197,11 @@ async fn send_job_completed(
     token: String,
 ) {
     let jc = JobCompleted { job, result, mem_peak, canceled_by, success, cached_res_path, token };
-    job_completed_tx.send(jc).await.expect("send job completed")
+    job_completed_tx
+        .send(jc)
+        .with_context(opentelemetry::Context::current())
+        .await
+        .expect("send job completed")
 }
 
 pub async fn process_result(
@@ -266,6 +271,7 @@ pub async fn process_result(
                 cached_res_path,
                 token,
             )
+            .with_context(opentelemetry::Context::current())
             .await;
             Ok(true)
         }
@@ -309,6 +315,7 @@ pub async fn process_result(
                 cached_res_path,
                 token,
             )
+            .with_context(opentelemetry::Context::current())
             .await;
             Ok(false)
         }
