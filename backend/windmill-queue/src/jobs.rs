@@ -1279,6 +1279,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
                 Ok::<(), Error>(())
             })
             .map_err(|e| Error::InternalErr(format!("Pushing next scheduled job timedout: {e:#}")))
+            .unwrap_or_else(|e| Err(e))
         })
         .retry(
             ConstantBuilder::default()
@@ -1286,6 +1287,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
                 .with_max_times(10)
                 .build(),
         )
+        .when(|err| !matches!(err, Error::QuotaExceeded(_)))
         .notify(|err, dur| {
             tracing::error!(
                 "Could not push next scheduled job, retrying in {dur:#?}, err: {err:#?}"
@@ -1293,16 +1295,11 @@ pub async fn handle_maybe_scheduled_job<'c>(
         })
         .sleep(tokio::time::sleep);
         match push_next_job_future.await {
-            Ok(Ok(())) => Ok(()),
-            err @ _ => {
-                let err_str = match &err {
-                    Ok(Ok(())) => unreachable!(),
-                    Ok(Err(err)) => err.to_string(),
-                    Err(err) => err.to_string(),
-                };
+            Ok(()) => Ok(()),
+            Err(err) => {
                 let update_schedule = sqlx::query!(
                     "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err_str,
+                    err.to_string(),
                     &schedule.workspace_id,
                     &schedule.path
                 )
@@ -1311,17 +1308,17 @@ pub async fn handle_maybe_scheduled_job<'c>(
                 match update_schedule {
                     Ok(_) => {
                         match err {
-                            Ok(Err(Error::QuotaExceeded(_))) => {}
+                            Error::QuotaExceeded(_) => {}
                             _ => {
                                 report_error_to_workspace_handler_or_critical_side_channel(job, db,
-                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err_str)
+                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err.to_string())
                                 ).await;
                             }
                         }
                         Ok(())
                     }
                     Err(disable_err) => match err {
-                        Ok(Err(err2 @ Error::QuotaExceeded(_))) => Err(err2),
+                        Error::QuotaExceeded(_) => Err(err),
                         _ => {
                             report_error_to_workspace_handler_or_critical_side_channel(job, db,
                                     format!("Could not schedule next job for {} and could not disable schedule with err {}. Will retry", schedule.path, disable_err)
