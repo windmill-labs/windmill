@@ -212,7 +212,8 @@
 			</svelte:fragment>
 			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">
 				<a
-					class="text-tertiary"
+					class="text-tertiary hover:underline"
+					target="_blank"
 					href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax">Croner</a
 				>
 			</div>
