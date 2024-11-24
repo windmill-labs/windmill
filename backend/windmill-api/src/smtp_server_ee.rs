@@ -6,7 +6,6 @@ pub struct SmtpServer {
     pub auth_cache: Arc<AuthCache>,
     pub db: DB,
     pub user_db: UserDB,
-    pub rsmq: Option<rsmq_async::MultiplexedRsmq>,
     pub base_internal_url: String,
 }
 

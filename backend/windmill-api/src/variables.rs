@@ -299,7 +299,6 @@ async fn create_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
@@ -352,7 +351,6 @@ async fn create_variable(
         &w_id,
         DeployedObject::Variable { path: variable.path.clone(), parent_path: None },
         Some(format!("Variable '{}' created", variable.path.clone())),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -384,7 +382,6 @@ async fn delete_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -424,7 +421,6 @@ async fn delete_variable(
         &w_id,
         DeployedObject::Variable { path: path.to_string(), parent_path: Some(path.to_string()) },
         Some(format!("Variable '{}' deleted", path)),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -455,7 +451,6 @@ async fn update_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(ns): Json<EditVariable>,
@@ -578,7 +573,6 @@ async fn update_variable(
         &w_id,
         DeployedObject::Variable { path: npath.clone(), parent_path: Some(path.to_string()) },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;

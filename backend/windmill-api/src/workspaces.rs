@@ -60,7 +60,7 @@ use windmill_common::{
 use windmill_git_sync::handle_deployment_metadata;
 
 #[cfg(feature = "enterprise")]
-use crate::utils::require_devops_role;
+use windmill_common::utils::require_admin_or_devops;
 
 use crate::oauth2_ee::InstanceEvent;
 use crate::variables::{decrypt, encrypt};
@@ -503,7 +503,6 @@ async fn edit_slack_command(
 async fn run_slack_message_test_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
@@ -520,7 +519,6 @@ async fn run_slack_message_test_job(
 
     let uuid = windmill_queue::push_error_handler(
         &db,
-        rsmq,
         Uuid::parse_str("00000000-0000-0000-0000-000000000000")?,
         None,
         Some("slack_message_test".to_string()),
@@ -600,11 +598,10 @@ async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResul
 async fn edit_auto_invite(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
-    crate::workspaces_ee::edit_auto_invite(authed, db, rsmq, w_id, ea).await
+    crate::workspaces_ee::edit_auto_invite(authed, db, w_id, ea).await
 }
 
 async fn edit_webhook(
@@ -1469,7 +1466,7 @@ async fn create_workspace(
     //     nw.id,
     //     "finland does not actually exist",
     // )
-    // .execute(&mut tx)
+    // .execute(&mut *tx)
     // .await?;
 
     let automate_username_creation = sqlx::query_scalar!(
@@ -1887,7 +1884,6 @@ async fn add_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
@@ -1994,7 +1990,6 @@ async fn add_user(
         &w_id,
         windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
         Some(format!("Added user '{}' to workspace", &nu.email)),
-        rsmq,
         true,
     )
     .await?;

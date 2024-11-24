@@ -77,7 +77,6 @@ async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
 async_zip.workspace = true
-rsmq_async.workspace = true
 regex.workspace = true
 bytes.workspace = true
 samael = { workspace = true, optional = true }

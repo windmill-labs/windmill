@@ -55,7 +55,6 @@ async fn add_granular_acl(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
 ) -> Result<String> {
@@ -91,10 +90,9 @@ async fn add_granular_acl(
     if kind == "folder" {
         if let Some(obj) = sqlx::query_scalar!(
             "SELECT owners FROM folder WHERE name = $1 AND workspace_id = $2",
-            path, 
+            path,
             w_id
         )
-
         .fetch_optional(&mut *tx)
         .await?
         {
@@ -131,8 +129,7 @@ async fn add_granular_acl(
                 &w_id,
                 DeployedObject::Folder { path: format!("f/{}", path) },
                 Some(format!("Folder '{}' changed permissions", path)),
-                rsmq,
-                true,
+                        true,
             )
             .await?
         }
@@ -144,8 +141,7 @@ async fn add_granular_acl(
         //         &w_id,
         //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
         //         Some(format!("App '{}' changed permissions", path)),
-        //         rsmq,
-        //         true,
+        //         //         true,
         //     )
         //     .await?
         // }
@@ -161,8 +157,7 @@ async fn add_granular_acl(
         //             hash: ScriptHash(0),
         //         },
         //         Some(format!("Script '{}' changed permissions", path)),
-        //         rsmq,
-        //         true,
+        //         //         true,
         //     )
         //     .await?
         // }
@@ -174,8 +169,7 @@ async fn add_granular_acl(
         //         &w_id,
         //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
         //         Some(format!("Flow '{}' changed permissions", path)),
-        //         rsmq,
-        //         true,
+        //         //         true,
         //     )
         //     .await?
         // }
@@ -189,7 +183,6 @@ async fn remove_granular_acl(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write: _ }): Json<GranularAcl>,
 ) -> Result<String> {
@@ -248,8 +241,7 @@ async fn remove_granular_acl(
                 &w_id,
                 DeployedObject::Folder { path: format!("f/{}", path) },
                 Some(format!("Folder '{}' changed permissions", path)),
-                rsmq,
-                true,
+                        true,
             )
             .await?
         }
@@ -261,8 +253,7 @@ async fn remove_granular_acl(
         //         &w_id,
         //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
         //         Some(format!("App '{}' changed permissions", path)),
-        //         rsmq,
-        //         true,
+        //         //         true,
         //     )
         //     .await?
         // }
@@ -278,8 +269,7 @@ async fn remove_granular_acl(
         //             hash: ScriptHash(0),
         //         },
         //         Some(format!("Script '{}' changed permissions", path)),
-        //         rsmq,
-        //         true,
+        //         //         true,
         //     )
         //     .await?
         // }
@@ -291,8 +281,7 @@ async fn remove_granular_acl(
         //         &w_id,
         //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
         //         Some(format!("Flow '{}' changed permissions", path)),
-        //         rsmq,
-        //         true,
+        //         //         true,
         //     )
         //     .await?
         // }
