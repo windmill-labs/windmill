@@ -569,7 +569,7 @@ pub async fn add_completed_job<
         ));
     }
 
-    let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+    let mut tx2: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
 
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
@@ -607,7 +607,9 @@ pub async fn add_completed_job<
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     add_time!(bench, "add_completed_job query START");
-    let _duration: i64 = sqlx::query_scalar!(
+    let (mut tx, _duration): (_, windmill_common::error::Result<i64>) = {
+        |mut tx| async { 
+        let res = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -675,7 +677,26 @@ pub async fn add_completed_job<
     )
     .fetch_one(&mut tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
+    .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")));
+
+    (tx, res)
+    }
+    }
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(5))
+            .with_max_times(10)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::error!(
+            "Could not push next scheduled job, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .sleep(tokio::time::sleep)
+    .context(tx2)
+    .await;
+    let _duration = _duration?;
     // tracing::error!("2 {:?}", start.elapsed());
 
     add_time!(bench, "add_completed_job query END");
@@ -1297,7 +1318,7 @@ pub async fn send_error_to_workspace_handler<
     Ok(())
 }
 
-use backon::ConstantBuilder;
+use backon::{ConstantBuilder, RetryableWithContext};
 use backon::{BackoffBuilder, Retryable};
 
 #[instrument(level = "trace", skip_all)]
