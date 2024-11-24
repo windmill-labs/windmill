@@ -48,11 +48,7 @@ struct EditDatabaseTrigger {
 }
 
 #[derive(Deserialize, Serialize)]
-struct NewDatabaseTrigger {
-    path: String,
-    script_path: String,
-    is_flow: bool,
-    enabled: bool,
+
 struct NewDatabaseTrigger {
     path: String,
     script_path: String,
