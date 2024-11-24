@@ -11,5 +11,7 @@ CREATE TABLE database_trigger(
     database JSONB NOT NULL,
     table_to_track JSONB[],
     error TEXT NULL,
+    server_id VARCHAR(50) NULL,
+    enabled BOOLEAN NOT NULL,
     CONSTRAINT PK_database_trigger PRIMARY KEY (path,workspace_id)
 );

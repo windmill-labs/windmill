@@ -5,6 +5,8 @@ use axum::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::{value::RawValue, Value};
+
 use sqlx::FromRow;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
@@ -31,9 +33,8 @@ impl Database {
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
-struct TableTrack {
+struct TableToTrack {
     table_name: String,
-    columns_name: Option<Vec<String>>,
     columns_name: Option<Vec<String>>,
 }
 
@@ -44,7 +45,7 @@ struct EditDatabaseTrigger {
     is_flow: Option<String>,
     enabled: Option<bool>,
     database: Option<Database>,
-    table_to_track: Option<Vec<TableTrack>>,
+    table_to_track: Option<Vec<TableToTrack>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -55,13 +56,13 @@ struct NewDatabaseTrigger {
     is_flow: bool,
     enabled: bool,
     database: Database,
-    table_to_track: Option<Vec<TableTrack>>,
+    table_to_track: Option<Vec<TableToTrack>>,
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
 struct DatabaseTrigger {
-    database: Database,
-    table_to_track: Option<Vec<TableTrack>>,
+    database: sqlx::types::Json<Box<RawValue>>,
+    table_to_track: sqlx::types::Json<Box<RawValue>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -73,22 +74,17 @@ pub struct ListDatabaseTriggerQuery {
     pub path_start: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct SetEnabled {
+    pub enabled: bool,
+}
+
 async fn create_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(new_database_trigger): Json<NewDatabaseTrigger>,
-    Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
-    let NewDatabaseTrigger { database, table_to_track, path, script_path, enabled, is_flow } =
-        new_database_trigger;
-    if *CLOUD_HOSTED {
-        return Err(error::Error::BadRequest(
-            "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
-        ));
-    }
-    let mut tx = user_db.begin(&authed).await?;
-
     let NewDatabaseTrigger { database, table_to_track, path, script_path, enabled, is_flow } =
         new_database_trigger;
     if *CLOUD_HOSTED {
@@ -220,8 +216,45 @@ async fn exists_database_trigger(
     Ok(Json(exists))
 }
 
-async fn set_enabled() -> error::Result<String> {
-    Ok(format!("Ok"))
+async fn set_enabled(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(payload): Json<SetEnabled>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let path = path.to_path();
+
+    // important to set server_id, last_server_ping and error to NULL to stop current websocket listener
+    let one_o = sqlx::query_scalar!(
+        "UPDATE database_trigger SET enabled = $1, email = $2, edited_by = $3, edited_at = now(), server_id = NULL, error = NULL
+        WHERE path = $4 AND workspace_id = $5 RETURNING 1",
+        payload.enabled,
+        &authed.email,
+        &authed.username,
+        path,
+        w_id,
+    ).fetch_optional(&mut *tx).await?;
+
+    not_found_if_none(one_o.flatten(), "Database trigger", path)?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "database_triggers.setenabled",
+        ActionKind::Update,
+        &w_id,
+        Some(path),
+        Some([("enabled", payload.enabled.to_string().as_ref())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "succesfully updated database trigger at path {} to status {}",
+        path, payload.enabled
+    ))
 }
 
 pub fn workspaced_service() -> Router {
