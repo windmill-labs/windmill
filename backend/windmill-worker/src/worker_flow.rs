@@ -1033,6 +1033,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 canceled_job_to_result(&flow_job),
                         worker_name,
                 true,
+                None,
                 #[cfg(feature = "benchmark")]
                 bench,
             )
@@ -1074,7 +1075,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     Json(&nresult),
                     0,
                     None,
-                                true,
+                    true,
+                    None,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
@@ -1093,6 +1095,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     0,
                     None,
                                 true,
+                                None,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
@@ -1131,6 +1134,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     e,
                                 worker_name,
                     true,
+                    None,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
