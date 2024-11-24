@@ -11,7 +11,6 @@ use std::{
 };
 
 use chrono::{NaiveDateTime, Utc};
-use rsmq_async::MultiplexedRsmq;
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
@@ -686,12 +685,10 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             {
                                 tracing::error!("Error deleting log file: {:?}", e);
                             }
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM job WHERE id = ANY($1)",
-                                &deleted_jobs
-                            )
-                            .execute(&mut *tx)
-                            .await
+                            if let Err(e) =
+                                sqlx::query!("DELETE FROM job WHERE id = ANY($1)", &deleted_jobs)
+                                    .execute(&mut *tx)
+                                    .await
                             {
                                 tracing::error!("Error deleting job: {:?}", e);
                             }
@@ -1031,7 +1028,6 @@ pub async fn monitor_pool(db: &DB) {
 pub async fn monitor_db(
     db: &Pool<Postgres>,
     base_internal_url: &str,
-    rsmq: Option<MultiplexedRsmq>,
     server_mode: bool,
     _worker_mode: bool,
     initial_load: bool,
@@ -1039,8 +1035,8 @@ pub async fn monitor_db(
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
-            handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
-            match handle_zombie_flows(db, rsmq.clone()).await {
+            handle_zombie_jobs(db, base_internal_url, "server").await;
+            match handle_zombie_flows(db).await {
                 Err(err) => {
                     tracing::error!("Error handling zombie flows: {:?}", err);
                 }
@@ -1312,12 +1308,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    db: &Pool<Postgres>,
-    base_internal_url: &str,
-    rsmq: Option<R>,
-    worker_name: &str,
-) {
+async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null
@@ -1426,7 +1417,6 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             true,
             same_worker_tx_never_used,
             "",
-            rsmq.clone(),
             worker_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
@@ -1436,10 +1426,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     }
 }
 
-async fn handle_zombie_flows(
-    db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-) -> error::Result<()> {
+async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query_as::<_, QueuedJob>(
         r#"
         SELECT *
@@ -1486,7 +1473,7 @@ async fn handle_zombie_flows(
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
+            cancel_zombie_flow_job(db, flow, reason).await?;
         }
     }
 
@@ -1516,7 +1503,7 @@ async fn handle_zombie_flows(
                 job.workspace_id,
                 flow.last_ping
             );
-            cancel_zombie_flow_job(db, job, &rsmq,
+            cancel_zombie_flow_job(db, job,
                 format!("Flow {} cancelled as one of the parallel branch {} was unable to make the last transition ", flow.parent_flow_id, flow.job_id))
                 .await?;
         } else {
@@ -1529,7 +1516,6 @@ async fn handle_zombie_flows(
 async fn cancel_zombie_flow_job(
     db: &Pool<Postgres>,
     flow: QueuedJob,
-    rsmq: &Option<MultiplexedRsmq>,
     message: String,
 ) -> Result<(), error::Error> {
     let tx = db.begin().await.unwrap();
@@ -1545,7 +1531,6 @@ async fn cancel_zombie_flow_job(
         flow.workspace_id.as_str(),
         tx,
         db,
-        rsmq.clone(),
         true,
         false,
     )

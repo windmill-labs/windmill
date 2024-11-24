@@ -202,7 +202,7 @@ pub fn extract_relative_imports(
     }
 }
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_dependency_job(
     job: &QueuedJob,
     raw_code: Option<String>,
     mem_peak: &mut i32,
@@ -213,7 +213,6 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
-    rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let raw_code = match raw_code {
@@ -314,7 +313,6 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     parent_path: parent_path.clone(),
                 },
                 deployment_message.clone(),
-                rsmq.clone(),
                 false,
             )
             .await
@@ -352,7 +350,6 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     &job.created_by,
                     &job.permissioned_as,
                     db,
-                    rsmq,
                     already_visited,
                 )
                 .await
@@ -388,9 +385,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
     }
 }
 
-async fn trigger_dependents_to_recompute_dependencies<
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
->(
+async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
     deployment_message: Option<String>,
@@ -399,7 +394,6 @@ async fn trigger_dependents_to_recompute_dependencies<
     created_by: &str,
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    rsmq: Option<R>,
     mut already_visited: Vec<String>,
 ) -> error::Result<()> {
     let script_importers = sqlx::query!(
@@ -418,8 +412,7 @@ async fn trigger_dependents_to_recompute_dependencies<
         if already_visited.contains(&s.importer_path) {
             continue;
         }
-        let tx: PushIsolationLevel<'_, R> =
-            PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
         if let Some(ref dm) = deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
@@ -526,7 +519,7 @@ async fn trigger_dependents_to_recompute_dependencies<
     Ok(())
 }
 
-pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_flow_dependency_job(
     job: &QueuedJob,
     raw_flow: Option<Json<Box<RawValue>>>,
     mem_peak: &mut i32,
@@ -537,7 +530,6 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
-    rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     let job_path = job.script_path.clone().ok_or_else(|| {
@@ -661,7 +653,6 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
             &job.workspace_id,
             DeployedObject::Flow { path: job_path, parent_path, version },
             deployment_message,
-            rsmq.clone(),
             false,
         )
         .await
@@ -1168,7 +1159,7 @@ async fn lock_modules_app(
     }
 }
 
-pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_app_dependency_job(
     job: &QueuedJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -1178,7 +1169,6 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
-    rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
@@ -1240,7 +1230,6 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
             &job.workspace_id,
             DeployedObject::App { path: job_path, version: id, parent_path },
             deployment_message,
-            rsmq.clone(),
             false,
         )
         .await

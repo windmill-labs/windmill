@@ -23,9 +23,7 @@ use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult},
-    utils::{
-        not_found_if_none, paginate, report_critical_error, Pagination, StripPath,
-    },
+    utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
@@ -375,7 +373,6 @@ async fn exists_websocket_trigger(
 
 async fn listen_to_unlistened_websockets(
     db: &DB,
-    rsmq: &Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> () {
     match sqlx::query_as::<_, WebsocketTrigger>(
@@ -389,7 +386,7 @@ async fn listen_to_unlistened_websockets(
         Ok(mut triggers) => {
             triggers.shuffle(&mut rand::thread_rng());
             for trigger in triggers {
-                maybe_listen_to_websocket(trigger, db.clone(), rsmq.clone(), killpill_rx.resubscribe()).await;
+                maybe_listen_to_websocket(trigger, db.clone(), killpill_rx.resubscribe()).await;
             }
         }
         Err(err) => {
@@ -398,13 +395,9 @@ async fn listen_to_unlistened_websockets(
     };
 }
 
-pub async fn start_websockets(
-    db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) -> () {
+pub async fn start_websockets(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
     tokio::spawn(async move {
-        listen_to_unlistened_websockets(&db, &rsmq, &killpill_rx).await;
+        listen_to_unlistened_websockets(&db, &&killpill_rx).await;
         loop {
             tokio::select! {
                 biased;
@@ -412,7 +405,7 @@ pub async fn start_websockets(
                     return;
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(15)) => {
-                    listen_to_unlistened_websockets(&db, &rsmq, &killpill_rx).await;
+                    listen_to_unlistened_websockets(&db, &&killpill_rx).await;
                 }
             }
         }
@@ -422,7 +415,6 @@ pub async fn start_websockets(
 async fn maybe_listen_to_websocket(
     ws_trigger: WebsocketTrigger,
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
     match sqlx::query_scalar!(
@@ -433,7 +425,7 @@ async fn maybe_listen_to_websocket(
     ).fetch_optional(&db).await {
         Ok(has_lock) => {
             if has_lock.flatten().unwrap_or(false) {
-                tokio::spawn(listen_to_websocket(ws_trigger, db, rsmq, killpill_rx));
+                tokio::spawn(listen_to_websocket(ws_trigger, db, killpill_rx));
             } else {
                 tracing::info!("Websocket {} already being listened to", ws_trigger.url);
             }
@@ -517,7 +509,6 @@ async fn wait_runnable_result(
     ws_trigger: &WebsocketTrigger,
     username_override: String,
     db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::Result<String> {
     let user_db = UserDB::new(db.clone());
     let authed = fetch_api_authed(
@@ -539,7 +530,6 @@ async fn wait_runnable_result(
             authed,
             db.clone(),
             user_db,
-            rsmq.clone(),
             ws_trigger.workspace_id.clone(),
             StripPath(path.clone()),
             RunJobQuery::default(),
@@ -552,7 +542,6 @@ async fn wait_runnable_result(
             authed,
             db.clone(),
             user_db,
-            rsmq.clone(),
             ws_trigger.workspace_id.clone(),
             StripPath(path.clone()),
             RunJobQuery::default(),
@@ -616,7 +605,6 @@ async fn send_initial_messages(
     ws_trigger: &WebsocketTrigger,
     mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::Result<()> {
     let initial_messages: Vec<InitialMessage> = ws_trigger
         .initial_messages
@@ -656,7 +644,6 @@ async fn send_initial_messages(
                     ws_trigger,
                     "init".to_string(),
                     db,
-                    rsmq.clone(),
                 )
                 .await?;
 
@@ -690,7 +677,6 @@ async fn get_url_from_runnable(
     is_flow: bool,
     ws_trigger: &WebsocketTrigger,
     db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::Result<String> {
     tracing::info!("Running runnable {path} (is_flow: {is_flow}) to get websocket URL",);
 
@@ -701,7 +687,6 @@ async fn get_url_from_runnable(
         ws_trigger,
         "url".to_string(),
         db,
-        rsmq,
     )
     .await?;
 
@@ -768,7 +753,6 @@ async fn disable_with_error(db: &DB, ws_trigger: &WebsocketTrigger, error: Strin
 async fn listen_to_websocket(
     ws_trigger: WebsocketTrigger,
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
     if let None = update_ping(&db, &ws_trigger, Some("Connecting...")).await {
@@ -797,7 +781,7 @@ async fn listen_to_websocket(
                     )) => {
                         return;
                     },
-                    url_result = get_url_from_runnable(path, url.starts_with("$flow:"), &ws_trigger, &db, rsmq.clone()) => match url_result {
+                    url_result = get_url_from_runnable(path, url.starts_with("$flow:"), &ws_trigger, &db) => match url_result {
                         Ok(url) => url,
                         Err(err) => {
                             disable_with_error(
@@ -850,7 +834,7 @@ async fn listen_to_websocket(
                                 return;
                             }
                             _ = async {
-                                if let Err(err) = send_initial_messages(&ws_trigger, writer, &db, rsmq.clone()).await {
+                                if let Err(err) = send_initial_messages(&ws_trigger, writer, &db).await {
                                     disable_with_error(&db, &ws_trigger, format!("Error sending initial messages: {:?}", err)).await;
                                 } else {
                                     // if initial messages sent successfully, wait forever
@@ -897,7 +881,7 @@ async fn listen_to_websocket(
                                                                     }
                                                                 }
                                                                 if should_handle {
-                                                                    if let Err(err) = run_job(&db, rsmq.clone(), &ws_trigger, text).await {
+                                                                    if let Err(err) = run_job(&db, &ws_trigger, text).await {
                                                                         report_critical_error(format!("Failed to trigger job from websocket {}: {:?}", ws_trigger.url, err), db.clone(), Some(&ws_trigger.workspace_id), None).await;
                                                                     };
                                                                 }
@@ -948,12 +932,7 @@ async fn listen_to_websocket(
     }
 }
 
-async fn run_job(
-    db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    trigger: &WebsocketTrigger,
-    msg: String,
-) -> anyhow::Result<()> {
+async fn run_job(db: &DB, trigger: &WebsocketTrigger, msg: String) -> anyhow::Result<()> {
     let args = PushArgsOwned {
         args: HashMap::from([("msg".to_string(), to_raw_value(&msg))]),
         extra: Some(HashMap::from([(
@@ -983,7 +962,6 @@ async fn run_job(
             authed,
             db.clone(),
             user_db,
-            rsmq,
             trigger.workspace_id.clone(),
             StripPath(trigger.script_path.to_owned()),
             run_query,
@@ -996,7 +974,6 @@ async fn run_job(
             authed,
             db.clone(),
             user_db,
-            rsmq,
             trigger.workspace_id.clone(),
             StripPath(trigger.script_path.to_owned()),
             run_query,

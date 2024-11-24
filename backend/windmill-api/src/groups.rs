@@ -223,7 +223,6 @@ async fn create_group(
     authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
@@ -273,7 +272,6 @@ async fn create_group(
         &w_id,
         windmill_git_sync::DeployedObject::Group { name: ng.name.clone() },
         Some(format!("Created group '{}'", &ng.name)),
-        rsmq,
         true,
     )
     .await?;
@@ -442,7 +440,6 @@ async fn delete_group(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
@@ -492,7 +489,6 @@ async fn delete_group(
         &w_id,
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Deleted group '{}'", &name)),
-        rsmq,
         true,
     )
     .await?;
@@ -504,7 +500,6 @@ async fn update_group(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(eg): Json<EditGroup>,
 ) -> Result<String> {
@@ -542,7 +537,6 @@ async fn update_group(
         &w_id,
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Updated group '{}'", &name)),
-        rsmq,
         true,
     )
     .await?;
@@ -554,7 +548,6 @@ async fn add_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
@@ -593,7 +586,6 @@ async fn add_user(
         &w_id,
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Added user to group '{}'", &name)),
-        rsmq,
         true,
     )
     .await?;
@@ -712,7 +704,6 @@ async fn remove_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
@@ -754,7 +745,6 @@ async fn remove_user(
         &w_id,
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Removed user from group '{}'", &name)),
-        rsmq,
         true,
     )
     .await?;

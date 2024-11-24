@@ -64,7 +64,7 @@ use windmill_common::{
 };
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -651,12 +651,11 @@ async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email.clone());
@@ -670,7 +669,7 @@ async fn create_app(
         &app.path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -686,7 +685,7 @@ async fn create_app(
         &app.path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     let id = sqlx::query_scalar!(
@@ -699,7 +698,7 @@ async fn create_app(
         json!(app.policy),
         app.draft_only,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     let v_id = sqlx::query_scalar!(
@@ -711,7 +710,7 @@ async fn create_app(
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -719,11 +718,11 @@ async fn create_app(
         v_id,
         id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "apps.create",
         ActionKind::Create,
@@ -809,7 +808,6 @@ async fn delete_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -862,7 +860,6 @@ async fn delete_app(
             version: 0, // dummy version as it will not get inserted in db
         },
         Some(format!("App '{}' deleted", path)),
-        rsmq,
         true,
     )
     .await?;
@@ -893,7 +890,6 @@ async fn update_app(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -901,7 +897,7 @@ async fn update_app(
 
     let path = path.to_path();
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     let npath = if ns.policy.is_some() || ns.path.is_some() || ns.summary.is_some() {
         let mut sqlb = SqlBuilder::update_table("app");
@@ -918,7 +914,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false);
 
@@ -950,7 +946,7 @@ async fn update_app(
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {
         path.to_owned()
@@ -961,7 +957,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         let v_id = sqlx::query_scalar!(
@@ -973,7 +969,7 @@ async fn update_app(
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -982,7 +978,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
         v_id
     } else {
@@ -991,7 +987,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
         if let Some(v_id) = v_id {
             v_id
@@ -1008,11 +1004,11 @@ async fn update_app(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "apps.update",
         ActionKind::Update,
@@ -1022,8 +1018,7 @@ async fn update_app(
     )
     .await?;
 
-    let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
-        PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Transaction(tx);
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = ns.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
@@ -1138,7 +1133,6 @@ async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<ExecuteApp>,
 ) -> Result<String> {
@@ -1252,7 +1246,7 @@ async fn execute_component(
         }
         _ => unreachable!(),
     };
-    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (uuid, tx) = push(
         &db,

@@ -15,7 +15,6 @@ pub async fn create_user(
     _db: DB,
     _webhook: WebhookShared,
     _argon2: Arc<Argon2<'_>>,
-    _rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut _nu: NewUser,
 ) -> Result<(StatusCode, String)> {
     Err(Error::InternalErr(

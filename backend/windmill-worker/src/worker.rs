@@ -54,8 +54,8 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PulledJob,
-    PushArgs, PushIsolationLevel, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PulledJob, PushArgs,
+    PushIsolationLevel, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -708,7 +708,7 @@ fn add_outstanding_wait_time(
 }
 
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name, hostname = %hostname))]
-pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn run_worker(
     db: &Pool<Postgres>,
     hostname: &str,
     worker_name: String,
@@ -718,7 +718,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: tokio::sync::broadcast::Sender<()>,
     base_internal_url: &str,
-    rsmq: Option<R>,
     agent_mode: bool,
 ) {
     #[cfg(not(feature = "enterprise"))]
@@ -987,7 +986,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         db.clone(),
         worker_dir.clone(),
         same_worker_tx.clone(),
-        rsmq.clone(),
         worker_name.clone(),
         killpill_tx.clone(),
         is_dedicated_worker,
@@ -1038,9 +1036,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     ) = (HashMap::new(), false, vec![]);
 
     if i_worker == 1 {
-        if let Err(e) =
-            queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name, rsmq.clone()).await
-        {
+        if let Err(e) = queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send(()).unwrap_or_default();
             tracing::error!("Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
@@ -1242,7 +1238,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     last_suspend_first = Instant::now();
                 }
 
-                let job = pull(&db, rsmq.clone(), suspend_first).await;
+                let job = pull(&db, suspend_first).await;
 
                 add_time!(bench, "job pulled from DB");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -1480,7 +1476,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         &job_dir,
                         same_worker_tx.clone(),
                         base_internal_url,
-                        rsmq.clone(),
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
                         #[cfg(feature = "benchmark")]
@@ -1499,7 +1494,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                                 false,
                                 same_worker_tx.clone(),
                                 &worker_dir,
-                                rsmq.clone(),
                                 &worker_name,
                                 (&job_completed_tx.0).clone(),
                                 #[cfg(feature = "benchmark")]
@@ -1631,14 +1625,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     tracing::info!("number of jobs executed: {}", jobs_executed);
 }
 
-async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+async fn queue_init_bash_maybe<'c>(
     db: &Pool<Postgres>,
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
-    rsmq: Option<R>,
 ) -> error::Result<bool> {
     if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
-        let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let ehm = HashMap::new();
         let (uuid, inner_tx) = push(
             &db,
@@ -1756,7 +1749,7 @@ pub struct PreviousResult<'a> {
 }
 
 #[tracing::instrument(name = "job", level = "info", skip_all, fields(job_id = %job.id))]
-async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+async fn handle_queued_job(
     job: Arc<QueuedJob>,
     raw_code: Option<String>,
     raw_lock: Option<String>,
@@ -1769,7 +1762,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job_dir: &str,
     same_worker_tx: SameWorkerSender,
     base_internal_url: &str,
-    rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -1840,7 +1832,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         (None, None, None) => sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
             FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &job.id, job.workspace_id
+            &job.id,
+            job.workspace_id
         )
         .fetch_one(db)
         .await
@@ -1948,7 +1941,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             None,
             same_worker_tx,
             worker_dir,
-            rsmq,
             job_completed_tx.0.clone(),
         )
         .await?;
@@ -2005,7 +1997,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
-                    rsmq.clone(),
                     occupancy_metrics,
                 )
                 .await
@@ -2022,7 +2013,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
-                    rsmq.clone(),
                     occupancy_metrics,
                 )
                 .await
@@ -2037,7 +2027,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 worker_dir,
                 base_internal_url,
                 &client.get_token().await,
-                rsmq.clone(),
                 occupancy_metrics,
             )
             .await
@@ -2246,8 +2235,7 @@ async fn handle_code_execution_job(
             };
 
             ContentReqLangEnvs {
-                content: raw_code
-                    .unwrap_or_else(|| "no raw code".to_owned()),
+                content: raw_code.unwrap_or_else(|| "no raw code".to_owned()),
                 lockfile: raw_lock,
                 language: job.language.to_owned(),
                 envs: None,

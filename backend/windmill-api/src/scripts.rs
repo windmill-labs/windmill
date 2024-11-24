@@ -61,7 +61,7 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{schedule::push_scheduled_job, PushIsolationLevel};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -352,7 +352,6 @@ async fn create_snapshot_script() -> Result<(StatusCode, String)> {
 async fn create_snapshot_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -374,7 +373,6 @@ async fn create_snapshot_script(
                 w_id.clone(),
                 authed.clone(),
                 db.clone(),
-                rsmq.clone(),
                 user_db.clone(),
                 webhook.clone(),
             )
@@ -426,13 +424,12 @@ async fn create_snapshot_script(
 async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
-    let (hash, tx) = create_script_internal(ns, w_id, authed, db, rsmq, user_db, webhook).await?;
+    let (hash, tx) = create_script_internal(ns, w_id, authed, db, user_db, webhook).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
@@ -442,13 +439,9 @@ async fn create_script_internal<'c>(
     w_id: String,
     authed: ApiAuthed,
     db: sqlx::Pool<Postgres>,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
     webhook: WebhookShared,
-) -> Result<(
-    ScriptHash,
-    QueueTransaction<'c, rsmq_async::MultiplexedRsmq>,
-)> {
+) -> Result<(ScriptHash, Transaction<'c, Postgres>)> {
     let codebase = ns.codebase.as_ref();
     #[cfg(not(feature = "enterprise"))]
     if ns.ws_error_handler_muted.is_some_and(|val| val) {
@@ -460,13 +453,13 @@ async fn create_script_internal<'c>(
     let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
-    let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?
     .is_some()
     {
@@ -481,7 +474,7 @@ async fn create_script_internal<'c>(
     )
     .bind(&ns.path)
     .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     struct ParentInfo {
         p_hashes: Vec<i64>,
@@ -500,7 +493,7 @@ async fn create_script_internal<'c>(
                 s.hash.0,
                 &w_id
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
             Ok(None)
         }
@@ -510,7 +503,7 @@ async fn create_script_internal<'c>(
                 p_hash.0,
                 &w_id
             )
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?
             .is_none()
             {
@@ -524,7 +517,7 @@ async fn create_script_internal<'c>(
                 p_hash.0,
                 &w_id
             )
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?;
 
             if let Some(clashing_hash) = clashing_hash_o {
@@ -536,7 +529,7 @@ async fn create_script_internal<'c>(
             };
 
             let ScriptWithStarred { script: ps, .. } =
-                get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash, None).await?;
+                get_script_by_hash_internal(&mut tx, &w_id, p_hash, None).await?;
 
             if ps.path != ns.path {
                 require_owner_of_path(&authed, &ps.path)?;
@@ -571,7 +564,7 @@ async fn create_script_internal<'c>(
                 p_hash.0,
                 &w_id
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
             r
         }
@@ -655,7 +648,7 @@ async fn create_script_internal<'c>(
         codebase,
         ns.has_preprocessor,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
@@ -664,7 +657,7 @@ async fn create_script_internal<'c>(
             p_path,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
         let mut schedulables = sqlx::query_as::<_, Schedule>(
@@ -672,7 +665,7 @@ async fn create_script_internal<'c>(
             .bind(&ns.path)
             .bind(&p_path)
             .bind(&w_id)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
 
         let schedule = sqlx::query_as::<_, Schedule>(
@@ -680,7 +673,7 @@ async fn create_script_internal<'c>(
             .bind(&ns.path)
             .bind(&p_path)
             .bind(&w_id)
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         if let Some(schedule) = schedule {
@@ -688,7 +681,7 @@ async fn create_script_internal<'c>(
         }
 
         for schedule in schedulables {
-            clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
+            clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(&db, tx, &schedule, None).await?;
@@ -700,12 +693,12 @@ async fn create_script_internal<'c>(
             ns.path,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &authed,
             "scripts.update",
             ActionKind::Update,
@@ -724,7 +717,7 @@ async fn create_script_internal<'c>(
         );
     } else {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &authed,
             "scripts.create",
             ActionKind::Create,
@@ -811,7 +804,6 @@ async fn create_script_internal<'c>(
                 parent_path: p_path_opt,
             },
             ns.deployment_message,
-            rsmq,
             false,
         )
         .await?;
@@ -956,7 +948,6 @@ async fn get_latest_version(
 ) -> JsonResult<Option<ScriptHistory>> {
     let mut tx = user_db.begin(&authed).await?;
     let row_o = sqlx::query!(
-
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
@@ -964,7 +955,6 @@ async fn get_latest_version(
         w_id,
         path.to_path(),
     )
-
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -978,7 +968,6 @@ async fn get_latest_version(
     } else {
         return Ok(Json(None));
     }
-
 }
 
 async fn update_script_history(
@@ -1295,7 +1284,6 @@ async fn archive_script_by_path(
     Extension(webhook): Extension<WebhookShared>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
     let path = path.to_path();
@@ -1334,7 +1322,6 @@ async fn archive_script_by_path(
             parent_path: Some(path.to_string()),
         },
         Some(format!("Script '{}' archived", path)),
-        rsmq,
         true,
     )
     .await?;
@@ -1428,7 +1415,6 @@ async fn delete_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
     let path = path.to_path();
@@ -1493,7 +1479,6 @@ async fn delete_script_by_path(
             parent_path: Some(path.to_string()),
         },
         Some(format!("Script '{}' deleted", path)),
-        rsmq,
         true,
     )
     .await?;

@@ -7,7 +7,6 @@ pub fn workspaced_service() -> Router {
 
 pub async fn start_kafka_consumers(
     _db: DB,
-    _rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
     // implementation is not open source
