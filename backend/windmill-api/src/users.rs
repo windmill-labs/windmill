@@ -3016,6 +3016,15 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         "DELETE FROM flow WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
         old_username,
         w_id

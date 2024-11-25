@@ -63,7 +63,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
-    flows::{add_virtual_items_if_necessary, FlowValue},
+    flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
@@ -593,7 +593,7 @@ async fn get_flow_job_debug_info(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job = get_queued_job_ex(&db, &w_id, id, false, None).await?;
+    let job = GetQuery::new().fetch_queued(&db, id, &w_id).await?;
     if let Some(job) = job {
         let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
@@ -630,7 +630,7 @@ async fn get_flow_job_debug_info(
             }
         }
         for job_id in job_ids {
-            let job = get_job_internal(&db, w_id.as_str(), job_id, false, Some(&opt_authed)).await;
+            let job = GetQuery::new().with_auth(&opt_authed).fetch(&db, job_id, &w_id).await;
             if let Ok(job) = job {
                 jobs.insert(job.id().to_string(), job);
             }
@@ -658,14 +658,11 @@ async fn get_job(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetJobQuery { no_logs }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
-    let mut job = get_job_internal(
-        &db,
-        w_id.as_str(),
-        id,
-        no_logs.unwrap_or(false),
-        Some(&opt_authed),
-    )
-    .await?;
+    let mut get = GetQuery::new().with_auth(&opt_authed);
+    if no_logs.unwrap_or(false) {
+        get = get.without_logs();
+    }
+    let mut job = get.fetch(&db, id, &w_id).await?;
     job.fetch_outstanding_wait_time(&db).await?;
 
     log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
@@ -673,136 +670,154 @@ async fn get_job(
     Ok(Json(job).into_response())
 }
 
-lazy_static::lazy_static! {
-    static ref GET_COMPLETED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "completed_job_view");
-    static ref GET_COMPLETED_JOB_QUERY: String = generate_get_job_query(false, "completed_job_view");
-    static ref GET_QUEUED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "queue_view");
-    static ref GET_QUEUED_JOB_QUERY: String = generate_get_job_query(false, "queue_view");
-}
-fn generate_get_job_query(no_logs: bool, table: &str) -> String {
-    let log_expr = if no_logs {
-        "null".to_string()
-    } else {
-        format!("right({table}.logs, 20000)")
+macro_rules! get_job_query {
+    ("completed_job_view", $($opts:tt)*) => {
+        get_job_query!(
+            @impl "completed_job_view", ($($opts)*),
+            "duration_ms, success, result, deleted, is_skipped, result->'wm_labels' as labels, \
+            CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
+        )
     };
-    let additional_fields = if table == "completed_job_view" {
-        "duration_ms,      
-        success,        
-        result,    
-        deleted,    
-        is_skipped,
-        result->'wm_labels' as labels,
-        CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result"
-    } else {
-        "scheduled_for,  
-        running,       
-        last_ping,        
-        suspend,     
-        suspend_until,
-        same_worker,
-        pre_run_error,           
-        visible_to_owner,          
-        root_job,         
-        leaf_jobs,        
-        tag,       
-        concurrent_limit,      
-        concurrency_time_window_s, 
-        timeout,
-        flow_step_id,
-        cache_ttl
-        "
+    ("queue_view", $($opts:tt)*) => {
+        get_job_query!(
+            @impl "queue_view", ($($opts)*),
+            "scheduled_for, running, last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
+            root_job, leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl",
+        )
     };
-    return format!("SELECT 
-    id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, 
-    CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, 
-    {log_expr} as logs, raw_code, canceled, canceled_by, canceled_reason, job_kind,
-    schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
-    raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields}
-    FROM {table}
-    WHERE id = $1 AND {table}.workspace_id = $2");
-}
-pub async fn get_queued_job_ex(
-    db: &DB,
-    workspace_id: &str,
-    job_id: Uuid,
-    no_logs: bool,
-    // first optional is if authed need to be checked, second is the opt_authed itself
-    opt_authed: Option<&Option<ApiAuthed>>,
-) -> error::Result<Option<JobExtended<QueuedJob>>> {
-    let query = if no_logs {
-        &*GET_QUEUED_JOB_QUERY_NO_LOGS
-    } else {
-        &*GET_QUEUED_JOB_QUERY
-    };
-    let job = sqlx::query_as::<_, JobExtended<QueuedJob>>(query)
-        .bind(job_id)
-        .bind(workspace_id)
-        .fetch_optional(db)
-        .await?;
-
-    if let Some(job) = job.as_ref() {
-        if opt_authed.is_some_and(|x| x.is_none()) && job.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
+    (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+        if $with_logs {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, logs = const_format::formatcp!("right({}.logs, 20000)", $table), $($args)*)
+        } else {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, logs = "null", $($args)*)
         }
-    }
-
-    Ok(job)
-}
-pub async fn get_completed_job_ex(
-    db: &DB,
-    workspace_id: &str,
-    job_id: Uuid,
-    no_logs: bool,
-    // first optional is if authed need to be checked, second is the opt_authed itself
-    opt_authed: Option<&Option<ApiAuthed>>,
-) -> error::Result<Option<JobExtended<CompletedJob>>> {
-    let query = if no_logs {
-        &*GET_COMPLETED_JOB_QUERY_NO_LOGS
-    } else {
-        &*GET_COMPLETED_JOB_QUERY
     };
-    let cjob = sqlx::query_as::<_, JobExtended<CompletedJob>>(query)
-        .bind(job_id)
-        .bind(workspace_id)
-        .fetch_optional(db)
-        .await?;
-
-    if let Some(job) = cjob.as_ref() {
-        if opt_authed.is_some_and(|x| x.is_none()) && job.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
+    (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+        if $with_code {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, lock = "raw_lock", code = "raw_code", $($args)*)
+        } else {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, lock = "null", code = "null", $($args)*)
         }
+    };
+    (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+        if $with_flow {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, flow = "raw_flow", $($args)*)
+        } else {
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, flow = "null", $($args)*)
+        }
+    };
+    (@impl $table:literal, (), $additional_fields:literal, $($args:tt)*) => {
+        const_format::formatcp!(
+            "SELECT \
+            id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, \
+            CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
+            {logs} as logs, {code} as raw_code, canceled, canceled_by, canceled_reason, job_kind, \
+            schedule_path, permissioned_as, flow_status, {flow} as raw_flow, is_flow_step, language, \
+            {lock} as raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields} \
+            FROM {table} \
+            WHERE id = $1 AND {table}.workspace_id = $2 LIMIT 1",
+            table = $table,
+            additional_fields = $additional_fields,
+            $($args)*
+        )
     }
-
-    if let Some(mut cjob) = cjob {
-        cjob.inner = format_completed_job_result(cjob.inner);
-        return Ok(Some(cjob));
-    }
-
-    Ok(cjob)
 }
-pub async fn get_job_internal(
-    db: &DB,
-    workspace_id: &str,
-    job_id: Uuid,
-    no_logs: bool,
-    // first optional is if authed need to be checked, second is the opt_authed itself
-    opt_authed: Option<&Option<ApiAuthed>>,
-) -> error::Result<Job> {
-    let cjob = get_completed_job_ex(db, workspace_id, job_id, no_logs, opt_authed.clone())
-        .await?
-        .map(Job::CompletedJob);
 
-    match cjob {
-        Some(cjob) => Ok(cjob),
-        None => {
-            let job_maybe = get_queued_job_ex(db, workspace_id, job_id, no_logs, opt_authed)
-                .await?
-                .map(Job::QueuedJob);
-            not_found_if_none(job_maybe, "Job", job_id.to_string())
+#[derive(Copy, Clone)]
+struct GetQuery<'a> {
+    with_logs: bool,
+    with_code: bool,
+    with_flow: bool,
+    with_auth: Option<&'a Option<ApiAuthed>>,
+}
+
+impl<'a> GetQuery<'a> {
+    fn new() -> Self {
+        Self { with_logs: true, with_code: true, with_flow: true, with_auth: None }
+    }
+
+    fn without_logs(self) -> Self {
+        Self { with_logs: false, ..self }
+    }
+
+    fn without_code(self) -> Self {
+        Self { with_code: false, ..self }
+    }
+
+    fn without_flow(self) -> Self {
+        Self { with_flow: false, ..self }
+    }
+
+    fn with_auth(self, auth: &'a Option<ApiAuthed>) -> Self {
+        Self { with_auth: Some(auth), ..self }
+    }
+
+    fn check_auth(self, email: Option<&str>) -> error::Result<()> {
+        if let Some(email) = email {
+            if self.with_auth.is_some_and(|x| x.is_none()) && email != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    async fn fetch_queued(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Option<JobExtended<QueuedJob>>> {
+        let query = get_job_query!("queue_view",
+            with_logs: self.with_logs,
+            with_code: self.with_code,
+            with_flow: self.with_flow,
+        );
+        let mut job = sqlx::query_as::<_, JobExtended<QueuedJob>>(query)
+            .bind(job_id)
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?;
+
+        self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
+        if self.with_flow {
+            job = resolve_maybe_value(db, workspace_id, self.with_code, job, |job| job.raw_flow.as_mut()).await?;
+        }
+        Ok(job)
+    }
+
+    async fn fetch_completed(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Option<JobExtended<CompletedJob>>> {
+        let query = get_job_query!("completed_job_view",
+            with_logs: self.with_logs,
+            with_code: self.with_code,
+            with_flow: self.with_flow,
+        );
+        let mut cjob = sqlx::query_as::<_, JobExtended<CompletedJob>>(query)
+            .bind(job_id)
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?;
+
+        self.check_auth(cjob.as_ref().map(|job| job.created_by.as_str()))?;
+        if self.with_flow {
+            cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| job.raw_flow.as_mut()).await?;
+        }
+        if let Some(mut cjob) = cjob {
+            cjob.inner = format_completed_job_result(cjob.inner);
+            return Ok(Some(cjob));
+        }
+        Ok(cjob)
+    }
+
+    async fn fetch(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Job> {
+        let cjob = self.fetch_completed(db, job_id, workspace_id)
+            .await?
+            .map(Job::CompletedJob);
+
+        match cjob {
+            Some(cjob) => Ok(cjob),
+            None => {
+                let job_maybe = self.fetch_queued(db, job_id, workspace_id)
+                    .await?
+                    .map(Job::QueuedJob);
+                not_found_if_none(job_maybe, "Job", job_id.to_string())
+            }
         }
     }
 }
@@ -1787,8 +1802,12 @@ async fn resume_suspended_job_internal(
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
     let parent_flow_info = get_suspended_parent_flow_info(job_id, &db).await?;
-    let parent_flow =
-        get_job_internal(&db, w_id.as_str(), parent_flow_info.id, false, None).await?;
+    let parent_flow = GetQuery::new()
+        .without_logs()
+        .without_code()
+        .without_flow()
+        .fetch(&db, parent_flow_info.id, &w_id)
+        .await?;
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
@@ -2056,7 +2075,11 @@ pub async fn get_suspended_job_flow(
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
-    let flow = get_job_internal(&db, w_id.as_str(), flow_id, true, None).await?;
+    let flow = GetQuery::new()
+        .without_logs()
+        .without_code()
+        .fetch(&db, flow_id, &w_id)
+        .await?;
 
     let flow_status = flow
         .flow_status()
@@ -3130,7 +3153,7 @@ pub async fn run_workflow_as_code(
         i += 1;
     }
 
-    let job = get_queued_job_ex(&db, &w_id, job_id, true, None).await?;
+    let job = GetQuery::new().without_logs().fetch_queued(&db, job_id, &w_id).await?;
 
     if *CLOUD_HOSTED {
         tracing::info!("workflow_as_code_tracing id {i} ");
@@ -4415,10 +4438,12 @@ async fn add_batch_jobs(
                 (value, JobKind::FlowPreview, None)
             } else if let Some(path) = batch_info.path {
                 let value_json = sqlx::query!(
-                    "SELECT flow_version.value AS \"value: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                    "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
                     LEFT JOIN flow_version
                         ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    WHERE flow.path = $1 AND flow.workspace_id = $2",
+                    LEFT JOIN flow_version_lite 
+                        ON flow_version_lite.id = flow_version.id
+                    WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
                     &path, &w_id
                 )
                 .fetch_optional(&db)
@@ -5103,7 +5128,7 @@ async fn get_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job_o = get_completed_job_ex(&db, &w_id, id, false, Some(&opt_authed)).await?;
+    let job_o = GetQuery::new().with_auth(&opt_authed).fetch_completed(&db, id, &w_id).await?;
 
     let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     let response = Json(cj).into_response();

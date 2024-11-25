@@ -2882,6 +2882,14 @@ async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "UPDATE flow_node SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &old_id)
         .execute(&mut *tx)
         .await?;

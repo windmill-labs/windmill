@@ -10485,6 +10485,7 @@ dependencies = [
  "candle-transformers",
  "chrono",
  "chrono-tz 0.10.0",
+ "const_format",
  "cookie 0.17.0",
  "cron",
  "datafusion",

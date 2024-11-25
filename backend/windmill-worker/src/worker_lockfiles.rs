@@ -8,7 +8,7 @@ use sqlx::types::Json;
 use uuid::Uuid;
 use windmill_common::error::Error;
 use windmill_common::error::Result;
-use windmill_common::flows::{FlowModule, FlowModuleValue};
+use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
@@ -606,7 +606,9 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
     )
     .await?;
-    let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
+    let new_flow_value = sqlx::types::Json(
+        serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?
+    );
 
     // Re-check cancelation to ensure we don't accidentially override a flow.
     if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
@@ -630,7 +632,7 @@ pub async fn handle_flow_dependency_job(
 
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-            new_flow_value,
+            &new_flow_value as &sqlx::types::Json<Box<RawValue>>,
             job_path,
             job.workspace_id
         )
@@ -638,8 +640,19 @@ pub async fn handle_flow_dependency_job(
         .await?;
         sqlx::query!(
             "UPDATE flow_version SET value = $1 WHERE id = $2",
-            new_flow_value,
+            &new_flow_value as &sqlx::types::Json<Box<RawValue>>,
             version
+        )
+        .execute(db)
+        .await?;
+
+        // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
+        let mut value_lite = flow.clone();
+        tx = reduce(tx, &mut value_lite.modules, &job_path, &job.workspace_id).await?;
+        sqlx::query!(
+            "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
+             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+            version, sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
         )
         .execute(db)
         .await?;
@@ -913,7 +926,7 @@ async fn lock_modules<'c>(
         )
         .await;
         //
-        match new_lock {
+        let lock = match new_lock {
             Ok(new_lock) => {
                 let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
                 tx = clear_dependency_map_for_item(
@@ -954,20 +967,7 @@ async fn lock_modules<'c>(
                         language = ScriptLang::Bun;
                     };
                 }
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: Some(new_lock),
-                    path,
-                    input_transforms,
-                    content,
-                    language,
-                    tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    is_trigger,
-                });
-                new_flow_modules.push(e);
-                continue;
+                Some(new_lock)
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
@@ -977,24 +977,123 @@ async fn lock_modules<'c>(
                     error = ?error,
                     "Failed to generate flow lock for raw script"
                 );
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: None,
-                    path,
-                    input_transforms,
+                None
+            }
+        };
+        e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
+            lock,
+            path,
+            input_transforms,
+            content,
+            language,
+            tag,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            is_trigger,
+        });
+        new_flow_modules.push(e);
+        continue;
+    }
+    Ok((new_flow_modules, tx, modified_ids))
+}
+
+async fn insert_flow_node<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    path: &str,
+    workspace_id: &str,
+    code: Option<&String>,
+    lock: Option<&String>,
+    flow: Option<&Json<Box<RawValue>>>,
+) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
+    let hash = {
+        use std::hash::{DefaultHasher, Hasher, Hash};
+    
+        let mut hasher = DefaultHasher::new();
+        code.hash(&mut hasher);
+        lock.hash(&mut hasher);
+        flow.inspect(|flow| flow.get().hash(&mut hasher));
+        hasher.finish() as i64
+    };
+
+    // Insert the flow node if it doesn't exist.
+    let id = sqlx::query_scalar!(
+        r#"
+        WITH existing AS (
+            SELECT id FROM flow_node
+            WHERE hash = $1 AND path = $2 AND workspace_id = $3 AND code = $4 AND lock = $5 AND flow = $6
+            LIMIT 1
+        ),
+        inserted AS (
+            INSERT INTO flow_node (hash, path, workspace_id, code, lock, flow)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+        )
+        SELECT id FROM existing
+        UNION ALL
+        SELECT id FROM inserted
+        "#,
+        hash, path, workspace_id, code, lock, flow as Option<&Json<Box<RawValue>>>
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .ok_or(error::Error::InternalErr("Failed to cache".to_string()))?;
+    Ok((tx, FlowNodeId(id)))
+}
+
+async fn reduce<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    modules: &mut Vec<FlowModule>,
+    path: &str,
+    workspace_id: &str,
+) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    use FlowModuleValue::*;
+    for module in &mut *modules {
+        let mut val = serde_json::from_str::<FlowModuleValue>(module.value.get())
+            .map_err(|err| Error::InternalErr(format!("reduce: Failed to parse flow module value: {}", err)))?;
+        match &mut val {
+            RawScript { .. } => {
+                // In order to avoid an unnecessary `.clone()` of `val`, take ownership of it's content
+                // using `std::mem::replace`.
+                let RawScript {
+                    lock,
                     content,
                     language,
+                    input_transforms,
                     tag,
                     custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
-                });
-                new_flow_modules.push(e);
-                continue;
+                    ..
+                } = std::mem::replace(&mut val, Identity) else { unreachable!() };
+                let id;
+                (tx, id) = insert_flow_node(tx, path, workspace_id, Some(&content), lock.as_ref(), None).await?;
+                val = FlowScript {
+                    input_transforms,
+                    id,
+                    tag,
+                    language,
+                    custom_concurrency_key,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    is_trigger,
+                };
+            },
+            ForloopFlow { modules, .. } | WhileloopFlow { modules, .. }  => {
+                tx = Box::pin(reduce(tx, &mut *modules, path, workspace_id)).await?;
             }
+            BranchOne { branches, .. } | BranchAll { branches, .. } => {
+                for branch in &mut *branches {
+                    tx = Box::pin(reduce(tx, &mut branch.modules, path, workspace_id)).await?;
+                }
+            }
+            _ => {}
         }
+        module.value = to_raw_value(&val);
     }
-    Ok((new_flow_modules, tx, modified_ids))
+    Ok(tx)
 }
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {

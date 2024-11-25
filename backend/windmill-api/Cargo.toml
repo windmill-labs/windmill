@@ -97,6 +97,7 @@ jsonwebtoken = { workspace = true }
 matchit.workspace = true
 tokio-tungstenite.workspace = true
 rdkafka = { workspace = true, optional = true }
+const_format.workspace = true
 
 pin-project.workspace = true
 http.workspace = true
