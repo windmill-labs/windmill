@@ -54,10 +54,13 @@ use windmill_common::{
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     scripts::{Schema, Script, ScriptLang},
-    utils::{paginate, rd_string, require_admin, require_admin_or_devops, Pagination},
+    utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
 };
 use windmill_git_sync::handle_deployment_metadata;
+
+#[cfg(feature = "enterprise")]
+use windmill_common::utils::require_admin_or_devops;
 
 use crate::oauth2_ee::InstanceEvent;
 use crate::variables::{decrypt, encrypt};
@@ -121,8 +124,14 @@ pub fn workspaced_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
-        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
-        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts))
+        .route(
+            "/critical_alerts/:id/acknowledge",
+            post(acknowledge_critical_alert),
+        )
+        .route(
+            "/critical_alerts/acknowledge_all",
+            post(acknowledge_all_critical_alerts),
+        )
         .route("/critical_alerts/mute", post(mute_critical_alerts));
 
     #[cfg(feature = "stripe")]
@@ -494,7 +503,6 @@ async fn edit_slack_command(
 async fn run_slack_message_test_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
@@ -511,7 +519,6 @@ async fn run_slack_message_test_job(
 
     let uuid = windmill_queue::push_error_handler(
         &db,
-        rsmq,
         Uuid::parse_str("00000000-0000-0000-0000-000000000000")?,
         None,
         Some("slack_message_test".to_string()),
@@ -591,11 +598,10 @@ async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResul
 async fn edit_auto_invite(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
-    crate::workspaces_ee::edit_auto_invite(authed, db, rsmq, w_id, ea).await
+    crate::workspaces_ee::edit_auto_invite(authed, db, w_id, ea).await
 }
 
 async fn edit_webhook(
@@ -1460,7 +1466,7 @@ async fn create_workspace(
     //     nw.id,
     //     "finland does not actually exist",
     // )
-    // .execute(&mut tx)
+    // .execute(&mut *tx)
     // .await?;
 
     let automate_username_creation = sqlx::query_scalar!(
@@ -1878,7 +1884,6 @@ async fn add_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
@@ -1985,7 +1990,6 @@ async fn add_user(
         &w_id,
         windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
         Some(format!("Added user '{}' to workspace", &nu.email)),
-        rsmq,
         true,
     )
     .await?;
@@ -2945,6 +2949,14 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
+        "UPDATE job SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
         "UPDATE raw_app SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -3132,7 +3144,6 @@ pub async fn acknowledge_all_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
 }
 
-
 #[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 pub struct MuteCriticalAlertRequest {
@@ -3167,7 +3178,10 @@ async fn mute_critical_alerts(
     .execute(&db)
     .await?;
 
-    Ok(format!("Updated mute criticital alert ui settings for workspace: {}", &w_id))
+    Ok(format!(
+        "Updated mute criticital alert ui settings for workspace: {}",
+        &w_id
+    ))
 }
 
 #[cfg(not(feature = "enterprise"))]
