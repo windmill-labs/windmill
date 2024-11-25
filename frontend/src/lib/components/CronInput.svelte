@@ -214,6 +214,7 @@
 				<a
 					class="text-tertiary hover:underline"
 					target="_blank"
+					rel="noopener noreferrer"
 					href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax">Croner</a
 				>
 			</div>
