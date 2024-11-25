@@ -22,7 +22,7 @@
 		"@playwright/test": "^1.34.3",
 		"@rgossiaux/svelte-headlessui": "^2.0.0",
 		"@sveltejs/adapter-static": "^3.0.0",
-		"@sveltejs/kit": "^2.0.0",
+		"@sveltejs/kit": "^2.8.3",
 		"@sveltejs/package": "^2.2.2",
 		"@sveltejs/vite-plugin-svelte": "^3.0.0",
 		"@tailwindcss/forms": "^0.5.3",
