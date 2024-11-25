@@ -74,9 +74,6 @@ use windmill_common::BASE_URL;
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::worker::CLOUD_HOSTED;
-
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 
 #[cfg(feature = "prometheus")]
