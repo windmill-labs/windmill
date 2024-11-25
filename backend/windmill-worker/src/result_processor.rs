@@ -186,8 +186,18 @@ async fn send_job_completed(
     success: bool,
     cached_res_path: Option<String>,
     token: String,
+    duration: Option<i64>,
 ) {
-    let jc = JobCompleted { job, result, mem_peak, canceled_by, success, cached_res_path, token };
+    let jc = JobCompleted {
+        job,
+        result,
+        mem_peak,
+        canceled_by,
+        success,
+        cached_res_path,
+        token,
+        duration,
+    };
     job_completed_tx.send(jc).await.expect("send job completed")
 }
 
@@ -203,6 +213,7 @@ pub async fn process_result(
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
+    duration: Option<i64>,
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
@@ -257,6 +268,7 @@ pub async fn process_result(
                 true,
                 cached_res_path,
                 token,
+                duration,
             )
             .await;
             Ok(true)
@@ -300,6 +312,7 @@ pub async fn process_result(
                 false,
                 cached_res_path,
                 token,
+                duration,
             )
             .await;
             Ok(false)
@@ -362,7 +375,7 @@ pub async fn handle_receive_completed_job(
 
 #[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
+    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, duration, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -391,8 +404,7 @@ pub async fn process_completed_job(
             mem_peak.to_owned(),
             canceled_by,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            duration,
         )
         .await?;
         drop(job);
@@ -434,8 +446,7 @@ pub async fn process_completed_job(
             ),
             worker_name,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            None,
         )
         .await?;
         if job.is_flow_step {
@@ -501,8 +512,7 @@ pub async fn handle_job_error(
             err.clone(),
             worker_name,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            None,
         )
         .await
     };
@@ -562,8 +572,7 @@ pub async fn handle_job_error(
                         e,
                         worker_name,
                         false,
-                        #[cfg(feature = "benchmark")]
-                        bench,
+                        None,
                     )
                     .await;
                 }
