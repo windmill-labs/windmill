@@ -107,6 +107,9 @@ use crate::{
     },
 };
 
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
+
 #[cfg(feature = "enterprise")]
 use crate::dedicated_worker::create_dedicated_worker_map;
 
@@ -1107,7 +1110,7 @@ pub async fn run_worker(
             let (occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m) =
                 occupancy_metrics.update_occupancy_metrics();
 
-            if let Err(e) = sqlx::query!(
+            if let Err(e) = (|| sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
                  occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
                  memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
@@ -1122,7 +1125,19 @@ pub async fn run_worker(
                 occupancy_rate_15s,
                 occupancy_rate_5m,
                 occupancy_rate_30m
-            ).execute(db).await {
+            ).execute(db)).retry(
+                ConstantBuilder::default()
+                    .with_delay(std::time::Duration::from_secs(2))
+                    .with_max_times(10)
+                    .build(),
+            )
+            .notify(|err, dur| {
+                tracing::error!(
+                    "retrying updating worker ping in {dur:#?}, err: {err:#?}"
+                );
+            })
+            .sleep(tokio::time::sleep)
+            .await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
@@ -1349,6 +1364,7 @@ pub async fn run_worker(
                             cached_res_path: None,
                             token: "".to_string(),
                             canceled_by: None,
+                            duration: None,
                         })
                         .await
                         .expect("send job completed END");
@@ -1704,6 +1720,7 @@ pub struct JobCompleted {
     pub cached_res_path: Option<String>,
     pub token: String,
     pub canceled_by: Option<CanceledBy>,
+    pub duration: Option<i64>,
 }
 
 async fn do_nativets(
@@ -1828,6 +1845,7 @@ async fn handle_queued_job(
         None
     };
 
+    let started = Instant::now();
     let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
         (None, None, None) => sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
@@ -1922,6 +1940,7 @@ async fn handle_queued_job(
                     success: true,
                     cached_res_path: None,
                     token: authed_client.token,
+                    duration: None,
                 })
                 .await
                 .expect("send job completed");
@@ -2087,6 +2106,7 @@ async fn handle_queued_job(
             column_order,
             new_args,
             db,
+            Some(started.elapsed().as_millis() as i64),
         )
         .await
     }
