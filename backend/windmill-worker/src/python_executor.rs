@@ -364,26 +364,6 @@ pub async fn uv_pip_compile(
     Ok(lockfile)
 }
 
-fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Result<()> {
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() {
-            copy_dir_recursively(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-        }
-    }
-
-    Ok(())
-}
-
 /**
     Iterate overall all python paths and if same folder has same name multiple times,
     then merge the content and put to <job_dir>/site-packages
@@ -419,42 +399,70 @@ async fn postinstall(
     let mut lookup_table: HashMap<String, Vec<String>> = HashMap::new();
 
     for path in additional_python_paths.iter() {
-        for entry in fs::read_dir(&path).unwrap() {
-            let entry = entry.unwrap();
-
-            // TODO: Iterate only over windmill/cache
+        for entry in fs::read_dir(&path)? {
+            let entry = entry?;
             // Ignore all files, we only need directories.
-            // We can not merge files
-            if entry.file_type().unwrap().is_dir() {
-                let name = entry.file_name().to_str().unwrap().to_owned();
+            // We cannot merge files.
+            if entry.file_type()?.is_dir() {
+                let name = entry
+                    .file_name()
+                    .to_str()
+                    .ok_or(anyhow::anyhow!("Cannot convert OsString to String"))?
+                    .to_owned();
 
                 if !name.contains("dist-info") && name != "bin" {
                     if let Some(existing_paths) = lookup_table.get_mut(&name) {
-                        println!("Found existing name: {:?}\n in {}", entry.file_name(), path);
+                        tracing::info!(
+                            "Found existing package name: {:?} in {}",
+                            entry.file_name(),
+                            path
+                        );
                         existing_paths.push(path.to_owned())
                     } else {
                         lookup_table.insert(name, vec![path.to_owned()]);
                     }
                 }
-                // .or_else(|| tracing::error!("Can't convert name"));
             }
         }
     }
 
     let mut paths_to_remove: HashSet<String> = HashSet::new();
+
+    // Copy to shared dir
     for existing_paths in lookup_table.values() {
         for path in existing_paths {
             copy_dir_recursively(
                 Path::new(path),
                 Path::new(&format!("{}/site-packages", job_dir)),
             )?;
-
             paths_to_remove.insert(path.to_owned());
         }
     }
 
+    // Remove PATHs we dont need
     additional_python_paths.retain(|e| !paths_to_remove.contains(e));
+    // Instead add shared path
     additional_python_paths.insert(0, format!("{}/site-packages", job_dir));
+    Ok(())
+}
+
+fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir_recursively(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+
     Ok(())
 }
 
