@@ -53,7 +53,6 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
 			}
 			collection = nc
-			console.log('collection', collection)
 			if (expressOAuthSetup && nc.length > 0) {
 				value = nc[0].value
 				valueSelect = nc[0]
