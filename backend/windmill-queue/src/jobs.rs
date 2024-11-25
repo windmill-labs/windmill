@@ -59,7 +59,8 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
         to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-        MIN_VERSION_IS_AT_LEAST_1_427, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_431,
+        NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -3481,18 +3482,32 @@ pub async fn push<'c, 'd>(
             )
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
-            let value_json = fetch_scalar_isolated!(
-                sqlx::query_scalar!(
-                    "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
-                    LEFT JOIN flow_version
-                        ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    LEFT JOIN flow_version_lite 
-                        ON flow_version_lite.id = flow_version.id
-                    WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
-                    &path, &workspace_id
-                ),
-                tx
-            )?
+            // Do not use the lite version unless all workers are updated.
+            let value_json = if !*MIN_VERSION_IS_AT_LEAST_1_431.read().await {
+                fetch_scalar_isolated!(
+                    sqlx::query_scalar!(
+                        "SELECT flow_version.value as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                        LEFT JOIN flow_version
+                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                        WHERE flow.path = $1 AND flow.workspace_id = $2",
+                        &path, &workspace_id
+                    ),
+                    tx
+                )
+            } else {
+                fetch_scalar_isolated!(
+                    sqlx::query_scalar!(
+                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                        LEFT JOIN flow_version
+                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                        LEFT JOIN flow_version_lite 
+                            ON flow_version_lite.id = flow_version.id
+                        WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
+                        &path, &workspace_id
+                    ),
+                    tx
+                )
+            }?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
             let mut value =
                 serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
