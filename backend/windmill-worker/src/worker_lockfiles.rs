@@ -1050,9 +1050,12 @@ async fn reduce<'c>(
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
-        let Ok(mut val) = serde_json::from_str::<FlowModuleValue>(module.value.get()) else { continue };
+        let mut val = serde_json::from_str::<FlowModuleValue>(module.value.get())
+            .map_err(|err| Error::InternalErr(format!("reduce: Failed to parse flow module value: {}", err)))?;
         match &mut val {
             RawScript { .. } => {
+                // In order to avoid an unnecessary `.clone()` of `val`, take ownership of it's content
+                // using `std::mem::replace`.
                 let RawScript {
                     lock,
                     content,

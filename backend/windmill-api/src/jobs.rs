@@ -777,7 +777,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
         if self.with_flow {
-            job = resolve_maybe_value(db, workspace_id, self.with_code, job, |job| job.raw_flow.as_mut()).await;
+            job = resolve_maybe_value(db, workspace_id, self.with_code, job, |job| job.raw_flow.as_mut()).await?;
         }
         Ok(job)
     }
@@ -796,7 +796,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(cjob.as_ref().map(|job| job.created_by.as_str()))?;
         if self.with_flow {
-            cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| job.raw_flow.as_mut()).await;
+            cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| job.raw_flow.as_mut()).await?;
         }
         if let Some(mut cjob) = cjob {
             cjob.inner = format_completed_job_result(cjob.inner);
