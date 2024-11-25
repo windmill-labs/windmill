@@ -592,9 +592,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
         tracing::info!("Minimal worker version: {min_version}");
     }
 
-    if min_version >= Version::new(1, 427, 0) {
-        *MIN_VERSION_IS_AT_LEAST_1_427.write().await = true;
-    }
+    *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
 
     *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version
