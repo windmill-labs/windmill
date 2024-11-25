@@ -39,7 +39,6 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
 use windmill_common::{
-    add_time,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
