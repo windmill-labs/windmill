@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.430.2](https://github.com/windmill-labs/windmill/compare/v1.430.1...v1.430.2) (2024-11-25)
+
+
+### Bug Fixes
+
+* rename `job` workspace as well ([#4785](https://github.com/windmill-labs/windmill/issues/4785)) ([29faefe](https://github.com/windmill-labs/windmill/commit/29faefe856041b29c58dbeef862320a13abcf8a8))
+* retry on inserting completed job ([#4784](https://github.com/windmill-labs/windmill/issues/4784)) ([6768e5b](https://github.com/windmill-labs/windmill/commit/6768e5bbbd207fd21da2d63e43138a3a0488c0c4))
+* retry on pushing next scheduled job of schedule ([278f593](https://github.com/windmill-labs/windmill/commit/278f5933587102f244047d4d6f54defe6d6066eb))
+
 ## [1.430.1](https://github.com/windmill-labs/windmill/compare/v1.430.0...v1.430.1) (2024-11-23)
 
 
