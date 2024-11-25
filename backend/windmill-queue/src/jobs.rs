@@ -58,8 +58,8 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
-        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_431,
+        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, DISABLE_FLOW_SCRIPT,
+        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
         NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
@@ -3483,7 +3483,7 @@ pub async fn push<'c, 'd>(
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
             // Do not use the lite version unless all workers are updated.
-            let value_json = if !*MIN_VERSION_IS_AT_LEAST_1_431.read().await {
+            let value_json = if *DISABLE_FLOW_SCRIPT || !*MIN_VERSION_IS_AT_LEAST_1_432.read().await {
                 fetch_scalar_isolated!(
                     sqlx::query_scalar!(
                         "SELECT flow_version.value as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
