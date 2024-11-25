@@ -309,21 +309,18 @@
 		debounceTimeout && clearTimeout(debounceTimeout)
 		debounceTimeout = setTimeout(async () => {
 			if (allLogs) {
-				const hostnames: string[] = []
-				Object.entries(allLogs).forEach(([mode, wgs]) => {
-					Object.entries(wgs).forEach(([wg, keys]) => {
-						Object.entries(keys).forEach(([key, _log_files]) => {
-							hostnames.push(`${mode},${wg},${key}`)
-						})
-					})
-				})
 				const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
 					searchQuery: searchTerm,
-					hosts: hostnames.join(','),
 					minTs,
 					maxTs
 				})
-				countsPerHost = countLogsResponse.count_per_host
+				const buckets = (countLogsResponse.count_per_host as any)['count_per_host']['buckets']
+				countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]));
+				countsPerHost = buckets.reduce((acc: any, { key, doc_count }) => {
+					  acc[key] = {doc_count};
+					  return acc;
+					}, {} as Record<string, number>)
+				console.log(countsPerHost)
 				queryParseErrors = countLogsResponse.query_parse_errors ?? []
 				loadingLogCounts = false
 			}
@@ -539,7 +536,7 @@
 												return true
 											}
 											const hostKey = `${mode},${wg},${hn}`
-											if (countsPerHost && countsPerHost[hostKey] && countsPerHost[hostKey].count === 0) {
+											if (countsPerHost && (countsPerHost[hostKey] == undefined || countsPerHost[hostKey].doc_count === 0)) {
 												return false
 											}
 											return true
@@ -570,7 +567,7 @@
 													<Loader2 size={15} class="animate-spin" />
 												{:else if countsPerHost}
 													<div class="text-tertiary text-xs">
-														{countsPerHost[hostKey]?.count} matches
+														{countsPerHost[hostKey]?.doc_count ?? 0} matches
 													</div>
 												{:else}
 													<div class="relative grow h-8 mr-2">
