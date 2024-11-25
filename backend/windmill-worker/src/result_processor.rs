@@ -405,8 +405,6 @@ pub async fn process_completed_job(
             canceled_by,
             false,
             duration,
-            #[cfg(feature = "benchmark")]
-            bench,
         )
         .await?;
         drop(job);
@@ -449,8 +447,6 @@ pub async fn process_completed_job(
             worker_name,
             false,
             None,
-            #[cfg(feature = "benchmark")]
-            bench,
         )
         .await?;
         if job.is_flow_step {
@@ -517,8 +513,6 @@ pub async fn handle_job_error(
             worker_name,
             false,
             None,
-            #[cfg(feature = "benchmark")]
-            bench,
         )
         .await
     };
@@ -579,8 +573,6 @@ pub async fn handle_job_error(
                         worker_name,
                         false,
                         None,
-                        #[cfg(feature = "benchmark")]
-                        bench,
                     )
                     .await;
                 }

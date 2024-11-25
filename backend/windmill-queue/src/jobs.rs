@@ -177,8 +177,6 @@ pub async fn cancel_single_job<'c>(
                 "server",
                 false,
                 None,
-                #[cfg(feature = "benchmark")]
-                &mut windmill_common::bench::BenchmarkIter::new(),
             )
             .await;
 
@@ -467,7 +465,6 @@ pub async fn add_completed_job_error(
     _worker_name: &str,
     flow_is_done: bool,
     duration: Option<i64>,
-    #[cfg(feature = "benchmark")] bench: &mut windmill_common::bench::BenchmarkIter,
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -505,8 +502,6 @@ pub async fn add_completed_job_error(
         canceled_by,
         flow_is_done,
         duration,
-        #[cfg(feature = "benchmark")]
-        bench,
     )
     .await?;
     Ok(result)
@@ -527,19 +522,19 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
-    #[cfg(feature = "benchmark")] bench: &mut windmill_common::bench::BenchmarkIter,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
-    add_time!(bench, "add_completed_job start");
+    // add_time!(bench, "add_completed_job start");
     if !result.is_valid_json() {
         return Err(Error::InternalErr(
             "Result of job is invalid json (empty)".to_string(),
         ));
     }
 
-    let opt_uuid = (|| async {
+    let _job_id = queued_job.id;
+    let (opt_uuid, _duration, _skip_downstream_error_handlers) = (|| async {
         let mut tx = db.begin().await?;
 
         let job_id = queued_job.id;
@@ -577,7 +572,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         };
 
         let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
-        add_time!(bench, "add_completed_job query START");
+        // add_time!(bench, "add_completed_job query START");
 
         let _duration =  sqlx::query_scalar!(
             "INSERT INTO completed_job AS cj
@@ -651,7 +646,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
         // tracing::error!("2 {:?}", start.elapsed());
 
-        add_time!(bench, "add_completed_job query END");
+        // add_time!(bench, "add_completed_job query END");
 
         if !queued_job.is_flow_step {
             if _duration > 500
@@ -683,8 +678,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             }
         }
         // tracing::error!("Added completed job {:#?}", queued_job);
-        #[cfg(feature = "enterprise")]
-        let mut skip_downstream_error_handlers = false;
+
+        let mut _skip_downstream_error_handlers = false;
         tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
         // tracing::error!("3 {:?}", start.elapsed());
 
@@ -727,7 +722,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 if let Some(schedule) = schedule {
                     #[cfg(feature = "enterprise")]
                     {
-                        skip_downstream_error_handlers = schedule.ws_error_handler_muted;
+                        _skip_downstream_error_handlers = schedule.ws_error_handler_muted;
                     }
 
                     // script or flow that failed on start and might not have been rescheduled
@@ -755,7 +750,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             match err {
                                 Error::QuotaExceeded(_) => (),
                                 // scheduling next job failed and could not disable schedule => make zombie job to retry
-                                _ => return Ok(Some(job_id)),
+                                _ => return Ok((Some(job_id), 0, true)),
                             }
                         };
                     }
@@ -866,7 +861,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             "inserted completed job: {} (success: {success})",
             queued_job.id
         );
-        Ok(None) as windmill_common::error::Result<Option<Uuid>>
+        Ok((None, _duration, _skip_downstream_error_handlers)) as windmill_common::error::Result<(Option<Uuid>, i64, bool)>
     })
     .retry(
         ConstantBuilder::default()
@@ -971,10 +966,10 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 ),
             )
             .await;
-        } else if !skip_downstream_error_handlers
+        } else if !_skip_downstream_error_handlers
             && (matches!(queued_job.job_kind, JobKind::Script)
                 || matches!(queued_job.job_kind, JobKind::Flow)
-                    && !has_failure_module(db, job_id).await)
+                    && !has_failure_module(db, _job_id).await)
             && queued_job.parent_job.is_none()
         {
             let result = serde_json::from_str(

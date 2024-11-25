@@ -1034,8 +1034,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                         worker_name,
                 true,
                 None,
-                #[cfg(feature = "benchmark")]
-                bench,
             )
             .await?;
         } else {
@@ -1077,8 +1075,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
-                    #[cfg(feature = "benchmark")]
-                    bench,
                 )
                 .await?;
             } else {
@@ -1094,10 +1090,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     ),
                     0,
                     None,
-                                true,
-                                None,
-                    #[cfg(feature = "benchmark")]
-                    bench,
+                    true,
+                    None,
                 )
                 .await?;
             }
@@ -1135,8 +1129,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 worker_name,
                     true,
                     None,
-                    #[cfg(feature = "benchmark")]
-                    bench,
                 )
                 .await;
                 true
