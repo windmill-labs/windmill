@@ -14,10 +14,13 @@ use std::{
 
 use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
+use sqlx::types::Json;
+use sqlx::types::JsonRawValue;
 
 use crate::{
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
+    worker::to_raw_value,
 };
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -26,7 +29,7 @@ pub struct Flow {
     pub path: String,
     pub summary: String,
     pub description: String,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub value: Json<Box<JsonRawValue>>,
     pub edited_by: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub archived: bool,
@@ -688,4 +691,83 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             skip_if: None,
         });
     }
+}
+
+/// Resolve the value of a flow if any.
+pub async fn resolve_maybe_value<T>(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    with_code: bool,
+    maybe: Option<T>,
+    value_mut: impl FnOnce(&mut T) -> Option<&mut Json<Box<JsonRawValue>>>
+) -> Option<T> {
+    let Some(mut container) = maybe else { return None; };
+    let Some(value) = value_mut(&mut container) else { return Some(container); };
+    resolve_value(e, workspace_id, &mut value.0, with_code).await;
+    Some(container)
+}
+
+/// Resolve modules recursively.
+pub async fn resolve_value(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    value: &mut Box<JsonRawValue>,
+    with_code: bool,
+) {
+    let Ok(mut val) = serde_json::from_str::<FlowValue>(value.get()) else { return };
+    for module in &mut val.modules {
+        resolve_module(e, workspace_id, &mut module.value, with_code).await;
+    }
+    *value = to_raw_value(&val);
+}
+
+/// Resolve module value recursively.
+pub async fn resolve_module(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    value: &mut Box<JsonRawValue>,
+    with_code: bool,
+) {
+    use FlowModuleValue::*;
+
+    let Ok(mut val) = serde_json::from_str::<FlowModuleValue>(value.get()) else { return };
+    match &mut val {
+        FlowScript { .. } => {
+            let FlowScript {
+                input_transforms, id, tag, language,
+                custom_concurrency_key, concurrent_limit, concurrency_time_window_s, is_trigger
+            } = std::mem::replace(&mut val, Identity) else { unreachable!() };
+            // Load the script content and lock.
+            let (lock, content) = if !with_code {
+                (Some("...".to_string()), "...".to_string())
+            } else {
+                let Ok((lock, content)) = sqlx::query!(
+                    "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1",
+                    id.0,
+                )
+                .fetch_one(e)
+                .await
+                .map(|record| (record.lock, record.code)) else { return };
+                (lock, content)
+            };
+            val = RawScript {
+                input_transforms, content, lock, path: None, tag, language, custom_concurrency_key,
+                concurrent_limit, concurrency_time_window_s, is_trigger
+            };
+        },
+        ForloopFlow { modules, .. } | WhileloopFlow { modules, .. }  => {
+            for module in modules {
+                Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await;
+            }
+        },
+        BranchOne { branches, .. } | BranchAll { branches, .. } => {
+            for branch in branches {
+                for module in &mut branch.modules {
+                    Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await;
+                }
+            }
+        }
+        _ => {}
+    }
+    *value = to_raw_value(&val);
 }
