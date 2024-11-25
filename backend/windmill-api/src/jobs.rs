@@ -4760,9 +4760,9 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             )));
         }
     } else {
-        return Err(error::Error::InternalErr(
-            "Object store client not present, cannot stream logs from store".to_string(),
-        ));
+        return Err(error::Error::InternalErr(format!(
+            "Object store client not present and file not found on server logs volume at {local_file}"
+        )));
     }
 
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
