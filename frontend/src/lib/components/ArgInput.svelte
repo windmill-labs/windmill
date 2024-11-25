@@ -659,60 +659,67 @@
 				{#if oneOf && oneOf.length >= 2}
 					<div class="flex flex-col gap-2 w-full">
 						{#if oneOf && oneOf.length >= 2}
-							<ToggleButtonGroup bind:selected={oneOfSelected}>
+							<ToggleButtonGroup
+								on:selected={() => {
+									value = {}
+									redraw += 1
+								}}
+								bind:selected={oneOfSelected}
+							>
 								{#each oneOf as obj}
 									<ToggleButton value={obj.title} label={obj.title} />
 								{/each}
 							</ToggleButtonGroup>
-
 							{#if oneOfSelected}
 								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
 								{@const obj = oneOf[objIdx]}
 								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
-									<div class="p-4 pl-8 border rounded w-full">
-										{#if orderEditable}
-											<SchemaFormDnd
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												schema={{
-													properties: Object.fromEntries(
-														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-													),
-													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												args={value}
-												dndType={`nested-${title}`}
-												on:reorder={(e) => {
-													if (oneOf && oneOf[objIdx]) {
-														const keys = e.detail
-														oneOf[objIdx].order = keys
-													}
-												}}
-												on:change
-											/>
-										{:else}
-											<SchemaForm
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												noDelete
-												schema={{
-													properties: Object.fromEntries(
-														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-													),
-													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												bind:args={value}
-											/>
-										{/if}
-									</div>
+									{#key redraw}
+										<div class="p-4 pl-8 border rounded w-full">
+											{#if orderEditable}
+												<SchemaFormDnd
+													{onlyMaskPassword}
+													{disablePortal}
+													{disabled}
+													schema={{
+														properties: Object.fromEntries(
+															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+														),
+														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}}
+													args={value}
+													dndType={`nested-${title}`}
+													on:reorder={(e) => {
+														if (oneOf && oneOf[objIdx]) {
+															const keys = e.detail
+															oneOf[objIdx].order = keys
+														}
+													}}
+													on:change
+												/>
+											{:else}
+												<SchemaForm
+													{onlyMaskPassword}
+													{disablePortal}
+													{disabled}
+													noDelete
+													schema={{
+														properties: Object.fromEntries(
+															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+														),
+														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}}
+													bind:args={value}
+												/>
+											{/if}
+										</div>
+									{/key}
 								{:else if disabled}
 									<textarea disabled />
 								{:else}
