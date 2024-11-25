@@ -58,9 +58,9 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
-        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, DISABLE_FLOW_SCRIPT,
-        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
-        NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+        DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, NO_LOGS,
+        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -3195,7 +3195,7 @@ pub async fn push<'c, 'd>(
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
-            dedicated_worker
+            dedicated_worker,
         } => (
             Some(id.0),
             None,
@@ -3315,12 +3315,11 @@ pub async fn push<'c, 'd>(
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value =
-                serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
-                    Error::InternalErr(format!(
-                        "could not convert json to flow for {path}: {err:?}"
-                    ))
-                })?;
+            let value = serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
             (
                 Some(version),
                 Some(path),
@@ -3483,7 +3482,7 @@ pub async fn push<'c, 'd>(
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
             // Do not use the lite version unless all workers are updated.
-            let value_json = if *DISABLE_FLOW_SCRIPT || !*MIN_VERSION_IS_AT_LEAST_1_432.read().await {
+            let value_json = if *DISABLE_FLOW_SCRIPT || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await  && !*CLOUD_HOSTED) {
                 fetch_scalar_isolated!(
                     sqlx::query_scalar!(
                         "SELECT flow_version.value as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
@@ -3509,12 +3508,11 @@ pub async fn push<'c, 'd>(
                 )
             }?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let mut value =
-                serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
-                    Error::InternalErr(format!(
-                        "could not convert json to flow for {path}: {err:?}"
-                    ))
-                })?;
+            let mut value = serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             if same_worker {
