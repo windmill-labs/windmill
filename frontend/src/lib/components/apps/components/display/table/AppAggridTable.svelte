@@ -70,17 +70,29 @@
 
 	let result: any[] | undefined = undefined
 
+	$: resolvedConfig?.rowIdCol && resetValues()
 	$: result && setValues()
 
+	function resetValues() {
+		api?.setGridOption('rowData', value)
+	}
+
+	let uid = Math.random().toString(36).substring(7)
+	let prevUid: string | undefined = undefined
+
 	let value: any[] = Array.isArray(result)
-		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
+		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
 		: [{ error: 'input was not an array' }]
 
 	let loaded = false
+
 	async function setValues() {
 		value = Array.isArray(result)
-			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
+			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
 			: [{ error: 'input was not an array' }]
+		prevUid = uid
+		uid = Math.random().toString(36).substring(7)
+
 		if (api && loaded) {
 			let selected = api.getSelectedNodes()
 			if (selected && selected.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
@@ -164,13 +176,16 @@
 			try {
 				dataCell = JSON.parse(dataCell)
 			} catch (e) {}
+			let idx = Number(event.node.data['__index'].split('-')[0])
+			uid = prevUid ?? ''
 			outputs?.newChange?.set({
 				row: event.node.rowIndex,
 				column: event.colDef.field,
 				value: dataCell,
-				old: result[Number(event.node.data['__index'])][event.colDef.field]
+				old: result[idx][event.colDef.field]
 			})
-			result[Number(event.node.data['__index'])][event.colDef.field] = dataCell
+			result[idx][event.colDef.field] = dataCell
+
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
 		}
@@ -279,6 +294,11 @@
 		}
 	})
 
+	function getIdFromData(data: any): string {
+		return resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
+			? data?.[resolvedConfig?.rowIdCol] ?? data['__index']
+			: data['__index']
+	}
 	function mountGrid() {
 		if (eGui) {
 			try {
@@ -345,12 +365,12 @@
 							outputs?.ready.set(true)
 							value = value
 							if (
-								result &&
-								result.length > 0 &&
+								value &&
+								value.length > 0 &&
 								resolvedConfig?.selectFirstRowByDefault === true &&
 								selectedRowIndex === -1
 							) {
-								e.api.getRowNode('0')?.setSelected(true)
+								e.api.getRowNode(getIdFromData(value))?.setSelected(true)
 							}
 							$componentControl[id] = {
 								agGrid: { api: e.api, columnApi: e.columnApi },
@@ -372,14 +392,14 @@
 							resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
 						},
 						onCellEditingStarted: (e) => {
-							e.api.getRowNode(e.data['__index'])?.setSelected(true)
+							e.api.getRowNode(getIdFromData(e.data))?.setSelected(true)
 						},
 						onFilterChanged: (e) => {
 							outputs?.filters?.set(e.api.getFilterModel())
 							outputs?.displayedRowCount?.set(e.api.getDisplayedRowCount())
 							resolvedConfig?.extraConfig?.['onFilterChanged']?.(e)
 						},
-						getRowId: (data) => data.data['__index']
+						getRowId: (data) => getIdFromData(data.data)
 					},
 					{}
 				)
@@ -415,7 +435,7 @@
 	}
 
 	function updateValue() {
-		api?.updateGridOptions({ rowData: value })
+		api?.setGridOption('rowData', value)
 
 		const displayedRowCount = api?.getDisplayedRowCount()
 		if (displayedRowCount) {

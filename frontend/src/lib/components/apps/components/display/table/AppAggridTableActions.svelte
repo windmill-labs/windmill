@@ -217,23 +217,25 @@
 							{controls}
 						/>
 					{:else if action.type == 'selectcomponent'}
-						<AppSelect
-							noDefault
-							noInitialize
-							extraKey={'idx' + rowIndex}
-							{render}
-							--font-size="10px"
-							id={action.id}
-							customCss={action.customCss}
-							configuration={action.configuration}
-							recomputeIds={action.recomputeIds}
-							onSelect={action.onSelect}
-							preclickAction={async () => {
-								dispatch('toggleRow')
-								selectRow(p)
-							}}
-							{controls}
-						/>
+						<div style="height: 30px; margin-top: -3px;">
+							<AppSelect
+								noDefault
+								noInitialize
+								extraKey={'idx' + rowIndex}
+								{render}
+								--font-size="10px"
+								id={action.id}
+								customCss={action.customCss}
+								configuration={action.configuration}
+								recomputeIds={action.recomputeIds}
+								onSelect={action.onSelect}
+								preclickAction={async () => {
+									dispatch('toggleRow')
+									selectRow(p)
+								}}
+								{controls}
+							/>
+						</div>
 					{/if}
 				{:else if action.type == 'buttoncomponent'}
 					<AppButton
@@ -271,22 +273,24 @@
 						}}
 					/>
 				{:else if action.type == 'selectcomponent'}
-					<AppSelect
-						noDefault
-						noInitialize
-						extraKey={'idx' + rowIndex}
-						{render}
-						--font-size="10px"
-						id={action.id}
-						customCss={action.customCss}
-						configuration={action.configuration}
-						recomputeIds={action.recomputeIds}
-						onSelect={action.onSelect}
-						preclickAction={async () => {
-							dispatch('toggleRow')
-							selectRow(p)
-						}}
-					/>
+					<div style="height: 30px; margin-top: -3px;">
+						<AppSelect
+							noDefault
+							noInitialize
+							extraKey={'idx' + rowIndex}
+							{render}
+							--font-size="10px"
+							id={action.id}
+							customCss={action.customCss}
+							configuration={action.configuration}
+							recomputeIds={action.recomputeIds}
+							onSelect={action.onSelect}
+							preclickAction={async () => {
+								dispatch('toggleRow')
+								selectRow(p)
+							}}
+						/>
+					</div>
 				{/if}
 			</div>
 		{/each}
