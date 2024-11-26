@@ -875,15 +875,15 @@
 	const dispatch = createEventDispatcher()
 
 	function setTheme(newDarkMode: boolean | undefined) {
-		if (
-			newDarkMode === true ||
-			(newDarkMode === null && window.localStorage.getItem('dark-mode') === 'dark')
-		) {
+		let globalDarkMode = window.localStorage.getItem('dark-mode')
+			? window.localStorage.getItem('dark-mode') === 'dark'
+			: window.matchMedia('(prefers-color-scheme: dark)').matches
+		if (newDarkMode === true || (newDarkMode === null && globalDarkMode)) {
 			document.documentElement.classList.add('dark')
 		} else if (newDarkMode === false) {
 			document.documentElement.classList.remove('dark')
 		}
-		$darkMode = newDarkMode ?? false
+		$darkMode = newDarkMode ?? globalDarkMode
 	}
 
 	let priorDarkMode = document.documentElement.classList.contains('dark')
