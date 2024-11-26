@@ -737,7 +737,7 @@
 			minZoom: 0.3,
 			zoomDoubleClickSpeed: 1,
 			smoothScroll: false,
-			initialZoom: 1,
+			initialZoom: $scale / 100.0,
 			beforeMouseDown: (e) => {
 				if (e.ctrlKey || e.metaKey || handMode) {
 					// Prevent event propagation to children when panning
