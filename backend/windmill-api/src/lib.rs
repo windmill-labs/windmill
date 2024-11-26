@@ -250,7 +250,9 @@ pub async fn run_server(
 
     if !*CLOUD_HOSTED {
         let ws_killpill_rx = rx.resubscribe();
-        websocket_triggers::start_websockets(db.clone(), rsmq, ws_killpill_rx).await;
+        websocket_triggers::start_websockets(db.clone(), rsmq.clone(), ws_killpill_rx).await;
+        let db_killpill_rx = rx.resubscribe();
+        database_triggers::start_database(db.clone(), rsmq, db_killpill_rx).await;
     }
 
     // build our application with a route

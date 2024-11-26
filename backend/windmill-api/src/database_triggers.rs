@@ -4,8 +4,9 @@ use axum::{
     Extension, Json, Router,
 };
 use http::StatusCode;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue, Value};
+
 
 use sqlx::FromRow;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
@@ -14,6 +15,7 @@ use windmill_common::{
     error::{self, JsonResult},
     utils::{not_found_if_none, StripPath},
     worker::CLOUD_HOSTED,
+    INSTANCE_NAME,
 };
 
 use crate::db::{ApiAuthed, DB};
@@ -24,11 +26,18 @@ struct Database {
     password: Option<String>,
     host: String,
     port: u16,
+    db_name: String,
 }
 
 impl Database {
-    pub fn new(username: String, password: Option<String>, host: String, port: u16) -> Self {
-        Self { username, password, host, port }
+    pub fn new(
+        username: String,
+        password: Option<String>,
+        host: String,
+        port: u16,
+        db_name: String,
+    ) -> Self {
+        Self { username, password, host, port, db_name }
     }
 }
 
@@ -61,8 +70,20 @@ struct NewDatabaseTrigger {
 
 #[derive(FromRow, Deserialize, Serialize)]
 struct DatabaseTrigger {
-    database: sqlx::types::Json<Box<RawValue>>,
-    table_to_track: sqlx::types::Json<Box<RawValue>>,
+    workspace_id: String,
+    path: String,
+    script_path: String,
+    is_flow: bool,
+    edited_by: String,
+    email: String,
+    edited_at: chrono::DateTime<chrono::Utc>,
+    server_id: Option<String>,
+    last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
+    extra_perms: serde_json::Value,
+    error: Option<String>,
+    enabled: bool,
+    database: sqlx::types::Json<Database>,
+    table_to_track: sqlx::types::Json<TableToTrack>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -255,6 +276,96 @@ async fn set_enabled(
         "succesfully updated database trigger at path {} to status {}",
         path, payload.enabled
     ))
+}
+
+async fn listen_to_transactions(
+    database: Database,
+    db: DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) {
+}
+
+async fn try_to_listen_to_database_transactions(
+    db_trigger: DatabaseTrigger,
+    db: DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) {
+    let database_trigger =  sqlx::query_scalar!(
+        "UPDATE database_trigger SET server_id = $1, last_server_ping = now() WHERE enabled IS TRUE AND workspace_id = $2 AND path = $3 AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds') RETURNING true",
+        *INSTANCE_NAME,
+        db_trigger.workspace_id,
+        db_trigger.path,
+    ).fetch_optional(&db).await;
+    match database_trigger {
+        Ok(has_lock) => {
+            if has_lock.flatten().unwrap_or(false) {
+                tokio::spawn(listen_to_transactions(
+                    db_trigger.database.0,
+                    db,
+                    rsmq,
+                    killpill_rx,
+                ));
+            } else {
+                tracing::info!("Database {} already being listened to", db_trigger.path);
+            }
+        }
+        Err(err) => {
+            tracing::error!(
+                "Error acquiring lock for database {}: {:?}",
+                db_trigger.path,
+                err
+            );
+        }
+    };
+}
+
+async fn listen_to_unlistened_database_events(
+    db: &DB,
+    rsmq: &Option<rsmq_async::MultiplexedRsmq>,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+) {
+    let database_triggers =  sqlx::query_as::<_, DatabaseTrigger>(
+        r#"SELECT *
+            FROM database_trigger
+            WHERE enabled IS TRUE AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')"#
+    )
+    .fetch_all(db)
+    .await;
+
+    match database_triggers {
+        Ok(mut triggers) => {
+            triggers.shuffle(&mut rand::thread_rng());
+            for trigger in triggers {
+                try_to_listen_to_database_transactions(trigger, db.clone(), rsmq.clone(), killpill_rx.resubscribe());
+            }
+        }
+        Err(err) => {
+            tracing::error!("Error fetching database triggers: {:?}", err);
+        }
+    };
+}
+
+pub async fn start_database(
+    db: DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> () {
+    tokio::spawn(async move {
+        listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await;
+        loop {
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    return;
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(15)) => {
+                    listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await
+                }
+            }
+        }
+    });
 }
 
 pub fn workspaced_service() -> Router {

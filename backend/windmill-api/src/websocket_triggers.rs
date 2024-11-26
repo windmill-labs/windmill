@@ -379,7 +379,7 @@ async fn listen_to_unlistened_websockets(
     db: &DB,
     rsmq: &Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
-) -> () {
+) {
     match sqlx::query_as::<_, WebsocketTrigger>(
         r#"SELECT *
             FROM websocket_trigger

@@ -13,6 +13,7 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -187,8 +188,6 @@
 					</Label>
 				</div>
 
-			
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered<Required required={true} />
@@ -205,6 +204,15 @@
 						/>
 					</div>
 				</Section>
+				<Section label="Database">
+					<p class="text-xs mb-1 text-tertiary">
+						Pick a database to connect to<Required required={true} />
+					</p>
+					<div class="flex flex-row mb-2">
+						<ResourcePicker resourceType={'database'} />
+					</div>
+				</Section>
+				
 			</div>
 		{/if}
 	</DrawerContent>
