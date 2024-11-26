@@ -445,7 +445,7 @@ async fn postinstall(
         for path in existing_paths {
             copy_dir_recursively(
                 Path::new(path),
-                Path::new(&format!("{job_dir}/site-packages")),
+                PathBuf::from(job_dir).join("site-packages"),
             )?;
             paths_to_remove.insert(path.to_owned());
         }
