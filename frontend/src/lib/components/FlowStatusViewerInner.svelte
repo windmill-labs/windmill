@@ -30,7 +30,6 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder'
-	import { root } from 'postcss'
 
 	const dispatch = createEventDispatcher()
 
