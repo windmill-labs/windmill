@@ -228,6 +228,10 @@ done`
 
 <HighlightTheme />
 
+<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+	Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run synchronously or asynchronously. You can secure webhooks using tokens with specific permissions. <a href="https://www.windmill.dev/docs/core_concepts/webhooks" target="_blank">Learn more</a>
+</div>
+
 <UserSettings
 	bind:this={userSettings}
 	on:tokenCreated={(e) => {

@@ -48,6 +48,10 @@
 	bind:this={wsTriggerEditor}
 />
 
+<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+	Websocket triggers allow real-time bidirectional communication between your scripts/flows and external systems. Each trigger creates a unique websocket endpoint. <a href="https://www.windmill.dev/docs/core_concepts/websocket_triggers"target ="_blank">Learn more</a>
+</div>
+
 {#if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
 		Websocket triggers are disabled in the multi-tenant cloud.

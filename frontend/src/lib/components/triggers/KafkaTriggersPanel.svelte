@@ -47,6 +47,10 @@
 	bind:this={kafkaTriggerEditor}
 />
 
+<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+	Kafka triggers execute scripts and flows in response to messages published to Kafka topics. <a href="https://www.windmill.dev/docs/core_concepts/kafka_triggers"target ="_blank">Learn more</a>
+</div>
+
 {#if !$enterpriseLicense}
 	<Alert title="EE Only" type="warning" size="xs">
 		Kafka triggers are an enterprise only feature.

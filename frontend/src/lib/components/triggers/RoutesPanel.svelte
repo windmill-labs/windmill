@@ -48,6 +48,10 @@
 />
 
 <div class="flex flex-col gap-4">
+	<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+		Routes expose your scripts and flows as HTTP endpoints. Each route can be configured with a specific HTTP method and path. <a href="https://www.windmill.dev/docs/core_concepts/http_routing"target ="_blank">Learn more</a>
+	</div>
+
 	{#if !newItem}
 		{#if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button

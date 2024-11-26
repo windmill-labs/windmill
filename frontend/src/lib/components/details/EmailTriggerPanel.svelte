@@ -79,6 +79,10 @@
 />
 
 <div class="flex flex-col w-full gap-4">
+	<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+		Email triggers execute scripts and flows when emails are sent to specific addresses. Each trigger has its own unique email address that can be used to invoke the script or flow. <a href="https://www.windmill.dev/docs/advanced/email_triggers" target="_blank">Learn more</a>
+	</div>
+
 	{#if loading}
 		<Skeleton layout={[[18]]} />
 	{:else}

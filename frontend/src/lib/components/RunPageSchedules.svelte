@@ -48,14 +48,18 @@
 	}
 </script>
 
-<ScheduleEditor
-	on:update={() => {
-		updateSchedules(true)
-	}}
-	bind:this={scheduleEditor}
-/>
-
 <div class="flex flex-col gap-4 w-full">
+	<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+		Run scripts and flows automatically on a recurring basis using cron expressions. Each script or flow can have multiple schedules, with one designated as primary. <a href="https://www.windmill.dev/docs/core_concepts/scheduling"target ="_blank">Learn more</a>
+	</div>
+
+	<ScheduleEditor
+		on:update={() => {
+			updateSchedules(true)
+		}}
+		bind:this={scheduleEditor}
+	/>
+
 	{#if $primarySchedule == undefined}
 		<Skeleton layout={[[12]]} />
 	{:else if $primarySchedule}
@@ -163,7 +167,7 @@
 					}}
 					variant="contained"
 					color="dark"
-					size="md"
+					size="sm"
 					startIcon={{ icon: Calendar }}
 				>
 					Set Primary Schedule
