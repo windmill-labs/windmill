@@ -24,17 +24,17 @@ pub async fn build_tar_and_push(
 ) -> error::Result<()> {
     use object_store::path::Path;
 
-    use crate::PY311_CACHE_DIR;
+    use crate::{TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR};
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
     let prefix = if no_uv {
-        PIP_CACHE_DIR
+        TAR_PIP_CACHE_DIR
     } else {
-        PY311_CACHE_DIR
+        TAR_PY311_CACHE_DIR
     };
-    let tar_path = format!("tar/{prefix}/{folder_name}_tar.tar",);
+    let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
