@@ -404,7 +404,7 @@ async fn postinstall(
     let mut lookup_table: HashMap<String, Vec<String>> = HashMap::new();
     // e.g.: <"requests", ["/tmp/windmill/cache/python_311/requests==1.0.0"]>
     for path in additional_python_paths.iter() {
-        for entry in tokio::fs::read_dir(&path).await? {
+        for entry in fs::read_dir(&path)? {
             let entry = entry?;
             // Ignore all files, we only need directories.
             // We cannot merge files.
@@ -524,7 +524,7 @@ pub async fn handle_python_job(
 
     if !PythonAnnotations::parse(inner_content).no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
-            tracing::error!("Postinstall stage has been failed. Reason: {e}");
+            tracing::error!("Postinstall stage has failed. Reason: {e}");
         }
     }
 
