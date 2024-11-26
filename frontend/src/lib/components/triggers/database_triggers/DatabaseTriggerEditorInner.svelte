@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -14,6 +14,8 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -25,9 +27,7 @@
 	let fixedScriptPath = ''
 	let path: string = ''
 	let pathError = ''
-	let url = ''
 	let urlError = ''
-	let dirtyUrl = false
 	let enabled = false
 	let database: DatabaseToTrack
 	let tableToTrack: TableToTrack[] | undefined
@@ -47,7 +47,6 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			dirtyUrl = false
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load database trigger: ${err}`, true)
@@ -63,8 +62,6 @@
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			url = ''
-			dirtyUrl = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -128,6 +125,8 @@
 		dispatch('update')
 		drawer.closeDrawer()
 	}
+
+	let selected: 'insert' | 'updated' | 'delete' = 'insert'
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -172,6 +171,13 @@
 		{#if drawerLoading}
 			<Loader2 class="animate-spin" />
 		{:else}
+			<Alert title="Info" type="info">
+				{#if edit}
+					Changes can take up to 30 seconds to take effect.
+				{:else}
+					New database triggers can take up to 30 seconds to start listening.
+				{/if}
+			</Alert>
 			<div class="flex flex-col gap-12 mt-6">
 				<div class="flex flex-col gap-4">
 					<Label label="Path">
@@ -212,7 +218,23 @@
 						<ResourcePicker resourceType={'database'} />
 					</div>
 				</Section>
-				
+				<Section label="Transactions">
+					<p class="text-xs mb-1 text-tertiary">
+						Choose what kind of database transaction you want to track<Required required={true} />
+					</p>
+					<ToggleButtonGroup bind:selected>
+						<ToggleButton value="insert" label="Insert" />
+						<ToggleButton value="update" label="Update" />
+						<ToggleButton value="delete" label="Delete" />
+					</ToggleButtonGroup>
+				</Section>
+				<Section label="Tables">
+					<p class="text-xs mb-1 text-tertiary">
+						Write which table from the current selected database resource must be tracked<Required
+							required={true}
+						/>
+					</p>
+				</Section>
 			</div>
 		{/if}
 	</DrawerContent>

@@ -7,7 +7,6 @@ use http::StatusCode;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
-
 use sqlx::FromRow;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
@@ -338,7 +337,13 @@ async fn listen_to_unlistened_database_events(
         Ok(mut triggers) => {
             triggers.shuffle(&mut rand::thread_rng());
             for trigger in triggers {
-                try_to_listen_to_database_transactions(trigger, db.clone(), rsmq.clone(), killpill_rx.resubscribe());
+                try_to_listen_to_database_transactions(
+                    trigger,
+                    db.clone(),
+                    rsmq.clone(),
+                    killpill_rx.resubscribe(),
+                )
+                .await;
             }
         }
         Err(err) => {
@@ -368,6 +373,16 @@ pub async fn start_database(
     });
 }
 
+pub async fn can_be_listened(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<bool> {
+    let mut tx = user_db.begin(&authed).await?;
+
+
+    Ok(Json(true))
+}
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_database_trigger))
@@ -376,5 +391,6 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_database_trigger))
         .route("/delete/*path", delete(delete_database_trigger))
         .route("/exists/*path", get(exists_database_trigger))
+        .route("/can_be_listened", get(can_be_listened))
         .route("/setenabled/*path", post(set_enabled))
 }
