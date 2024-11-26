@@ -365,7 +365,7 @@ pub async fn uv_pip_compile(
 }
 
 /**
-    Iterate overall all python paths and if same folder has same name multiple times,
+    Iterate over all python paths and if same folder has same name multiple times,
     then merge the content and put to <job_dir>/site-packages
 
     Solves problem with imports for some dependencies.
@@ -381,7 +381,7 @@ pub async fn uv_pip_compile(
 
     In this case python would be confused with finding B module.
 
-    This function will convert it to (/<job_id>):
+    This function will convert it to (/<job_dir>):
 
     site-packages
     └── X
@@ -394,55 +394,76 @@ pub async fn uv_pip_compile(
 async fn postinstall(
     additional_python_paths: &mut Vec<String>,
     job_dir: &str,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<()> {
-    //                      (PackageName, Vec<GlobalPath>)
+    // It is guranteed that additional_python_paths only contains paths within windmill/cache/
+    // All other paths you would usually expect in PYTHONPATH are NOT included. These are added in downstream
+    //
+    //                      <PackageName, Vec<GlobalPath>>
     let mut lookup_table: HashMap<String, Vec<String>> = HashMap::new();
-
+    // e.g.: <"requests", ["/tmp/windmill/cache/python_311/requests==1.0.0"]>
     for path in additional_python_paths.iter() {
         for entry in fs::read_dir(&path)? {
             let entry = entry?;
             // Ignore all files, we only need directories.
             // We cannot merge files.
             if entry.file_type()?.is_dir() {
+                // Short name, e.g.: requests
                 let name = entry
                     .file_name()
                     .to_str()
                     .ok_or(anyhow::anyhow!("Cannot convert OsString to String"))?
                     .to_owned();
 
-                if !name.contains("dist-info") && name != "bin" {
-                    if let Some(existing_paths) = lookup_table.get_mut(&name) {
-                        tracing::info!(
-                            "Found existing package name: {:?} in {}",
-                            entry.file_name(),
-                            path
-                        );
-                        existing_paths.push(path.to_owned())
-                    } else {
-                        lookup_table.insert(name, vec![path.to_owned()]);
-                    }
+                if name == "bin" || name.contains("dist-info") {
+                    continue;
+                }
+
+                if let Some(existing_paths) = lookup_table.get_mut(&name) {
+                    tracing::info!(
+                        "Found existing package name: {:?} in {}",
+                        entry.file_name(),
+                        path
+                    );
+                    existing_paths.push(path.to_owned())
+                } else {
+                    lookup_table.insert(name, vec![path.to_owned()]);
                 }
             }
         }
     }
-
     let mut paths_to_remove: HashSet<String> = HashSet::new();
-
     // Copy to shared dir
     for existing_paths in lookup_table.values() {
+        if existing_paths.len() == 1 {
+            // There is only single path for given name
+            // So we skip it
+            continue;
+        }
+
         for path in existing_paths {
             copy_dir_recursively(
                 Path::new(path),
-                Path::new(&format!("{}/site-packages", job_dir)),
+                Path::new(&format!("{job_dir}/site-packages")),
             )?;
             paths_to_remove.insert(path.to_owned());
         }
     }
 
-    // Remove PATHs we dont need
-    additional_python_paths.retain(|e| !paths_to_remove.contains(e));
-    // Instead add shared path
-    additional_python_paths.insert(0, format!("{}/site-packages", job_dir));
+    if !paths_to_remove.is_empty() {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            "\n\nCopying some packages from cache to job_dir...\n".to_string(),
+            db,
+        )
+        .await;
+        // Remove PATHs we just moved
+        additional_python_paths.retain(|e| !paths_to_remove.contains(e));
+        // Instead add shared path
+        additional_python_paths.insert(0, format!("{job_dir}/site-packages"));
+    }
     Ok(())
 }
 
@@ -502,7 +523,7 @@ pub async fn handle_python_job(
     .await?;
 
     if !PythonAnnotations::parse(inner_content).no_postinstall {
-        if let Err(e) = postinstall(&mut additional_python_paths, job_dir).await {
+        if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
             tracing::error!("Postinstall stage has been failed. Reason: {e}");
         }
     }
