@@ -34,7 +34,6 @@
 		}
 	}
 
-	console.log('componentId', componentId)
 	$: subscribeToAllOutputs($worldStore?.outputsById?.[componentId])
 	$: filtered = recursivelyFilterInJSON(object, $search, componentId)
 	$: $hasResult[componentId] = Object.keys(filtered).length > 0
