@@ -370,7 +370,7 @@
 								resolvedConfig?.selectFirstRowByDefault === true &&
 								selectedRowIndex === -1
 							) {
-								e.api.getRowNode(getIdFromData(value))?.setSelected(true)
+								e.api.getRowNode(getIdFromData(value[0]))?.setSelected(true)
 							}
 							$componentControl[id] = {
 								agGrid: { api: e.api, columnApi: e.columnApi },
