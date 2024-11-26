@@ -31,7 +31,10 @@
 		RefreshCw,
 		Save,
 		Smartphone,
-		FileClock
+		FileClock,
+		Sun,
+		Moon,
+		SunMoon
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -140,7 +143,8 @@
 		staticExporter,
 		errorByComponent,
 		openDebugRun,
-		mode
+		mode,
+		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen, refreshComponents } =
@@ -199,7 +203,7 @@
 	async function computeTriggerables() {
 		const items = allItems($app.grid, $app.subgrids)
 
-		console.log('items', items)
+		console.debug('items', items)
 
 		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
 			items
@@ -428,12 +432,14 @@
 				savedApp &&
 				$app &&
 				orderedJsonStringify(deployedValue) ===
-					orderedJsonStringify(replaceFalseWithUndefined({
-						summary: $summary,
-						value: $app,
-						path: newPath || savedApp.draft?.path || savedApp.path,
-						policy
-					}))
+					orderedJsonStringify(
+						replaceFalseWithUndefined({
+							summary: $summary,
+							value: $app,
+							path: newPath || savedApp.draft?.path || savedApp.path,
+							policy
+						})
+					)
 			) {
 				await updateApp(npath)
 			} else {
@@ -867,6 +873,21 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	function setTheme(newDarkMode: boolean | undefined) {
+		let globalDarkMode = window.localStorage.getItem('dark-mode')
+			? window.localStorage.getItem('dark-mode') === 'dark'
+			: window.matchMedia('(prefers-color-scheme: dark)').matches
+		if (newDarkMode === true || (newDarkMode === null && globalDarkMode)) {
+			document.documentElement.classList.add('dark')
+		} else if (newDarkMode === false) {
+			document.documentElement.classList.remove('dark')
+		}
+		$darkMode = newDarkMode ?? globalDarkMode
+	}
+
+	let priorDarkMode = document.documentElement.classList.contains('dark')
+	setTheme($app?.darkMode)
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -880,6 +901,9 @@
 		value: $app,
 		path: newPath || savedApp?.draft?.path || savedApp?.path,
 		policy
+	}}
+	additionalExitAction={() => {
+		setTheme(priorDarkMode)
 	}}
 />
 
@@ -1430,6 +1454,34 @@
 					<ToggleButton
 						tooltip="The width is of the app if the full width of its container"
 						icon={Expand}
+						value={true}
+						iconProps={{ size: 16 }}
+					/>
+				</ToggleButtonGroup>
+			{/if}
+			{#if $app}
+				<ToggleButtonGroup
+					class="h-[30px]"
+					on:selected={(e) => {
+						setTheme(e.detail)
+					}}
+					bind:selected={$app.darkMode}
+				>
+					<ToggleButton
+						icon={SunMoon}
+						value={undefined}
+						tooltip="The app mode between dark/light is automatic"
+						iconProps={{ size: 16 }}
+					/>
+					<ToggleButton
+						icon={Sun}
+						value={false}
+						tooltip="Force light mode"
+						iconProps={{ size: 16 }}
+					/>
+					<ToggleButton
+						tooltip="Force dark mode"
+						icon={Moon}
 						value={true}
 						iconProps={{ size: 16 }}
 					/>

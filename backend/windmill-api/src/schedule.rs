@@ -28,10 +28,10 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath, ScheduleType},
+    utils::{not_found_if_none, paginate, Pagination, ScheduleType, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::{schedule::push_scheduled_job, QueueTransaction};
+use windmill_queue::schedule::push_scheduled_job;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -124,7 +124,6 @@ async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
@@ -152,20 +151,13 @@ async fn create_schedule(
         ));
     }
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     // Check schedule for error
     ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref())?;
 
-    check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
-    check_flow_conflict(
-        tx.transaction_mut(),
-        &w_id,
-        &ns.path,
-        ns.is_flow,
-        &ns.script_path,
-    )
-    .await?;
+    check_path_conflict(&mut tx, &w_id, &ns.path).await?;
+    check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
     let schedule = sqlx::query_as::<_, Schedule>(
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
@@ -202,7 +194,7 @@ async fn create_schedule(
         .bind(&ns.tag)
         .bind(&ns.paused_until)
         .bind(&ns.cron_version.unwrap_or("v2".to_string()))
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
 
@@ -213,13 +205,12 @@ async fn create_schedule(
         &w_id,
         DeployedObject::Schedule { path: ns.path.clone() },
         Some(format!("Schedule '{}' created", ns.path.clone())),
-        rsmq.clone(),
         true,
     )
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "schedule.create",
         ActionKind::Create,
@@ -249,20 +240,18 @@ async fn edit_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
     let path = path.to_path();
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
-        (rsmq.clone(), user_db.begin(&authed).await?).into();
+    let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref())?;
 
-    clear_schedule(tx.transaction_mut(), path, &w_id).await?;
+    clear_schedule(&mut tx, path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, \
             on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
@@ -291,7 +280,7 @@ async fn edit_schedule(
         .bind(&path)
         .bind(&w_id)
         .bind(&es.cron_version)
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e:#}")))?;
 
@@ -302,13 +291,12 @@ async fn edit_schedule(
         &w_id,
         DeployedObject::Schedule { path: path.to_string() },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "schedule.edit",
         ActionKind::Update,
@@ -407,7 +395,7 @@ pub struct ScheduleWJobs {
     pub no_flow_overlap: bool,
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
-    pub cron_version: Option<String>
+    pub cron_version: Option<String>,
 }
 
 async fn list_schedule_with_jobs(
@@ -470,17 +458,16 @@ async fn exists_schedule(
 pub struct PreviewPayload {
     pub schedule: String,
     pub timezone: String,
-    pub cron_version: Option<String>
+    pub cron_version: Option<String>,
 }
 
 pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
 ) -> JsonResult<Vec<DateTime<Utc>>> {
-
     let schedule = ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref())?;
 
-    let tz = chrono_tz::Tz::from_str(&payload.timezone)
-        .map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz =
+        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
 
     let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 
@@ -491,12 +478,10 @@ pub async fn set_enabled(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
-    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
-        (rsmq.clone(), user_db.begin(&authed).await?).into();
+    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     let schedule_o = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *")
@@ -504,12 +489,12 @@ pub async fn set_enabled(
         .bind(&authed.email)
         .bind(&path)
         .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
-    clear_schedule(tx.transaction_mut(), path, &w_id).await?;
+    clear_schedule(&mut tx, path, &w_id).await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -518,13 +503,12 @@ pub async fn set_enabled(
         &w_id,
         DeployedObject::Schedule { path: path.to_string() },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "schedule.setenabled",
         ActionKind::Update,
@@ -549,12 +533,11 @@ pub async fn set_enabled(
 //     authed: ApiAuthed,
 //     Extension(db): Extension<DB>,
 //     Extension(user_db): Extension<UserDB>,
-//     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
-//     Path((w_id, path)): Path<(String, StripPath)>,
+// //     Path((w_id, path)): Path<(String, StripPath)>,
 //     Json(payload): Json<SetEnabled>,
 // ) -> Result<String> {
 //     let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
-//         (rsmq, user_db.begin(&authed).await?).into();
+//         (user_db.begin(&authed).await?).into();
 //     let path = path.to_path();
 //     let schedule_o = sqlx::query_as!(
 //         Schedule,
@@ -564,15 +547,15 @@ pub async fn set_enabled(
 //         path,
 //         w_id
 //     )
-//     .fetch_optional(&mut tx)
+//     .fetch_optional(&mut *tx)
 //     .await?;
 
 //     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
-//     clear_schedule(tx.transaction_mut(), path, &w_id).await?;
+//     clear_schedule(&mut tx, path, &w_id).await?;
 
 //     audit_log(
-//         &mut tx,
+//         &mut *tx,
 //         &authed,
 //         "schedule.setenabled",
 //         ActionKind::Update,
@@ -597,7 +580,6 @@ async fn delete_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
@@ -643,7 +625,6 @@ async fn delete_schedule(
         &w_id,
         DeployedObject::Schedule { path: path.to_string() },
         Some(format!("Schedule '{}' deleted", path)),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -667,7 +648,6 @@ async fn delete_schedule(
 async fn set_default_error_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(payload): Json<ErrorOrRecoveryHandler>,
 ) -> Result<()> {
@@ -794,7 +774,6 @@ async fn set_default_error_handler(
                 &w_id,
                 DeployedObject::Schedule { path: updated_schedule_path },
                 None,
-                rsmq.clone(),
                 true,
             )
             .await?;

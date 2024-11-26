@@ -57,7 +57,6 @@ mappable-rc.workspace = true
 git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true
-rsmq_async.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
 deno_fetch = { workspace = true, optional = true }
@@ -91,7 +90,7 @@ object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
 swc_ecma_parser.workspace = true
-
+backon.workspace = true
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }
