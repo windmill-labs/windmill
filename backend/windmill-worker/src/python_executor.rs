@@ -404,7 +404,7 @@ async fn postinstall(
     let mut lookup_table: HashMap<String, Vec<String>> = HashMap::new();
     // e.g.: <"requests", ["/tmp/windmill/cache/python_311/requests==1.0.0"]>
     for path in additional_python_paths.iter() {
-        for entry in fs::read_dir(&path)? {
+        for entry in tokio::fs::read_dir(&path).await? {
             let entry = entry?;
             // Ignore all files, we only need directories.
             // We cannot merge files.
