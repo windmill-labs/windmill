@@ -117,8 +117,6 @@
 			sendUserToast(argError, true)
 		}
 
-		console.log(schema);
-
 		dispatch('change', schema)
 	}
 

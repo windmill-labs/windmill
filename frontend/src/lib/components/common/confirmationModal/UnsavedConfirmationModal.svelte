@@ -16,6 +16,7 @@
 	export let savedValue: Value | undefined = undefined
 	export let modifiedValue: Value | undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let additionalExitAction: () => void = () => {}
 
 	let bypassBeforeNavigate = false
 	let open = false
@@ -46,6 +47,7 @@
 					orderedJsonStringify(replaceFalseWithUndefined(current))
 				) {
 					bypassBeforeNavigate = true
+					additionalExitAction?.()
 					gotoUrl(goingTo)
 				} else {
 					open = true
@@ -69,6 +71,7 @@
 	on:confirmed={() => {
 		if (goingTo) {
 			bypassBeforeNavigate = true
+			additionalExitAction?.()
 			gotoUrl(goingTo)
 		}
 	}}
@@ -98,6 +101,7 @@
 							onClick: () => {
 								if (goingTo) {
 									bypassBeforeNavigate = true
+									additionalExitAction?.()
 									gotoUrl(goingTo)
 								}
 							}
