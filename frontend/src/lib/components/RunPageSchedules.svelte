@@ -14,6 +14,7 @@
 	import Toggle from './Toggle.svelte'
 	import { loadSchedules, saveSchedule } from './flows/scheduleUtils'
 	import { type Writable, writable } from 'svelte/store'
+	import Description from '$lib/components/Description.svelte'
 
 	export let schema: any
 	export let isFlow: boolean
@@ -49,10 +50,10 @@
 </script>
 
 <div class="flex flex-col gap-4 w-full">
-	<div class="text-sm text-gray-500 dark:text-secondary mb-2">
-		Run scripts and flows automatically on a recurring basis using cron expressions. Each script or flow can have multiple schedules, with one designated as primary. <a href="https://www.windmill.dev/docs/core_concepts/scheduling"target ="_blank">Learn more</a>
-	</div>
-
+	<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
+		Run scripts and flows automatically on a recurring basis using cron expressions. Each script or
+		flow can have multiple schedules, with one designated as primary.
+	</Description>
 	<ScheduleEditor
 		on:update={() => {
 			updateSchedules(true)

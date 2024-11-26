@@ -1,16 +1,15 @@
 <script lang="ts">
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { base } from '$lib/base'
+	import Description from '$lib/components/Description.svelte'
 </script>
 
 <div class="flex flex-col w-full gap-4 text-sm">
-	<div class="text-sm text-gray-500 dark:text-secondary mb-2">
+	<Description link="https://www.windmill.dev/docs/flows/flow_trigger">
 		Scheduled Poll is a trigger that polls an external API at a given interval. It is useful for
 		triggering jobs based on the change of external states. Under the hood, it is a script triggered
 		by a schedule, and returning a list of the changed states so we can iterate over them.
-		<a href="https://www.windmill.dev/docs/flows/flow_trigger" target="_blank">Learn more</a>
-	</div>
+	</Description>
 
 	<Label label="Setting a scheduled poll" primary>
 		<ul class="pt-4 space-y-2 text-sm">

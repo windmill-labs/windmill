@@ -21,6 +21,7 @@
 	import { base } from '$lib/base'
 	import Label from '$lib/components/Label.svelte'
 	import TriggerTokens from './TriggerTokens.svelte'
+	import Description from '$lib/components/Description.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -228,22 +229,22 @@ done`
 
 <HighlightTheme />
 
-<div class="text-sm text-gray-500 dark:text-secondary mb-2">
-	Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run synchronously or asynchronously. You can secure webhooks using tokens with specific permissions. <a href="https://www.windmill.dev/docs/core_concepts/webhooks" target="_blank">Learn more</a>
-</div>
-
-<UserSettings
-	bind:this={userSettings}
-	on:tokenCreated={(e) => {
-		token = e.detail
-		triggerTokens?.listTokens()
-	}}
-	newTokenWorkspace={$workspaceStore}
-	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
-	{scopes}
-/>
-
 <div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
+		Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
+		synchronously or asynchronously. You can secure webhooks using tokens with specific permissions.
+	</Description>
+
+	<UserSettings
+		bind:this={userSettings}
+		on:tokenCreated={(e) => {
+			token = e.detail
+			triggerTokens?.listTokens()
+		}}
+		newTokenWorkspace={$workspaceStore}
+		newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+		{scopes}
+	/>
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 		<Label label="Token">
 			<div class="flex flex-row justify-between gap-2">

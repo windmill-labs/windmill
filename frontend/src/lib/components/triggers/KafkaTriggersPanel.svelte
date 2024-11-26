@@ -10,6 +10,7 @@
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
+	import Description from '$lib/components/Description.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -47,64 +48,66 @@
 	bind:this={kafkaTriggerEditor}
 />
 
-<div class="text-sm text-gray-500 dark:text-secondary mb-2">
-	Kafka triggers execute scripts and flows in response to messages published to Kafka topics. <a href="https://www.windmill.dev/docs/core_concepts/kafka_triggers"target ="_blank">Learn more</a>
-</div>
+<div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/core_concepts/kafka_triggers">
+		Kafka triggers execute scripts and flows in response to messages published to Kafka topics.
+	</Description>
 
-{#if !$enterpriseLicense}
-	<Alert title="EE Only" type="warning" size="xs">
-		Kafka triggers are an enterprise only feature.
-	</Alert>
-{:else if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Kafka triggers are disabled in the multi-tenant cloud.
-	</Alert>
-{:else}
-	<div class="flex flex-col gap-4">
-		{#if newItem}
-			<Alert title="Triggers disabled" type="warning" size="xs">
-				Deploy the {isFlow ? 'flow' : 'script'} to add kafka triggers.
-			</Alert>
-		{:else}
-			<Button
-				on:click={() => kafkaTriggerEditor?.openNew(isFlow, path)}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: KafkaIcon }}
-			>
-				New Kafka Trigger
-			</Button>
-			{#if kafkaTriggers}
-				{#if kafkaTriggers.length == 0}
-					<div class="text-xs text-secondary"> No kafka triggers </div>
-				{:else}
-					<div class="flex flex-col divide-y pt-2">
-						{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
-							<div class="grid grid-cols-5 text-2xs items-center py-2">
-								<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
-								<div class="col-span-2 truncate">
-									{kafkaTrigger.kafka_resource_path}
-								</div>
-								<div class="flex justify-end">
-									<button
-										on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
-										class="px-2"
-									>
-										{#if kafkaTrigger.canWrite}
-											Edit
-										{:else}
-											View
-										{/if}
-									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
+	{#if !$enterpriseLicense}
+		<Alert title="EE Only" type="warning" size="xs">
+			Kafka triggers are an enterprise only feature.
+		</Alert>
+	{:else if isCloudHosted()}
+		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+			Kafka triggers are disabled in the multi-tenant cloud.
+		</Alert>
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if newItem}
+				<Alert title="Triggers disabled" type="warning" size="xs">
+					Deploy the {isFlow ? 'flow' : 'script'} to add kafka triggers.
+				</Alert>
 			{:else}
-				<Skeleton layout={[[8]]} />
+				<Button
+					on:click={() => kafkaTriggerEditor?.openNew(isFlow, path)}
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: KafkaIcon }}
+				>
+					New Kafka Trigger
+				</Button>
+				{#if kafkaTriggers}
+					{#if kafkaTriggers.length == 0}
+						<div class="text-xs text-secondary"> No kafka triggers </div>
+					{:else}
+						<div class="flex flex-col divide-y pt-2">
+							{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
+								<div class="grid grid-cols-5 text-2xs items-center py-2">
+									<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
+									<div class="col-span-2 truncate">
+										{kafkaTrigger.kafka_resource_path}
+									</div>
+									<div class="flex justify-end">
+										<button
+											on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
+											class="px-2"
+										>
+											{#if kafkaTrigger.canWrite}
+												Edit
+											{:else}
+												View
+											{/if}
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{:else}
+					<Skeleton layout={[[8]]} />
+				{/if}
 			{/if}
-		{/if}
-	</div>
-{/if}
+		</div>
+	{/if}
+</div>
