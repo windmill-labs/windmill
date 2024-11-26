@@ -317,7 +317,7 @@
 					</TabContent>
 
 					<TabContent value="resource">
-						<ObjectTypeNarrowing bind:format />
+						<ObjectTypeNarrowing on:change={() => dispatch('schemaChange')} bind:format />
 					</TabContent>
 				</div>
 			</svelte:fragment>
