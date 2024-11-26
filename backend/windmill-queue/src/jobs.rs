@@ -2139,7 +2139,7 @@ fn fullpath_with_workspace(
     let path = script_path.map(String::as_str).unwrap_or("tmp/main");
     let is_flow = matches!(
         job_kind,
-        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow
+        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow | &JobKind::FlowNode
     );
     format!(
         "{}/{}/{}",
@@ -3208,6 +3208,34 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
             None,
         ),
+        JobPayload::FlowNode { id, path } => {
+            let flow_value = sqlx::query_scalar!(
+                "SELECT flow as \"flow!: sqlx::types::Json<Box<RawValue>>\" FROM flow_node WHERE id = $1 LIMIT 1",
+                id.0
+            ).fetch_one(_db)
+            .await?;
+            let value = serde_json::from_str::<FlowValue>(flow_value.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for node={}: {err:?}", id.0
+                ))
+            })?;
+            let status = Some(FlowStatus::new(&value));
+            (
+                Some(id.0),
+                Some(path),
+                None,
+                JobKind::FlowNode,
+                Some(value),
+                status,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        },
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -3965,6 +3993,7 @@ pub async fn push<'c, 'd>(
             JobKind::AppDependencies => "jobs.run.app_dependencies",
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
             JobKind::FlowScript => "jobs.run.flow_script",
+            JobKind::FlowNode => "jobs.run.flow_node",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
