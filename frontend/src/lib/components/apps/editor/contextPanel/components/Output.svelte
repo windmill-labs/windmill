@@ -10,10 +10,12 @@
 	export let id: string
 	export let first: boolean = false
 	export let label: string
+	export let renderRec: boolean
 </script>
 
-<OutputHeader renamable={false} {id} name={label} {first}>
+<OutputHeader render={renderRec} let:render renamable={false} {id} name={label} {first}>
 	<ComponentOutputViewer
+		{render}
 		componentId={id}
 		on:select={({ detail }) => {
 			$connectingInput = connectInput($connectingInput, id, detail)
