@@ -11,7 +11,7 @@
 	export let expanded: boolean = false
 	export let subGrids: string[]
 	export let nameOverrides: string[] | undefined = undefined
-
+	export let render: boolean
 	const { app, connectingInput, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected = 0
@@ -44,7 +44,7 @@
 
 {#each subgridItems as { k, items }, index (k)}
 	<div class="ml-2 my-2">
-		{#if subGrids.length > 1}
+		{#if subGrids.length > 1 && render}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
@@ -74,6 +74,7 @@
 				{#if items.length > 0}
 					{#each items as subGridItem, index (subGridItem.id)}
 						<ComponentOutput
+							renderRec={render}
 							gridItem={subGridItem}
 							first={index === 0}
 							{expanded}

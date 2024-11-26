@@ -18,6 +18,7 @@
 	export let selectable: boolean = true
 	export let renamable: boolean = true
 	export let disabled: boolean = false
+	export let render: boolean = true
 
 	const { manuallyOpened, search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
@@ -200,92 +201,95 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
-	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		on:mouseenter|stopPropagation={() => {
-			if (id !== $hoverStore) {
-				$hoverStore = id
-			}
-		}}
-		on:mouseleave|stopPropagation={() => {
-			if ($hoverStore !== undefined) {
-				$hoverStore = undefined
-			}
-		}}
-		class={classNames(
-			'flex items-center justify-between p-1 cursor-pointer gap-1 truncate',
-			hoverColor[color],
-			$selectedComponent?.includes(id)
-				? openBackground[color]
-				: $connectingInput.hoveredComponent === id
-				? 'bg-[#fab157]'
-				: 'bg-surface-secondary',
-			first ? 'border-t' : '',
-			nested ? 'border-l' : '',
-			'transition-all'
-		)}
-		on:click={() => {
-			if (!disabled) {
-				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
-			}
-		}}
-		id={`output-${id}`}
-	>
-		<div class="flex">
-			<button
-				disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
-				title="Select component"
-				on:click|stopPropagation={() => ($selectedComponent = [id])}
-				class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
-			>
-				<div
-					class={classNames(
-						'text-2xs  font-bold px-2 py-0.5 rounded-sm',
-						$selectedComponent?.includes(id) ? idClass[color] : ''
-					)}
+	{#if (render && $search == '') || inSearch}
+		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div
+			on:mouseenter|stopPropagation={() => {
+				if (id !== $hoverStore) {
+					$hoverStore = id
+				}
+			}}
+			on:mouseleave|stopPropagation={() => {
+				if ($hoverStore !== undefined) {
+					$hoverStore = undefined
+				}
+			}}
+			class={classNames(
+				'flex items-center justify-between p-1 cursor-pointer gap-1 truncate',
+				hoverColor[color],
+				$selectedComponent?.includes(id)
+					? openBackground[color]
+					: $connectingInput.hoveredComponent === id
+					? 'bg-[#fab157]'
+					: 'bg-surface-secondary',
+				first ? 'border-t' : '',
+				nested ? 'border-l' : '',
+				'transition-all'
+			)}
+			on:click={() => {
+				if (!disabled) {
+					$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
+				}
+			}}
+			id={`output-${id}`}
+		>
+			<div class="flex">
+				<button
+					disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
+					title="Select component"
+					on:click|stopPropagation={() => ($selectedComponent = [id])}
+					class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
 				>
-					{id}
-				</div>
-				{#if selectable && !$selectedComponent?.includes(id)}
-					<div class="px-1">
-						<Pointer size={14} />
-					</div>
-				{/if}
-			</button>
-			{#if selectable && renamable && $selectedComponent?.includes(id)}
-				<div class="h-3">
-					<IdEditor
+					<div
+						class={classNames(
+							'text-2xs  font-bold px-2 py-0.5 rounded-sm',
+							$selectedComponent?.includes(id) ? idClass[color] : ''
+						)}
+					>
 						{id}
-						on:selected={() => ($selectedComponent = [id])}
-						on:save={({ detail }) => renameId(detail)}
-					/></div
-				>
-			{/if}
-		</div>
-		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
-			{#if ['ctx', 'state'].includes(id)}
-				<DocLink
-					docLink={id === 'state'
-						? 'https://www.windmill.dev/docs/apps/outputs#state'
-						: id === 'ctx'
-						? 'https://www.windmill.dev/docs/apps/outputs#app-context'
-						: ''}
-					size="xs2"
-				/>
-			{/if}
-			{name}
-			<div class={classNames('bg-surface-secondary rounded-sm')}>
-				{#if !open}
-					<ChevronDown size={14} color="gray" />
-				{:else if $manuallyOpened[id]}
-					<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
-				{:else}
-					<ChevronUp size={14} color="gray" />
+					</div>
+					{#if selectable && !$selectedComponent?.includes(id)}
+						<div class="px-1">
+							<Pointer size={14} />
+						</div>
+					{/if}
+				</button>
+				{#if selectable && renamable && $selectedComponent?.includes(id)}
+					<div class="h-3">
+						<IdEditor
+							{id}
+							on:selected={() => ($selectedComponent = [id])}
+							on:save={({ detail }) => renameId(detail)}
+						/></div
+					>
 				{/if}
 			</div>
+			<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
+				{#if ['ctx', 'state'].includes(id)}
+					<DocLink
+						docLink={id === 'state'
+							? 'https://www.windmill.dev/docs/apps/outputs#state'
+							: id === 'ctx'
+							? 'https://www.windmill.dev/docs/apps/outputs#app-context'
+							: ''}
+						size="xs2"
+					/>
+				{/if}
+				{name}
+				<div class={classNames('bg-surface-secondary rounded-sm')}>
+					{#if !open}
+						<ChevronDown size={14} color="gray" />
+					{:else if $manuallyOpened[id]}
+						<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
+					{:else}
+						<ChevronUp size={14} color="gray" />
+					{/if}
+				</div>
+			</div>
 		</div>
-	</div>
+	{/if}
+
 	<div
 		class="border-b {open
 			? 'h-full'
@@ -295,7 +299,7 @@
 			: ''}"
 	>
 		<div class={classNames(nested ? 'border-l ml-2' : '', open ? 'border-t' : '')}>
-			<slot />
+			<slot render={open && render} />
 		</div>
 	</div>
 </div>
