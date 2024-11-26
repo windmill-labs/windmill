@@ -128,7 +128,7 @@ async fn delete_draft(
 //         path,
 //         w_id
 //     )
-//     .fetch_optional(&mut tx)
+//     .fetch_optional(&mut *tx)
 //     .await?;
 //     tx.commit().await?;
 

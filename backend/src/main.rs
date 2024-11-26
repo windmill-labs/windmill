@@ -341,27 +341,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
-    let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
-        let url = x.parse::<url::Url>().unwrap();
-        let mut config = rsmq_async::RsmqOptions { ..Default::default() };
-
-        config.host = url.host_str().expect("redis host required").to_owned();
-        config.password = url.password().map(|s| s.to_owned());
-        config.db = url
-            .path_segments()
-            .and_then(|mut segments| segments.next())
-            .and_then(|segment| segment.parse().ok())
-            .unwrap_or(0);
-        config.ns = url
-            .query_pairs()
-            .find(|s| s.0 == "rsmq_namespace")
-            .map(|s| s.1)
-            .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
-            .into_owned();
-        config.port = url.port().unwrap_or(6379).to_string();
-        config
-    });
-
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
@@ -375,13 +354,6 @@ async fn windmill_main() -> anyhow::Result<()> {
             .flatten()
             .unwrap_or_else(|| "UNKNOWN".to_string())
     );
-
-    let rsmq = if let Some(config) = rsmq_config {
-        tracing::info!("Redis config set: {:?}", config);
-        Some(rsmq_async::MultiplexedRsmq::new(config).await.unwrap())
-    } else {
-        None
-    };
 
     let is_agent = mode == Mode::Agent;
 
@@ -432,6 +404,8 @@ Windmill Community Edition {GIT_VERSION}
         tracing::error!("Could loading critical error emails setting: {:?}", e);
     }
 
+    let worker_mode = num_workers > 0;
+
     #[cfg(feature = "enterprise")]
     {
         // load the license key and check if it's valid
@@ -468,8 +442,6 @@ Windmill Community Edition {GIT_VERSION}
         }
     }
 
-    let worker_mode = num_workers > 0;
-
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
@@ -497,7 +469,6 @@ Windmill Community Edition {GIT_VERSION}
         monitor_db(
             &db,
             &base_internal_url,
-            rsmq.clone(),
             server_mode,
             worker_mode,
             true,
@@ -516,7 +487,6 @@ Windmill Community Edition {GIT_VERSION}
 
         let addr = SocketAddr::from((server_bind_address, port));
 
-        let rsmq2 = rsmq.clone();
         let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
         DirBuilder::new()
@@ -623,7 +593,6 @@ Windmill Community Edition {GIT_VERSION}
             if !is_agent {
                 windmill_api::run_server(
                     db.clone(),
-                    rsmq2,
                     index_reader,
                     log_index_reader,
                     addr,
@@ -655,7 +624,6 @@ Windmill Community Edition {GIT_VERSION}
                         killpill_tx.clone(),
                         num_workers,
                         base_internal_url.clone(),
-                        rsmq.clone(),
                         mode.clone() == Mode::Agent,
                         hostname.clone(),
                     )
@@ -671,13 +639,12 @@ Windmill Community Edition {GIT_VERSION}
                 killpill_phase2_tx.send(())?;
                 tracing::info!("Phase 2 of shutdown completed");
             }
-            Ok(()) as anyhow::Result<()>
+            Ok(())
         };
 
         let monitor_f = async {
             let db = db.clone();
             let tx = killpill_tx.clone();
-            let rsmq = rsmq.clone();
 
             let base_internal_url = base_internal_url.to_string();
             let h = tokio::spawn(async move {
@@ -694,7 +661,6 @@ Windmill Community Edition {GIT_VERSION}
                             monitor_db(
                                 &db,
                                 &base_internal_url,
-                                rsmq.clone(),
                                 server_mode,
                                 worker_mode,
                                 false,
@@ -985,13 +951,12 @@ fn display_config(envs: &[&str]) {
     )
 }
 
-pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn run_workers(
     db: Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     tx: tokio::sync::broadcast::Sender<()>,
     num_workers: i32,
     base_internal_url: String,
-    rsmq: Option<R>,
     agent_mode: bool,
     hostname: String,
 ) -> anyhow::Result<()> {
@@ -1063,7 +1028,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
-        let rsmq2 = rsmq.clone();
         let hostname = hostname.clone();
 
         handles.push(tokio::spawn(async move {
@@ -1081,7 +1045,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 rx,
                 tx,
                 &base_internal_url,
-                rsmq2,
                 agent_mode,
             );
 

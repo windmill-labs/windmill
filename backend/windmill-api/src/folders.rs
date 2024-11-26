@@ -161,7 +161,6 @@ async fn create_folder(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
@@ -223,7 +222,6 @@ async fn create_folder(
         &w_id,
         DeployedObject::Folder { path: format!("f/{}", ng.name) },
         Some(format!("Folder '{}' created", ng.name)),
-        rsmq,
         true,
     )
     .await?;
@@ -278,7 +276,6 @@ async fn update_folder(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
@@ -376,7 +373,6 @@ async fn update_folder(
         &w_id,
         DeployedObject::Folder { path: format!("f/{}", name) },
         Some(format!("Folder '{}' updated", name)),
-        rsmq,
         true,
     )
     .await?;
@@ -523,7 +519,6 @@ async fn delete_folder(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
@@ -566,7 +561,6 @@ async fn delete_folder(
         &w_id,
         DeployedObject::Folder { path: format!("f/{}", name) },
         Some(format!("Folder '{}' deleted", name)),
-        rsmq,
         true,
     )
     .await?;

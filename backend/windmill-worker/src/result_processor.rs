@@ -45,7 +45,7 @@ use crate::{
     AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
 
-pub fn start_background_processor<R>(
+pub fn start_background_processor(
     mut job_completed_rx: Receiver<SendResult>,
     job_completed_sender: Sender<SendResult>,
     same_worker_queue_size: Arc<AtomicU16>,
@@ -54,14 +54,10 @@ pub fn start_background_processor<R>(
     db: DB,
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
-    rsmq: Option<R>,
     worker_name: String,
     killpill_tx: sync::broadcast::Sender<()>,
     is_dedicated_worker: bool,
-) -> JoinHandle<()>
-where
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
-{
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut has_been_killed = false;
 
@@ -81,8 +77,6 @@ where
 
             match sr {
                 SendResult::JobCompleted(jc) => {
-                    let rsmq = rsmq.clone();
-
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -96,7 +90,6 @@ where
                         &db,
                         &worker_dir,
                         &same_worker_tx,
-                        rsmq,
                         &worker_name,
                         job_completed_sender.clone(),
                         #[cfg(feature = "benchmark")]
@@ -155,7 +148,6 @@ where
                         same_worker_tx.clone(),
                         &worker_dir,
                         stop_early_override,
-                        rsmq.clone(),
                         &worker_name,
                         job_completed_sender.clone(),
                         #[cfg(feature = "benchmark")]
@@ -194,8 +186,18 @@ async fn send_job_completed(
     success: bool,
     cached_res_path: Option<String>,
     token: String,
+    duration: Option<i64>,
 ) {
-    let jc = JobCompleted { job, result, mem_peak, canceled_by, success, cached_res_path, token };
+    let jc = JobCompleted {
+        job,
+        result,
+        mem_peak,
+        canceled_by,
+        success,
+        cached_res_path,
+        token,
+        duration,
+    };
     job_completed_tx.send(jc).await.expect("send job completed")
 }
 
@@ -211,6 +213,7 @@ pub async fn process_result(
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
+    duration: Option<i64>,
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
@@ -265,6 +268,7 @@ pub async fn process_result(
                 true,
                 cached_res_path,
                 token,
+                duration,
             )
             .await;
             Ok(true)
@@ -308,6 +312,7 @@ pub async fn process_result(
                 false,
                 cached_res_path,
                 token,
+                duration,
             )
             .await;
             Ok(false)
@@ -315,15 +320,12 @@ pub async fn process_result(
     }
 }
 
-pub async fn handle_receive_completed_job<
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
->(
+pub async fn handle_receive_completed_job(
     jc: JobCompleted,
     base_internal_url: &str,
     db: &DB,
     worker_dir: &str,
     same_worker_tx: &SameWorkerSender,
-    rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -345,7 +347,6 @@ pub async fn handle_receive_completed_job<
         db,
         &worker_dir,
         same_worker_tx.clone(),
-        rsmq.clone(),
         worker_name,
         job_completed_tx.clone(),
         #[cfg(feature = "benchmark")]
@@ -363,7 +364,6 @@ pub async fn handle_receive_completed_job<
             false,
             same_worker_tx.clone(),
             &worker_dir,
-            rsmq.clone(),
             worker_name,
             job_completed_tx,
             #[cfg(feature = "benchmark")]
@@ -374,13 +374,12 @@ pub async fn handle_receive_completed_job<
 }
 
 #[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
-pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
+pub async fn process_completed_job(
+    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, duration, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
     same_worker_tx: SameWorkerSender,
-    rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -404,10 +403,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             Json(&result),
             mem_peak.to_owned(),
             canceled_by,
-            rsmq.clone(),
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            duration,
         )
         .await?;
         drop(job);
@@ -429,7 +426,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     same_worker_tx.clone(),
                     &worker_dir,
                     None,
-                    rsmq.clone(),
                     worker_name,
                     job_completed_tx,
                     #[cfg(feature = "benchmark")]
@@ -448,11 +444,9 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             serde_json::from_str(result.get()).unwrap_or_else(
                 |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
             ),
-            rsmq.clone(),
             worker_name,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            None,
         )
         .await?;
         if job.is_flow_step {
@@ -470,7 +464,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     same_worker_tx,
                     &worker_dir,
                     None,
-                    rsmq,
                     worker_name,
                     job_completed_tx,
                     #[cfg(feature = "benchmark")]
@@ -484,7 +477,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
 }
 
 #[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
-pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_job_error(
     db: &Pool<Postgres>,
     client: &AuthedClient,
     job: &QueuedJob,
@@ -494,7 +487,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     unrecoverable: bool,
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
-    rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -504,7 +496,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         _ => json!({"message": err.to_string(), "name": "InternalErr"}),
     };
 
-    let rsmq_2 = rsmq.clone();
     let update_job_future = || async {
         append_logs(
             &job.id,
@@ -519,11 +510,9 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             mem_peak,
             canceled_by.clone(),
             err.clone(),
-            rsmq_2,
             worker_name,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            None,
         )
         .await
     };
@@ -555,7 +544,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             same_worker_tx,
             worker_dir,
             None,
-            rsmq.clone(),
             worker_name,
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
@@ -582,11 +570,9 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                         mem_peak,
                         canceled_by.clone(),
                         e,
-                        rsmq,
                         worker_name,
                         false,
-                        #[cfg(feature = "benchmark")]
-                        bench,
+                        None,
                     )
                     .await;
                 }
