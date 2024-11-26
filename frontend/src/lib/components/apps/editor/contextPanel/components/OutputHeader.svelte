@@ -200,8 +200,8 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
-	{#if (render && $search == '') || inSearch}
+<div class={render && ($search == '' || inSearch) ? '' : 'invisible h-0 overflow-hidden'}>
+	{#if render && ($search == '' || inSearch)}
 		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
@@ -291,7 +291,7 @@
 	{/if}
 
 	<div
-		class="border-b {open
+		class="border-b {render && open
 			? 'h-full'
 			: 'h-0 overflow-hidden invisible'} {$connectingInput.hoveredComponent === id &&
 		!$selectedComponent?.includes(id)
