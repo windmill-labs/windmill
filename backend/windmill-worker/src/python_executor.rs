@@ -999,8 +999,6 @@ async fn spawn_uv_install(
         );
 
         let mut vars = vec![("PATH", PATH_ENV.as_str())];
-        let req = req.to_string();
-
         if let Some(url) = pip_extra_index_url.as_ref() {
             vars.push(("EXTRA_INDEX_URL", url));
         }
@@ -1020,7 +1018,7 @@ async fn spawn_uv_install(
             .env_clear()
             .envs(vars)
             .envs([
-                ("REQ", &req),
+                ("REQ", req),
                 ("TARGET", &venv_p.to_string()), //
             ])
             .envs(PROXY_ENVS.clone())
@@ -1099,7 +1097,6 @@ async fn spawn_uv_install(
         }
 
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
-
         envs.push(("HOME", HOME_ENV.as_str()));
 
         tracing::debug!("uv pip install command: {:?}", command_args);
@@ -1166,7 +1163,7 @@ pub async fn handle_python_reqs(
     job_id: &Uuid,
     w_id: &str,
     _mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
+    _canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
     job_dir: &str,
@@ -1246,7 +1243,6 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-
     let pip_indexes = (
         PIP_EXTRA_INDEX_URL
             .read()
@@ -1261,7 +1257,7 @@ pub async fn handle_python_reqs(
     );
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
     let kill_tx_2 = kill_tx.clone();
 
     let job_id_2 = job_id.clone();
@@ -1272,17 +1268,15 @@ pub async fn handle_python_reqs(
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
                     // Notify server that we are still alive
-                    // TODO: Abstract with function
                     // Detect if job has been canceled
-                    let (canceled, already_completed ) =
-                        sqlx::query_as::<_, (bool, bool,)>
+                    let canceled =
+                        sqlx::query_scalar::<_, bool>
                         (r#"
 
                                UPDATE queue 
                                   SET last_ping = now() 
                                 WHERE id = $1 
                             RETURNING canceled
-                                    , false
 
                             "#)
                         .bind(job_id_2)
@@ -1290,33 +1284,25 @@ pub async fn handle_python_reqs(
                         .await
                         .unwrap_or_else(|e| {
                             tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                            Some((false, false))
+                            Some(false)
                         })
                         .unwrap_or_else(|| {
                             // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            (false, true)
+                            false
                         });
 
                     if canceled {
                         kill_tx_2.send(()).expect("failed to send done");
-                    } else if already_completed {
-                        // TODO: Add description for error
-                        tracing::error!("");
-                        // TODO: Do we send kill signal?
-                        break;
-                    }
+                    } 
                 }
-                _ = done_rx.recv() => {
-                    // uv installed everything correctly, or failed, but we have to stop anyways
-                    break;
-                }
-
+                // Once done_tx is dropped, this will be fired
+                _ = done_rx.recv() => break
             }
         }
     });
+
     // Prepare NSJAIL
     if !*DISABLE_NSJAIL {
-
         let _ = write_file(
             job_dir,
             "download.config.proto",
@@ -1451,14 +1437,16 @@ pub async fn handle_python_reqs(
                     );
 
                     tokio::select! {
-                        // TODO: What if server is shut during installation? UV will install to different location first?
-                        _ = kill_rx.recv() => {
-                            // Cancel was called on the job
-                            return Err(anyhow::anyhow!("S3 pull was canceled"));
-                        }
+                        // Cancel was called on the job
+                        _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
+                        
                         pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
-                            if pull.is_ok(){
-                                // print_success(db, true, false).await;
+                            if let Err(e) = pull {
+                                tracing::info!(
+                                    workspace_id = %w_id,
+                                    "No tarball was found on S3 or different problem occured {job_id}:\n{e}",
+                                );                               
+                            } else {
                                 print_success(
                                     true,
                                     false,
@@ -1470,16 +1458,14 @@ pub async fn handle_python_reqs(
                                     total_to_install,
                                     start,
                                     db
-                                //
                                 ).await;
                                 return Ok(());
-                            } else {
-                                // TODO: Cleanup (just in case error isnt related to non-existant entry on S3)
                             }
                         }
                     }
                 }
             }
+
             let mut uv_install_proccess = spawn_uv_install(
                 &w_id,
                 &req,
@@ -1534,6 +1520,7 @@ pub async fn handle_python_reqs(
                     tokio::spawn(build_tar_and_push(os, venv_p.clone(), no_uv_install));
                 }
             }
+
             tracing::info!(
                 workspace_id = %w_id,
                 // is_ok = out,
@@ -1546,8 +1533,7 @@ pub async fn handle_python_reqs(
     }
 
     for (handle, (req, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
-        // TODO: Safer error handling
-        if let Err(e) = handle.await.unwrap() {
+        if let Err(e) = handle.await.unwrap_or(Err(anyhow!("Problem by joining handle"))) {
             append_logs(
                 &job_id,
                 w_id,
@@ -1572,14 +1558,10 @@ pub async fn handle_python_reqs(
         }
     }
 
-    if let Err(e) = done_tx.send(()).await {
-        tracing::error!(
-            workspace_id = %w_id,
-            "failed to send done: Probably receiving end closed too early\n{}",
-            e
-        );
-    }
-
+    // Usually done_tx will drop after this return
+    // If there is listener on other side, 
+    // it will be triggered
+    // If there is no listener, it will be dropped safely
     Ok(req_paths)
 }
 
