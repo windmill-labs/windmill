@@ -249,6 +249,7 @@ pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
