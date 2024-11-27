@@ -3,9 +3,19 @@
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore, isCriticalAlertsUIOpen, devopsRole } from '$lib/stores'
+	import {
+		workspaceStore,
+		isCriticalAlertsUIOpen,
+		devopsRole,
+		userStore,
+		superadmin
+	} from '$lib/stores'
 	import Modal from '../common/modal/Modal.svelte'
-
+	import { Button, Popup } from '$lib/components/common'
+	import List from '$lib/components/common/layout/List.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
+	import { base } from '$lib/base'
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
 	export let muteSettings
@@ -117,6 +127,105 @@
 </script>
 
 <Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
+	<svelte:fragment slot="settings">
+		<List horizontal>
+			{#if $superadmin || $userStore?.is_admin}
+				<Popup
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					target="#mute-settings-button"
+					preventPopupClosingOnClickInside={true}
+				>
+					<svelte:fragment slot="button">
+						<div id="mute-settings-button">
+							<Button variant="border" color="light" nonCaptureEvent>
+								{#if muteSettings.global || muteSettings.workspace}
+									<BellOff size="16" />
+								{:else}
+									<Bell size="16" />
+								{/if}
+							</Button>
+						</div>
+					</svelte:fragment>
+					<List justify="start">
+						<div class="w-full">
+							{#if $superadmin}
+								<Toggle
+									bind:checked={muteSettings.global}
+									options={{ right: 'Mute critical alerts instance wide' }}
+									size="xs"
+									stopPropagation={true}
+								/>
+							{/if}
+						</div>
+
+						<div class="w-full">
+							<Toggle
+								bind:checked={muteSettings.workspace}
+								options={{ right: 'Mute critical alerts for current workspace' }}
+								size="xs"
+								stopPropagation={true}
+							/>
+						</div>
+					</List>
+				</Popup>
+			{/if}
+
+			{#if $superadmin}
+				<Popup
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					target="#settings-button"
+				>
+					<svelte:fragment slot="button">
+						<div id="settings-button">
+							<Button variant="border" color="light" nonCaptureEvent>
+								<Settings size="16" />
+							</Button>
+						</div>
+					</svelte:fragment>
+					<List justify="start" gap="none">
+						<div class="w-full">
+							<Button
+								size="xs"
+								color="light"
+								href="{base}/?workspace=admins#superadmin-settings"
+								target="_blank"
+							>
+								<div class="w-full">
+									<List horizontal justify="between" gap="sm">
+										<div>Instance Critical Alert Settings</div>
+										<ExternalLink size="16" />
+									</List>
+								</div>
+							</Button>
+						</div>
+						<div class="w-full">
+							<Button
+								size="xs"
+								color="light"
+								href="{base}/workspace_settings?tab=error_handler"
+								target="_blank"
+							>
+								Workspace Critical Alert Settings <ExternalLink size="16" />
+							</Button>
+						</div>
+					</List>
+				</Popup>
+			{:else}
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					href="{base}/workspace_settings?tab=error_handler"
+					target="_blank"
+				>
+					<List horizontal justify="between" gap="sm">
+						<Settings size="16" />
+						<ExternalLink size="16" />
+					</List>
+				</Button>
+			{/if}
+		</List>
+	</svelte:fragment>
 	<CriticalAlertModalInner
 		{numUnacknowledgedCriticalAlerts}
 		{updateHasUnacknowledgedCriticalAlerts}
