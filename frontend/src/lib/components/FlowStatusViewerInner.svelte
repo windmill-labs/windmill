@@ -711,7 +711,7 @@
 				})
 			}
 
-			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'preview') {
+			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'flowscript' || jobLoaded.job_kind == 'preview') {
 				let id: string | undefined = undefined
 				if (innerModule?.type == 'forloopflow' && innerModule.modules.length == 1) {
 					id = innerModule?.modules?.[0]?.id
