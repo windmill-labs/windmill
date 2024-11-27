@@ -56,6 +56,7 @@ use windmill_common::{
     },
     BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
     HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -676,9 +677,12 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             {
                                 tracing::error!("Error deleting  custom concurrency key: {:?}", e);
                             }
+
+                            // This table also holds service log files, which is why we want to
+                            // make sure to get the bigger of the two retention periods
                             if let Err(e) = sqlx::query!(
-                                "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval ",
-                                job_retention_secs
+                                "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval",
+                                std::cmp::max(job_retention_secs, SERVICE_LOG_RETENTION_SECS)
                             )
                             .execute(&mut *tx)
                             .await
