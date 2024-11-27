@@ -284,12 +284,6 @@ pub struct SkipIf {
 }
 
 #[derive(Deserialize)]
-pub struct FlowModuleValueType {
-    #[serde(rename = "type")]
-    pub type_: String,
-}
-
-#[derive(Deserialize)]
 pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
@@ -347,10 +341,15 @@ impl FlowModule {
             .is_ok_and(|x| x == "script" || x == "rawscript")
     }
 
-    pub fn get_type(&self) -> anyhow::Result<String> {
+    pub fn get_type(&self) -> anyhow::Result<&str> {
+        #[derive(Deserialize)]
+        pub struct FlowModuleValueType<'a> {
+            pub r#type: &'a str,
+        }
+
         serde_json::from_str::<FlowModuleValueType>(self.value.get())
             .map_err(crate::error::to_anyhow)
-            .map(|x| x.type_)
+            .map(|x| x.r#type)
     }
 }
 
