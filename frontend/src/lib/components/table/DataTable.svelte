@@ -21,7 +21,7 @@
 	export let shouldHidePagination: boolean = false
 	export let noBorder: boolean = false
 	export let rowCount: number | undefined = undefined
-
+	export let hasMore: boolean = true
 	const dispatch = createEventDispatcher()
 
 	setContext<DatatableContext>('datatable', {
@@ -79,6 +79,7 @@
 						size="xs2"
 						on:click={() => dispatch('next')}
 						endIcon={{ icon: ArrowRightIcon }}
+						disabled={!hasMore}
 					>
 						Next
 					</Button>

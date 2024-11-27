@@ -9,7 +9,11 @@
 
 	export let alerts: any[]
 	export let hideAcknowledged = false
+	export let goToNextPage: () => void
+	export let goToPreviousPage: () => void
 	export let acknowledgeAlert: (id: number) => void
+	export let page = 1
+	export let hasMore = true
 
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
@@ -25,7 +29,14 @@
 	}
 </script>
 
-<DataTable size="xs">
+<DataTable
+	size="xs"
+	paginated
+	on:next={goToNextPage}
+	on:previous={goToPreviousPage}
+	bind:currentPage={page}
+	{hasMore}
+>
 	<Head>
 		<tr>
 			<Cell head class="min-w-10">Type</Cell>

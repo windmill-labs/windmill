@@ -206,15 +206,15 @@
 	</div>
 
 	<div class="w-full">
-		<CriticalAlertTable {alerts} {acknowledgeAlert} {hideAcknowledged} />
-	</div>
-
-	<div class="w-full">
-		<List horizontal gap="md" justify="end">
-			<Button size="xs2" on:click={goToPreviousPage} disabled={page <= 1}>Previous</Button>
-			<span>Page {page}</span>
-			<Button size="xs2" on:click={goToNextPage} disabled={!hasMore}>Next</Button>
-		</List>
+		<CriticalAlertTable
+			{alerts}
+			{acknowledgeAlert}
+			{hideAcknowledged}
+			{goToNextPage}
+			{goToPreviousPage}
+			bind:page
+			{hasMore}
+		/>
 	</div>
 
 	{#if alerts.length === 0}
