@@ -1262,6 +1262,7 @@ pub async fn handle_python_reqs(
 
     let job_id_2 = job_id.clone();
     let db_2 = db.clone();
+    let w_id_2 = w_id.to_string();
 
     tokio::spawn(async move {
         loop {
@@ -1292,7 +1293,15 @@ pub async fn handle_python_reqs(
                         });
 
                     if canceled {
-                        kill_tx_2.send(()).expect("failed to send done");
+                        if let Err(ref e) = kill_tx_2.send(()){
+                            tracing::error!(
+                                // If there is listener on other side, 
+                                workspace_id = %w_id_2,
+                                "failed to send done: Probably receiving end closed too early\n{}",
+                                // If there is no listener, it will be dropped safely
+                                e
+                            );
+                        }
                     } 
                 }
                 // Once done_tx is dropped, this will be fired
