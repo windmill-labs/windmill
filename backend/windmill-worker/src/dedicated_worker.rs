@@ -329,7 +329,7 @@ async fn spawn_dedicated_workers_for_flow(
                     .await;
                     workers.extend(w);
                 }
-                FlowModuleValue::BranchOne { branches, default } => {
+                FlowModuleValue::BranchOne { branches, default, .. } => {
                     for modules in branches
                         .iter()
                         .map(|x| &x.modules)

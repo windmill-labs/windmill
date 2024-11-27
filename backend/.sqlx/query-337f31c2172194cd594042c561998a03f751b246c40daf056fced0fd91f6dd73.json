@@ -33,7 +33,8 @@
                 "appdependencies",
                 "deploymentcallback",
                 "singlescriptflow",
-                "flowscript"
+                "flowscript",
+                "flownode"
               ]
             }
           }
