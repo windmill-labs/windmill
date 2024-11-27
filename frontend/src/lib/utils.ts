@@ -20,6 +20,10 @@ export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
 
+export function isJobRerunnable(j: Job): boolean {
+	return j.type === 'CompletedJob' && (j.job_kind === "script" || j.job_kind === "flow")
+}
+
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
 		return 'username can only contain letters and numbers and must start with a letter'
@@ -605,7 +609,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -615,7 +619,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -831,7 +835,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
