@@ -320,7 +320,6 @@
 					  acc[key] = {doc_count};
 					  return acc;
 					}, {} as Record<string, number>)
-				console.log(countsPerHost)
 				queryParseErrors = countLogsResponse.query_parse_errors ?? []
 				loadingLogCounts = false
 			}
