@@ -100,7 +100,7 @@ lazy_static::lazy_static! {
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
-    pub static ref MONITOR_LOGS_FROM_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref INSTANCE_NAME: String = rd_string(5);
 

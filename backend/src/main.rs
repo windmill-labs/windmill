@@ -8,8 +8,7 @@
 
 use anyhow::Context;
 use monitor::{
-    reload_indexer_config, reload_timeout_wait_result_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store,
+    reload_delete_logs_periodically_setting, reload_indexer_config, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -30,15 +29,7 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -739,6 +730,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
+                                                },
+                                                MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
+                                                    reload_delete_logs_periodically_setting(&db).await
                                                 },
                                                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
                                                     reload_job_default_timeout_setting(&db).await
