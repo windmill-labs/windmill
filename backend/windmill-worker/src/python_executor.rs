@@ -985,7 +985,6 @@ lazy_static::lazy_static! {
 /// Can be wrapped by nsjail depending on configuration
 #[inline]
 async fn spawn_uv_install(
-    vars: Vec<(&str, &str)>,
     w_id: &str,
     req: &str,
     venv_p: &str,
@@ -998,13 +997,21 @@ async fn spawn_uv_install(
             workspace_id = %w_id,
             "starting nsjail"
         );
+
+        let mut vars = vec![("PATH", PATH_ENV.as_str())];
         let req = req.to_string();
-        let mut pip_indexes = Vec::with_capacity(2);
+
         if let Some(url) = pip_extra_index_url.as_ref() {
-            pip_indexes.push(("EXTRA_INDEX_URL", url));
+            vars.push(("EXTRA_INDEX_URL", url));
         }
         if let Some(url) = pip_index_url.as_ref() {
-            pip_indexes.push(("INDEX_URL", url));
+            vars.push(("INDEX_URL", url));
+        }
+        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+            vars.push(("PIP_INDEX_CERT", cert_path));
+        }
+        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+            vars.push(("TRUSTED_HOST", host));
         }
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1012,7 +1019,6 @@ async fn spawn_uv_install(
             .current_dir(job_dir)
             .env_clear()
             .envs(vars)
-            .envs(pip_indexes)
             .envs([
                 ("REQ", &req),
                 ("TARGET", &venv_p.to_string()), //
@@ -1170,157 +1176,8 @@ pub async fn handle_python_reqs(
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-    no_uv_install |= *USE_PIP_INSTALL;
 
-    if no_uv_install && !is_ansible {
-        append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
-        tracing::warn!("Fallback to pip");
-    }
-
-    let mut req_paths: Vec<String> = vec![];
-    let mut vars = vec![("PATH", PATH_ENV.as_str())];
-
-    let pip_indexes = (
-        PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token),
-        PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token),
-    );
-
-    // TODO: Use oneshot?
-    let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
-
-    let job_id_2 = job_id.clone();
-    let db_2 = db.clone();
-    let kill_tx_2 = kill_tx.clone();
-
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                    // Notify server that we are still alive
-                    // TODO: Abstract with function
-                    // Detect if job has been canceled
-                    let canceled =
-                        sqlx::query_scalar::<_, bool>
-                        (r#"
-
-                               UPDATE queue 
-                                  SET last_ping = now() 
-                                WHERE id = $1 
-                            RETURNING canceled
-
-                            "#)
-                        .bind(job_id_2)
-                        .fetch_optional(&db_2)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                            Some(false)
-                        })
-                        .unwrap_or_else(|| {
-                            // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            false
-                        });
-
-                    if canceled {
-                        kill_tx_2.send(()).expect("failed to send done");
-                    }
-                }
-
-                _ = done_rx.recv() => {
-                    break;
-                }
-
-            }
-        }
-    });
-    // Prepare NSJAIL
-    if !*DISABLE_NSJAIL {
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            vars.push(("PIP_INDEX_CERT", cert_path));
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-            vars.push(("TRUSTED_HOST", host));
-        }
-
-        let _ = write_file(
-            job_dir,
-            "download.config.proto",
-            &(if no_uv_install {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
-            } else {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-            })
-            .replace("{WORKER_DIR}", &worker_dir)
-            .replace(
-                "{CACHE_DIR}",
-                if no_uv_install {
-                    PIP_CACHE_DIR
-                } else {
-                    PY311_CACHE_DIR
-                },
-            )
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
-    };
-
-    let mut req_with_penv: Vec<(String, String)> = vec![];
-
-    // Find out if there is already cached dependencies
-    // If so, skip them
-    for req in requirements {
-        // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') {
-            continue;
-        }
-        // TODO: Remove
-        let py_prefix = if no_uv_install {
-            PIP_CACHE_DIR
-        } else {
-            PY311_CACHE_DIR
-        };
-
-        let venv_p = format!(
-            "{py_prefix}/{}",
-            req.replace(' ', "").replace('/', "").replace(':', "")
-        );
-        if metadata(&venv_p).await.is_ok() {
-            // If dir exists skip installation and push path to output
-            req_paths.push(venv_p);
-        } else {
-            req_with_penv.push((req.to_string(), venv_p));
-        }
-    }
-
-    // Wheels to install
-    let total_to_install = req_with_penv.len();
-    // Parallelism level (N)
-    let parallel_limit = if no_uv_install {
-        1
-    } else {
-        *PY_CONCURRENT_DOWNLOADS
-    };
-
-    tracing::info!(
-        workspace_id = %w_id,
-        // is_ok = out,
-        "Parallel limit: {}, job: {}",
-        parallel_limit,
-        job_id
-    );
-
-    let semaphore = Arc::new(Semaphore::new(parallel_limit));
-    let mut handles = Vec::with_capacity(total_to_install);
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
-
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
     async fn print_success(
@@ -1347,6 +1204,7 @@ pub async fn handle_python_reqs(
 
         let mut counter = counter_arc.lock().await;
         *counter += 1;
+
         append_logs(
             job_id,
             w_id,
@@ -1366,39 +1224,193 @@ pub async fn handle_python_reqs(
         .await;
         // Drop lock, so next print success can fire
     }
+    no_uv_install |= *USE_PIP_INSTALL;
+
+    if no_uv_install && !is_ansible {
+        append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
+        tracing::warn!("Fallback to pip");
+    }
+    // Parallelism level (N)
+    let parallel_limit = if no_uv_install {
+        1
+    } else {
+        // Semaphore will panic if value less then 1
+        PY_CONCURRENT_DOWNLOADS.clamp(1, 30)
+    };
+
+    tracing::info!(
+        workspace_id = %w_id,
+        // is_ok = out,
+        "Parallel limit: {}, job: {}",
+        parallel_limit,
+        job_id
+    );
+
+
+    let pip_indexes = (
+        PIP_EXTRA_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token),
+        PIP_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token),
+    );
+
+    let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let kill_tx_2 = kill_tx.clone();
+
+    let job_id_2 = job_id.clone();
+    let db_2 = db.clone();
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                    // Notify server that we are still alive
+                    // TODO: Abstract with function
+                    // Detect if job has been canceled
+                    let (canceled, already_completed ) =
+                        sqlx::query_as::<_, (bool, bool,)>
+                        (r#"
+
+                               UPDATE queue 
+                                  SET last_ping = now() 
+                                WHERE id = $1 
+                            RETURNING canceled
+                                    , false
+
+                            "#)
+                        .bind(job_id_2)
+                        .fetch_optional(&db_2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                            Some((false, false))
+                        })
+                        .unwrap_or_else(|| {
+                            // if the job is not in queue, it can only be in the completed_job so it is already complete
+                            (false, true)
+                        });
+
+                    if canceled {
+                        kill_tx_2.send(()).expect("failed to send done");
+                    } else if already_completed {
+                        // TODO: Add description for error
+                        tracing::error!("");
+                        // TODO: Do we send kill signal?
+                        break;
+                    }
+                }
+                _ = done_rx.recv() => {
+                    // uv installed everything correctly, or failed, but we have to stop anyways
+                    break;
+                }
+
+            }
+        }
+    });
+    // Prepare NSJAIL
+    if !*DISABLE_NSJAIL {
+
+        let _ = write_file(
+            job_dir,
+            "download.config.proto",
+            &(if no_uv_install {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
+            } else {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+            })
+            .replace("{WORKER_DIR}", &worker_dir)
+            .replace(
+                "{CACHE_DIR}",
+                if no_uv_install {
+                    PIP_CACHE_DIR
+                } else {
+                    PY311_CACHE_DIR
+                },
+            )
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )?;
+    };
+
+    // Cached paths
+    let mut req_with_penv: Vec<(String, String)> = vec![];
+    // Requirements to pull (not cached)
+    let mut req_paths: Vec<String> = vec![];
+    // Find out if there is already cached dependencies
+    // If so, skip them
+    for req in requirements {
+        // Ignore python version annotation backed into lockfile
+        if req.starts_with('#') {
+            continue;
+        }
+        // TODO: Remove
+        let py_prefix = if no_uv_install {
+            PIP_CACHE_DIR
+        } else {
+            PY311_CACHE_DIR
+        };
+
+        let venv_p = format!(
+            "{py_prefix}/{}",
+            req.replace(' ', "").replace('/', "").replace(':', "")
+        );
+        if metadata(&venv_p).await.is_ok() {
+            // If dir exists skip installation and push path to output
+            req_paths.push(venv_p);
+        } else {
+            req_with_penv.push((req.to_string(), venv_p));
+        }
+    }
 
     // tl = total_length
+    // "small".len == 5
+    // "middle".len == 6
+    // "largest".len == 7
+    //  ==> req_tl = 7
     let mut req_tl = 0;
-
+    // Wheels to install
+    let total_to_install = req_with_penv.len();
     if total_to_install > 0 {
-        let mut logs1 = String::new();
+        let mut logs = String::new();
+        // Do we use UV?
         if no_uv_install {
-            logs1.push_str("\n\n--- PIP INSTALL ---\n");
+            logs.push_str("\n\n--- PIP INSTALL ---\n");
         } else {
-            logs1.push_str("\n\n--- UV PIP INSTALL ---\n");
+            logs.push_str("\n\n--- UV PIP INSTALL ---\n");
         }
-        logs1.push_str("\nTo be installed: \n\n");
 
+        logs.push_str("\nTo be installed: \n\n");
         for (req, _) in &req_with_penv {
             if req.len() > req_tl {
                 req_tl = req.len();
             }
-            logs1.push_str(&format!("{} \n", &req));
+            logs.push_str(&format!("{} \n", &req));
         }
+
+        // Do we use Nsjail?
         if !*DISABLE_NSJAIL {
-            logs1.push_str(&format!("\nStarting isolated installation... \n"));
+            logs.push_str(&format!("\nStarting isolated installation... \n"));
         } else {
-            logs1.push_str(&format!("\nStarting installation... \n"));
+            logs.push_str(&format!("\nStarting installation... \n"));
         }
-        append_logs(&job_id, w_id, logs1, db).await;
+        append_logs(&job_id, w_id, logs, db).await;
     }
 
+    let semaphore = Arc::new(Semaphore::new(parallel_limit));
+    let mut handles = Vec::with_capacity(total_to_install);
+
     for (req, venv_p) in &req_with_penv {
-        let permit = semaphore.clone().acquire_owned().await.map_err(|_| {
+        let permit = semaphore.clone().acquire_owned().await.map_err(|_| 
             anyhow!(
                 "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
             )
-        })?; // Acquire a permit
+        )?; // Acquire a permit
 
         tracing::info!(
             workspace_id = %w_id,
@@ -1413,7 +1425,6 @@ pub async fn handle_python_reqs(
         let venv_p = venv_p.clone();
         let counter_arc = counter_arc.clone();
         let pip_indexes = pip_indexes.clone();
-        let vars = vars.clone();
         let mut kill_rx = kill_tx.subscribe();
 
         handles.push(task::spawn(async move {
@@ -1432,7 +1443,6 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
-                // TODO: Move outside loop
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                     tracing::info!(
                         workspace_id = %w_id,
@@ -1443,8 +1453,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // TODO: What if server is shut during installation? UV will install to different location first?
                         _ = kill_rx.recv() => {
-                            // TODO: Return
-                            // TODO: Cleanup venv
+                            // Cancel was called on the job
                             return Err(anyhow::anyhow!("S3 pull was canceled"));
                         }
                         pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
@@ -1472,7 +1481,6 @@ pub async fn handle_python_reqs(
                 }
             }
             let mut uv_install_proccess = spawn_uv_install(
-                vars.clone(),
                 &w_id,
                 &req,
                 &venv_p,
@@ -1488,23 +1496,16 @@ pub async fn handle_python_reqs(
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
 
             tokio::select! {
-                // TODO: Make it error
-                // TODO: Kill
+                // Canceled
                 _ = kill_rx.recv() => {
-                    // TODO: Remove cache dir
-                    // We need it because handle joiner exites
                     uv_install_proccess.kill().await?;
-                    // Installation got canceled, returning
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 }
+                // Finished
                 exitstatus = uv_install_proccess.wait() => {
-                    // TODO: Handle properly. Return stderr
-                    let exitstatus = exitstatus?;
-
-                    if !exitstatus.success() {
+                    if !exitstatus?.success() {
                         let mut buf = String::new();
                         stderr.read_to_string(&mut buf).await?;
-                        // drop(permit);
                         return Err(anyhow!(buf));
                     }
                 }
@@ -1559,7 +1560,6 @@ pub async fn handle_python_reqs(
                 "Installation failed, removing cache dir: {:?}",
                 e
             );
-            // TODO: Can something else fail and this is not fired
             if let Err(e) = fs::remove_dir_all(&venv_p) {
                 tracing::warn!(
                     workspace_id = %w_id,
@@ -1572,8 +1572,14 @@ pub async fn handle_python_reqs(
         }
     }
 
-    // TODO: This should always fire, even if installations failed
-    done_tx.send(()).await.expect("failed to send done");
+    if let Err(e) = done_tx.send(()).await {
+        tracing::error!(
+            workspace_id = %w_id,
+            "failed to send done: Probably receiving end closed too early\n{}",
+            e
+        );
+    }
+
     Ok(req_paths)
 }
 
