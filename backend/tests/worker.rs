@@ -1170,6 +1170,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             continue_on_error: None,
                             skip_if: None,
                         }],
+                        modules_node: None,
                     }
                     .into(),
                     stop_after_if: Default::default(),
@@ -1386,6 +1387,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 skip_if: None,
                             },
                         ],
+                        modules_node: None,
                     }.into(),
                     stop_after_if: Default::default(),
                     stop_after_all_iters_if: Default::default(),
