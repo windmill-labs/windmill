@@ -28,6 +28,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { slide } from 'svelte/transition'
+	import CapturePanel from './triggers/CapturePanel.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -141,6 +142,10 @@
 			hasPreprocessor =
 				(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ?? false
 
+			if (!hasPreprocessor && selectedTab === 'preprocessor') {
+				selectedTab = 'main'
+			}
+
 			validCode = true
 			schema = nschema
 		} catch (e) {
@@ -235,11 +240,11 @@
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
-	let selectedTab: 'main' | 'preprocessor' = 'main'
-	$: showTabs = hasPreprocessor
-	$: !hasPreprocessor && (selectedTab = 'main')
+	let selectedTab: 'main' | 'preprocessor' | 'capture' = 'main'
 
 	$: selectedTab && inferSchema(code)
+
+	let argsRender = 0
 </script>
 
 <TestJobLoader
@@ -363,90 +368,111 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
-				{#if showTabs}
-					<div transition:slide={{ duration: 200 }}>
-						<Tabs bind:selected={selectedTab}>
-							<Tab value="main">Main</Tab>
-							<Tab value="preprocessor">Preprocessor</Tab>
-						</Tabs>
-					</div>
-				{/if}
-				<div class="flex justify-center pt-1">
-					{#if testIsLoading}
-						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-							<WindmillIcon
-								white={true}
-								class="mr-2 text-white"
-								height="16px"
-								width="20px"
-								spin="fast"
-							/>
-							Cancel
-						</Button>
-					{:else}
-						<Button
-							color="dark"
-							on:click={() => {
-								runTest()
-							}}
-							btnClasses="w-full"
-							size="xs"
-							startIcon={{
-								icon: Play,
-								classes: 'animate-none'
-							}}
-							shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-						>
-							{#if testIsLoading}
-								Running
-							{:else}
-								Test
-							{/if}
-						</Button>
-					{/if}
-				</div>
-				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
-					<Pane size={33}>
-						<div class="px-2">
-							<div class="break-words relative font-sans">
-								<SchemaForm
-									helperScript={{
-										type: 'inline',
-										code,
-										//@ts-ignore
-										lang
-									}}
-									compact
-									{schema}
-									bind:args
-									bind:isValid
-									showSchemaExplorer
-								/>
+				<div transition:slide={{ duration: 200 }}>
+					<Tabs bind:selected={selectedTab}>
+						<Tab value="main">Main</Tab>
+						{#if hasPreprocessor}
+							<div transition:slide={{ duration: 200, axis: 'x' }}>
+								<Tab value="preprocessor">Preprocessor</Tab>
 							</div>
-						</div>
-					</Pane>
-					<Pane size={67}>
-						<LogPanel
-							{lang}
-							previewJob={testJob}
-							{pastPreviews}
-							previewIsLoading={testIsLoading}
-							{editor}
-							{diffEditor}
-							{args}
-						>
-							{#if scriptProgress}
-								<!-- Put to the slot in logpanel -->
-								<JobProgressBar
-									job={testJob}
-									bind:scriptProgress
-									bind:reset={jobProgressReset}
-									compact={true}
+						{/if}
+						<Tab value="capture">Capture</Tab>
+					</Tabs>
+				</div>
+				{#if selectedTab === 'capture'}
+					<CapturePanel
+						path={path ?? ''}
+						newItem={!edit}
+						{hasPreprocessor}
+						isFlow={false}
+						on:openTrigger
+						on:test={(e) => {
+							argsRender++
+							console.log(e.detail.args)
+							args = e.detail.args ?? {}
+							selectedTab = e.detail.kind
+						}}
+					/>
+				{:else}
+					<div class="flex justify-center pt-1">
+						{#if testIsLoading}
+							<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+								<WindmillIcon
+									white={true}
+									class="mr-2 text-white"
+									height="16px"
+									width="20px"
+									spin="fast"
 								/>
-							{/if}
-						</LogPanel>
-					</Pane>
-				</Splitpanes>
+								Cancel
+							</Button>
+						{:else}
+							<Button
+								color="dark"
+								on:click={() => {
+									runTest()
+								}}
+								btnClasses="w-full"
+								size="xs"
+								startIcon={{
+									icon: Play,
+									classes: 'animate-none'
+								}}
+								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+							>
+								{#if testIsLoading}
+									Running
+								{:else}
+									Test
+								{/if}
+							</Button>
+						{/if}
+					</div>
+					<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
+						<Pane size={33}>
+							<div class="px-2">
+								<div class="break-words relative font-sans">
+									{#key argsRender}
+										<SchemaForm
+											helperScript={{
+												type: 'inline',
+												code,
+												//@ts-ignore
+												lang
+											}}
+											compact
+											{schema}
+											bind:args
+											bind:isValid
+											showSchemaExplorer
+										/>
+									{/key}
+								</div>
+							</div>
+						</Pane>
+						<Pane size={67}>
+							<LogPanel
+								{lang}
+								previewJob={testJob}
+								{pastPreviews}
+								previewIsLoading={testIsLoading}
+								{editor}
+								{diffEditor}
+								{args}
+							>
+								{#if scriptProgress}
+									<!-- Put to the slot in logpanel -->
+									<JobProgressBar
+										job={testJob}
+										bind:scriptProgress
+										bind:reset={jobProgressReset}
+										compact={true}
+									/>
+								{/if}
+							</LogPanel>
+						</Pane>
+					</Splitpanes>
+				{/if}
 			</div>
 		</Pane>
 	</Splitpanes>

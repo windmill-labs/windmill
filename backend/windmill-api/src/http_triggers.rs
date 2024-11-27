@@ -514,6 +514,32 @@ async fn get_http_route_trigger(
     Ok((trigger, route_path.0, params, authed))
 }
 
+pub async fn build_http_trigger_extra(
+    route_path: &str,
+    called_path: &str,
+    method: &http::Method,
+    params: &HashMap<String, String>,
+    query: &HashMap<String, String>,
+    headers: &HeaderMap,
+) -> Box<serde_json::value::RawValue> {
+    let headers = headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect::<HashMap<String, String>>();
+
+    to_raw_value(&serde_json::json!({
+        "kind": "http",
+        "http": {
+            "route": route_path,
+            "path": called_path,
+            "method": method.to_string().to_lowercase(),
+            "params": params,
+            "query": query,
+            "headers": headers
+        },
+    }))
+}
+
 async fn route_job(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -615,24 +641,18 @@ async fn route_job(
         }
     }
 
-    let headers = headers
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect::<HashMap<String, String>>();
     let extra = args.extra.get_or_insert_with(HashMap::new);
     extra.insert(
         "wm_trigger".to_string(),
-        to_raw_value(&serde_json::json!({
-            "kind": "http",
-            "http": {
-                "route": trigger.route_path,
-                "path": called_path,
-                "method": method.to_string().to_lowercase(),
-                "params": params,
-                "query": query,
-                "headers": headers
-            },
-        })),
+        build_http_trigger_extra(
+            &trigger.route_path,
+            &called_path,
+            &method,
+            &params,
+            &query,
+            &headers,
+        )
+        .await,
     );
     let http_method = http::Method::from(trigger.http_method);
 

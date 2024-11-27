@@ -9,7 +9,7 @@
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { TriggerContext } from '../triggers'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -18,8 +18,19 @@
 	let routeEditor: RouteEditor
 
 	$: path && loadTriggers()
+	const { triggersCount, selectedTrigger, defaultValues } =
+		getContext<TriggerContext>('TriggerContext')
 
-	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
+	onMount(() => {
+		if (
+			defaultValues &&
+			$selectedTrigger === 'routes' &&
+			Object.keys($defaultValues ?? {}).length > 0
+		) {
+			routeEditor.openNew(isFlow, path, $defaultValues)
+			defaultValues.set(undefined)
+		}
+	})
 
 	let httpTriggers: (HttpTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {

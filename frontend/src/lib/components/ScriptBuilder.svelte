@@ -67,7 +67,7 @@
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
-	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -108,9 +108,7 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
-	>('webhooks')
+	const selectedTriggerStore = writable<TriggerKind>('webhooks')
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
@@ -137,11 +135,14 @@
 		}
 	}
 
+	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
+
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		simplifiedPoll
+		simplifiedPoll,
+		defaultValues: triggerDefaultValuesStore
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
@@ -1400,6 +1401,13 @@
 			}}
 			on:saveDraft={() => {
 				saveDraft()
+			}}
+			on:openTrigger={(ev) => {
+				metadataOpen = true
+				selectedTab = 'triggers'
+				console.log(ev)
+				selectedTriggerStore.set(ev.detail.kind)
+				triggerDefaultValuesStore.set(ev.detail.config)
 			}}
 			bind:editor
 			bind:this={scriptEditor}

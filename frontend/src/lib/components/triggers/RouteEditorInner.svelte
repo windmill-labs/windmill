@@ -53,7 +53,11 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		fixedScriptPath_?: string,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -63,7 +67,7 @@
 			is_async = false
 			requires_auth = false
 			initialRoutePath = ''
-			route_path = ''
+			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = 'post'
 			initialScriptPath = ''

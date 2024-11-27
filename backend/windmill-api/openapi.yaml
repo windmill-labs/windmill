@@ -8843,6 +8843,116 @@ paths:
         "204":
           description: flow preview captured
 
+  /w/{workspace}/capture/set_config:
+    post:
+      summary: set capture config
+      operationId: setCaptureConfig
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: capture config
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trigger_kind:
+                  $ref: "#/components/schemas/CaptureTriggerKind"
+                path: 
+                  type: string
+                is_flow:
+                  type: boolean
+                trigger_config: 
+                  type: object
+              required:
+                - trigger_kind
+                - path
+                - is_flow
+      responses:
+        "200":
+          description: capture config set
+
+  
+  /w/{workspace}/capture/ping_config/{trigger_kind}/{runnable_kind}/{path}:
+    post:
+      summary: ping capture config
+      operationId: pingCaptureConfig
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: trigger_kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/CaptureTriggerKind"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: capture config pinged
+
+  /w/{workspace}/capture/get_configs/{runnable_kind}/{path}:
+    get:
+      summary: get capture configs for a script or flow
+      operationId: getCaptureConfigs
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: capture configs for a script or flow
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CaptureConfig"
+
+  /w/{workspace}/capture/list/{runnable_kind}/{path}:
+    get:
+      summary: list captures for a script or flow
+      operationId: listCaptures
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list of captures for a script or flow
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Capture"
+
+
+  /w/{workspace}/capture/{id}:
+    delete:
+      summary: delete a capture
+      operationId: deleteCapture
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: capture deleted
+
   /w/{workspace}/capture/{path}:
     put:
       summary: create flow preview capture
@@ -10503,6 +10613,13 @@ components:
       required: true
       schema:
         type: string
+    RunnableKind:
+      name: runnable_kind
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [script, flow]
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
@@ -13336,3 +13453,42 @@ components:
           type: string
           nullable: true
           description: Workspace id if the alert is in the scope of a workspace
+
+    CaptureTriggerKind:
+      type: string
+      enum: [webhook, http, websocket, kafka, email]
+
+    Capture:
+      type: object
+      properties:
+        trigger_kind:
+          $ref: "#/components/schemas/CaptureTriggerKind"
+        payload:
+          type: object
+        trigger_extra:
+          type: object
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - trigger_kind
+        - payload
+        - id
+        - created_at
+    CaptureConfig:
+      type: object
+      properties:
+        trigger_config:
+          type: object
+        trigger_kind:
+          $ref: "#/components/schemas/CaptureTriggerKind"
+        error:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+      required:
+        - trigger_config
+        - trigger_kind

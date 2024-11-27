@@ -39,11 +39,12 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
-use windmill_common::{BASE_URL, INSTANCE_NAME, utils::GIT_VERSION};
+use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
 
+mod ai;
 mod apps;
 mod audit;
 mod capture;
@@ -62,7 +63,6 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
-mod ai;
 
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
@@ -96,7 +96,6 @@ mod workspaces;
 mod workspaces_ee;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
-
 
 lazy_static::lazy_static! {
 
@@ -374,7 +373,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/w/:workspace_id/capture_u",
-                    capture::global_service().layer(cors.clone()),
+                    capture::workspaced_unauthed_service().layer(cors.clone()),
                 )
                 .nest(
                     "/auth",

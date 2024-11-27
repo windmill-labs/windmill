@@ -34,6 +34,7 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
+	let defaultValues: Record<string, any> | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -56,7 +57,11 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		fixedScriptPath_?: string,
+		nDefaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -64,8 +69,8 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			kafka_resource_path = ''
-			group_id = ''
-			topics = ['']
+			group_id = nDefaultValues?.group_id ?? ''
+			topics = nDefaultValues?.topics ?? ['']
 			dirtyGroupId = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -73,6 +78,7 @@
 			path = ''
 			initialPath = ''
 			dirtyPath = false
+			defaultValues = nDefaultValues
 		} finally {
 			drawerLoading = false
 		}
@@ -219,7 +225,11 @@
 								Resource
 								<Required required={true} />
 							</div>
-							<ResourcePicker resourceType="kafka" bind:value={kafka_resource_path} />
+							<ResourcePicker
+								resourceType="kafka"
+								bind:value={kafka_resource_path}
+								{defaultValues}
+							/>
 						</div>
 						<label class="block grow w-full">
 							<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">

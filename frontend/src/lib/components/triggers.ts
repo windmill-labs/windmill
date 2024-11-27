@@ -1,4 +1,4 @@
-import type { TriggersCount } from '$lib/gen'
+import type { CaptureTriggerKind, TriggersCount } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 
 export type ScheduleTrigger = {
@@ -10,19 +10,11 @@ export type ScheduleTrigger = {
 }
 
 export type TriggerContext = {
-	selectedTrigger: Writable<
-		| 'webhooks'
-		| 'emails'
-		| 'schedules'
-		| 'cli'
-		| 'routes'
-		| 'websockets'
-		| 'scheduledPoll'
-		| 'kafka'
-	>
+	selectedTrigger: Writable<TriggerKind>
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>
+	defaultValues?: Writable<Record<string, any> | undefined>
 }
 
 export function setScheduledPollSchedule(
@@ -44,4 +36,31 @@ export function setScheduledPollSchedule(
 			primary_schedule: { schedule: cron }
 		}
 	})
+}
+
+export type TriggerKind =
+	| 'webhooks'
+	| 'emails'
+	| 'schedules'
+	| 'cli'
+	| 'routes'
+	| 'websockets'
+	| 'scheduledPoll'
+	| 'kafka'
+
+export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
+	switch (kind) {
+		case 'webhook':
+			return 'webhooks'
+		case 'email':
+			return 'emails'
+		case 'http':
+			return 'routes'
+		case 'websocket':
+			return 'websockets'
+		case 'kafka':
+			return 'kafka'
+		default:
+			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
+	}
 }
