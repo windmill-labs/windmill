@@ -54,6 +54,7 @@ pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 24 * 14; // 2 weeks retention period for logs
 
 #[macro_export]
 macro_rules! add_time {
@@ -98,6 +99,8 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+
+    pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref INSTANCE_NAME: String = rd_string(5);
 

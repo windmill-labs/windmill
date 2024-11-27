@@ -7,20 +7,20 @@ export interface Setting {
 	tooltip?: string
 	key: string
 	fieldType:
-		| 'text'
-		| 'number'
-		| 'boolean'
-		| 'password'
-		| 'select'
-		| 'textarea'
-		| 'seconds'
-		| 'email'
-		| 'license_key'
-		| 'object_store_config'
-		| 'critical_error_channels'
-		| 'slack_connect'
-		| 'smtp_connect'
-		| 'indexer_rates'
+	| 'text'
+	| 'number'
+	| 'boolean'
+	| 'password'
+	| 'select'
+	| 'textarea'
+	| 'seconds'
+	| 'email'
+	| 'license_key'
+	| 'object_store_config'
+	| 'critical_error_channels'
+	| 'slack_connect'
+	| 'smtp_connect'
+	| 'indexer_rates'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -50,9 +50,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					  value.includes('://') &&
-					  !value?.endsWith('/') &&
-					  !value?.endsWith(' ')
+					value.includes('://') &&
+					!value?.endsWith('/') &&
+					!value?.endsWith(' ')
 					: false
 		},
 		{
@@ -119,6 +119,14 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
+		},
+		{
+			label: 'Delete logs from s3 periodically',
+			description: 'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+			key: 'monitor_logs_on_s3',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
 		},
 		{
 			label: 'Expose metrics',

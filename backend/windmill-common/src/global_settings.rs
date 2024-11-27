@@ -4,6 +4,7 @@ pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const OAUTH_SETTING: &str = "oauths";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
+pub const MONITOR_LOGS_ON_OBJECT_STORE_SETTING: &str = "monitor_logs_on_s3";
 pub const JOB_DEFAULT_TIMEOUT_SECS_SETTING: &str = "job_default_timeout";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
 pub const LICENSE_KEY_SETTING: &str = "license_key";

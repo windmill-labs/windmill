@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                        hostname,\n                        mode::text,\n                        worker_group,\n                        log_ts,\n                        file_path,\n                        ok_lines,\n                        err_lines,\n                        json_fmt\n                    FROM log_file\n                    ORDER BY log_ts ASC LIMIT $1",
+  "query": "SELECT\n                        hostname,\n                        mode::text,\n                        worker_group,\n                        log_ts,\n                        file_path,\n                        ok_lines,\n                        err_lines,\n                        json_fmt\n                    FROM log_file\n                    WHERE log_ts > NOW() - make_interval(secs => $1)\n                    ORDER BY log_ts ASC LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,7 @@
     ],
     "parameters": {
       "Left": [
+        "Float8",
         "Int8"
       ]
     },
@@ -60,5 +61,5 @@
       true
     ]
   },
-  "hash": "dd967c5983fa0ff05e2b320ad0e0b5a152784826cb8fb4381c1ffe228cb7feb6"
+  "hash": "8d207cc9ed101ff116b617d25a94633c1531170ded1fdf09114718b941f5e1db"
 }
