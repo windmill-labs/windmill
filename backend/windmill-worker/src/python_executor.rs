@@ -1,11 +1,5 @@
 use core::str;
-use std::{
-    collections::HashMap,
-    fs,
-    ops::{Add, AddAssign},
-    process::Stdio,
-    sync::{atomic::AtomicU32, Arc},
-};
+use std::{collections::HashMap, fs, process::Stdio, sync::Arc};
 
 use anyhow::anyhow;
 use itertools::Itertools;
@@ -1193,10 +1187,7 @@ pub async fn handle_python_reqs(
     let job_id_2 = job_id.clone();
     let db_2 = db.clone();
     let kill_tx_2 = kill_tx.clone();
-    // Spawn thread that:
-    // 1. Pings server every N seconds
-    // 2. Checks if installation job has been canceled and breaks loop
-    // 3. Breaks loop if done_rx used
+
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -1204,17 +1195,14 @@ pub async fn handle_python_reqs(
                     // Notify server that we are still alive
                     // TODO: Abstract with function
                     // Detect if job has been canceled
-                    let (canceled, canceled_by, canceled_reason, already_completed) =
-                        sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool)>
+                    let canceled =
+                        sqlx::query_scalar::<_, bool>
                         (r#"
 
                                UPDATE queue 
                                   SET last_ping = now() 
                                 WHERE id = $1 
                             RETURNING canceled
-                                    , canceled_by
-                                    , canceled_reason
-                                    , false
 
                             "#)
                         .bind(job_id_2)
@@ -1222,22 +1210,15 @@ pub async fn handle_python_reqs(
                         .await
                         .unwrap_or_else(|e| {
                             tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                            Some((false, None, None, false))
+                            Some(false)
                         })
                         .unwrap_or_else(|| {
                             // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            (false, None, None, true)
+                            false
                         });
 
                     if canceled {
                         kill_tx_2.send(()).expect("failed to send done");
-
-                        // TODO:
-                        // canceled_by.replace(CanceledBy {
-                        //     username: canceled_by.clone(),
-                        //     reason: canceled_reason.clone(),
-                        // });
-                        // break;
                     }
                 }
 
@@ -1354,10 +1335,12 @@ pub async fn handle_python_reqs(
         instant: std::time::Instant,
         db: Pool<Postgres>,
     ) {
-        #[cfg(not(any(feature = "enterprise", feature = "parquet")))]
-        let (s3_pull, s3_push) = (false, false);
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            (s3_pull, s3_push) = (false, false);
+        }
 
-        #[cfg(any(feature = "enterprise", feature = "parquet"))]
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if OBJECT_STORE_CACHE_SETTINGS.read().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
@@ -1372,7 +1355,8 @@ pub async fn handle_python_reqs(
                 pad_string(&format!("[{}/{total_to_install}]", counter), 9),
                 // Because we want to align to max len [999/999] we take ^
                 //                                     123456789
-                pad_string(&req, req_tl),
+                pad_string(&req, req_tl + 1),
+                // Margin to the right    ^
                 if s3_pull { "<< (S3) " } else { "" },
                 if s3_push { " > (S3) " } else { "" },
                 instant.elapsed().as_millis(),
@@ -1401,7 +1385,11 @@ pub async fn handle_python_reqs(
             }
             logs1.push_str(&format!("{} \n", &req));
         }
-        logs1.push_str(&format!("\nStarting installation... \n"));
+        if !*DISABLE_NSJAIL {
+            logs1.push_str(&format!("\nStarting isolated installation... \n"));
+        } else {
+            logs1.push_str(&format!("\nStarting installation... \n"));
+        }
         append_logs(&job_id, w_id, logs1, db).await;
     }
 
@@ -1498,7 +1486,7 @@ pub async fn handle_python_reqs(
                     // We need it because handle joiner exites
                     uv_install_proccess.kill().await?;
                     // Installation got canceled, returning
-                    return Err(anyhow::anyhow!("Job got killed"));
+                    return Err(anyhow::anyhow!("Killed or Canceled"));
                 }
                 exitstatus = uv_install_proccess.wait() => {
                     // TODO: Handle properly. Return stderr
@@ -1511,7 +1499,9 @@ pub async fn handle_python_reqs(
                     }
                 }
             };
+
             drop(permit);
+
             print_success(
                 false,
                 true,
@@ -1548,19 +1538,17 @@ pub async fn handle_python_reqs(
 
     for (handle, (req, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
         if let Err(e) = handle.await.unwrap() {
-            // canceled_by.replace(CanceledBy { username: None, reason: None });
-
             append_logs(
                 &job_id,
                 w_id,
-                format!("\n ❌Error while installing {}:\n{}", req, e),
+                format!("\n❌ Error while installing {}:\n{}", req, e),
                 db,
             )
             .await;
             // TODO: Better error handler
             tracing::warn!(
                 workspace_id = %w_id,
-                " ❌Installation failed, removing cache dir: {:?}",
+                "Installation failed, removing cache dir: {:?}",
                 e
             );
             // TODO: Can something else fail and this is not fired
