@@ -40,6 +40,7 @@ pub enum JobKind {
     Noop,
     DeploymentCallback,
     FlowScript,
+    FlowNode,
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -115,7 +116,7 @@ impl QueuedJob {
     pub fn is_flow(&self) -> bool {
         matches!(
             self.job_kind,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
         )
     }
 
@@ -272,6 +273,10 @@ pub enum JobPayload {
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
+    },
+    FlowNode {
+        id: FlowNodeId, // flow_node(id).
+        path: String, // flow node inner path (e.g. `outer/branchall-42`).
     },
     Code(RawCode),
     Dependencies {

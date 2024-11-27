@@ -284,12 +284,6 @@ pub struct SkipIf {
 }
 
 #[derive(Deserialize)]
-pub struct FlowModuleValueType {
-    #[serde(rename = "type")]
-    pub type_: String,
-}
-
-#[derive(Deserialize)]
 pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
@@ -344,13 +338,18 @@ impl FlowModule {
     pub fn is_simple(&self) -> bool {
         //todo: flow modules could also be simple execpt for the fact that the case of having single parallel flow approval step is not handled well (Create SuspendedTimeout)
         self.get_type()
-            .is_ok_and(|x| x == "script" || x == "rawscript")
+            .is_ok_and(|x| x == "script" || x == "rawscript" || x == "flowscript")
     }
 
-    pub fn get_type(&self) -> anyhow::Result<String> {
+    pub fn get_type(&self) -> anyhow::Result<&str> {
+        #[derive(Deserialize)]
+        pub struct FlowModuleValueType<'a> {
+            pub r#type: &'a str,
+        }
+
         serde_json::from_str::<FlowModuleValueType>(self.value.get())
             .map_err(crate::error::to_anyhow)
-            .map(|x| x.type_)
+            .map(|x| x.r#type)
     }
 }
 
@@ -414,6 +413,8 @@ pub struct Branch {
     #[serde(default = "default_empty_string")]
     pub expr: String,
     pub modules: Vec<FlowModule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modules_node: Option<FlowNodeId>,
     #[serde(default = "default_true")]
     pub skip_failure: bool,
     #[serde(default = "default_true")]
@@ -447,6 +448,8 @@ pub enum FlowModuleValue {
     ForloopFlow {
         iterator: InputTransform,
         modules: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        modules_node: Option<FlowNodeId>,
         #[serde(default = "default_true")]
         skip_failures: bool,
         parallel: bool,
@@ -455,12 +458,16 @@ pub enum FlowModuleValue {
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        modules_node: Option<FlowNodeId>,
         #[serde(default = "default_false")]
         skip_failures: bool,
     },
     BranchOne {
         branches: Vec<Branch>,
         default: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default_node: Option<FlowNodeId>,
     },
     BranchAll {
         branches: Vec<Branch>,
@@ -538,6 +545,8 @@ struct UntaggedFlowModuleValue {
     concurrency_time_window_s: Option<i32>,
     is_trigger: Option<bool>,
     id: Option<FlowNodeId>,
+    default_node: Option<FlowNodeId>,
+    modules_node: Option<FlowNodeId>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -570,6 +579,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules: untagged
                     .modules
                     .ok_or_else(|| serde::de::Error::missing_field("modules"))?,
+                modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(true),
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
@@ -578,6 +588,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules: untagged
                     .modules
                     .ok_or_else(|| serde::de::Error::missing_field("modules"))?,
+                modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
@@ -587,6 +598,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 default: untagged
                     .default
                     .ok_or_else(|| serde::de::Error::missing_field("default"))?,
+                default_node: untagged.default_node,
             }),
             "branchall" => Ok(FlowModuleValue::BranchAll {
                 branches: untagged
@@ -758,20 +770,60 @@ pub async fn resolve_module(
                 concurrent_limit, concurrency_time_window_s, is_trigger
             };
         },
-        ForloopFlow { modules, .. } | WhileloopFlow { modules, .. }  => {
-            for module in modules {
-                Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await?;
+        ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. }  => {
+            resolve_modules(e, workspace_id, modules, modules_node.take(), with_code).await?;
+        },
+        BranchOne { branches, default, default_node } => {
+            resolve_modules(e, workspace_id, default, default_node.take(), with_code).await?;
+            for branch in branches {
+                resolve_modules(e, workspace_id, &mut branch.modules, branch.modules_node.take(), with_code).await?;
             }
         },
-        BranchOne { branches, .. } | BranchAll { branches, .. } => {
+        BranchAll { branches, .. } => {
             for branch in branches {
-                for module in &mut branch.modules {
-                    Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await?;
-                }
+                resolve_modules(e, workspace_id, &mut branch.modules, branch.modules_node.take(), with_code).await?;
             }
         }
         _ => {}
     }
     *value = to_raw_value(&val);
     Ok(())
+}
+
+pub async fn resolve_modules(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    modules: &mut Vec<FlowModule>,
+    modules_node: Option<FlowNodeId>,
+    with_code: bool,
+) -> Result<(), Error> {
+    // Replace the `modules_node` with the actual modules.
+    if let Some(id) = modules_node {
+        *modules = load_flow_modules(e, id).await?;
+    }
+    for module in modules.iter_mut() {
+        Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await?;
+    }
+    Ok(())
+}
+
+pub async fn load_flow_modules(
+    e: &sqlx::PgPool,
+    id: FlowNodeId,
+) -> Result<Vec<FlowModule>, Error> {
+    #[derive(Deserialize)]
+    struct FlowModulesOnly { modules: Vec<FlowModule> }
+
+    sqlx::query_scalar!(
+        "SELECT flow AS \"flow!: Json<Box<JsonRawValue>>\" FROM flow_node WHERE id = $1 LIMIT 1",
+        id.0
+    )
+    .fetch_one(e)
+    .await
+    .map_err(Error::SqlErr)
+    .and_then(|value| {
+        serde_json::from_str::<FlowModulesOnly>(value.get())
+            .map(|x| x.modules)
+            .map_err(|err| Error::InternalErr(format!("Failed to parse flow node value: {}", err)))
+    })
 }

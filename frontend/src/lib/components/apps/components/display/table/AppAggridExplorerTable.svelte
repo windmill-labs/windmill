@@ -353,9 +353,10 @@
 						onSelectionChanged(e.api)
 						resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
 					},
-					getRowId: (data) => {
-						return (data as any).data['__index']
-					}
+					getRowId: (data) =>
+						resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
+							? data.data?.[resolvedConfig?.rowIdCol]
+							: data.data?.['id'] ?? (data as any).data['__index']
 				},
 				{}
 			)

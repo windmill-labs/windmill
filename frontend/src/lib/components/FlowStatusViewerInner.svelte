@@ -30,7 +30,6 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder'
-	import { root } from 'postcss'
 
 	const dispatch = createEventDispatcher()
 
@@ -712,9 +711,9 @@
 				})
 			}
 
-			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'preview') {
+			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'flowscript' || jobLoaded.job_kind == 'preview') {
 				let id: string | undefined = undefined
-				if (innerModule?.type == 'forloopflow' && innerModule.modules.length == 1) {
+				if ((innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') && innerModule.modules.length == 1) {
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {

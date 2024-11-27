@@ -58,7 +58,8 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
+    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR, TMP_LOGS_DIR,
+    UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -395,8 +396,6 @@ Windmill Community Edition {GIT_VERSION}
         tracing::error!("Could loading critical error emails setting: {:?}", e);
     }
 
-    let worker_mode = num_workers > 0;
-
     #[cfg(feature = "enterprise")]
     {
         // load the license key and check if it's valid
@@ -432,6 +431,8 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
     }
+
+    let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
@@ -989,6 +990,7 @@ pub async fn run_workers(
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
+        TAR_PY311_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,

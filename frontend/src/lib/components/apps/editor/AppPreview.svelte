@@ -82,10 +82,10 @@
 	})
 
 	function setTheme(darkMode: boolean | undefined) {
-		if (
-			darkMode === true ||
-			(darkMode === null && window.localStorage.getItem('dark-mode') === 'dark')
-		) {
+		let globalDarkMode = window.localStorage.getItem('dark-mode')
+			? window.localStorage.getItem('dark-mode') === 'dark'
+			: window.matchMedia('(prefers-color-scheme: dark)').matches
+		if (darkMode === true || (darkMode === null && globalDarkMode)) {
 			document.documentElement.classList.add('dark')
 		} else if (darkMode === false) {
 			document.documentElement.classList.remove('dark')

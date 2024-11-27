@@ -329,7 +329,7 @@ async fn spawn_dedicated_workers_for_flow(
                     .await;
                     workers.extend(w);
                 }
-                FlowModuleValue::BranchOne { branches, default } => {
+                FlowModuleValue::BranchOne { branches, default, .. } => {
                     for modules in branches
                         .iter()
                         .map(|x| &x.modules)
@@ -460,12 +460,10 @@ pub async fn create_dedicated_worker_map(
         if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
             is_flow_worker = true;
             let value = sqlx::query_scalar!(
-                "SELECT coalesce(flow_version_lite.value, flow_version.value) AS \"value!: sqlx::types::Json<Box<sqlx::types::JsonRawValue>>\" 
+                "SELECT flow_version.value AS \"value!: sqlx::types::Json<Box<sqlx::types::JsonRawValue>>\" 
                 FROM flow 
                 LEFT JOIN flow_version 
                     ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                LEFT JOIN flow_version_lite 
-                    ON flow_version_lite.id = flow_version.id
                 WHERE flow.path = $1 AND flow.workspace_id = $2",
                 flow_path,
                 _wp.workspace_id
