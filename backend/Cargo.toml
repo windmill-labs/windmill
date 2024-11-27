@@ -278,6 +278,7 @@ crc = "^3"
 tar = "^0"
 http = "^1"
 async-stream = "^0"
+bitcode = { version = "=0.6.3", features = ["serde"] }
 
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
