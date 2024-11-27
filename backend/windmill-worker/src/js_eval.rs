@@ -173,7 +173,7 @@ pub async fn eval_timeout(
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
     flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     authed_client: Option<&AuthedClient>,
-    by_id: Option<IdContext>,
+    by_id: Option<&IdContext>,
     #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
     let expr = expr.trim().to_string();
@@ -200,7 +200,7 @@ pub async fn eval_timeout(
         }
     }
 
-    let p_ids = by_id.as_ref().map(|x| {
+    let p_ids = by_id.map(|x| {
         [
             format!("results.{}", x.previous_id),
             format!("results?.{}", x.previous_id),
@@ -221,7 +221,7 @@ pub async fn eval_timeout(
             .clone());
     }
 
-    if by_id.is_some() && authed_client.is_some() {
+    if let (Some(by_id), Some(authed_client)) = (by_id, authed_client) {
         if let Some((id, idx_o, rest)) = RE_FULL.captures(&expr).map(|x| {
             (
                 x.get(1).unwrap().as_str(),
@@ -238,8 +238,7 @@ pub async fn eval_timeout(
                 rest.map(|x| x.trim_start_matches('.').to_string())
             };
             return authed_client
-                .unwrap()
-                .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
+                .get_result_by_id(&by_id.flow_job.to_string(), id, query)
                 .await;
         }
     }
@@ -253,6 +252,7 @@ pub async fn eval_timeout(
     #[cfg(feature = "deno_core")]
     {
         let expr2 = expr.clone();
+        let by_id = by_id.cloned();
         let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
         let has_client = authed_client.is_some();
         let authed_client = authed_client.cloned();

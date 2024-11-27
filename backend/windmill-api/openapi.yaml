@@ -10873,6 +10873,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string
@@ -10992,6 +10993,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string
