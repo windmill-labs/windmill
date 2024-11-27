@@ -338,7 +338,7 @@ impl FlowModule {
     pub fn is_simple(&self) -> bool {
         //todo: flow modules could also be simple execpt for the fact that the case of having single parallel flow approval step is not handled well (Create SuspendedTimeout)
         self.get_type()
-            .is_ok_and(|x| x == "script" || x == "rawscript")
+            .is_ok_and(|x| x == "script" || x == "rawscript" || x == "flowscript")
     }
 
     pub fn get_type(&self) -> anyhow::Result<&str> {

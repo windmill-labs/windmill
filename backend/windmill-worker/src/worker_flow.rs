@@ -3082,7 +3082,7 @@ async fn compute_next_flow_transform(
         },
         FlowModuleValue::WhileloopFlow { modules, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = is_simple_modules(&modules, flow);
+            let is_simple = is_simple_modules(&modules, flow.failure_module.as_ref());
             let (flow_jobs, flow_jobs_success) = match status_module {
                 FlowStatusModule::InProgress {
                     flow_jobs: Some(flow_jobs),
@@ -3118,7 +3118,7 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = !parallel && is_simple_modules(&modules, flow);
+            let is_simple = !parallel && is_simple_modules(&modules, flow.failure_module.as_ref());
 
             // if is_simple {
             //     match value {
@@ -3506,7 +3506,7 @@ async fn next_loop_iteration(
     }
 }
 
-fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
+fn is_simple_modules(modules: &Vec<FlowModule>, failure_module: Option<&Box<FlowModule>>) -> bool {
     let is_simple = modules.len() == 1
         && modules[0].is_simple()
         && modules[0].sleep.is_none()
@@ -3517,7 +3517,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].stop_after_all_iters_if.is_none()
         && modules[0].skip_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
-        && flow.failure_module.is_none();
+        && failure_module.is_none();
     is_simple
 }
 
@@ -3695,6 +3695,28 @@ async fn payload_from_simple_module(
             tag,
             delete_after_use,
         ),
+        FlowModuleValue::FlowScript {
+            id, // flow_node(id).
+            tag,
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            ..
+        } => JobPayloadWithTag {
+            payload: JobPayload::FlowScript {
+                id,
+                language,
+                custom_concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                cache_ttl: module.cache_ttl.map(|x| x as i32),
+                dedicated_worker: None,
+            },
+            tag,
+            delete_after_use,
+            timeout: module.timeout,
+        },
         _ => unreachable!("is simple flow"),
     })
 }
