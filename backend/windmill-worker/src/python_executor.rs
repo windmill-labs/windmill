@@ -1063,7 +1063,6 @@ async fn spawn_uv_install(
                 // Prevent uv from discovering configuration files.
                 "--no-config",
                 "--link-mode=copy",
-                // TODO: Doublecheck it
                 "--system",
                 // Prefer main index over extra
                 // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
@@ -1141,13 +1140,27 @@ async fn spawn_uv_install(
         }
     }
 }
+
+/// length = 5
+/// value  = "foo"
+/// output = "foo  "
+///           12345
+fn pad_string(value: &str, total_length: usize) -> String {
+    if value.len() >= total_length {
+        value.to_string() // Return the original string if it's already long enough
+    } else {
+        let padding_needed = total_length - value.len();
+        format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
+    }
+}
+
 /// pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
     requirements: Vec<&str>,
     job_id: &Uuid,
     w_id: &str,
     _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
+    canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
     job_dir: &str,
@@ -1308,19 +1321,6 @@ pub async fn handle_python_reqs(
     let mut handles = Vec::with_capacity(total_to_install);
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
 
-    /// length = 5
-    /// value  = "foo"
-    /// output = "foo  "
-    ///           12345
-    fn pad_string(value: &str, total_length: usize) -> String {
-        if value.len() >= total_length {
-            value.to_string() // Return the original string if it's already long enough
-        } else {
-            let padding_needed = total_length - value.len();
-            format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
-        }
-    }
-
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
     async fn print_success(
@@ -1394,7 +1394,12 @@ pub async fn handle_python_reqs(
     }
 
     for (req, venv_p) in &req_with_penv {
-        let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
+        let permit = semaphore.clone().acquire_owned().await.map_err(|_| {
+            anyhow!(
+                "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
+            )
+        })?; // Acquire a permit
+
         tracing::info!(
             workspace_id = %w_id,
             "started setup python dependencies"
@@ -1412,10 +1417,15 @@ pub async fn handle_python_reqs(
         let mut kill_rx = kill_tx.subscribe();
 
         handles.push(task::spawn(async move {
+            // permit will be dropped anyway if this thread exits at any point
+            // so we dont have to drop it manually
+            // but we need to move permit into scope to take ownership
+            let _permit = permit;
+
             tracing::info!(
                 workspace_id = %w_id,
                 // is_ok = out,
-                "Starting thread to install wheel {}",
+                "started thread to install wheel {}",
                 job_id
             );
             let start = std::time::Instant::now();
@@ -1435,7 +1445,7 @@ pub async fn handle_python_reqs(
                         _ = kill_rx.recv() => {
                             // TODO: Return
                             // TODO: Cleanup venv
-                            return Err(anyhow::anyhow!("Job got canceled"));
+                            return Err(anyhow::anyhow!("S3 pull was canceled"));
                         }
                         pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
                             if pull.is_ok(){
@@ -1453,7 +1463,6 @@ pub async fn handle_python_reqs(
                                     db
                                 //
                                 ).await;
-                                drop(permit); // Release the permit
                                 return Ok(());
                             } else {
                                 // TODO: Cleanup (just in case error isnt related to non-existant entry on S3)
@@ -1486,7 +1495,7 @@ pub async fn handle_python_reqs(
                     // We need it because handle joiner exites
                     uv_install_proccess.kill().await?;
                     // Installation got canceled, returning
-                    return Err(anyhow::anyhow!("Killed or Canceled"));
+                    return Err(anyhow::anyhow!("uv pip install was canceled"));
                 }
                 exitstatus = uv_install_proccess.wait() => {
                     // TODO: Handle properly. Return stderr
@@ -1495,12 +1504,11 @@ pub async fn handle_python_reqs(
                     if !exitstatus.success() {
                         let mut buf = String::new();
                         stderr.read_to_string(&mut buf).await?;
+                        // drop(permit);
                         return Err(anyhow!(buf));
                     }
                 }
             };
-
-            drop(permit);
 
             print_success(
                 false,
@@ -1516,6 +1524,7 @@ pub async fn handle_python_reqs(
             )
             .await;
 
+            // TODO: Make sure it is not dropped even when exited
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                 if matches!(get_license_plan().await, LicensePlan::Pro) {
@@ -1524,7 +1533,6 @@ pub async fn handle_python_reqs(
                     tokio::spawn(build_tar_and_push(os, venv_p.clone(), no_uv_install));
                 }
             }
-            
             tracing::info!(
                 workspace_id = %w_id,
                 // is_ok = out,
@@ -1537,6 +1545,7 @@ pub async fn handle_python_reqs(
     }
 
     for (handle, (req, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
+        // TODO: Safer error handling
         if let Err(e) = handle.await.unwrap() {
             append_logs(
                 &job_id,
@@ -1545,7 +1554,6 @@ pub async fn handle_python_reqs(
                 db,
             )
             .await;
-            // TODO: Better error handler
             tracing::warn!(
                 workspace_id = %w_id,
                 "Installation failed, removing cache dir: {:?}",
