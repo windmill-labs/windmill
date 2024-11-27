@@ -2,7 +2,7 @@
 	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import { CheckCircle2, AlertCircle, CheckSquare2, AlertTriangle } from 'lucide-svelte'
+	import { CheckSquare2, AlertTriangle } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
 	import { devopsRole, workspaceStore, instanceSettingsSelectedTab, superadmin } from '$lib/stores'
@@ -10,6 +10,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import List from '$lib/components/common/layout/List.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
+	import CriticalAlertTable from './CriticalAlertTable.svelte'
 
 	export let updateHasUnacknowledgedCriticalAlerts
 	export let getCriticalAlerts
@@ -120,19 +121,6 @@
 		getAlerts(false)
 	}
 
-	function formatDate(dateString: string | undefined): string {
-		if (!dateString) return ''
-		const date = new Date(dateString)
-		return new Intl.DateTimeFormat('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit'
-		}).format(date)
-	}
-
 	async function refreshAlerts() {
 		if ($superadmin) checkCriticalAlertChannels()
 		await getAlerts(true)
@@ -218,64 +206,7 @@
 	</div>
 
 	<div class="w-full">
-		<div class="overflow-y-auto max-h-1/2">
-			<table class="min-w-full w-full">
-				<thead class="bg-gray-600 text-white sticky top-0 z-10">
-					<tr>
-						<th class="w-[60px] px-4 py-2 text-center">Type</th>
-						<th class="px-4 py-2 text-center">Message</th>
-						<th class="w-[150px] px-4 py-2 text-center">Created At</th>
-						{#if $devopsRole}
-							<th class="w-[80px] px-4 py-2 text-center">Workspace</th>
-						{/if}
-						<th class="w-[180px] px-4 py-2 text-center">Acknowledge</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each alerts as { id, alert_type, message, created_at, acknowledged, workspace_id }}
-						{#if !hideAcknowledged || !acknowledged}
-							<tr class="bg-gray-100 dark:bg-gray-700 dark:text-white text-center">
-								<td class="border px-4 py-2 w-[100px]">
-									{#if alert_type === 'recovered_critical_error'}
-										<span title="Recovered Critical Alert">
-											<CheckCircle2 size="20" color="green" />
-										</span>
-									{:else}
-										<span title="Critical Alert">
-											<AlertCircle size="20" color="red" />
-										</span>
-									{/if}
-								</td>
-								<td class="border px-4 py-2">{message}</td>
-								<!-- Flexible width -->
-								<td class="border px-4 py-2 w-[150px]">{formatDate(created_at)}</td>
-								{#if $devopsRole}
-									<td class="border px-4 py-2 w-[150px]"
-										>{workspace_id ? workspace_id : 'global'}</td
-									>
-								{/if}
-								<td class="border px-4 py-2 w-[180px]">
-									<div class="flex justify-center items-center">
-										{#if !acknowledged}
-											<Button
-												color="green"
-												startIcon={{ icon: CheckSquare2 }}
-												size="xs2"
-												on:click={() => {
-													if (id) acknowledgeAlert(id)
-												}}>Acknowledge</Button
-											>
-										{:else}
-											<CheckCircle2 size="20" color="green" />
-										{/if}
-									</div>
-								</td>
-							</tr>
-						{/if}
-					{/each}
-				</tbody>
-			</table>
-		</div>
+		<CriticalAlertTable {alerts} {acknowledgeAlert} {hideAcknowledged} />
 	</div>
 
 	<div class="w-full">

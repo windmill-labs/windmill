@@ -10,6 +10,7 @@
 	export let shouldStopPropagation: boolean = false
 	export let selected = false
 	export let sticky: boolean = false
+	export let wrap: boolean = false
 
 	let Tag = head ? 'th' : 'td'
 
@@ -24,7 +25,8 @@
 		if (shouldStopPropagation) e.stopPropagation()
 	}}
 	class={twMerge(
-		'text-left text-xs text-primary font-normal whitespace-nowrap',
+		'text-left text-xs text-primary font-normal',
+		wrap ? 'break-words' : 'whitespace-nowrap',
 		first ? 'sm:pl-6' : '',
 		last ? 'sm:pr-6' : '',
 
