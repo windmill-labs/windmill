@@ -1,8 +1,7 @@
 <script lang="ts">
-	import Button from '../common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import { CheckSquare2, AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
 	import { devopsRole, workspaceStore, instanceSettingsSelectedTab, superadmin } from '$lib/stores'
@@ -190,16 +189,6 @@
 			</div>
 
 			<List horizontal gap="md" justify="end">
-				<Button
-					color="green"
-					startIcon={{ icon: CheckSquare2 }}
-					size="xs"
-					disabled={numUnacknowledgedCriticalAlerts === 0}
-					on:click={acknowledgeAll}
-				>
-					Acknowledge All</Button
-				>
-
 				<RefreshButton {loading} on:click={refreshAlerts} />
 			</List>
 		</List>
@@ -214,6 +203,8 @@
 			{goToPreviousPage}
 			bind:page
 			{hasMore}
+			{acknowledgeAll}
+			{numUnacknowledgedCriticalAlerts}
 		/>
 	</div>
 
