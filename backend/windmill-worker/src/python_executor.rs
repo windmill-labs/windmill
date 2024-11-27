@@ -2,12 +2,12 @@ use core::str;
 use std::{
     collections::HashMap,
     fs,
+    ops::{Add, AddAssign},
     process::Stdio,
     sync::{atomic::AtomicU32, Arc},
 };
 
-use anyhow::bail;
-use futures::executor::block_on;
+use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
@@ -987,27 +987,182 @@ lazy_static::lazy_static! {
     static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^\s\}]+)\}").unwrap();
 }
 
+/// Spawn process of uv install
+/// Can be wrapped by nsjail depending on configuration
+#[inline]
+async fn spawn_uv_install(
+    vars: Vec<(&str, &str)>,
+    w_id: &str,
+    req: &str,
+    venv_p: &str,
+    job_dir: &str,
+    (pip_extra_index_url, pip_index_url): (Option<String>, Option<String>),
+    no_uv_install: bool,
+) -> Result<tokio::process::Child, Error> {
+    if !*DISABLE_NSJAIL {
+        tracing::info!(
+            workspace_id = %w_id,
+            "starting nsjail"
+        );
+        let req = req.to_string();
+        let mut pip_indexes = Vec::with_capacity(2);
+        if let Some(url) = pip_extra_index_url.as_ref() {
+            pip_indexes.push(("EXTRA_INDEX_URL", url));
+        }
+        if let Some(url) = pip_index_url.as_ref() {
+            pip_indexes.push(("INDEX_URL", url));
+        }
+
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(vars)
+            .envs(pip_indexes)
+            .envs([
+                ("REQ", &req),
+                ("TARGET", &venv_p.to_string()), //
+            ])
+            .envs(PROXY_ENVS.clone())
+            .args(vec!["--config", "download.config.proto"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
+    } else {
+        let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
+        #[cfg(unix)]
+        let req = if no_uv_install {
+            format!("'{}'", req)
+        } else {
+            req.to_owned()
+        };
+
+        #[cfg(windows)]
+        let req = format!("{}", req);
+
+        let mut command_args = if no_uv_install {
+            vec![
+                PYTHON_PATH.as_str(),
+                "-m",
+                "pip",
+                "install",
+                &req,
+                "-I",
+                "--no-deps",
+                "--no-color",
+                "--isolated",
+                "--no-warn-conflicts",
+                "--disable-pip-version-check",
+                "-t",
+                venv_p,
+            ]
+        } else {
+            vec![
+                UV_PATH.as_str(),
+                "pip",
+                "install",
+                &req,
+                "--no-deps",
+                "--no-color",
+                // "-p",
+                // "3.11",
+                // Prevent uv from discovering configuration files.
+                "--no-config",
+                "--link-mode=copy",
+                // TODO: Doublecheck it
+                "--system",
+                // Prefer main index over extra
+                // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
+                // TODO: Use env variable that can be toggled from UI
+                "--index-strategy",
+                "unsafe-best-match",
+                "--target",
+                venv_p,
+                "--no-cache",
+                "-q",
+            ]
+        };
+
+        if let Some(url) = pip_extra_index_url.as_ref() {
+            url.split(",").for_each(|url| {
+                command_args.extend(["--extra-index-url", url]);
+            });
+        }
+
+        if let Some(url) = pip_index_url.as_ref() {
+            command_args.extend(["--index-url", url]);
+        }
+        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+            command_args.extend(["--cert", cert_path]);
+        }
+        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+            command_args.extend(["--trusted-host", &host]);
+        }
+
+        let mut envs = vec![("PATH", PATH_ENV.as_str())];
+
+        envs.push(("HOME", HOME_ENV.as_str()));
+
+        tracing::debug!("uv pip install command: {:?}", command_args);
+
+        #[cfg(unix)]
+        {
+            let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+            flock_cmd
+                .env_clear()
+                .envs(PROXY_ENVS.clone())
+                .envs(envs)
+                .args([
+                    "-x",
+                    &format!(
+                        "{}/{}-{}.lock",
+                        LOCK_CACHE_DIR,
+                        if no_uv_install { "pip" } else { "py311" },
+                        fssafe_req
+                    ),
+                    "--command",
+                    &command_args.join(" "),
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
+        }
+
+        #[cfg(windows)]
+        {
+            let installer_path = if no_uv_install { command_args[0] } else { "uv" };
+            let mut cmd: Command = Command::new(&installer_path);
+            cmd.env_clear()
+                .envs(envs)
+                .envs(PROXY_ENVS.clone())
+                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .args(&command_args[1..])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            start_child_process(cmd, installer_path).await
+        }
+    }
+}
 /// pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
     requirements: Vec<&str>,
     job_id: &Uuid,
     w_id: &str,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
+    _mem_peak: &mut i32,
+    _canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    worker_name: &str,
+    _worker_name: &str,
     job_dir: &str,
     worker_dir: &str,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    _occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-    let mut req_paths: Vec<String> = vec![];
-    let mut vars = vec![("PATH", PATH_ENV.as_str())];
-    let pip_extra_index_url;
-    let pip_index_url;
-
     no_uv_install |= *USE_PIP_INSTALL;
 
     if no_uv_install && !is_ansible {
@@ -1015,26 +1170,86 @@ pub async fn handle_python_reqs(
         tracing::warn!("Fallback to pip");
     }
 
+    let mut req_paths: Vec<String> = vec![];
+    let mut vars = vec![("PATH", PATH_ENV.as_str())];
+
+    let pip_indexes = (
+        PIP_EXTRA_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token),
+        PIP_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token),
+    );
+
+    // TODO: Use oneshot?
+    let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    let job_id_2 = job_id.clone();
+    let db_2 = db.clone();
+    let kill_tx_2 = kill_tx.clone();
+    // Spawn thread that:
+    // 1. Pings server every N seconds
+    // 2. Checks if installation job has been canceled and breaks loop
+    // 3. Breaks loop if done_rx used
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                    // Notify server that we are still alive
+                    // TODO: Abstract with function
+                    // Detect if job has been canceled
+                    let (canceled, canceled_by, canceled_reason, already_completed) =
+                        sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool)>
+                        (r#"
+
+                               UPDATE queue 
+                                  SET last_ping = now() 
+                                WHERE id = $1 
+                            RETURNING canceled
+                                    , canceled_by
+                                    , canceled_reason
+                                    , false
+
+                            "#)
+                        .bind(job_id_2)
+                        .fetch_optional(&db_2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                            Some((false, None, None, false))
+                        })
+                        .unwrap_or_else(|| {
+                            // if the job is not in queue, it can only be in the completed_job so it is already complete
+                            (false, None, None, true)
+                        });
+
+                    if canceled {
+                        kill_tx_2.send(()).expect("failed to send done");
+
+                        // TODO:
+                        // canceled_by.replace(CanceledBy {
+                        //     username: canceled_by.clone(),
+                        //     reason: canceled_reason.clone(),
+                        // });
+                        // break;
+                    }
+                }
+
+                _ = done_rx.recv() => {
+                    break;
+                }
+
+            }
+        }
+    });
+    // Prepare NSJAIL
     if !*DISABLE_NSJAIL {
-        pip_extra_index_url = PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
-
-        if let Some(url) = pip_extra_index_url.as_ref() {
-            vars.push(("EXTRA_INDEX_URL", url));
-        }
-
-        pip_index_url = PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
-
-        if let Some(url) = pip_index_url.as_ref() {
-            vars.push(("INDEX_URL", url));
-        }
         if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
             vars.push(("PIP_INDEX_CERT", cert_path));
         }
@@ -1065,10 +1280,14 @@ pub async fn handle_python_reqs(
 
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
+    // Find out if there is already cached dependencies
+    // If so, skip them
     for req in requirements {
+        // Ignore python version annotation backed into lockfile
         if req.starts_with('#') {
             continue;
         }
+        // TODO: Remove
         let py_prefix = if no_uv_install {
             PIP_CACHE_DIR
         } else {
@@ -1080,13 +1299,13 @@ pub async fn handle_python_reqs(
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(&venv_p).await.is_ok() {
+            // If dir exists skip installation and push path to output
             req_paths.push(venv_p);
         } else {
             req_with_penv.push((req.to_string(), venv_p));
         }
     }
 
-    // TODO: Expose via ENV VAR
     // Wheels to install
     let total_to_install = req_with_penv.len();
     // Parallelism level (N)
@@ -1106,7 +1325,66 @@ pub async fn handle_python_reqs(
 
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
     let mut handles = Vec::with_capacity(total_to_install);
-    let counter = Arc::new(AtomicU32::new(0));
+    let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
+
+    /// length = 5
+    /// value  = "foo"
+    /// output = "foo  "
+    ///           12345
+    fn pad_string(value: &str, total_length: usize) -> String {
+        if value.len() >= total_length {
+            value.to_string() // Return the original string if it's already long enough
+        } else {
+            let padding_needed = total_length - value.len();
+            format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
+        }
+    }
+
+    // Append logs with line like this:
+    // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
+    async fn print_success(
+        mut s3_pull: bool,
+        mut s3_push: bool,
+        job_id: &Uuid,
+        w_id: &str,
+        req: &str,
+        req_tl: usize,
+        counter_arc: Arc<tokio::sync::Mutex<usize>>,
+        total_to_install: usize,
+        instant: std::time::Instant,
+        db: Pool<Postgres>,
+    ) {
+        #[cfg(not(any(feature = "enterprise", feature = "parquet")))]
+        let (s3_pull, s3_push) = (false, false);
+
+        #[cfg(any(feature = "enterprise", feature = "parquet"))]
+        if OBJECT_STORE_CACHE_SETTINGS.read().await.is_none() {
+            (s3_pull, s3_push) = (false, false);
+        }
+
+        let mut counter = counter_arc.lock().await;
+        *counter += 1;
+        append_logs(
+            job_id,
+            w_id,
+            format!(
+                "\n{}+  {}{}{}|  in {}ms",
+                pad_string(&format!("[{}/{total_to_install}]", counter), 9),
+                // Because we want to align to max len [999/999] we take ^
+                //                                     123456789
+                pad_string(&req, req_tl),
+                if s3_pull { "<< (S3) " } else { "" },
+                if s3_push { " > (S3) " } else { "" },
+                instant.elapsed().as_millis(),
+            ),
+            db,
+        )
+        .await;
+        // Drop lock, so next print success can fire
+    }
+
+    // tl = total_length
+    let mut req_tl = 0;
 
     if total_to_install > 0 {
         let mut logs1 = String::new();
@@ -1118,233 +1396,41 @@ pub async fn handle_python_reqs(
         logs1.push_str("\nTo be installed: \n\n");
 
         for (req, _) in &req_with_penv {
+            if req.len() > req_tl {
+                req_tl = req.len();
+            }
             logs1.push_str(&format!("{} \n", &req));
         }
         logs1.push_str(&format!("\nStarting installation... \n"));
         append_logs(&job_id, w_id, logs1, db).await;
     }
 
-    for (req, venv_p) in req_with_penv {
+    for (req, venv_p) in &req_with_penv {
         let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
         tracing::info!(
             workspace_id = %w_id,
             "started setup python dependencies"
         );
 
-        let child = if !*DISABLE_NSJAIL {
-            tracing::info!(
-                workspace_id = %w_id,
-                "starting nsjail"
-            );
-            let mut vars = vars.clone();
-            let req = req.to_string();
-            vars.push(("REQ", &req));
-            vars.push(("TARGET", &venv_p));
-            let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-            nsjail_cmd
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(vars)
-                .envs(PROXY_ENVS.clone())
-                .args(vec!["--config", "download.config.proto"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
-        } else {
-            let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
-            #[cfg(unix)]
-            let req = if no_uv_install {
-                format!("'{}'", req)
-            } else {
-                req.clone()
-            };
-
-            #[cfg(windows)]
-            let req = format!("{}", req);
-
-            let mut command_args = if no_uv_install {
-                vec![
-                    PYTHON_PATH.as_str(),
-                    "-m",
-                    "pip",
-                    "install",
-                    &req,
-                    "-I",
-                    "--no-deps",
-                    "--no-color",
-                    "--isolated",
-                    "--no-warn-conflicts",
-                    "--disable-pip-version-check",
-                    "-t",
-                    venv_p.as_str(),
-                ]
-            } else {
-                vec![
-                    UV_PATH.as_str(),
-                    "pip",
-                    "install",
-                    &req,
-                    "--no-deps",
-                    "--no-color",
-                    // "-p",
-                    // "3.11",
-                    // Prevent uv from discovering configuration files.
-                    "--no-config",
-                    "--link-mode=copy",
-                    // TODO: Doublecheck it
-                    "--system",
-                    // Prefer main index over extra
-                    // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-                    // TODO: Use env variable that can be toggled from UI
-                    "--index-strategy",
-                    "unsafe-best-match",
-                    "--target",
-                    venv_p.as_str(),
-                    "--no-cache",
-                    "-q",
-                ]
-            };
-            let pip_extra_index_url = PIP_EXTRA_INDEX_URL
-                .read()
-                .await
-                .clone()
-                .map(handle_ephemeral_token);
-
-            if let Some(url) = pip_extra_index_url.as_ref() {
-                url.split(",").for_each(|url| {
-                    command_args.extend(["--extra-index-url", url]);
-                });
-            }
-            let pip_index_url = PIP_INDEX_URL
-                .read()
-                .await
-                .clone()
-                .map(handle_ephemeral_token);
-
-            if let Some(url) = pip_index_url.as_ref() {
-                command_args.extend(["--index-url", url]);
-            }
-            if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-                command_args.extend(["--cert", cert_path]);
-            }
-            if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-                command_args.extend(["--trusted-host", &host]);
-            }
-
-            let mut envs = vec![("PATH", PATH_ENV.as_str())];
-
-            envs.push(("HOME", HOME_ENV.as_str()));
-
-            tracing::debug!("uv pip install command: {:?}", command_args);
-
-            #[cfg(unix)]
-            {
-                if no_uv_install {
-                    let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-                    flock_cmd
-                        .env_clear()
-                        .envs(PROXY_ENVS.clone())
-                        .envs(envs)
-                        .args([
-                            "-x",
-                            &format!(
-                                "{}/{}-{}.lock",
-                                LOCK_CACHE_DIR,
-                                if no_uv_install { "pip" } else { "py311" },
-                                fssafe_req
-                            ),
-                            "--command",
-                            &command_args.join(" "),
-                        ])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped());
-                    start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
-                } else {
-                    let mut cmd = Command::new(command_args[0]);
-                    cmd.env_clear()
-                        .envs(PROXY_ENVS.clone())
-                        .envs(envs)
-                        .args(&command_args[1..])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped());
-                    start_child_process(cmd, UV_PATH.as_str()).await?
-                }
-            }
-
-            #[cfg(windows)]
-            {
-                let installer_path = if no_uv_install { command_args[0] } else { "uv" };
-                let mut cmd: Command = Command::new(&installer_path);
-                cmd.env_clear()
-                    .envs(envs)
-                    .envs(PROXY_ENVS.clone())
-                    .env("SystemRoot", SYSTEM_ROOT.as_str())
-                    .env(
-                        "TMP",
-                        std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-                    )
-                    .args(&command_args[1..])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                start_child_process(cmd, installer_path).await?
-            }
-        };
-
         let db = db.clone();
         let job_id = job_id.clone();
+        let job_dir = job_dir.to_owned();
         let w_id = w_id.to_owned();
         let req = req.clone();
         let venv_p = venv_p.clone();
-        let counter = counter.clone();
-        let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let counter_arc = counter_arc.clone();
+        let pip_indexes = pip_indexes.clone();
+        let vars = vars.clone();
+        let mut kill_rx = kill_tx.subscribe();
 
         handles.push(task::spawn(async move {
-            let job_id_2 = job_id.clone();
-            let db_2 = db.clone();
-
-            // Notify server that we are still alive
-            tokio::spawn(async move {
-                loop {
-                    tokio::select! {
-                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                            if let Err(e) = sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", &job_id_2)
-                            .execute(&db_2)
-                            .await {
-                                tracing::error!("failed to update last_ping: {}", e);
-                            }
-                        }
-                        _ = done_rx.recv() => {
-                            break;
-                        }
-                    }
-                }
-            });
-
             tracing::info!(
                 workspace_id = %w_id,
                 // is_ok = out,
                 "Starting thread to install wheel {}",
                 job_id
             );
-
             let start = std::time::Instant::now();
-
-            let print_success = |db, is_s3, is_s3_upload| {
-                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let current = counter.load(std::sync::atomic::Ordering::Relaxed);
-
-                append_logs(
-                    &job_id,
-                    &w_id,
-                    format!(
-                        "\n[{current}/{total_to_install}]  +  {}{req} in {}ms {}",
-                        if is_s3 { "(S3) " } else { "" },
-                        start.elapsed().as_millis(),
-                        if is_s3_upload { "  ==> Uploading to S3 in background" } else { "" },
-                    ),
-                    db,
-                )
-            };
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
@@ -1356,53 +1442,89 @@ pub async fn handle_python_reqs(
                         job_id
                     );
 
-                    if pull_from_tar(os, venv_p.clone(), no_uv_install)
-                        .await
-                        .is_ok()
-                    {
-                        done_tx.send(()).await.expect("failed to send done");
-                        print_success(db, true, false).await;
-                        drop(permit); // Release the permit
-                        return Ok(venv_p);
+                    tokio::select! {
+                        // TODO: What if server is shut during installation? UV will install to different location first?
+                        _ = kill_rx.recv() => {
+                            // TODO: Return
+                            // TODO: Cleanup venv
+                            return Err(anyhow::anyhow!("Job got canceled"));
+                        }
+                        pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
+                            if pull.is_ok(){
+                                // print_success(db, true, false).await;
+                                print_success(
+                                    true,
+                                    false,
+                                    &job_id,
+                                    &w_id,
+                                    &req,
+                                    req_tl,
+                                    counter_arc,
+                                    total_to_install,
+                                    start,
+                                    db
+                                //
+                                ).await;
+                                drop(permit); // Release the permit
+                                return Ok(());
+                            } else {
+                                // TODO: Cleanup (just in case error isnt related to non-existant entry on S3)
+                            }
+                        }
                     }
                 }
             }
+            let mut uv_install_proccess = spawn_uv_install(
+                vars.clone(),
+                &w_id,
+                &req,
+                &venv_p,
+                &job_dir,
+                pip_indexes,
+                no_uv_install,
+            )
+            .await?;
 
-            let output = child.wait_with_output().await.unwrap();
-            if output.stderr.len() > 0 {
-                let e = str::from_utf8(&output.stderr)?.to_owned();
+            let mut stderr = uv_install_proccess
+                .stderr
+                .take()
+                .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
 
-                // TODO: Better error handler
-                tracing::warn!(
-                    workspace_id = %w_id,
-                    "Installation failed, removing cache dir: {:?}",
-                    e
-                );
-                // TODO: Can something else fail and this is not fired
-                if let Err(e) = fs::remove_dir_all(&venv_p) {
-                    tracing::warn!(
-                        workspace_id = %w_id,
-                        "failed to remove cache dir: {:?}",
-                        e
-                    );
+            tokio::select! {
+                // TODO: Make it error
+                // TODO: Kill
+                _ = kill_rx.recv() => {
+                    // TODO: Remove cache dir
+                    // We need it because handle joiner exites
+                    uv_install_proccess.kill().await?;
+                    // Installation got canceled, returning
+                    return Err(anyhow::anyhow!("Job got killed"));
                 }
+                exitstatus = uv_install_proccess.wait() => {
+                    // TODO: Handle properly. Return stderr
+                    let exitstatus = exitstatus?;
 
-                append_logs(
-                    &job_id,
-                    w_id,
-                    format!("\nError while installing {}:\n{}", req, e),
-                    db,
-                )
-                .await;
-
-                drop(permit);
-                // TODO: Better Error message
-                bail!(e);
-            } 
-
-            done_tx.send(()).await.expect("failed to send done");
-
-            print_success(db.clone(), false, true).await;
+                    if !exitstatus.success() {
+                        let mut buf = String::new();
+                        stderr.read_to_string(&mut buf).await?;
+                        return Err(anyhow!(buf));
+                    }
+                }
+            };
+            drop(permit);
+            print_success(
+                false,
+                true,
+                &job_id,
+                &w_id,
+                &req,
+                req_tl,
+                counter_arc,
+                total_to_install,
+                start,
+                db, //
+            )
+            .await;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
@@ -1420,17 +1542,42 @@ pub async fn handle_python_reqs(
                 job_id
             );
 
-            drop(permit);
-            Ok(venv_p)
+            Ok(())
         }));
     }
 
-    // TODO: Make it pull finished jobs.
-    // TODO: If one fails, other canceled?
-    for handle in handles {
-        let venv_p = handle.await.unwrap()?;
-        req_paths.push(venv_p);
+    for (handle, (req, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
+        if let Err(e) = handle.await.unwrap() {
+            // canceled_by.replace(CanceledBy { username: None, reason: None });
+
+            append_logs(
+                &job_id,
+                w_id,
+                format!("\n ❌Error while installing {}:\n{}", req, e),
+                db,
+            )
+            .await;
+            // TODO: Better error handler
+            tracing::warn!(
+                workspace_id = %w_id,
+                " ❌Installation failed, removing cache dir: {:?}",
+                e
+            );
+            // TODO: Can something else fail and this is not fired
+            if let Err(e) = fs::remove_dir_all(&venv_p) {
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "Failed to remove cache dir: {:?}",
+                    e
+                );
+            }
+        } else {
+            req_paths.push(venv_p);
+        }
     }
+
+    // TODO: This should always fire, even if installations failed
+    done_tx.send(()).await.expect("failed to send done");
     Ok(req_paths)
 }
 
