@@ -1054,13 +1054,6 @@ pub async fn monitor_db(
         #[cfg(feature = "enterprise")]
         if !initial_load {
             verify_license_key().await;
-            if _worker_mode {
-                let valid_key = *LICENSE_KEY_VALID.read().await;
-                if !valid_key {
-                    tracing::error!("Invalid license key, exiting...");
-                    _killpill_tx.send(()).expect("send");
-                }
-            }
         }
     };
 

@@ -416,7 +416,7 @@ Windmill Community Edition {GIT_VERSION}
         }
         let valid_key = *LICENSE_KEY_VALID.read().await;
         if !valid_key && !server_mode {
-            panic!("Invalid license key, workers require a valid license key");
+            tracing::error!("Invalid license key, workers require a valid license key");
         }
         if server_mode {
             // only force renewal if invalid but not empty (= expired)
@@ -429,13 +429,6 @@ Windmill Community Edition {GIT_VERSION}
             if renewed_now {
                 if let Err(err) = reload_license_key(&db).await {
                     tracing::error!("Failed to reload license key: {err:#}");
-                }
-            }
-            if num_workers > 0 {
-                let valid_key = *LICENSE_KEY_VALID.read().await;
-                if !valid_key {
-                    tracing::warn!("License key invalid, setting num_workers to 0");
-                    num_workers = 0;
                 }
             }
         }
@@ -683,14 +676,6 @@ Windmill Community Edition {GIT_VERSION}
                                                 LICENSE_KEY_SETTING => {
                                                     if let Err(e) = reload_license_key(&db).await {
                                                         tracing::error!("Failed to reload license key: {e:#}");
-                                                    }
-                                                    #[cfg(feature = "enterprise")]
-                                                    if worker_mode {
-                                                        let valid_key = *LICENSE_KEY_VALID.read().await;
-                                                        if !valid_key {
-                                                            tracing::error!("Invalid license key, exiting...");
-                                                            tx.send(()).expect("send");
-                                                        }
                                                     }
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
