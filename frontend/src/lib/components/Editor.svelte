@@ -370,7 +370,39 @@
 			code = getCode()
 			if (lang != 'shell') {
 				if ($formatOnSave != false) {
-					await editor?.getAction('editor.action.formatDocument')?.run()
+					if (scriptLang == 'deno' && languageClients.length > 0) {
+						languageClients.forEach(async (x) => {
+							let edits = await x.sendRequest(new RequestType('textDocument/formatting'), {
+								textDocument: { uri },
+								options: {
+									tabSize: 2,
+									insertSpaces: true
+								}
+							})
+							console.debug(edits)
+							if (Array.isArray(edits)) {
+								edits = edits.map((edit) =>
+									edit.range.start != undefined &&
+									edit.range.end != undefined &&
+									edit.newText != undefined
+										? {
+												range: {
+													startLineNumber: edit.range.start.line + 1,
+													startColumn: edit.range.start.character + 1,
+													endLineNumber: edit.range.end.line + 1,
+													endColumn: edit.range.end.character + 1
+												},
+												text: edit.newText
+										  }
+										: {}
+								)
+								//@ts-ignore
+								editor?.executeEdits('fmt', edits)
+							}
+						})
+					} else {
+						await editor?.getAction('editor.action.formatDocument')?.run()
+					}
 				}
 				code = getCode()
 			}
