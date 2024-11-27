@@ -428,7 +428,7 @@
 								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 									<div class="flex flex-row gap-2 w-full">
 										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm">Type</div>
+											<div class="text-secondary text-sm mb-1">Type</div>
 											<select
 												class="w-20"
 												on:change={(e) => {
@@ -455,7 +455,7 @@
 									</div>
 									{#if 'raw_message' in v}
 										<div class="flex flex-col w-full">
-											<div class="text-secondary text-sm">
+											<div class="text-secondary text-sm mb-1">
 												Raw JSON message (if a string, wrapping quotes will be discarded)
 											</div>
 											<JsonEditor
@@ -566,7 +566,7 @@
 								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 									<div class="flex flex-row gap-2 w-full">
 										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm">Type</div>
+											<div class="text-secondary text-sm mb-1">Type</div>
 											<select
 												class="w-20"
 												on:change={(e) => {
@@ -584,12 +584,12 @@
 										</label>
 									</div>
 									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm">Key</div>
+										<div class="text-secondary text-sm mb-1">Key</div>
 										<input type="text" bind:value={v.key} />
 									</label>
 									<!-- svelte-ignore a11y-label-has-associated-control -->
 									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm">Value</div>
+										<div class="text-secondary text-sm mb-1">Value</div>
 										<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} />
 									</label>
 								</div>

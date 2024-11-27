@@ -4,15 +4,17 @@ use axum::{
     Extension, Json, Router,
 };
 use http::StatusCode;
+use itertools::Itertools;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
+use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
-    utils::{not_found_if_none, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     INSTANCE_NAME,
 };
@@ -48,11 +50,10 @@ struct TableToTrack {
 
 #[derive(Deserialize)]
 struct EditDatabaseTrigger {
-    path: Option<String>,
-    script_path: Option<String>,
-    is_flow: Option<String>,
-    enabled: Option<bool>,
-    database: Option<Database>,
+    path: String,
+    script_path: String,
+    is_flow: bool,
+    database: String,
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
@@ -63,7 +64,7 @@ struct NewDatabaseTrigger {
     script_path: String,
     is_flow: bool,
     enabled: bool,
-    database: Database,
+    database: String,
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
@@ -112,9 +113,41 @@ async fn create_database_trigger(
             "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
     }
-    let mut tx = user_db.begin(&authed).await?;
+    let table_to_track = table_to_track.map(|table_to_track| {
+        table_to_track
+            .into_iter()
+            .map(sqlx::types::Json)
+            .collect_vec()
+    });
 
-    Ok((StatusCode::OK, "OK".to_string()))
+    let mut tx = user_db.begin(&authed).await?;
+    sqlx::query_as::<_, DatabaseTrigger>("INSERT INTO database_trigger (workspace_id, path, script_path, is_flow, email, enabled, database, table_to_track, edited_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *")
+    .bind(&w_id)
+    .bind(&path)
+    .bind(script_path)
+    .bind(is_flow)
+    .bind(&authed.email)
+    .bind(enabled)
+    .bind(database)
+    .bind(table_to_track)
+    .bind(&authed.username)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "database_triggers.create",
+        ActionKind::Create,
+        &w_id,
+        Some(path.as_str()),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok((StatusCode::CREATED, path.to_string()))
 }
 
 async fn list_database_triggers(
@@ -123,7 +156,33 @@ async fn list_database_triggers(
     Path(w_id): Path<String>,
     Query(lst): Query<ListDatabaseTriggerQuery>,
 ) -> error::JsonResult<Vec<DatabaseTrigger>> {
-    Ok(Json(Vec::new()))
+    let mut tx = user_db.begin(&authed).await?;
+    let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
+    let mut sqlb = SqlBuilder::select_from("database_trigger")
+        .field("*")
+        .order_by("edited_at", true)
+        .and_where("workspace_id = ?".bind(&w_id))
+        .offset(offset)
+        .limit(per_page)
+        .clone();
+    if let Some(path) = lst.path {
+        sqlb.and_where_eq("script_path", "?".bind(&path));
+    }
+    if let Some(is_flow) = lst.is_flow {
+        sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
+    }
+    if let Some(path_start) = &lst.path_start {
+        sqlb.and_where_like_left("path", path_start);
+    }
+    let sql = sqlb
+        .sql()
+        .map_err(|e| error::Error::InternalErr(e.to_string()))?;
+    let rows = sqlx::query_as::<_, DatabaseTrigger>(&sql)
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(Json(rows))
 }
 
 async fn get_database_trigger(
@@ -156,22 +215,31 @@ async fn update_database_trigger(
     Json(database_trigger): Json<EditDatabaseTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditDatabaseTrigger { script_path, path, is_flow, enabled, database, table_to_track } =
+    let EditDatabaseTrigger { script_path, path, is_flow, database, table_to_track } =
         database_trigger;
     let mut tx = user_db.begin(&authed).await?;
 
-    /*sqlx::query!(
-        "UPDATE database_trigger SET script_path = $1, path = $2, is_flow = $3, edited_by = $4, email = $5, edited_at = now(), error = NULL
-            WHERE workspace_id = $6 AND path = $7",
+    let table_to_track = table_to_track.map(|table_to_track| {
+        table_to_track
+            .into_iter()
+            .map(sqlx::types::Json)
+            .collect_vec()
+    });
+
+    sqlx::query!(
+        "UPDATE database_trigger SET script_path = $1, path = $2, is_flow = $3, edited_by = $4, email = $5, database = $6, table_to_track = $7, edited_at = now(), error = NULL
+            WHERE workspace_id = $8 AND path = $9",
         script_path,
         path,
         is_flow,
         &authed.username,
         &authed.email,
+        database,
+        table_to_track,
         w_id,
         workspace_path,
     )
-    .execute(&mut *tx).await?;*/
+    .execute(&mut *tx).await?;
 
     audit_log(
         &mut *tx,
@@ -179,7 +247,7 @@ async fn update_database_trigger(
         "database_triggers.update",
         ActionKind::Create,
         &w_id,
-        Some(workspace_path),
+        Some(&path),
         None,
     )
     .await?;
@@ -356,7 +424,7 @@ pub async fn start_database(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) -> () {
+) {
     tokio::spawn(async move {
         listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await;
         loop {
@@ -378,7 +446,6 @@ pub async fn can_be_listened(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<bool> {
     let mut tx = user_db.begin(&authed).await?;
-
 
     Ok(Json(true))
 }

@@ -16,6 +16,7 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -127,6 +128,7 @@
 	}
 
 	let selected: 'insert' | 'updated' | 'delete' = 'insert'
+	let tables: string[] = []
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -230,10 +232,16 @@
 				</Section>
 				<Section label="Tables">
 					<p class="text-xs mb-1 text-tertiary">
-						Write which table from the current selected database resource must be tracked<Required
-							required={true}
-						/>
+						Tables will limit the execution of the trigger to only the given tables.<br />
+						If no tables table are choosen, this will be triggered for all tables.
 					</p>
+					<MultiSelect
+						outerDivClass="text-secondary !bg-surface-disabled !border-0"
+						selected={tables}
+						
+						options={[]}
+						selectedOptionsDraggable={false}
+					/>
 				</Section>
 			</div>
 		{/if}

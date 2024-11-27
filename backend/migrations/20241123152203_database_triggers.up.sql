@@ -8,7 +8,7 @@ CREATE TABLE database_trigger(
     email VARCHAR(255) NOT NULL,
     edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     extra_perms JSONB NOT NULL DEFAULT '{}',
-    database JSONB NOT NULL,
+    database VARCHAR(255) NOT NULL,
     table_to_track JSONB[],
     error TEXT NULL,
     server_id VARCHAR(50) NULL,
