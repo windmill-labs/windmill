@@ -733,7 +733,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
 async fn delete_log_files_from_disk_and_store(
     paths_to_delete: Vec<String>,
     tmp_dir: &str,
-    s3_prefix: &str,
+    _s3_prefix: &str,
 ) {
     #[cfg(feature = "parquet")]
     let os = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
@@ -743,12 +743,12 @@ async fn delete_log_files_from_disk_and_store(
     #[cfg(not(feature = "parquet"))]
     let os: Option<()> = None;
 
-    let should_del_from_store = MONITOR_LOGS_ON_OBJECT_STORE.read().await.clone();
+    let _should_del_from_store = MONITOR_LOGS_ON_OBJECT_STORE.read().await.clone();
 
     let delete_futures = FuturesUnordered::new();
 
     for path in paths_to_delete {
-        let os2 = &os;
+        let _os2 = &os;
 
         delete_futures.push(async move {
             let disk_path = std::path::Path::new(tmp_dir).join(&path);
@@ -770,9 +770,9 @@ async fn delete_log_files_from_disk_and_store(
             }
 
             #[cfg(feature = "parquet")]
-            if should_del_from_store {
-                if let Some(os) = os2 {
-                    let p = object_store::path::Path::from(format!("{}{}", s3_prefix, path));
+            if _should_del_from_store {
+                if let Some(os) = _os2 {
+                    let p = object_store::path::Path::from(format!("{}{}", _s3_prefix, path));
                     if let Err(e) = os.delete(&p).await {
                         tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
                     } else {
