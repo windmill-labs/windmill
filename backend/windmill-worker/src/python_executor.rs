@@ -1560,7 +1560,7 @@ pub async fn handle_python_reqs(
     for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
-        if Err(e) = permit {
+        if let Err(e) = permit {
             tracing::error!(
                 workspace_id = %w_id,
                 "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
@@ -1568,7 +1568,7 @@ pub async fn handle_python_reqs(
             break;
         }
 
-        let permit = permit?;
+        let permit = permit.unwrap();
 
         tracing::info!(
             workspace_id = %w_id,
@@ -1685,7 +1685,7 @@ pub async fn handle_python_reqs(
                             workspace_id = %w_id,
                             "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
                         );
-                        return Err(e);
+                        return Err(e.into());
                     }
                 }
             };
