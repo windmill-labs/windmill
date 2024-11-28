@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.431.1](https://github.com/windmill-labs/windmill/compare/v1.431.0...v1.431.1) (2024-11-28)
+
+
+### Bug Fixes
+
+* invalid `null` comparison while inserting flow node ([#4815](https://github.com/windmill-labs/windmill/issues/4815)) ([390ee31](https://github.com/windmill-labs/windmill/commit/390ee3113bd203cad89ff7d7cb0cf2da154c40c4))
+
+## [1.431.0](https://github.com/windmill-labs/windmill/compare/v1.430.2...v1.431.0) (2024-11-28)
+
+
+### Features
+
+* allow forcing dark/light theme on apps ([f69f743](https://github.com/windmill-labs/windmill/commit/f69f743b30f3fcfaf83979f2fe55c2e6e1cf9a03))
+* **backend:** implement flow scripts ([#4748](https://github.com/windmill-labs/windmill/issues/4748)) ([e4784e8](https://github.com/windmill-labs/windmill/commit/e4784e89dac9fbfe492fa2d25fcaf373afc3b340))
+* **backend:** store flow inner modules into `flow_node` table ([#4778](https://github.com/windmill-labs/windmill/issues/4778)) ([2911775](https://github.com/windmill-labs/windmill/commit/2911775d0a138220cc353aa40e416201130bbd1e))
+* expose settable col id for app aggrid tables ([5d0eba2](https://github.com/windmill-labs/windmill/commit/5d0eba273ab7a5264b4ecb7270fb9f13423ccec7))
+
+
+### Bug Fixes
+
+* add missing export tab on mobile view of flow detail ([#4812](https://github.com/windmill-labs/windmill/issues/4812)) ([a9c31b3](https://github.com/windmill-labs/windmill/commit/a9c31b35f4d50ee399c1dc965e181504cc3bf8aa))
+* disable `flow_version_lite` in dedicated workers ([#4800](https://github.com/windmill-labs/windmill/issues/4800)) ([150ca33](https://github.com/windmill-labs/windmill/commit/150ca33f0d022aec55a7c8c0f4516b635ea824d6))
+* fix getting logs locally for ee without instance settings ([e81e239](https://github.com/windmill-labs/windmill/commit/e81e239f43fb4302940f0a9d910fafd560084da3))
+* fix OAuth being stuck if following a public app login ([5656102](https://github.com/windmill-labs/windmill/commit/5656102b13d63bae5c4c78876d839be73f823450))
+* global timeout not set correctly on load ([8f56456](https://github.com/windmill-labs/windmill/commit/8f564567018fa7ff5bfd74aeeb95699fefcf5a63))
+* improve default formatters for deno ([2448026](https://github.com/windmill-labs/windmill/commit/24480260bd638fb819ccfb4ace68be844ae3776f))
+* improve flow status viwer iteration picker ([ef721f9](https://github.com/windmill-labs/windmill/commit/ef721f9a5f03a06378941d382ce02fa069213ae6))
+* invalid `jsonb` comparison while inserting flow node ([#4814](https://github.com/windmill-labs/windmill/issues/4814)) ([77937a4](https://github.com/windmill-labs/windmill/commit/77937a494ada78891cd5aa01e11c2d813fe8d45a))
+* **python:** Merge to site-packages packages with same name ([#4793](https://github.com/windmill-labs/windmill/issues/4793)) ([e876ae4](https://github.com/windmill-labs/windmill/commit/e876ae4f42ed0655fa5e1f02e29a203785cfb4cd))
+* service logs: aggregation query + killpill on index pull + retention period for logs on s3 ([#4795](https://github.com/windmill-labs/windmill/issues/4795)) ([09fe535](https://github.com/windmill-labs/windmill/commit/09fe535bdca548e0445ffb07d86a1c3cf656d5e5))
+
 ## [1.430.2](https://github.com/windmill-labs/windmill/compare/v1.430.1...v1.430.2) (2024-11-25)
 
 
