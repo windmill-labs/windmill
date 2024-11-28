@@ -1146,15 +1146,14 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
 
+        vars.push(("REQ", &req));
+        vars.push(("TARGET", venv_p));
+
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(vars)
-            .envs([
-                ("REQ", req),
-                ("TARGET", &venv_p.to_string()), //
-            ])
             .envs(PROXY_ENVS.clone())
             .args(vec!["--config", "download.config.proto"])
             .stdout(Stdio::piped())
@@ -1548,9 +1547,9 @@ pub async fn handle_python_reqs(
 
         // Do we use Nsjail?
         if !*DISABLE_NSJAIL {
-            logs.push_str(&format!("\nStarting isolated installation... \n"));
+            logs.push_str(&format!("\nStarting isolated installation... ({} tasks in parallel ) \n", parallel_limit));
         } else {
-            logs.push_str(&format!("\nStarting installation... \n"));
+            logs.push_str(&format!("\nStarting installation... ({} tasks in parallel) \n", parallel_limit));
         }
         append_logs(&job_id, w_id, logs, db).await;
     }
@@ -1622,7 +1621,6 @@ pub async fn handle_python_reqs(
                                 return Ok(());
                             }
                         }
-                        // TODO: Do we need "else"?
                     }
                 }
             }
