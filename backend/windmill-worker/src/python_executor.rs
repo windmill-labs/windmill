@@ -1558,11 +1558,17 @@ pub async fn handle_python_reqs(
     let mut handles = Vec::with_capacity(total_to_install);
 
     for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
-        let permit = semaphore.clone().acquire_owned().await.map_err(|_| 
-            anyhow!(
+        let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
+
+        if Err(e) = permit {
+            tracing::error!(
+                workspace_id = %w_id,
                 "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
-            )
-        )?; // Acquire a permit
+            );
+            break;
+        }
+
+        let permit = permit?;
 
         tracing::info!(
             workspace_id = %w_id,
@@ -1698,7 +1704,6 @@ pub async fn handle_python_reqs(
             )
             .await;
 
-            // TODO: Make sure it is not dropped even when exited
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                 if matches!(get_license_plan().await, LicensePlan::Pro) {
