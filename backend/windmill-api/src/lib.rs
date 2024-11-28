@@ -222,9 +222,6 @@ pub async fn run_server(
         }
     }
 
-    // #[cfg(feature = "kafka")]
-    // start_listening().await;
-
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
         {

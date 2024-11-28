@@ -369,7 +369,6 @@ async fn exists_websocket_trigger(
 
 async fn listen_to_unlistened_websockets(
     db: &DB,
-    rsmq: &Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> () {
     match sqlx::query_as::<_, WebsocketTrigger>(
@@ -383,7 +382,7 @@ async fn listen_to_unlistened_websockets(
         Ok(mut triggers) => {
             triggers.shuffle(&mut rand::thread_rng());
             for trigger in triggers {
-                trigger.maybe_listen_to_websocket(db.clone(), rsmq.clone(), killpill_rx.resubscribe()).await;
+                trigger.maybe_listen_to_websocket(db.clone(), killpill_rx.resubscribe()).await;
             }
         }
         Err(err) => {
@@ -401,7 +400,7 @@ async fn listen_to_unlistened_websockets(
         Ok(mut captures) => {
             captures.shuffle(&mut rand::thread_rng());
             for capture in captures {
-                capture.maybe_listen_to_websocket(db.clone(), rsmq.clone(), killpill_rx.resubscribe()).await;
+                capture.maybe_listen_to_websocket(db.clone(),  killpill_rx.resubscribe()).await;
             }
         }
         Err(err) => {
@@ -410,13 +409,9 @@ async fn listen_to_unlistened_websockets(
     }
 }
 
-pub async fn start_websockets(
-    db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) -> () {
+pub async fn start_websockets(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
     tokio::spawn(async move {
-        listen_to_unlistened_websockets(&db, &rsmq, &killpill_rx).await;
+        listen_to_unlistened_websockets(&db, &killpill_rx).await;
         loop {
             tokio::select! {
                 biased;
@@ -424,7 +419,7 @@ pub async fn start_websockets(
                     return;
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(15)) => {
-                    listen_to_unlistened_websockets(&db, &rsmq, &killpill_rx).await;
+                    listen_to_unlistened_websockets(&db, &killpill_rx).await;
                 }
             }
         }
@@ -504,7 +499,6 @@ async fn wait_runnable_result(
     ws_trigger: &WebsocketTrigger,
     username_override: String,
     db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::Result<String> {
     let user_db = UserDB::new(db.clone());
     let authed = fetch_api_authed(
@@ -526,7 +520,6 @@ async fn wait_runnable_result(
             authed,
             db.clone(),
             user_db,
-            rsmq.clone(),
             ws_trigger.workspace_id.clone(),
             StripPath(path.clone()),
             RunJobQuery::default(),
@@ -539,7 +532,6 @@ async fn wait_runnable_result(
             authed,
             db.clone(),
             user_db,
-            rsmq.clone(),
             ws_trigger.workspace_id.clone(),
             StripPath(path.clone()),
             RunJobQuery::default(),
@@ -612,7 +604,6 @@ impl WebsocketTrigger {
     async fn maybe_listen_to_websocket(
         self,
         db: DB,
-        rsmq: Option<rsmq_async::MultiplexedRsmq>,
         killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> () {
         match sqlx::query_scalar!(
@@ -623,7 +614,7 @@ impl WebsocketTrigger {
         ).fetch_optional(&db).await {
             Ok(has_lock) => {
                 if has_lock.flatten().unwrap_or(false) {
-                    tokio::spawn(listen_to_websocket(WebsocketEnum::Trigger(self), db, rsmq, killpill_rx));
+                    tokio::spawn(listen_to_websocket(WebsocketEnum::Trigger(self), db, killpill_rx));
                 } else {
                     tracing::info!("Websocket {} already being listened to", self.url);
                 }
@@ -683,7 +674,6 @@ impl WebsocketTrigger {
         path: &str,
         is_flow: bool,
         db: &DB,
-        rsmq: Option<rsmq_async::MultiplexedRsmq>,
     ) -> error::Result<String> {
         tracing::info!("Running runnable {path} (is_flow: {is_flow}) to get websocket URL",);
 
@@ -694,7 +684,6 @@ impl WebsocketTrigger {
             self,
             "url".to_string(),
             db,
-            rsmq,
         )
         .await?;
 
@@ -712,7 +701,6 @@ impl WebsocketTrigger {
         &self,
         mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
         db: &DB,
-        rsmq: Option<rsmq_async::MultiplexedRsmq>,
     ) -> error::Result<()> {
         let initial_messages: Vec<InitialMessage> = self
             .initial_messages
@@ -752,7 +740,6 @@ impl WebsocketTrigger {
                         self,
                         "init".to_string(),
                         db,
-                        rsmq.clone(),
                     )
                     .await?;
 
@@ -781,13 +768,8 @@ impl WebsocketTrigger {
         Ok(())
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        rsmq: Option<rsmq_async::MultiplexedRsmq>,
-        args: PushArgsOwned,
-    ) -> () {
-        if let Err(err) = run_job(db, rsmq, self, args).await {
+    async fn handle(&self, db: &DB, args: PushArgsOwned) -> () {
+        if let Err(err) = run_job(db, self, args).await {
             report_critical_error(
                 format!(
                     "Failed to trigger job from websocket {}: {:?}",
@@ -815,7 +797,6 @@ impl CaptureConfigForWebsocket {
     async fn maybe_listen_to_websocket(
         self,
         db: DB,
-        rsmq: Option<rsmq_async::MultiplexedRsmq>,
         killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> () {
         match sqlx::query_scalar!(
@@ -827,7 +808,7 @@ impl CaptureConfigForWebsocket {
         ).fetch_optional(&db).await {
             Ok(has_lock) => {
                 if has_lock.flatten().unwrap_or(false) {
-                    tokio::spawn(listen_to_websocket(WebsocketEnum::Capture(self), db, rsmq, killpill_rx));
+                    tokio::spawn(listen_to_websocket(WebsocketEnum::Capture(self), db, killpill_rx));
                 } else {
                     tracing::info!("Websocket {} already being listened to", self.trigger_config.url);
                 }
@@ -896,7 +877,6 @@ impl WebsocketEnum {
 async fn listen_to_websocket(
     ws: WebsocketEnum,
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
     if let None = ws.update_ping(&db, Some("Connecting")).await {
@@ -933,7 +913,7 @@ async fn listen_to_websocket(
                             )) => {
                                 return;
                             },
-                            url_result = ws_trigger.get_url_from_runnable(path, url.starts_with("$flow:"), &db, rsmq.clone()) => match url_result {
+                            url_result = ws_trigger.get_url_from_runnable(path, url.starts_with("$flow:"), &db) => match url_result {
                                 Ok(url) => Cow::Owned(url),
                                 Err(err) => {
                                     ws_trigger.disable_with_error(&db, format!(
@@ -988,7 +968,7 @@ async fn listen_to_websocket(
                             _ = async {
                                 match &ws {
                                     WebsocketEnum::Trigger(ws_trigger) => {
-                                        if let Err(err) = ws_trigger.send_initial_messages(writer, &db, rsmq.clone()).await {
+                                        if let Err(err) = ws_trigger.send_initial_messages(writer, &db).await {
                                             ws_trigger.disable_with_error(&db, format!("Error sending initial messages: {:?}", err)).await;
                                         } else {
                                             // if initial messages sent successfully, wait forever
@@ -1050,7 +1030,7 @@ async fn listen_to_websocket(
                                                                     let args = PushArgsOwned { args, extra };
                                                                     match &ws {
                                                                         WebsocketEnum::Trigger(ws_trigger) => {
-                                                                            ws_trigger.handle(&db, rsmq.clone(), args).await;
+                                                                            ws_trigger.handle(&db, args).await;
                                                                         },
                                                                         WebsocketEnum::Capture(capture) => {
                                                                             capture.handle(&db, args).await;
@@ -1100,12 +1080,7 @@ async fn listen_to_websocket(
     }
 }
 
-async fn run_job(
-    db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    trigger: &WebsocketTrigger,
-    args: PushArgsOwned,
-) -> anyhow::Result<()> {
+async fn run_job(db: &DB, trigger: &WebsocketTrigger, args: PushArgsOwned) -> anyhow::Result<()> {
     let label_prefix = Some(format!("ws-{}-", trigger.path));
 
     let authed = fetch_api_authed(
@@ -1126,7 +1101,6 @@ async fn run_job(
             authed,
             db.clone(),
             user_db,
-            rsmq,
             trigger.workspace_id.clone(),
             StripPath(trigger.script_path.to_owned()),
             run_query,
@@ -1139,7 +1113,6 @@ async fn run_job(
             authed,
             db.clone(),
             user_db,
-            rsmq,
             trigger.workspace_id.clone(),
             StripPath(trigger.script_path.to_owned()),
             run_query,

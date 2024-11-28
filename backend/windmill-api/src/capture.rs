@@ -26,10 +26,11 @@ use windmill_common::{
 };
 use windmill_queue::{PushArgs, PushArgsOwned};
 
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+use crate::kafka_triggers_ee::KafkaResourceSecurity;
 use crate::{
     db::{ApiAuthed, DB},
     http_triggers::build_http_trigger_extra,
-    kafka_triggers_ee::KafkaResourceSecurity,
 };
 
 const KEEP_LAST: i64 = 20;
@@ -87,6 +88,7 @@ struct HttpTriggerConfig {
     route_path: String,
 }
 
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
 #[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
     pub brokers: Vec<String>,
@@ -104,8 +106,9 @@ pub struct WebsocketTriggerConfig {
 #[serde(untagged)]
 enum TriggerConfig {
     Http(HttpTriggerConfig),
-    Kafka(KafkaTriggerConfig),
     Websocket(WebsocketTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "kafka"))]
+    Kafka(KafkaTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
