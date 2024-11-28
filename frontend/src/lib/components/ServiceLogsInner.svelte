@@ -287,6 +287,7 @@
 	let loadingLogCounts = false
 
 	let countsPerHost: any
+	let sumOtherDocCount: number = 0
 
 	async function searchLogs(
 		searchTerm: string,
@@ -299,6 +300,7 @@
 			debounceTimeout && clearTimeout(debounceTimeout)
 			logs = undefined
 			countsPerHost = undefined
+			sumOtherDocCount = 0
 			loadingLogs = false
 			loadingLogCounts = false
 			return
@@ -315,7 +317,9 @@
 					minTs,
 					maxTs
 				})
-				const buckets = (countLogsResponse.count_per_host as any)['count_per_host']['buckets']
+				const res = (countLogsResponse.count_per_host as any)['count_per_host']
+				const buckets = res['buckets']
+				sumOtherDocCount = res['sum_other_doc_count']
 				countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
 				countsPerHost = buckets.reduce((acc: any, { key, doc_count }) => {
 					acc[key] = { doc_count }
@@ -366,6 +370,30 @@
 	}
 
 	$: searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs)
+
+	function allLogsOrQueryResults(allLogs: ByMode, countsPerHost: any): ByMode {
+		if (countsPerHost == undefined) {
+			return allLogs
+		}
+		let ret = {}
+
+		for (const hk of Object.keys(countsPerHost)) {
+			let u = hk.split(",")
+			let [mode, wg, hn] = [u[0], u[1], u[2]]
+
+			if (!ret[mode]) {
+				ret[mode] = {}
+			}
+			if (!ret[mode][wg]) {
+				ret[mode][wg] = {}
+			}
+			if (!ret[mode][wg][hn]) {
+				ret[mode][wg][hn] = []
+			}
+		}
+
+		return ret
+	}
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
@@ -522,7 +550,7 @@
 						>
 					</div>
 				{/if}
-				{#each Object.entries(allLogs) as [mode, o1]}
+				{#each Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)) as [mode, o1]}
 					<div class="w-full pb-8">
 						<h2 class="pb-2 text-2xl">{mode}s</h2>
 						{#each Object.entries(o1) as [wg, o2]}
@@ -594,6 +622,11 @@
 						{/each}
 					</div>
 				{/each}
+				{#if !loadingLogCounts && sumOtherDocCount != 0}
+					<div class="text-tertiary italic text-sm">
+						Note: {sumOtherDocCount} additional matches weren't grouped into any of the above hosts.
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</svelte:fragment>
