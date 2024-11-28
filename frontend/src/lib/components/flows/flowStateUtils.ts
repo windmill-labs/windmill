@@ -250,7 +250,8 @@ export async function createScriptFromInlineScript(
 			parent_hash: undefined,
 			schema,
 			is_template: false,
-			language: flowModule.value.language
+			language: flowModule.value.language,
+			kind: flowModule.value.is_trigger ? 'trigger' : 'script'
 		}
 	})
 
