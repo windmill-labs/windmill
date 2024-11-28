@@ -1403,59 +1403,6 @@ pub async fn handle_python_reqs(
             .map(handle_ephemeral_token),
     );
 
-    let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
-    let kill_tx_2 = kill_tx.clone();
-
-    let job_id_2 = job_id.clone();
-    let db_2 = db.clone();
-    let w_id_2 = w_id.to_string();
-
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                    // Notify server that we are still alive
-                    // Detect if job has been canceled
-                    let canceled =
-                        sqlx::query_scalar::<_, bool>
-                        (r#"
-
-                               UPDATE queue 
-                                  SET last_ping = now() 
-                                WHERE id = $1 
-                            RETURNING canceled
-
-                            "#)
-                        .bind(job_id_2)
-                        .fetch_optional(&db_2)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                            Some(false)
-                        })
-                        .unwrap_or_else(|| {
-                            // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            false
-                        });
-
-                    if canceled {
-                        if let Err(ref e) = kill_tx_2.send(()){
-                            tracing::error!(
-                                // If there is listener on other side, 
-                                workspace_id = %w_id_2,
-                                "failed to send done: Probably receiving end closed too early\n{}",
-                                // If there is no listener, it will be dropped safely
-                                e
-                            );
-                        }
-                    } 
-                }
-                // Once done_tx is dropped, this will be fired
-                _ = done_rx.recv() => break
-            }
-        }
-    });
 
     // Prepare NSJAIL
     if !*DISABLE_NSJAIL {
@@ -1510,6 +1457,71 @@ pub async fn handle_python_reqs(
         }
     }
 
+    let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
+    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = 
+        (0..req_with_penv.len()).map(|_| kill_tx.subscribe()).collect();
+
+    //   ________ Read comments at the end of the function to get more context
+    let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let kill_tx_2 = kill_tx.clone();
+
+    let job_id_2 = job_id.clone();
+    let db_2 = db.clone();
+    let w_id_2 = w_id.to_string();
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                    // Notify server that we are still alive
+                    // Detect if job has been canceled
+                    let canceled =
+                        sqlx::query_scalar::<_, bool>
+                        (r#"
+
+                               UPDATE queue 
+                                  SET last_ping = now() 
+                                WHERE id = $1 
+                            RETURNING canceled
+
+                            "#)
+                        .bind(job_id_2)
+                        .fetch_optional(&db_2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                            Some(false)
+                        })
+                        .unwrap_or_else(|| {
+                            // if the job is not in queue, it can only be in the completed_job so it is already complete
+                            false
+                        });
+
+                    if canceled {
+
+                        tracing::info!(
+                            // If there is listener on other side, 
+                            workspace_id = %w_id_2,
+                            "cancelling installations",
+                        );
+
+                        if let Err(ref e) = kill_tx_2.send(()){
+                            tracing::error!(
+                                // If there is listener on other side, 
+                                workspace_id = %w_id_2,
+                                "failed to send done: Probably receiving end closed too early or have not opened yet\n{}",
+                                // If there is no listener, it will be dropped safely
+                                e
+                            );
+                        }
+                    } 
+                }
+                // Once done_tx is dropped, this will be fired
+                _ = done_rx.recv() => break
+            }
+        }
+    });
+
     // tl = total_length
     // "small".len == 5
     // "middle".len == 6
@@ -1547,7 +1559,7 @@ pub async fn handle_python_reqs(
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
     let mut handles = Vec::with_capacity(total_to_install);
 
-    for (req, venv_p) in &req_with_penv {
+    for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await.map_err(|_| 
             anyhow!(
                 "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
@@ -1567,7 +1579,6 @@ pub async fn handle_python_reqs(
         let venv_p = venv_p.clone();
         let counter_arc = counter_arc.clone();
         let pip_indexes = pip_indexes.clone();
-        let mut kill_rx = kill_tx.subscribe();
 
         handles.push(task::spawn(async move {
             // permit will be dropped anyway if this thread exits at any point
@@ -1586,12 +1597,6 @@ pub async fn handle_python_reqs(
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                    tracing::info!(
-                        workspace_id = %w_id,
-                        "Attempting to pull from S3 {}",
-                        job_id
-                    );
-
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
@@ -1618,6 +1623,7 @@ pub async fn handle_python_reqs(
                                 return Ok(());
                             }
                         }
+                        // TODO: Do we need "else"?
                     }
                 }
             }
@@ -1699,7 +1705,7 @@ pub async fn handle_python_reqs(
             .await;
             tracing::warn!(
                 workspace_id = %w_id,
-                "Installation failed, removing cache dir: {:?}",
+                "Installation failed: {:?}",
                 e
             );
             if let Err(e) = fs::remove_dir_all(&venv_p) {
@@ -1726,8 +1732,6 @@ use crate::JobCompletedSender;
 #[cfg(feature = "enterprise")]
 use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
 #[cfg(feature = "enterprise")]
-use tokio::sync::mpsc::Receiver;
-#[cfg(feature = "enterprise")]
 use windmill_common::variables;
 
 #[cfg(feature = "enterprise")]
@@ -1743,7 +1747,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     let mut mem_peak: i32 = 0;
