@@ -182,6 +182,7 @@ pub async fn initial_load(
     }
 
     if worker_mode {
+        reload_job_default_timeout_setting(&db).await;
         reload_extra_pip_index_url_setting(&db).await;
         reload_pip_index_url_setting(&db).await;
         reload_npm_config_registry_setting(&db).await;
