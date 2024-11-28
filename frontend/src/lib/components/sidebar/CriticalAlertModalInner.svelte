@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
-	import { AlertTriangle } from 'lucide-svelte'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
 	import { devopsRole, workspaceStore, instanceSettingsSelectedTab, superadmin } from '$lib/stores'
@@ -10,6 +9,7 @@
 	import List from '$lib/components/common/layout/List.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import CriticalAlertTable from './CriticalAlertTable.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	export let updateHasUnacknowledgedCriticalAlerts
 	export let getCriticalAlerts
@@ -151,15 +151,22 @@
 	async function workspaceContextChanged(_ctx) {
 		await getAlerts(true)
 	}
-
-	let popupTarget: HTMLElement
-	$: console.log('dbg', popupTarget)
 </script>
 
 <List gap="sm">
+	{#if !hasCriticalAlertChannels && $superadmin}
+		<div class="w-full">
+			<Alert title="No critical alert channels are set up" type="warning" size="xs">
+				Go to the
+				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance Settings</a>
+				page to configure critical alert channels.
+			</Alert>
+		</div>
+	{/if}
+
 	<div class="w-full">
 		<List horizontal justify="between">
-			<div>
+			<div class="w-full">
 				<List horizontal justify="start" gap="md">
 					{#if $devopsRole}
 						<Toggle
@@ -167,16 +174,6 @@
 							options={{ left: `Workspace: '${$workspaceStore}' only` }}
 							size="xs"
 						/>
-					{/if}
-					{#if !hasCriticalAlertChannels && $superadmin}
-						<AlertTriangle color="orange" class="w-6 h-6 mr-2" />
-						<p>
-							No critical alert channels are set up. Go to the
-							<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}
-								>Instance Settings</a
-							>
-							page to configure critical alert channels.
-						</p>
 					{/if}
 
 					<Toggle
@@ -194,21 +191,15 @@
 		</List>
 	</div>
 
-	<div class="w-full">
-		<CriticalAlertTable
-			{alerts}
-			{acknowledgeAlert}
-			{hideAcknowledged}
-			{goToNextPage}
-			{goToPreviousPage}
-			bind:page
-			{hasMore}
-			{acknowledgeAll}
-			{numUnacknowledgedCriticalAlerts}
-		/>
-	</div>
-
-	{#if alerts.length === 0}
-		<p class="text-center text-gray-500 mt-4">No critical alerts available.</p>
-	{/if}
+	<CriticalAlertTable
+		{alerts}
+		{acknowledgeAlert}
+		{hideAcknowledged}
+		{goToNextPage}
+		{goToPreviousPage}
+		bind:page
+		{hasMore}
+		{acknowledgeAll}
+		{numUnacknowledgedCriticalAlerts}
+	/>
 </List>

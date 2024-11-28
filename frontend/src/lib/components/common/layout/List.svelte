@@ -19,11 +19,11 @@
 </script>
 
 {#if horizontal}
-	<div class="flex flex-row {gapMap[gap]} items-center {justifyMap[justify]}">
+	<div class="flex flex-row w-full {gapMap[gap]} items-center {justifyMap[justify]}">
 		<slot />
 	</div>
 {:else}
-	<div class="flex flex-col {gapMap[gap]} items-center {justifyMap[justify]}">
+	<div class="flex flex-col h-full {gapMap[gap]} items-center {justifyMap[justify]}">
 		<slot />
 	</div>
 {/if}

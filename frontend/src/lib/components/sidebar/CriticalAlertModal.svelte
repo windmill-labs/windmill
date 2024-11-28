@@ -10,12 +10,13 @@
 		userStore,
 		superadmin
 	} from '$lib/stores'
-	import Modal from '../common/modal/Modal.svelte'
+	import Modal2 from '../common/modal/Modal2.svelte'
 	import { Button, Popup } from '$lib/components/common'
 	import List from '$lib/components/common/layout/List.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
 	import { base } from '$lib/base'
+
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
 	export let muteSettings
@@ -126,8 +127,8 @@
 	}
 </script>
 
-<Modal bind:open title="Critical Alerts" cancelText="Close" style="max-width: 66%;">
-	<svelte:fragment slot="settings">
+<Modal2 bind:isOpen={open} title="Critical Alerts" target="#content" fixedSize="lg">
+	<svelte:fragment slot="header-right">
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}
 				<Popup
@@ -226,6 +227,7 @@
 			{/if}
 		</List>
 	</svelte:fragment>
+
 	<CriticalAlertModalInner
 		{numUnacknowledgedCriticalAlerts}
 		{updateHasUnacknowledgedCriticalAlerts}
@@ -235,4 +237,4 @@
 		{muteSettings}
 		bind:workspaceContext
 	/>
-</Modal>
+</Modal2>
