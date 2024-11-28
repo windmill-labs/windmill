@@ -153,11 +153,11 @@
 		return prefix ? 'subflow:' + prefix + key : key
 	}
 
-	async function refresh(clearLoop: boolean, root: boolean) {
+	async function refresh(clearLoop: boolean, rootJob: string | undefined) {
 		let modId = flowJobIds?.moduleId
 
 		if (clearLoop) {
-			if (!root) {
+			if (!rootJob) {
 				let topLevelModuleStates = globalModuleStates?.[globalModuleStates?.length - 1]
 				if (modId) {
 					topLevelModuleStates?.update((x) => {
@@ -201,7 +201,10 @@
 			}
 		}
 
-		for (let rec of Object.values(recursiveRefresh)) {
+		for (let [k, rec] of Object.entries(recursiveRefresh)) {
+			if (rootJob != undefined && rootJob != k) {
+				return
+			}
 			await tick()
 			await rec(clearLoop, false)
 		}
@@ -593,7 +596,7 @@
 	) {
 		if (modId) {
 			if (clicked) {
-				await globalRefreshes?.[modId]?.(true, true)
+				await globalRefreshes?.[modId]?.(true, id)
 			}
 			globalModuleStates?.[globalModuleStates?.length - 1]?.update((topLevelModuleStates) => {
 				let state = topLevelModuleStates?.[modId]
@@ -620,7 +623,7 @@
 			})
 
 			if (clicked) {
-				await globalRefreshes?.[modId]?.(false, true)
+				await globalRefreshes?.[modId]?.(false, id)
 			}
 		}
 	}
@@ -708,9 +711,9 @@
 				})
 			}
 
-			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'preview') {
+			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'flowscript' || jobLoaded.job_kind == 'preview') {
 				let id: string | undefined = undefined
-				if (innerModule?.type == 'forloopflow' && innerModule.modules.length == 1) {
+				if ((innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') && innerModule.modules.length == 1) {
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {
@@ -1190,7 +1193,8 @@
 							on:selectedIteration={async (e) => {
 								let detail = e.detail
 								if (detail.manuallySet) {
-									await globalRefreshes?.[detail.moduleId]?.(true, true)
+									let rootJobId = detail.id
+									await globalRefreshes?.[detail.moduleId]?.(true, rootJobId)
 
 									$localModuleStates[detail.moduleId] = {
 										...$localModuleStates[detail.moduleId],
@@ -1199,7 +1203,9 @@
 										selectedForLoopSetManually: true
 									}
 
-									await globalRefreshes?.[detail.moduleId]?.(false, true)
+									await tick()
+
+									await globalRefreshes?.[detail.moduleId]?.(false, rootJobId)
 								} else {
 									$localModuleStates[detail.moduleId] = {
 										...$localModuleStates[detail.moduleId],

@@ -329,7 +329,7 @@ async fn spawn_dedicated_workers_for_flow(
                     .await;
                     workers.extend(w);
                 }
-                FlowModuleValue::BranchOne { branches, default } => {
+                FlowModuleValue::BranchOne { branches, default, .. } => {
                     for modules in branches
                         .iter()
                         .map(|x| &x.modules)
@@ -392,6 +392,44 @@ async fn spawn_dedicated_workers_for_flow(
                         workers.push(dedi_w);
                     }
                 }
+                FlowModuleValue::FlowScript { id, language, .. } => {
+                    let spawn = sqlx::query!(
+                        "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
+                        id.0
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map(|record| SpawnWorker::RawScript {
+                        path: "".to_string(),
+                        content: record.code,
+                        lock: record.lock,
+                        lang: language.clone(),
+                    });
+                    match spawn {
+                        Ok(spawn) => {
+                            if let Some(dedi_w) = spawn_dedicated_worker(
+                                spawn,
+                                w_id,
+                                killpill_tx.clone(),
+                                killpill_rx,
+                                db,
+                                worker_dir,
+                                base_internal_url,
+                                worker_name,
+                                job_completed_tx,
+                                Some(module.id.clone()),
+                            )
+                              .await
+                            {
+                                workers.push(dedi_w);
+                            }
+                        },
+                        Err(err) => tracing::error!(
+                            "failed to get script for module: {:?}, err: {:?}",
+                            module, err
+                        )
+                    }
+                },
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }
@@ -422,7 +460,7 @@ pub async fn create_dedicated_worker_map(
         if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
             is_flow_worker = true;
             let value = sqlx::query_scalar!(
-                "SELECT flow_version.value 
+                "SELECT flow_version.value AS \"value!: sqlx::types::Json<Box<sqlx::types::JsonRawValue>>\" 
                 FROM flow 
                 LEFT JOIN flow_version 
                     ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
@@ -434,7 +472,7 @@ pub async fn create_dedicated_worker_map(
             .await;
             if let Ok(v) = value {
                 if let Some(v) = v {
-                    let value = serde_json::from_value::<FlowValue>(v).map_err(|err| {
+                    let value = serde_json::from_str::<FlowValue>(v.get()).map_err(|err| {
                         Error::InternalErr(format!(
                             "could not convert json to flow for {flow_path}: {err:?}"
                         ))

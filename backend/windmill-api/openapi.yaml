@@ -10098,11 +10098,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: hosts
-          in: query
-          required: true
-          schema:
-            type: string
         - name: min_ts
           in: query
           required: false
@@ -10873,6 +10868,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string
@@ -10992,6 +10988,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string

@@ -8,6 +8,7 @@
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    ee::LICENSE_KEY_VALID,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
@@ -249,6 +250,7 @@ pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
@@ -1071,6 +1073,28 @@ pub async fn run_worker(
     let mut killed_but_draining_same_worker_jobs = false;
 
     loop {
+        #[cfg(feature = "enterprise")]
+        {
+            if let Ok(_) = killpill_rx.try_recv() {
+                tracing::info!("killpill received on worker waiting for valid key");
+                job_completed_tx
+                    .0
+                    .send(SendResult::Kill)
+                    .await
+                    .expect("send kill to job completed tx");
+                break;
+            }
+            let valid_key = *LICENSE_KEY_VALID.read().await;
+
+            if !valid_key {
+                tracing::error!(
+                    "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
+                );
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        }
+
         #[cfg(feature = "benchmark")]
         let mut bench = BenchmarkIter::new();
 
@@ -1634,6 +1658,7 @@ pub async fn run_worker(
 
     drop(job_completed_tx);
 
+    tracing::info!("waiting for job_completed_processor to finish processing remaining jobs");
     if let Err(e) = send_result.await {
         tracing::error!("error in awaiting send_result process: {e:?}")
     }
@@ -1862,7 +1887,11 @@ async fn handle_queued_job(
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
-            format!("script_{}", h.to_string())
+            if matches!(job.job_kind, JobKind::FlowScript) {
+                format!("flowscript_{}", h.to_string())
+            } else {
+                format!("script_{}", h.to_string())
+            }
         } else if let Some(rc) = raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
@@ -2272,6 +2301,22 @@ async fn handle_code_execution_job(
                 db,
             )
             .await?
+        }
+        JobKind::FlowScript => {
+            let (lockfile, content) = sqlx::query!(
+                "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
+                job.script_hash.unwrap_or(ScriptHash(0)).0
+            )
+            .fetch_one(db)
+            .await
+            .map(|record| (record.lock, record.code))?;
+            ContentReqLangEnvs {
+                content,
+                lockfile,
+                language: job.language.to_owned(),
+                envs: None,
+                codebase: None,
+            }
         }
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?

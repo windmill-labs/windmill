@@ -8,8 +8,7 @@
 
 use anyhow::Context;
 use monitor::{
-    reload_indexer_config, reload_timeout_wait_result_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store,
+    reload_delete_logs_periodically_setting, reload_indexer_config, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -30,15 +29,7 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -67,7 +58,8 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
+    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR, TMP_LOGS_DIR,
+    UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -404,8 +396,6 @@ Windmill Community Edition {GIT_VERSION}
         tracing::error!("Could loading critical error emails setting: {:?}", e);
     }
 
-    let worker_mode = num_workers > 0;
-
     #[cfg(feature = "enterprise")]
     {
         // load the license key and check if it's valid
@@ -417,7 +407,7 @@ Windmill Community Edition {GIT_VERSION}
         }
         let valid_key = *LICENSE_KEY_VALID.read().await;
         if !valid_key && !server_mode {
-            panic!("Invalid license key, workers require a valid license key");
+            tracing::error!("Invalid license key, workers require a valid license key");
         }
         if server_mode {
             // only force renewal if invalid but not empty (= expired)
@@ -432,15 +422,10 @@ Windmill Community Edition {GIT_VERSION}
                     tracing::error!("Failed to reload license key: {err:#}");
                 }
             }
-            if num_workers > 0 {
-                let valid_key = *LICENSE_KEY_VALID.read().await;
-                if !valid_key {
-                    tracing::warn!("License key invalid, setting num_workers to 0");
-                    num_workers = 0;
-                }
-            }
         }
     }
+
+    let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
@@ -503,8 +488,21 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::completed_runs_ee::init_index(&db).await?;
-            (Some(r), Some(w))
+            let mut indexer_rx = killpill_rx.resubscribe();
+
+            let (mut reader, mut writer) = (None, None);
+            tokio::select! {
+                _ = indexer_rx.recv() => {
+                    tracing::info!("Received killpill, aborting index initialization");
+                },
+                res = windmill_indexer::completed_runs_ee::init_index(&db) => {
+                        let res = res?;
+                        reader = Some(res.0);
+                        writer = Some(res.1);
+                }
+
+            }
+            (reader, writer)
         } else {
             (None, None)
         };
@@ -528,8 +526,21 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let (log_index_reader, log_index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::service_logs_ee::init_index(&db).await?;
-            (Some(r), Some(w))
+            let mut indexer_rx = killpill_rx.resubscribe();
+
+            let (mut reader, mut writer) = (None, None);
+            tokio::select! {
+                _ = indexer_rx.recv() => {
+                    tracing::info!("Received killpill, aborting index initialization");
+                },
+                res = windmill_indexer::service_logs_ee::init_index(&db) => {
+                        let res = res?;
+                        reader = Some(res.0);
+                        writer = Some(res.1);
+                }
+
+            }
+            (reader, writer)
         } else {
             (None, None)
         };
@@ -683,14 +694,6 @@ Windmill Community Edition {GIT_VERSION}
                                                     if let Err(e) = reload_license_key(&db).await {
                                                         tracing::error!("Failed to reload license key: {e:#}");
                                                     }
-                                                    #[cfg(feature = "enterprise")]
-                                                    if worker_mode {
-                                                        let valid_key = *LICENSE_KEY_VALID.read().await;
-                                                        if !valid_key {
-                                                            tracing::error!("Invalid license key, exiting...");
-                                                            tx.send(()).expect("send");
-                                                        }
-                                                    }
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
                                                     if let Err(e) = load_tag_per_workspace_enabled(&db).await {
@@ -713,6 +716,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
+                                                },
+                                                MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
+                                                    reload_delete_logs_periodically_setting(&db).await
                                                 },
                                                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
                                                     reload_job_default_timeout_setting(&db).await
@@ -969,6 +975,7 @@ pub async fn run_workers(
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
+        TAR_PY311_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,

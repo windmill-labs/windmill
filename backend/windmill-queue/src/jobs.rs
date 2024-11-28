@@ -58,8 +58,9 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
-        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-        MIN_VERSION_IS_AT_LEAST_1_427, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+        DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, NO_LOGS,
+        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -72,9 +73,6 @@ use windmill_common::BASE_URL;
 
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
-
-#[cfg(feature = "enterprise")]
-use windmill_common::worker::CLOUD_HOSTED;
 
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -2141,7 +2139,7 @@ fn fullpath_with_workspace(
     let path = script_path.map(String::as_str).unwrap_or("tmp/main");
     let is_flow = matches!(
         job_kind,
-        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow
+        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow | &JobKind::FlowNode
     );
     format!(
         "{}/{}/{}",
@@ -2930,11 +2928,6 @@ lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
 }
 
-#[derive(sqlx::FromRow)]
-struct FlowRawValue {
-    pub value: sqlx::types::Json<Box<RawValue>>,
-}
-
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
     _db: &Pool<Postgres>,
@@ -3192,6 +3185,57 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
+        JobPayload::FlowScript {
+            id, // flow_node(id).
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker,
+        } => (
+            Some(id.0),
+            None,
+            None,
+            JobKind::FlowScript,
+            None,
+            None,
+            Some(language),
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker,
+            None,
+        ),
+        JobPayload::FlowNode { id, path } => {
+            let flow_value = sqlx::query_scalar!(
+                "SELECT flow as \"flow!: sqlx::types::Json<Box<RawValue>>\" FROM flow_node WHERE id = $1 LIMIT 1",
+                id.0
+            ).fetch_one(_db)
+            .await?;
+            let value = serde_json::from_str::<FlowValue>(flow_value.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for node={}: {err:?}", id.0
+                ))
+            })?;
+            let status = Some(FlowStatus::new(&value));
+            (
+                Some(id.0),
+                Some(path),
+                None,
+                JobKind::FlowNode,
+                Some(value),
+                status,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        },
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -3292,17 +3336,15 @@ pub async fn push<'c, 'd>(
         ),
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_as::<_, FlowRawValue>("SELECT value FROM flow_version WHERE id = $1",)
-                    .bind(&version),
+                sqlx::query_scalar!("SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM flow_version WHERE id = $1 LIMIT 1", &version),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value =
-                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
-                    Error::InternalErr(format!(
-                        "could not convert json to flow for {path}: {err:?}"
-                    ))
-                })?;
+            let value = serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
             (
                 Some(version),
                 Some(path),
@@ -3464,24 +3506,38 @@ pub async fn push<'c, 'd>(
             )
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
-            let value_json = fetch_scalar_isolated!(
-                sqlx::query_as::<_, FlowRawValue>(
-                    "SELECT flow_version.value FROM flow 
-                    LEFT JOIN flow_version
-                        ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                    WHERE flow.path = $1 AND flow.workspace_id = $2",
+            // Do not use the lite version unless all workers are updated.
+            let value_json = if *DISABLE_FLOW_SCRIPT || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await  && !*CLOUD_HOSTED) {
+                fetch_scalar_isolated!(
+                    sqlx::query_scalar!(
+                        "SELECT flow_version.value as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                        LEFT JOIN flow_version
+                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                        WHERE flow.path = $1 AND flow.workspace_id = $2",
+                        &path, &workspace_id
+                    ),
+                    tx
                 )
-                .bind(&path)
-                .bind(&workspace_id),
-                tx
-            )?
+            } else {
+                fetch_scalar_isolated!(
+                    sqlx::query_scalar!(
+                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
+                        LEFT JOIN flow_version
+                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                        LEFT JOIN flow_version_lite 
+                            ON flow_version_lite.id = flow_version.id
+                        WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
+                        &path, &workspace_id
+                    ),
+                    tx
+                )
+            }?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let mut value =
-                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
-                    Error::InternalErr(format!(
-                        "could not convert json to flow for {path}: {err:?}"
-                    ))
-                })?;
+            let mut value = serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             if same_worker {
@@ -3936,6 +3992,8 @@ pub async fn push<'c, 'd>(
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
             JobKind::AppDependencies => "jobs.run.app_dependencies",
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
+            JobKind::FlowScript => "jobs.run.flow_script",
+            JobKind::FlowNode => "jobs.run.flow_node",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
