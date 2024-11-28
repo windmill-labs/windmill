@@ -73,7 +73,9 @@
 				{#if !isOperator}
 					<Tab value="triggers">Triggers</Tab>
 				{/if}
-				{#if !flow_json}
+				{#if flow_json}
+					<Tab value="raw">Export</Tab>
+				{:else}
 					<Tab value="script">Script</Tab>
 				{/if}
 
