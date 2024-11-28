@@ -3,6 +3,7 @@
 		Circle,
 		CircleStop,
 		Clipboard,
+		Info,
 		Mail,
 		Play,
 		Route,
@@ -25,7 +26,7 @@
 		type CaptureTriggerKind
 	} from '$lib/gen'
 	import Button from '../common/button/Button.svelte'
-	import { copyToClipboard, sendUserToast, sleep } from '$lib/utils'
+	import { capitalize, copyToClipboard, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { captureTriggerKindToTriggerKind, type TriggerKind } from '../triggers'
 	import Label from '../Label.svelte'
@@ -33,28 +34,43 @@
 	import CopyableCodeBlock from '../details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
 	import Popover from '../Popover.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import Alert from '../common/alert/Alert.svelte'
+	import CustomPopover from '../CustomPopover.svelte'
+	import { page } from '$app/stores'
+	import { convert } from '@redocly/json-to-json-schema'
+	import SchemaViewer from '../SchemaViewer.svelte'
 
 	export let isFlow: boolean
 	export let path: string
 	export let hasPreprocessor: boolean
-	export let newItem = false
+	export let canHavePreprocessor: boolean
+	export let newItem: boolean
 
 	const dispatch = createEventDispatcher<{
-		openTrigger: {
+		openTriggers: {
 			kind: TriggerKind
 			config: Record<string, any>
 		}
-		test: {
+		applyArgs: {
 			kind: 'main' | 'preprocessor'
 			args: Record<string, any> | undefined
+		}
+		addPreprocessor: null
+		updateSchema: {
+			schema: any
+			redirect: boolean
 		}
 	}>()
 
 	let selected: CaptureTriggerKind = 'webhook'
 	let args: Record<string, any> = {}
-	let hostname = 'http://localhost:3000'
 	let active = false
 	let isValid = true
+	let testKind: 'preprocessor' | 'main' = 'main'
+
+	$: hasPreprocessor && (testKind = 'preprocessor')
+
 	$: selected && (isValid = true)
 
 	const schemas = {
@@ -221,14 +237,14 @@
 	$: emailAddress = getEmailAddress(emailDomain)
 
 	function webhook() {
-		return `${hostname}/api/w/${$workspaceStore}/capture_u/webhook/${
+		return `${$page.url.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
 			isFlow ? 'flow' : 'script'
 		}/${path}`
 	}
 	const webhookUrl = webhook()
 
 	function getHttpRoute(route_path: string | undefined) {
-		return `${hostname}/api/w/${$workspaceStore}/capture_u/http/${
+		return `${$page.url.origin}/api/w/${$workspaceStore}/capture_u/http/${
 			isFlow ? 'flow' : 'script'
 		}/${path.replaceAll('/', '.')}/${route_path ?? ''}`
 	}
@@ -308,13 +324,16 @@
 	function stopAndSetDefaultArgs() {
 		active = false
 		if (selected in captureConfigs) {
-			args = captureConfigs[selected].trigger_config
+			const triggerConfig = captureConfigs[selected].trigger_config
+			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else if (selected === 'kafka') {
 			args = {
 				brokers: [''],
 				topics: [''],
 				group_id: `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
 			}
+		} else {
+			args = {}
 		}
 	}
 	$: selected && stopAndSetDefaultArgs()
@@ -332,14 +351,18 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[selected]
+
+	$: cloudDisabled = (selected === 'websocket' || selected === 'kafka') && isCloudHosted()
+
+	$: selectedCaptures = captures.filter((c) => c.trigger_kind === selected)
 </script>
 
 <div class="flex flex-col gap-4 p-2">
 	<div class="flex flex-row gap-2 justify-between">
 		<ToggleButtonGroup bind:selected>
-			<ToggleButton value="webhook" label="Webhook" icon={Webhook} />
-			<ToggleButton value="http" label="HTTP" icon={Route} />
-			<ToggleButton value="websocket" label="Websocket" icon={Unplug} />
+			<ToggleButton value="webhook" label="Webhook" icon={Webhook} small />
+			<ToggleButton value="http" label="HTTP" icon={Route} small />
+			<ToggleButton value="websocket" label="Websocket" icon={Unplug} small />
 			<ToggleButton
 				value="kafka"
 				label={'Kafka' + (!$enterpriseLicense ? ' (ee)' : '')}
@@ -349,7 +372,7 @@
 			<ToggleButton value="email" label="Email" icon={Mail} />
 		</ToggleButtonGroup>
 
-		<div class="flex gap-2">
+		<div class="flex gap-1">
 			{#if (selected === 'websocket' || selected === 'kafka') && config && active}
 				{@const serverEnabled = getServerEnabled(config)}
 				<div class="self-center">
@@ -377,7 +400,7 @@
 				</div>
 			{/if}
 			<Button
-				size="xs"
+				size="xs2"
 				on:click={async () => {
 					if (!active) {
 						await setConfig()
@@ -386,129 +409,214 @@
 						active = false
 					}
 				}}
-				disabled={!isValid}
+				disabled={!isValid || cloudDisabled}
 				color={active ? 'red' : 'dark'}
 				startIcon={{ icon: active ? CircleStop : Play }}
 			>
 				Capture
 			</Button>
-			<Button
-				size="xs"
-				on:click={() =>
-					dispatch('openTrigger', {
-						kind: captureTriggerKindToTriggerKind(selected),
-						config: args
-					})}
-				startIcon={{ icon: Save }}
-				disabled={newItem}
-			>
-				Save
-			</Button>
+			{#if newItem || cloudDisabled}
+				<Popover notClickable>
+					<Button size="xs2" disabled startIcon={{ icon: Save }} iconOnly wrapperClasses="h-full" />
+					<svelte:fragment slot="text">
+						{#if newItem}
+							Deploy the runnable to enable trigger creation
+						{:else if cloudDisabled}
+							{capitalize(selected)} triggers are disabled in the multi-tenant cloud
+						{/if}
+					</svelte:fragment>
+				</Popover>
+			{:else}
+				<Button
+					size="xs2"
+					on:click={() =>
+						dispatch('openTriggers', {
+							kind: captureTriggerKindToTriggerKind(selected),
+							config: args
+						})}
+					startIcon={{ icon: Save }}
+					iconOnly
+				/>
+			{/if}
 		</div>
 	</div>
+	{#if cloudDisabled}
+		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+			{capitalize(selected)} triggers are disabled in the multi-tenant cloud.
+		</Alert>
+	{:else}
+		{#if selected in schemas}
+			{#key selected}
+				<SchemaForm schema={schemas[selected]} bind:args bind:isValid />
+			{/key}
+		{/if}
 
-	{#if selected in schemas}
-		<SchemaForm schema={schemas[selected]} bind:args bind:isValid />
-	{/if}
-
-	{#if selected === 'webhook'}
-		<Label label="URL">
-			<ClipboardPanel content={webhookUrl} />
-		</Label>
-		<Label label="Example curl">
-			<CopyableCodeBlock
-				code={`curl \\
+		{#if selected === 'webhook'}
+			<Label label="URL">
+				<ClipboardPanel content={webhookUrl} />
+			</Label>
+			<Label label="Example curl">
+				<CopyableCodeBlock
+					code={`curl \\
 -X POST ${webhookUrl} \\
 -H 'Content-Type: application/json' \\
 -d '{"foo": 42}'`}
-				language={bash}
-			/>
-		</Label>
-	{:else if selected === 'http'}
-		<Label label="URL">
-			<ClipboardPanel content={httpRoute} />
-		</Label>
-		<Label label="Example curl">
-			<CopyableCodeBlock
-				code={`curl \\
+					language={bash}
+				/>
+			</Label>
+		{:else if selected === 'http'}
+			<Label label="URL">
+				<ClipboardPanel content={httpRoute} />
+			</Label>
+			<Label label="Example curl">
+				<CopyableCodeBlock
+					code={`curl \\
 -X POST ${httpRoute} \\
 -H 'Content-Type: application/json' \\
 -d '{"foo": 42}'`}
-				language={bash}
-			/>
-		</Label>
-	{:else if selected === 'email'}
-		<Label label="Email">
-			<ClipboardPanel content={emailAddress} />
-		</Label>
-	{/if}
+					language={bash}
+				/>
+			</Label>
+		{:else if selected === 'email'}
+			<Label label="Email">
+				<ClipboardPanel content={emailAddress} />
+			</Label>
+		{/if}
 
-	<Label label="Captures">
-		<div class="flex flex-col gap-1">
-			{#if captures.length === 0}
-				<div class="text-xs text-secondary">No {selected} captures yet</div>
-			{:else}
-				{#each captures.filter((c) => c.trigger_kind === selected) as capture}
-					{@const payloadData = hasPreprocessor
-						? {
-								...capture.payload,
-								...(capture.trigger_extra ?? {})
-						  }
-						: capture.payload}
-					<div class="flex flex-row gap-1">
-						<div class="text-xs border p-2 rounded-md overflow-auto grow whitespace-nowrap">
-							{JSON.stringify(payloadData)}
-						</div>
-						<Button
-							size="xs2"
-							color="dark"
-							on:click={() => {
-								copyToClipboard(JSON.stringify(payloadData))
-							}}
-							iconOnly
-							startIcon={{ icon: Clipboard }}
-						/>
-						<Button
-							size="xs2"
-							color="dark"
-							on:click={() => {
-								dispatch('test', {
-									kind: 'main',
-									args: payloadData
-								})
-							}}
-						>
-							Test on main
-						</Button>
-
-						{#if hasPreprocessor}
+		<Label label="Captures">
+			<svelte:fragment slot="action">
+				{#if canHavePreprocessor}
+					<div>
+						<ToggleButtonGroup bind:selected={testKind}>
+							<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small />
+							<ToggleButton
+								value="preprocessor"
+								label="Preprocessor"
+								small
+								tooltip="When the runnable has a preprocessor, it receives additional information about the request"
+							/>
+						</ToggleButtonGroup>
+					</div>
+				{/if}
+			</svelte:fragment>
+			<div class="flex flex-col gap-1 mt-2">
+				{#if selectedCaptures.length === 0}
+					<div class="text-xs text-secondary">No {selected} captures yet</div>
+				{:else}
+					{#each selectedCaptures as capture}
+						{@const payload = isObject(capture.payload) ? capture.payload : {}}
+						{@const triggerExtra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}}
+						{@const payloadData =
+							testKind === 'preprocessor'
+								? {
+										...payload,
+										...triggerExtra
+								  }
+								: payload}
+						{@const schema =
+							isFlow && testKind === 'main'
+								? { required: [], properties: {}, ...convert(payloadData) }
+								: {}}
+						<div class="flex flex-row gap-1">
+							<div class="text-xs border p-2 rounded-md overflow-auto grow whitespace-nowrap">
+								{JSON.stringify(payloadData)}
+							</div>
 							<Button
 								size="xs2"
-								color="dark"
+								color="light"
+								variant="border"
 								on:click={() => {
-									dispatch('test', {
-										kind: 'preprocessor',
-										args: payloadData
-									})
+									copyToClipboard(JSON.stringify(payloadData))
 								}}
-							>
-								Test on preprocessor
-							</Button>
-						{/if}
+								iconOnly
+								startIcon={{ icon: Clipboard }}
+							/>
 
-						<Button
-							size="xs2"
-							color="red"
-							iconOnly
-							startIcon={{ icon: Trash2 }}
-							loading={deleteLoading === capture.id}
-							on:click={() => {
-								deleteCapture(capture.id)
-							}}
-						/>
-					</div>
-				{/each}
-			{/if}
-		</div>
-	</Label>
+							{#if isFlow && testKind === 'main'}
+								<CustomPopover>
+									<Button
+										size="xs"
+										color="light"
+										variant="border"
+										on:click={() => {
+											dispatch('updateSchema', { schema, redirect: true })
+										}}
+										wrapperClasses="h-full"
+									>
+										Apply schema
+									</Button>
+
+									<svelte:fragment slot="overlay">
+										{#if schema}
+											<div class="min-w-[400px]">
+												<SchemaViewer {schema} />
+											</div>
+										{/if}
+									</svelte:fragment>
+								</CustomPopover>
+							{/if}
+
+							{#if testKind === 'preprocessor' && !hasPreprocessor}
+								<CustomPopover noPadding>
+									<Button
+										size="xs"
+										color="dark"
+										disabled
+										endIcon={{
+											icon: Info
+										}}
+										wrapperClasses="h-full"
+									>
+										Apply args
+									</Button>
+									<svelte:fragment slot="overlay">
+										<div class="text-sm p-2 flex flex-col gap-1 items-start">
+											<p>You need to add a preprocessor to use preprocessor captures as args</p>
+											<Button
+												size="xs"
+												color="dark"
+												on:click={() => {
+													dispatch('addPreprocessor')
+												}}
+											>
+												Add preprocessor
+											</Button>
+										</div>
+									</svelte:fragment>
+								</CustomPopover>
+							{:else}
+								<Button
+									size="xs"
+									color="dark"
+									on:click={() => {
+										if (isFlow && testKind === 'main') {
+											dispatch('updateSchema', { schema, redirect: false })
+										}
+										dispatch('applyArgs', {
+											kind: testKind,
+											args: payloadData
+										})
+									}}
+									disabled={testKind === 'preprocessor' && !hasPreprocessor}
+								>
+									{isFlow && testKind === 'main' ? 'Apply schema and args' : 'Apply args'}
+								</Button>
+							{/if}
+
+							<Button
+								size="xs2"
+								color="red"
+								iconOnly
+								startIcon={{ icon: Trash2 }}
+								loading={deleteLoading === capture.id}
+								on:click={() => {
+									deleteCapture(capture.id)
+								}}
+							/>
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</Label>
+	{/if}
 </div>

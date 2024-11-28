@@ -18,6 +18,7 @@ import { NEVER_TESTED_THIS_FAR } from './models'
 import { loadSchemaFromModule } from './flowInfers'
 import { nextId } from './flowModuleNextId'
 import { findNextAvailablePath } from '$lib/path'
+import type { ExtendedOpenFlow } from './types'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -74,7 +75,7 @@ export async function pickFlow(
 export async function createInlineScriptModule(
 	language: RawScript['language'],
 	kind: Script['kind'],
-	subkind: 'pgsql' | 'flow',
+	subkind: 'pgsql' | 'flow' | 'preprocessor',
 	id: string,
 	summary?: string
 ): Promise<[FlowModule, FlowModuleState]> {
@@ -291,4 +292,41 @@ export function sliceModules(
 			}
 			return m
 		})
+}
+
+export async function insertNewPreprocessorModule(
+	flowStore: Writable<ExtendedOpenFlow>,
+	flowStateStore: Writable<FlowState>,
+	inlineScript?: {
+		language: RawScript['language']
+		subkind: 'preprocessor'
+	},
+	wsScript?: { path: string; summary: string; hash: string | undefined }
+) {
+	var module: FlowModule = {
+		id: 'preprocessor',
+		value: { type: 'identity' }
+	}
+	var state = emptyFlowModuleState()
+
+	if (inlineScript) {
+		;[module, state] = await createInlineScriptModule(
+			inlineScript.language,
+			'script',
+			inlineScript.subkind,
+			'preprocessor'
+		)
+	} else if (wsScript) {
+		;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+	}
+
+	flowStore.update((fs) => {
+		fs.value.preprocessor_module = module
+		return fs
+	})
+
+	flowStateStore.update((fss) => {
+		fss[module.id] = state
+		return fss
+	})
 }

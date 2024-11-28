@@ -10,7 +10,8 @@
 		deleteFlowStateById,
 		emptyModule,
 		pickScript,
-		pickFlow
+		pickFlow,
+		insertNewPreprocessorModule
 	} from '$lib/components/flows/flowStateUtils'
 	import type { FlowModule, RawScript, Script } from '$lib/gen'
 	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
@@ -131,34 +132,6 @@
 		if (!modules) return [module]
 		modules.splice(index, 0, module)
 		return modules
-	}
-
-	async function insertNewPreprocessorModule(
-		inlineScript?: {
-			language: RawScript['language']
-			subkind: 'pgsql' | 'flow'
-		},
-		wsScript?: { path: string; summary: string; hash: string | undefined }
-	) {
-		var module: FlowModule = {
-			id: 'preprocessor',
-			value: { type: 'identity' }
-		}
-		var state = emptyFlowModuleState()
-
-		if (inlineScript) {
-			;[module, state] = await createInlineScriptModule(
-				inlineScript.language,
-				'script',
-				inlineScript.subkind,
-				'preprocessor'
-			)
-		} else if (wsScript) {
-			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
-		}
-
-		$flowStore.value.preprocessor_module = module
-		$flowStateStore[module.id] = state
 	}
 
 	function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -389,7 +362,12 @@
 							$moving = undefined
 						} else {
 							if (detail.detail === 'preprocessor') {
-								insertNewPreprocessorModule(detail.inlineScript, detail.script)
+								insertNewPreprocessorModule(
+									flowStore,
+									flowStateStore,
+									detail.inlineScript,
+									detail.script
+								)
 								$selectedId = 'preprocessor'
 							} else {
 								const index = detail.index ?? 0

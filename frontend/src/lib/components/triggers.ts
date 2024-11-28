@@ -14,7 +14,7 @@ export type TriggerContext = {
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>
-	defaultValues?: Writable<Record<string, any> | undefined>
+	defaultValues: Writable<Record<string, any> | undefined>
 }
 
 export function setScheduledPollSchedule(

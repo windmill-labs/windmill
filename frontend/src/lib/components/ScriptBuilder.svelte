@@ -1402,10 +1402,9 @@
 			on:saveDraft={() => {
 				saveDraft()
 			}}
-			on:openTrigger={(ev) => {
+			on:openTriggers={(ev) => {
 				metadataOpen = true
 				selectedTab = 'triggers'
-				console.log(ev)
 				selectedTriggerStore.set(ev.detail.kind)
 				triggerDefaultValuesStore.set(ev.detail.config)
 			}}

@@ -585,8 +585,8 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 	return word.replace(/([A-Z])/g, ' $1').trim()
 }
 
-export function isObject(obj: any) {
-	return obj != null && typeof obj === 'object'
+export function isObject(obj: any): obj is Record<string, any> {
+	return obj != null && typeof obj === 'object' && !Array.isArray(obj)
 }
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
@@ -877,11 +877,10 @@ function replaceFalseWithUndefinedRec(obj: any) {
 				// If the value is false, replace it with undefined
 				if (obj[key] === false) {
 					// delete obj[key];
-					obj[key] = undefined;
-
+					obj[key] = undefined
 				} else {
 					// If the value is an object, call the function recursively
-					replaceFalseWithUndefinedRec(obj[key]);
+					replaceFalseWithUndefinedRec(obj[key])
 				}
 			}
 		}

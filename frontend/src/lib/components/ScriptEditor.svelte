@@ -13,7 +13,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -29,6 +29,10 @@
 	import Tab from './common/tabs/Tab.svelte'
 	import { slide } from 'svelte/transition'
 	import CapturePanel from './triggers/CapturePanel.svelte'
+	import {
+		BUN_PREPROCESSOR_MODULE_CODE,
+		PYTHON_PREPROCESSOR_MODULE_CODE
+	} from '$lib/script_helpers'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -385,12 +389,37 @@
 						newItem={!edit}
 						{hasPreprocessor}
 						isFlow={false}
-						on:openTrigger
-						on:test={(e) => {
-							argsRender++
-							console.log(e.detail.args)
-							args = e.detail.args ?? {}
+						on:openTriggers
+						on:applyArgs={async (e) => {
 							selectedTab = e.detail.kind
+							// TODO: that sucks, but don't know how to avoid it
+							await tick()
+							await tick()
+							args = e.detail.args ?? {}
+						}}
+						canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+						on:addPreprocessor={() => {
+							const code = editor?.getCode()
+							if (code) {
+								const preprocessorCode =
+									lang === 'python3'
+										? PYTHON_PREPROCESSOR_MODULE_CODE
+										: BUN_PREPROCESSOR_MODULE_CODE
+								const mainIndex = code.indexOf(
+									lang === 'python3' ? 'def main' : 'export async function main'
+								)
+								if (mainIndex === -1) {
+									editor?.setCode(code + preprocessorCode)
+								} else {
+									editor?.setCode(
+										code.slice(0, mainIndex) +
+											preprocessorCode +
+											'\n' +
+											code.slice(mainIndex) +
+											'\n\n'
+									)
+								}
+							}
 						}}
 					/>
 				{:else}

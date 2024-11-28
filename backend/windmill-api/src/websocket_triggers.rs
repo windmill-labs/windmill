@@ -31,7 +31,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use crate::{
-    capture::{insert_capture_payload, TriggerKind},
+    capture::{insert_capture_payload, TriggerKind, WebsocketTriggerConfig},
     db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     users::fetch_api_authed,
@@ -800,11 +800,6 @@ impl WebsocketTrigger {
             .await;
         };
     }
-}
-
-#[derive(Deserialize)]
-struct WebsocketTriggerConfig {
-    url: String,
 }
 
 #[derive(Deserialize)]

@@ -29,6 +29,7 @@ use windmill_queue::{PushArgs, PushArgsOwned};
 use crate::{
     db::{ApiAuthed, DB},
     http_triggers::build_http_trigger_extra,
+    kafka_triggers_ee::KafkaResourceSecurity,
 };
 
 const KEEP_LAST: i64 = 20;
@@ -82,11 +83,37 @@ impl fmt::Display for TriggerKind {
 }
 
 #[derive(Serialize, Deserialize)]
+struct HttpTriggerConfig {
+    route_path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct KafkaTriggerConfig {
+    pub brokers: Vec<String>,
+    pub security: KafkaResourceSecurity,
+    pub topics: Vec<String>,
+    pub group_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WebsocketTriggerConfig {
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum TriggerConfig {
+    Http(HttpTriggerConfig),
+    Kafka(KafkaTriggerConfig),
+    Websocket(WebsocketTriggerConfig),
+}
+
+#[derive(Serialize, Deserialize)]
 struct NewCaptureConfig {
     trigger_kind: TriggerKind,
     path: String,
     is_flow: bool,
-    trigger_config: Option<SqlxJson<Box<RawValue>>>,
+    trigger_config: Option<TriggerConfig>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -139,7 +166,7 @@ async fn set_config(
         &nc.path,
         nc.is_flow,
         nc.trigger_kind as TriggerKind,
-        nc.trigger_config as Option<SqlxJson<Box<RawValue>>>,
+        nc.trigger_config.map(|x| SqlxJson(to_raw_value(&x))) as Option<SqlxJson<Box<RawValue>>>,
         &authed.username,
         &authed.email,
     )
@@ -403,11 +430,6 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Serialize, Deserialize)]
-struct HttpTriggerConfig {
-    route_path: String,
-}
-
 async fn http_payload(
     Extension(db): Extension<DB>,
     Path((w_id, kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
@@ -417,6 +439,7 @@ async fn http_payload(
     args: PushArgsOwned,
 ) -> Result<StatusCode> {
     let route_path = route_path.to_path();
+    let path = path.replace(".", "/");
 
     let (http_trigger_config, owner): (HttpTriggerConfig, _) =
         get_capture_trigger_config_and_owner(

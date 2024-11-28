@@ -8830,19 +8830,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/capture_u/{path}:
-    post:
-      summary: update flow preview capture
-      operationId: updateCapture
-      tags:
-        - capture
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "204":
-          description: flow preview captured
-
   /w/{workspace}/capture/set_config:
     post:
       summary: set capture config
@@ -8952,35 +8939,6 @@ paths:
       responses:
         "200":
           description: capture deleted
-
-  /w/{workspace}/capture/{path}:
-    put:
-      summary: create flow preview capture
-      operationId: createCapture
-      tags:
-        - capture
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "201":
-          description: flow preview capture created
-    get:
-      summary: get flow preview capture
-      operationId: getCapture
-      tags:
-        - capture
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: captured flow preview
-          content:
-            application/json:
-              schema: {}
-        "404":
-          description: capture does not exist for this flow
 
   /w/{workspace}/favorites/star:
     post:
@@ -13463,10 +13421,8 @@ components:
       properties:
         trigger_kind:
           $ref: "#/components/schemas/CaptureTriggerKind"
-        payload:
-          type: object
-        trigger_extra:
-          type: object
+        payload: {}
+        trigger_extra: {}
         id:
           type: integer
         created_at:
@@ -13480,8 +13436,7 @@ components:
     CaptureConfig:
       type: object
       properties:
-        trigger_config:
-          type: object
+        trigger_config: {}
         trigger_kind:
           $ref: "#/components/schemas/CaptureTriggerKind"
         error:
@@ -13490,5 +13445,4 @@ components:
           type: string
           format: date-time
       required:
-        - trigger_config
         - trigger_kind

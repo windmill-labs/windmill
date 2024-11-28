@@ -21,3 +21,6 @@ CREATE TABLE capture_config (
     FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 
+CREATE POLICY see_own ON capture_config FOR ALL
+USING (    SPLIT_PART(capture_config.path, '/', 1) = 'u'
+       AND SPLIT_PART(capture_config.path, '/', 2) = current_setting('session.user'));

@@ -92,7 +92,6 @@ pub fn global_service() -> Router {
         .route("/setpassword", post(set_password))
         .route("/set_password_of/:user", post(set_password_of_user))
         .route("/set_login_type/:user", post(set_login_type))
-
         .route("/create", post(create_user))
         .route("/update/:user", post(update_user))
         .route("/delete/:user", delete(delete_user))
@@ -873,7 +872,6 @@ pub struct EditPassword {
 pub struct EditLoginType {
     pub login_type: String,
 }
-
 
 #[derive(FromRow, Serialize)]
 pub struct TruncatedToken {
@@ -2081,8 +2079,10 @@ async fn set_login_type(
     .await?;
 
     tx.commit().await?;
-    Ok(format!("login type of {} updated to {}", email, et.login_type))
-    
+    Ok(format!(
+        "login type of {} updated to {}",
+        email, et.login_type
+    ))
 }
 
 async fn login(

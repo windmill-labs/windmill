@@ -1699,6 +1699,9 @@ async fn delete_workspace(
     sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM capture_config WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM draft WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
