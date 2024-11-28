@@ -33,7 +33,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { setContext, tick, type ComponentType } from 'svelte'
+	import { onMount, setContext, tick, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -107,6 +107,7 @@
 	export let disabledFlowInputs = false
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let version: number | undefined = undefined
+	export let setSavedraftCb:  ((cb: () => void) => void) | undefined = undefined
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
@@ -181,7 +182,7 @@
 	let loadingSave = false
 	let loadingDraft = false
 
-	async function saveDraft(forceSave = false): Promise<void> {
+	export async function saveDraft(forceSave = false): Promise<void> {
 		if (!newFlow && !savedFlow) {
 			return
 		}
@@ -277,6 +278,10 @@
 		}
 		loadingDraft = false
 	}
+
+	onMount(() => {
+		setSavedraftCb?.(() => saveDraft())
+	})
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
