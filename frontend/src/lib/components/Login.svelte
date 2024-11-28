@@ -15,7 +15,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	export let rd: string | undefined = undefined
 	export let email: string | undefined = undefined
@@ -171,6 +171,14 @@
 
 	const dispatch = createEventDispatcher()
 
+	onMount(() => {
+		try {
+			localStorage.removeItem('closeUponLogin')
+		} catch (e) {
+			console.error('Could not remove closeUponLogin from local storage', e)
+		}
+	})
+	
 	function popupListener(event) {
 		let data = event.data
 		if (event.origin !== window.location.origin) {
@@ -199,6 +207,7 @@
 			window.addEventListener('message', popupListener)
 			window.open(url, '_blank', 'popup')
 		} else {
+			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
 		}
 	}
