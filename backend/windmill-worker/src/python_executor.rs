@@ -1674,11 +1674,13 @@ pub async fn handle_python_reqs(
                         .await;
                         return Err(anyhow!(buf));
                     },
-                    Err(e) => 
+                    Err(e) => {
                         tracing::error!(
                             workspace_id = %w_id,
                             "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
-                        ),
+                        );
+                        return Err(e);
+                    }
                 }
             };
 
