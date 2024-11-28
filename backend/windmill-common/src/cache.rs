@@ -116,6 +116,107 @@ pub mod flow {
     }
 }
 
+pub mod script {
+    use super::*;
+    use crate::scripts::{ScriptHash, ScriptLang};
+
+    /// Cache directory for windmill server/worker(s) flow nodes.
+    pub const CACHE_DIR: &str = const_format::concatcp!(super::CACHE_DIR, "script");
+
+    lazy_static::lazy_static! {
+        /// Scripts cache.
+        /// FIXME: This should be a static but [`Cache`] does not have a const constructor.
+        static ref CACHE: Cache<ScriptHash, Val> = Cache::new(1000);
+    }
+
+    /// Flow node cache value.
+    #[derive(Debug, Clone, Default)]
+    pub struct Val {
+        pub lock: Option<String>,
+        pub code: String,
+        pub language: Option<ScriptLang>,
+        pub envs: Option<Vec<String>>,
+        pub codebase: Option<String>,
+    }
+
+    #[derive(Copy, Clone)]
+    pub enum ValItem {
+        Lock,
+        Code,
+        Metadata,
+    }
+
+    impl fs::Item for ValItem {
+        fn path(&self, root: &Path) -> PathBuf {
+            match self {
+                Self::Lock => root.join("lock.txt"),
+                Self::Code => root.join("code.txt"),
+                Self::Metadata => root.join("metadata.bin"),
+            }
+        }
+    }
+
+    impl fs::Bundle for Val {
+        type Item = ValItem;
+
+        fn items() -> &'static [Self::Item] {
+            &[ValItem::Lock, ValItem::Code, ValItem::Metadata]
+        }
+
+        fn export(&self, item: Self::Item) -> error::Result<Option<Vec<u8>>> {
+            match item {
+                ValItem::Lock => Ok(self.lock.as_ref().map(|s| s.as_bytes().to_vec())),
+                ValItem::Code => Ok(Some(self.code.as_bytes().to_vec())),
+                ValItem::Metadata => Ok(Some(bitcode::serialize(&(&self.language, &self.envs, &self.codebase)).unwrap())),
+            }
+        }
+
+        fn import(&mut self, item: Self::Item, data: Vec<u8>) -> error::Result<()> {
+            match item {
+                ValItem::Lock => self.lock = Some(String::from_utf8(data)?),
+                ValItem::Code => self.code = String::from_utf8(data)?,
+                ValItem::Metadata => (self.language, self.envs, self.codebase) = bitcode::deserialize(&data)?,
+            }
+            Ok(())
+        }
+    }
+
+    pub async fn fetch(e: impl PgExecutor<'_>, hash: ScriptHash, workspace_id: &str)
+        -> error::Result<Val>
+    {
+        // If not present, `get_or_insert_async` will lock the key until the future completes,
+        // so only one thread will be able to fetch the data from the database and write it to
+        // the file system and cache, hence no race on the file system.
+        CACHE.get_or_insert_async(
+            &hash,
+            fs::import_or_insert_with(CACHE_DIR, hash.0 as u64, || async {
+                sqlx::query!(
+                    "SELECT \
+                        lock AS \"lock: String\", \
+                        content AS \"code!: String\",
+                        language AS \"language: Option<ScriptLang>\", \
+                        envs AS \"envs: Vec<String>\", \
+                        codebase AS \"codebase: String\" \
+                    FROM script WHERE hash = $1 AND workspace_id = $2 LIMIT 1",
+                    hash.0,
+                    workspace_id,
+                )
+                .fetch_one(e)
+                .await
+                .map_err(Into::into)
+                .map(|r| Val {
+                    lock: r.lock.and_then(|x| if x.is_empty() { None } else { Some(x) }),
+                    code: r.code,
+                    language: r.language,
+                    envs: r.envs,
+                    codebase: r.codebase,
+                })
+            })
+        )
+        .await
+    }
+}
+
 mod fs {
     use super::*;
 
