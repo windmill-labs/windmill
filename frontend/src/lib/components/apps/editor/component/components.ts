@@ -710,6 +710,14 @@ const aggridcomponentconst = {
 					{ field: 'age', flex: 1 }
 				]
 			} as StaticAppInput,
+			rowIdCol: {
+				type: 'static',
+				fieldType: 'text',
+				value: '',
+				placeholder: 'id',
+				tooltip:
+					'column id to fetch the row id from (leave empty to use an auto-generated id. Recommended to be set but must be unique to each row)'
+			},
 			flex: {
 				type: 'static',
 				fieldType: 'boolean',
@@ -818,6 +826,14 @@ const aggridinfinitecomponentconst = {
 				subFieldType: 'ag-grid',
 				value: []
 			} as StaticAppInput,
+			rowIdCol: {
+				type: 'static',
+				fieldType: 'text',
+				value: '',
+				placeholder: 'id',
+				tooltip:
+					'column id to fetch the row id from (leave empty to use an auto-generated id. Recommended to be set but must be unique to each row)'
+			},
 			flex: {
 				type: 'static',
 				fieldType: 'boolean',
@@ -3786,6 +3802,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: [],
 					loading: false
 				} as StaticAppInput,
+				rowIdCol: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					placeholder: 'id',
+					tooltip:
+						'column id to fetch the row id from (leave empty to use an auto-generated id. Recommended to be set but must be unique to each row)'
+				},
 				whereClause: {
 					type: 'static',
 					fieldType: 'text',

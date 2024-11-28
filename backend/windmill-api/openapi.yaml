@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.429.0
+  version: 1.430.2
   title: Windmill API
 
   contact:
@@ -406,6 +406,8 @@ paths:
               type: object
               properties:
                 is_super_admin:
+                  type: boolean
+                is_devops:
                   type: boolean
                 name:
                   type: string
@@ -7123,6 +7125,8 @@ paths:
                   type: string
                 timezone:
                   type: string
+                cron_version:
+                  type: string
               required:
                 - schedule
                 - timezone
@@ -10162,11 +10166,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: hosts
-          in: query
-          required: true
-          schema:
-            type: string
         - name: min_ts
           in: query
           required: false
@@ -10944,6 +10943,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string
@@ -11063,6 +11063,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string
@@ -11871,6 +11872,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - path
         - edited_by
@@ -11953,6 +11956,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - path
         - schedule
@@ -12002,6 +12007,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - schedule
         - timezone
@@ -12646,6 +12653,8 @@ components:
           type: string
           enum: ["password", "github"]
         super_admin:
+          type: boolean
+        devops:
           type: boolean
         verified:
           type: boolean

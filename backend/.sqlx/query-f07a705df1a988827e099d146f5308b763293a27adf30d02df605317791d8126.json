@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, login_type::TEXT, super_admin, verified, name, company, username, NULL::bool as operator_only FROM password WHERE email = $1",
+  "query": "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -15,43 +15,50 @@
       },
       {
         "ordinal": 2,
-        "name": "super_admin",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 3,
         "name": "verified",
         "type_info": "Bool"
       },
       {
+        "ordinal": 3,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
         "ordinal": 4,
+        "name": "devops",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
         "name": "name",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "company",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "username",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "operator_only",
         "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
       false,
       null,
+      false,
       false,
       false,
       true,
@@ -60,5 +67,5 @@
       null
     ]
   },
-  "hash": "2c14d3a88193f16ad3b8cd590749cb5537995f2499f6cb8f0f316fb62902d542"
+  "hash": "f07a705df1a988827e099d146f5308b763293a27adf30d02df605317791d8126"
 }

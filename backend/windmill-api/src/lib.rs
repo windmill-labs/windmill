@@ -38,7 +38,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use windmill_common::db::UserDB;
-use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_ee::has_scim_token;
@@ -162,7 +162,6 @@ type ServiceLogIndexReader = windmill_indexer::service_logs_ee::ServiceLogIndexR
 
 pub async fn run_server(
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
     addr: SocketAddr,
@@ -171,17 +170,6 @@ pub async fn run_server(
     server_mode: bool,
     base_internal_url: String,
 ) -> anyhow::Result<()> {
-    if let Some(mut rsmq) = rsmq.clone() {
-        for tag in ALL_TAGS.read().await.iter() {
-            let r =
-                rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
-            if let Err(e) = r {
-                tracing::info!("Redis queue {tag} could not be created: {e:#}");
-            } else {
-                tracing::info!("Redis queue {tag} created");
-            }
-        }
-    }
     let user_db = UserDB::new(db.clone());
 
     #[cfg(feature = "enterprise")]
@@ -201,7 +189,6 @@ pub async fn run_server(
 
     let middleware_stack = ServiceBuilder::new()
         .layer(Extension(db.clone()))
-        .layer(Extension(rsmq.clone()))
         .layer(Extension(user_db.clone()))
         .layer(Extension(auth_cache.clone()))
         .layer(Extension(job_index_reader))
@@ -228,7 +215,6 @@ pub async fn run_server(
             db: db.clone(),
             user_db: user_db,
             auth_cache: auth_cache.clone(),
-            rsmq: rsmq.clone(),
             base_internal_url: base_internal_url.clone(),
         });
         if let Err(err) = smtp_server.start_listener_thread(addr).await {
@@ -265,12 +251,12 @@ pub async fn run_server(
 
     if !*CLOUD_HOSTED {
         let ws_killpill_rx = rx.resubscribe();
-        websocket_triggers::start_websockets(db.clone(), rsmq.clone(), ws_killpill_rx).await;
+        websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
             let kafka_killpill_rx = rx.resubscribe();
-            kafka_triggers_ee::start_kafka_consumers(db.clone(), rsmq, kafka_killpill_rx).await;
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
         }
     }
 

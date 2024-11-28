@@ -795,6 +795,7 @@ pub struct GlobalUserInfo {
     email: String,
     login_type: Option<String>,
     super_admin: bool,
+    devops: bool,
     verified: bool,
     name: Option<String>,
     company: Option<String>,
@@ -852,6 +853,7 @@ pub struct DeclineInvite {
 #[derive(Deserialize)]
 pub struct EditUser {
     pub is_super_admin: Option<bool>,
+    pub is_devops: Option<bool>,
     pub name: Option<String>,
 }
 
@@ -1040,10 +1042,10 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, name, company, username
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
             FROM password
             WHERE email IN (SELECT email FROM active_users)
-            ORDER BY super_admin DESC
+            ORDER BY super_admin DESC, devops DESC
             LIMIT $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -1053,7 +1055,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -1216,7 +1218,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
          email = $1",
         email
     )
@@ -1231,6 +1233,7 @@ async fn global_whoami(
             email: email.clone(),
             login_type: Some("superadmin_secret".to_string()),
             super_admin: true,
+            devops: false,
             verified: true,
             name: None,
             company: None,
@@ -1474,7 +1477,7 @@ async fn whois(
 // ) -> Result<(StatusCode, String)> {
 
 //     let mut tx = db.begin().await?;
-//     require_super_admin(&mut tx, email).await?;
+//     require_super_admin(&mut *tx, email).await?;
 
 //     sqlx::query!(
 //         "INSERT INTO invite_code
@@ -1483,7 +1486,7 @@ async fn whois(
 //         nu.code,
 //         nu.seats
 //     )
-//     .execute(&mut tx)
+//     .execute(&mut *tx)
 //     .await?;
 
 //     tx.commit().await?;
@@ -1545,7 +1548,6 @@ async fn accept_invite(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
@@ -1608,7 +1610,6 @@ async fn accept_invite(
             &nu.workspace_id,
             windmill_git_sync::DeployedObject::User { email: authed.email.clone() },
             Some(format!("User '{}' accepted invite", &authed.email)),
-            rsmq,
             true,
         )
         .await?;
@@ -1778,7 +1779,6 @@ async fn get_workspace_user(
 async fn update_workspace_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
@@ -1847,7 +1847,6 @@ async fn update_workspace_user(
         &w_id,
         windmill_git_sync::DeployedObject::User { email: user_email.clone() },
         Some(format!("Updated user '{}'", &user_email)),
-        rsmq,
         true,
     )
     .await?;
@@ -1868,6 +1867,16 @@ async fn update_user(
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
             sa,
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(dv) = eu.is_devops {
+        sqlx::query_scalar!(
+            "UPDATE password SET devops = $1 WHERE email = $2",
+            dv,
             &email_to_update
         )
         .execute(&mut *tx)
@@ -1957,16 +1966,14 @@ async fn create_user(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
-    crate::users_ee::create_user(authed, db, webhook, argon2, rsmq, nu).await
+    crate::users_ee::create_user(authed, db, webhook, argon2, nu).await
 }
 
 async fn delete_workspace_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -2021,7 +2028,6 @@ async fn delete_workspace_user(
             "Removed user '{}' from workspace",
             &email_to_delete
         )),
-        rsmq,
         true,
     )
     .await?;
@@ -3002,6 +3008,15 @@ async fn update_username_in_workpsace<'c>(
 
     sqlx::query!(
         r#"UPDATE flow_version SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

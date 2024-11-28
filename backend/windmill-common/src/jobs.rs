@@ -16,13 +16,13 @@ pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
 use crate::{
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
-    flows::{FlowValue, Retry},
+    flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
     worker::{to_raw_value, TMP_DIR},
 };
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum JobKind {
@@ -39,6 +39,8 @@ pub enum JobKind {
     AppDependencies,
     Noop,
     DeploymentCallback,
+    FlowScript,
+    FlowNode,
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -114,7 +116,7 @@ impl QueuedJob {
     pub fn is_flow(&self) -> bool {
         matches!(
             self.job_kind,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
         )
     }
 
@@ -262,6 +264,19 @@ pub enum JobPayload {
         language: ScriptLang,
         priority: Option<i16>,
         apply_preprocessor: bool,
+    },
+    FlowScript {
+        id: FlowNodeId, // flow_node(id).
+        language: ScriptLang,
+        custom_concurrency_key: Option<String>,
+        concurrent_limit: Option<i32>,
+        concurrency_time_window_s: Option<i32>,
+        cache_ttl: Option<i32>,
+        dedicated_worker: Option<bool>,
+    },
+    FlowNode {
+        id: FlowNodeId, // flow_node(id).
+        path: String, // flow node inner path (e.g. `outer/branchall-42`).
     },
     Code(RawCode),
     Dependencies {

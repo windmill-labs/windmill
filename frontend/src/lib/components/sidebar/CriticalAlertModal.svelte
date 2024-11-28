@@ -3,7 +3,7 @@
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin, workspaceStore, isCriticalAlertsUIOpen } from '$lib/stores'
+	import { workspaceStore, isCriticalAlertsUIOpen, devopsRole } from '$lib/stores'
 	import Modal from '../common/modal/Modal.svelte'
 
 	export let open: boolean = false
@@ -40,7 +40,7 @@
 
 	const withSuperadminLogic = (superadminFunction, workspaceFunction) => {
 		return async (params = {}) => {
-			if (!$superadmin || workspaceContext) {
+			if (!$devopsRole || workspaceContext) {
 				return workspaceFunction({
 					...params,
 					workspace: $workspaceStore
@@ -81,7 +81,7 @@
 				numUnacknowledgedCriticalAlerts === 0 &&
 				unacknowledged.length > 0 &&
 				sendToast &&
-				(($superadmin && !muteSettings.global) || (!$superadmin && !muteSettings.workspace))
+				(($devopsRole && !muteSettings.global) || (!$devopsRole && !muteSettings.workspace))
 			) {
 				sendUserToast(
 					'Critical Alert:',

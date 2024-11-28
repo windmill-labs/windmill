@@ -8,7 +8,7 @@
 
 use anyhow::Context;
 use monitor::{
-    reload_indexer_config, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
+    reload_delete_logs_periodically_setting, reload_indexer_config, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -29,7 +29,7 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -58,7 +58,8 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
+    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR, TMP_LOGS_DIR,
+    UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -332,27 +333,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
-    let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
-        let url = x.parse::<url::Url>().unwrap();
-        let mut config = rsmq_async::RsmqOptions { ..Default::default() };
-
-        config.host = url.host_str().expect("redis host required").to_owned();
-        config.password = url.password().map(|s| s.to_owned());
-        config.db = url
-            .path_segments()
-            .and_then(|mut segments| segments.next())
-            .and_then(|segment| segment.parse().ok())
-            .unwrap_or(0);
-        config.ns = url
-            .query_pairs()
-            .find(|s| s.0 == "rsmq_namespace")
-            .map(|s| s.1)
-            .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
-            .into_owned();
-        config.port = url.port().unwrap_or(6379).to_string();
-        config
-    });
-
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
@@ -366,13 +346,6 @@ async fn windmill_main() -> anyhow::Result<()> {
             .flatten()
             .unwrap_or_else(|| "UNKNOWN".to_string())
     );
-
-    let rsmq = if let Some(config) = rsmq_config {
-        tracing::info!("Redis config set: {:?}", config);
-        Some(rsmq_async::MultiplexedRsmq::new(config).await.unwrap())
-    } else {
-        None
-    };
 
     let is_agent = mode == Mode::Agent;
 
@@ -434,7 +407,7 @@ Windmill Community Edition {GIT_VERSION}
         }
         let valid_key = *LICENSE_KEY_VALID.read().await;
         if !valid_key && !server_mode {
-            panic!("Invalid license key, workers require a valid license key");
+            tracing::error!("Invalid license key, workers require a valid license key");
         }
         if server_mode {
             // only force renewal if invalid but not empty (= expired)
@@ -447,13 +420,6 @@ Windmill Community Edition {GIT_VERSION}
             if renewed_now {
                 if let Err(err) = reload_license_key(&db).await {
                     tracing::error!("Failed to reload license key: {err:#}");
-                }
-            }
-            if num_workers > 0 {
-                let valid_key = *LICENSE_KEY_VALID.read().await;
-                if !valid_key {
-                    tracing::warn!("License key invalid, setting num_workers to 0");
-                    num_workers = 0;
                 }
             }
         }
@@ -488,7 +454,6 @@ Windmill Community Edition {GIT_VERSION}
         monitor_db(
             &db,
             &base_internal_url,
-            rsmq.clone(),
             server_mode,
             worker_mode,
             true,
@@ -507,7 +472,6 @@ Windmill Community Edition {GIT_VERSION}
 
         let addr = SocketAddr::from((server_bind_address, port));
 
-        let rsmq2 = rsmq.clone();
         let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
         DirBuilder::new()
@@ -524,8 +488,21 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::completed_runs_ee::init_index(&db).await?;
-            (Some(r), Some(w))
+            let mut indexer_rx = killpill_rx.resubscribe();
+
+            let (mut reader, mut writer) = (None, None);
+            tokio::select! {
+                _ = indexer_rx.recv() => {
+                    tracing::info!("Received killpill, aborting index initialization");
+                },
+                res = windmill_indexer::completed_runs_ee::init_index(&db) => {
+                        let res = res?;
+                        reader = Some(res.0);
+                        writer = Some(res.1);
+                }
+
+            }
+            (reader, writer)
         } else {
             (None, None)
         };
@@ -549,8 +526,21 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let (log_index_reader, log_index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::service_logs_ee::init_index(&db).await?;
-            (Some(r), Some(w))
+            let mut indexer_rx = killpill_rx.resubscribe();
+
+            let (mut reader, mut writer) = (None, None);
+            tokio::select! {
+                _ = indexer_rx.recv() => {
+                    tracing::info!("Received killpill, aborting index initialization");
+                },
+                res = windmill_indexer::service_logs_ee::init_index(&db) => {
+                        let res = res?;
+                        reader = Some(res.0);
+                        writer = Some(res.1);
+                }
+
+            }
+            (reader, writer)
         } else {
             (None, None)
         };
@@ -588,7 +578,6 @@ Windmill Community Edition {GIT_VERSION}
             if !is_agent {
                 windmill_api::run_server(
                     db.clone(),
-                    rsmq2,
                     index_reader,
                     log_index_reader,
                     addr,
@@ -620,7 +609,6 @@ Windmill Community Edition {GIT_VERSION}
                         killpill_tx.clone(),
                         num_workers,
                         base_internal_url.clone(),
-                        rsmq.clone(),
                         mode.clone() == Mode::Agent,
                         hostname.clone(),
                     )
@@ -636,13 +624,12 @@ Windmill Community Edition {GIT_VERSION}
                 killpill_phase2_tx.send(())?;
                 tracing::info!("Phase 2 of shutdown completed");
             }
-            Ok(()) as anyhow::Result<()>
+            Ok(())
         };
 
         let monitor_f = async {
             let db = db.clone();
             let tx = killpill_tx.clone();
-            let rsmq = rsmq.clone();
 
             let base_internal_url = base_internal_url.to_string();
             let h = tokio::spawn(async move {
@@ -659,7 +646,6 @@ Windmill Community Edition {GIT_VERSION}
                             monitor_db(
                                 &db,
                                 &base_internal_url,
-                                rsmq.clone(),
                                 server_mode,
                                 worker_mode,
                                 false,
@@ -708,14 +694,6 @@ Windmill Community Edition {GIT_VERSION}
                                                     if let Err(e) = reload_license_key(&db).await {
                                                         tracing::error!("Failed to reload license key: {e:#}");
                                                     }
-                                                    #[cfg(feature = "enterprise")]
-                                                    if worker_mode {
-                                                        let valid_key = *LICENSE_KEY_VALID.read().await;
-                                                        if !valid_key {
-                                                            tracing::error!("Invalid license key, exiting...");
-                                                            tx.send(()).expect("send");
-                                                        }
-                                                    }
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
                                                     if let Err(e) = load_tag_per_workspace_enabled(&db).await {
@@ -738,6 +716,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
+                                                },
+                                                MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
+                                                    reload_delete_logs_periodically_setting(&db).await
                                                 },
                                                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
                                                     reload_job_default_timeout_setting(&db).await
@@ -950,13 +931,12 @@ fn display_config(envs: &[&str]) {
     )
 }
 
-pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn run_workers(
     db: Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     tx: tokio::sync::broadcast::Sender<()>,
     num_workers: i32,
     base_internal_url: String,
-    rsmq: Option<R>,
     agent_mode: bool,
     hostname: String,
 ) -> anyhow::Result<()> {
@@ -995,6 +975,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
+        TAR_PY311_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
@@ -1028,7 +1009,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
-        let rsmq2 = rsmq.clone();
         let hostname = hostname.clone();
 
         handles.push(tokio::spawn(async move {
@@ -1046,7 +1026,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 rx,
                 tx,
                 &base_internal_url,
-                rsmq2,
                 agent_mode,
             );
 

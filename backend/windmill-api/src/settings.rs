@@ -24,6 +24,9 @@ use axum::{
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 
+#[cfg(feature = "enterprise")]
+use crate::utils::require_devops_role;
+
 use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
@@ -60,8 +63,14 @@ pub fn global_service() -> Router {
         .route("/customer_portal", post(create_customer_portal_session))
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
-        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
-        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts));
+        .route(
+            "/critical_alerts/:id/acknowledge",
+            post(acknowledge_critical_alert),
+        )
+        .route(
+            "/critical_alerts/acknowledge_all",
+            post(acknowledge_all_critical_alerts),
+        );
 
     #[cfg(feature = "parquet")]
     {
@@ -440,7 +449,7 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     crate::utils::get_critical_alerts(db, params, None).await
 }
@@ -456,8 +465,7 @@ pub async fn acknowledge_critical_alert(
     authed: ApiAuthed,
     Path(id): Path<i32>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
-    
+    require_devops_role(&db, &authed.email).await?;
     crate::utils::acknowledge_critical_alert(db, None, id).await
 }
 

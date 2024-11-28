@@ -101,7 +101,7 @@
 					)
 				})
 				.filter((item) => item != undefined)
-			selectedItems = [...new Set(nvalue)]
+			selectedItems = [...new Set(nvalue)] as (string | { value: string; label: any })[]
 			setResultsFromSelectedItems()
 		}
 	}

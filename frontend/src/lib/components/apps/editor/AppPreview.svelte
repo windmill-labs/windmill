@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, setContext } from 'svelte'
+	import { getContext, onDestroy, setContext } from 'svelte'
 	import { get, writable, type Writable } from 'svelte/store'
 	import { buildWorld } from '../rx'
 	import type {
@@ -73,7 +73,26 @@
 	resizeWindow()
 
 	const parentWidth = writable(0)
-	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
+
+	let previousDarkMode = document.documentElement.classList.contains('dark')
+	const darkMode: Writable<boolean> = writable(app?.darkMode ?? previousDarkMode)
+
+	onDestroy(() => {
+		setTheme(previousDarkMode)
+	})
+
+	function setTheme(darkMode: boolean | undefined) {
+		let globalDarkMode = window.localStorage.getItem('dark-mode')
+			? window.localStorage.getItem('dark-mode') === 'dark'
+			: window.matchMedia('(prefers-color-scheme: dark)').matches
+		if (darkMode === true || (darkMode === null && globalDarkMode)) {
+			document.documentElement.classList.add('dark')
+		} else if (darkMode === false) {
+			document.documentElement.classList.remove('dark')
+		}
+	}
+
+	setTheme($darkMode)
 
 	const state = writable({})
 
@@ -156,9 +175,11 @@
 			? 'max-w-[640px]'
 			: 'w-full min-w-[768px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
+
 	function onThemeChange() {
-		$darkMode = document.documentElement.classList.contains('dark')
+		$darkMode = app?.darkMode ?? document.documentElement.classList.contains('dark')
 	}
+
 	const cssId = 'wm-global-style'
 
 	let css: string | undefined = undefined

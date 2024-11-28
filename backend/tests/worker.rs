@@ -126,7 +126,6 @@ impl ApiServer {
             db.clone(),
             None,
             None,
-            None,
             addr,
             rx,
             port_tx,
@@ -899,8 +898,8 @@ impl RunJob {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
         }
 
-        let tx = PushIsolationLevel::IsolatedRoot(db.clone(), None);
-        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+        let (uuid, tx) = windmill_queue::push(
             &db,
             tx,
             "test-workspace",
@@ -1018,7 +1017,7 @@ fn spawn_test_worker(
             windmill_common::worker::make_suspended_pull_query(&wc).await;
             windmill_common::worker::make_pull_query(&wc).await;
         }
-        windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
+        windmill_worker::run_worker(
             &db,
             worker_instance,
             worker_name,
@@ -1028,7 +1027,6 @@ fn spawn_test_worker(
             rx,
             tx2,
             &base_internal_url,
-            None,
             false,
         )
         .await
@@ -1172,6 +1170,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             continue_on_error: None,
                             skip_if: None,
                         }],
+                        modules_node: None,
                     }
                     .into(),
                     stop_after_if: Default::default(),
@@ -1388,6 +1387,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 skip_if: None,
                             },
                         ],
+                        modules_node: None,
                     }.into(),
                     stop_after_if: Default::default(),
                     stop_after_all_iters_if: Default::default(),
@@ -3113,6 +3113,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         summary: None,
         tag: None,
         paused_until: None,
+        cron_version: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3180,6 +3181,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 no_flow_overlap: None,
                 tag: None,
                 paused_until: None,
+                cron_version: None,
             },
         )
         .await
@@ -3262,6 +3264,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         summary: None,
         tag: None,
         paused_until: None,
+        cron_version: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3330,6 +3333,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 no_flow_overlap: None,
                 tag: None,
                 paused_until: None,
+                cron_version: None,
             },
         )
         .await

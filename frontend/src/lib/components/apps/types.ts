@@ -148,6 +148,7 @@ export type AppTheme =
 
 export type App = {
 	grid: GridItem[]
+	darkMode?: boolean
 	fullscreen: boolean
 	norefreshbar?: boolean
 	unusedInlineScripts: Array<{

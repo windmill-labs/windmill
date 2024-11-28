@@ -14,10 +14,14 @@ use std::{
 
 use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
+use sqlx::types::Json;
+use sqlx::types::JsonRawValue;
 
 use crate::{
+    error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
+    worker::to_raw_value,
 };
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -26,7 +30,7 @@ pub struct Flow {
     pub path: String,
     pub summary: String,
     pub description: String,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub value: Json<Box<JsonRawValue>>,
     pub edited_by: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub archived: bool,
@@ -280,12 +284,6 @@ pub struct SkipIf {
 }
 
 #[derive(Deserialize)]
-pub struct FlowModuleValueType {
-    #[serde(rename = "type")]
-    pub type_: String,
-}
-
-#[derive(Deserialize)]
 pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
@@ -340,13 +338,18 @@ impl FlowModule {
     pub fn is_simple(&self) -> bool {
         //todo: flow modules could also be simple execpt for the fact that the case of having single parallel flow approval step is not handled well (Create SuspendedTimeout)
         self.get_type()
-            .is_ok_and(|x| x == "script" || x == "rawscript")
+            .is_ok_and(|x| x == "script" || x == "rawscript" || x == "flowscript")
     }
 
-    pub fn get_type(&self) -> anyhow::Result<String> {
+    pub fn get_type(&self) -> anyhow::Result<&str> {
+        #[derive(Deserialize)]
+        pub struct FlowModuleValueType<'a> {
+            pub r#type: &'a str,
+        }
+
         serde_json::from_str::<FlowModuleValueType>(self.value.get())
             .map_err(crate::error::to_anyhow)
-            .map(|x| x.type_)
+            .map(|x| x.r#type)
     }
 }
 
@@ -398,6 +401,11 @@ pub enum InputTransform {
     },
 }
 
+/// Id in the `flow_node` table.
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash)]
+#[serde(transparent)]
+pub struct FlowNodeId(pub i64);
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Branch {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -405,6 +413,8 @@ pub struct Branch {
     #[serde(default = "default_empty_string")]
     pub expr: String,
     pub modules: Vec<FlowModule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modules_node: Option<FlowNodeId>,
     #[serde(default = "default_true")]
     pub skip_failure: bool,
     #[serde(default = "default_true")]
@@ -438,6 +448,8 @@ pub enum FlowModuleValue {
     ForloopFlow {
         iterator: InputTransform,
         modules: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        modules_node: Option<FlowNodeId>,
         #[serde(default = "default_true")]
         skip_failures: bool,
         parallel: bool,
@@ -446,12 +458,16 @@ pub enum FlowModuleValue {
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        modules_node: Option<FlowNodeId>,
         #[serde(default = "default_false")]
         skip_failures: bool,
     },
     BranchOne {
         branches: Vec<Branch>,
         default: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default_node: Option<FlowNodeId>,
     },
     BranchAll {
         branches: Vec<Branch>,
@@ -480,6 +496,24 @@ pub enum FlowModuleValue {
         is_trigger: Option<bool>,
     },
     Identity,
+    // Internal only, never exposed to the frontend.
+    FlowScript {
+        #[serde(default)]
+        #[serde(alias = "input_transform", serialize_with = "ordered_map")]
+        input_transforms: HashMap<String, InputTransform>,
+        id: FlowNodeId,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
+        language: ScriptLang,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        custom_concurrency_key: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        concurrent_limit: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        concurrency_time_window_s: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_trigger: Option<bool>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
@@ -510,6 +544,9 @@ struct UntaggedFlowModuleValue {
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
     is_trigger: Option<bool>,
+    id: Option<FlowNodeId>,
+    default_node: Option<FlowNodeId>,
+    modules_node: Option<FlowNodeId>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -542,6 +579,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules: untagged
                     .modules
                     .ok_or_else(|| serde::de::Error::missing_field("modules"))?,
+                modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(true),
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
@@ -550,6 +588,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules: untagged
                     .modules
                     .ok_or_else(|| serde::de::Error::missing_field("modules"))?,
+                modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
@@ -559,6 +598,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 default: untagged
                     .default
                     .ok_or_else(|| serde::de::Error::missing_field("default"))?,
+                default_node: untagged.default_node,
             }),
             "branchall" => Ok(FlowModuleValue::BranchAll {
                 branches: untagged
@@ -573,6 +613,20 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("content"))?,
                 lock: untagged.lock,
                 path: untagged.path,
+                tag: untagged.tag,
+                language: untagged
+                    .language
+                    .ok_or_else(|| serde::de::Error::missing_field("language"))?,
+                custom_concurrency_key: untagged.custom_concurrency_key,
+                concurrent_limit: untagged.concurrent_limit,
+                concurrency_time_window_s: untagged.concurrency_time_window_s,
+                is_trigger: untagged.is_trigger,
+            }),
+            "flowscript" => Ok(FlowModuleValue::FlowScript {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                id: untagged
+                    .id
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?,
                 tag: untagged.tag,
                 language: untagged
                     .language
@@ -650,4 +704,126 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             skip_if: None,
         });
     }
+}
+
+/// Resolve the value of a flow if any.
+pub async fn resolve_maybe_value<T>(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    with_code: bool,
+    maybe: Option<T>,
+    value_mut: impl FnOnce(&mut T) -> Option<&mut Json<Box<JsonRawValue>>>
+) -> Result<Option<T>, Error> {
+    let Some(mut container) = maybe else { return Ok(None); };
+    let Some(value) = value_mut(&mut container) else { return Ok(Some(container)); };
+    resolve_value(e, workspace_id, &mut value.0, with_code).await?;
+    Ok(Some(container))
+}
+
+/// Resolve modules recursively.
+pub async fn resolve_value(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    value: &mut Box<JsonRawValue>,
+    with_code: bool,
+) -> Result<(), Error> {
+    let mut val = serde_json::from_str::<FlowValue>(value.get())
+        .map_err(|err| Error::InternalErr(format!("resolve: Failed to parse flow value: {}", err)))?;
+    for module in &mut val.modules {
+        resolve_module(e, workspace_id, &mut module.value, with_code).await?;
+    }
+    *value = to_raw_value(&val);
+    Ok(())
+}
+
+/// Resolve module value recursively.
+pub async fn resolve_module(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    value: &mut Box<JsonRawValue>,
+    with_code: bool,
+) -> Result<(), Error> {
+    use FlowModuleValue::*;
+
+    let mut val = serde_json::from_str::<FlowModuleValue>(value.get())
+        .map_err(|err| Error::InternalErr(format!("resolve: Failed to parse flow module value: {}", err)))?;
+    match &mut val {
+        FlowScript { .. } => {
+            // In order to avoid an unnecessary `.clone()` of `val`, take ownership of it's content
+            // using `std::mem::replace`.
+            let FlowScript {
+                input_transforms, id, tag, language,
+                custom_concurrency_key, concurrent_limit, concurrency_time_window_s, is_trigger
+            } = std::mem::replace(&mut val, Identity) else { unreachable!() };
+            // Load script lock file and code content.
+            let (lock, content) = if !with_code {
+                (Some("...".to_string()), "...".to_string())
+            } else {
+                sqlx::query!("SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1", id.0)
+                    .fetch_one(e)
+                    .await
+                    .map_err(Error::SqlErr)
+                    .map(|record| (record.lock, record.code))?
+            };
+            val = RawScript {
+                input_transforms, content, lock, path: None, tag, language, custom_concurrency_key,
+                concurrent_limit, concurrency_time_window_s, is_trigger
+            };
+        },
+        ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. }  => {
+            resolve_modules(e, workspace_id, modules, modules_node.take(), with_code).await?;
+        },
+        BranchOne { branches, default, default_node } => {
+            resolve_modules(e, workspace_id, default, default_node.take(), with_code).await?;
+            for branch in branches {
+                resolve_modules(e, workspace_id, &mut branch.modules, branch.modules_node.take(), with_code).await?;
+            }
+        },
+        BranchAll { branches, .. } => {
+            for branch in branches {
+                resolve_modules(e, workspace_id, &mut branch.modules, branch.modules_node.take(), with_code).await?;
+            }
+        }
+        _ => {}
+    }
+    *value = to_raw_value(&val);
+    Ok(())
+}
+
+pub async fn resolve_modules(
+    e: &sqlx::PgPool,
+    workspace_id: &str,
+    modules: &mut Vec<FlowModule>,
+    modules_node: Option<FlowNodeId>,
+    with_code: bool,
+) -> Result<(), Error> {
+    // Replace the `modules_node` with the actual modules.
+    if let Some(id) = modules_node {
+        *modules = load_flow_modules(e, id).await?;
+    }
+    for module in modules.iter_mut() {
+        Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await?;
+    }
+    Ok(())
+}
+
+pub async fn load_flow_modules(
+    e: &sqlx::PgPool,
+    id: FlowNodeId,
+) -> Result<Vec<FlowModule>, Error> {
+    #[derive(Deserialize)]
+    struct FlowModulesOnly { modules: Vec<FlowModule> }
+
+    sqlx::query_scalar!(
+        "SELECT flow AS \"flow!: Json<Box<JsonRawValue>>\" FROM flow_node WHERE id = $1 LIMIT 1",
+        id.0
+    )
+    .fetch_one(e)
+    .await
+    .map_err(Error::SqlErr)
+    .and_then(|value| {
+        serde_json::from_str::<FlowModulesOnly>(value.get())
+            .map(|x| x.modules)
+            .map_err(|err| Error::InternalErr(format!("Failed to parse flow node value: {}", err)))
+    })
 }
