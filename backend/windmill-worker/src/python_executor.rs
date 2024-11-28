@@ -1719,8 +1719,10 @@ pub async fn handle_python_reqs(
         }));
     }
 
+    let mut failed = false;
     for (handle, (req, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
         if let Err(e) = handle.await.unwrap_or(Err(anyhow!("Problem by joining handle"))) {
+            failed = true;
             append_logs(
                 &job_id,
                 w_id,
@@ -1749,7 +1751,11 @@ pub async fn handle_python_reqs(
     // If there is listener on other side, 
     // it will be triggered
     // If there is no listener, it will be dropped safely
-    Ok(req_paths)
+    return if failed {
+        Err(anyhow!("Installation did not succeed, check logs").into())
+    } else {
+        Ok(req_paths)
+    };
 }
 
 #[cfg(feature = "enterprise")]
