@@ -256,9 +256,9 @@
 			"default": "./package/components/FlowBuilder.svelte"
 		},
 		"./components/AppEditor.svelte": {
-			"types": "./package/components/app/editor/AppEditor.svelte.d.ts",
-			"svelte": "./package/components/app/editor/AppEditor.svelte",
-			"default": "./package/components/app/editor/AppEditor.svelte"
+			"types": "./package/components/apps/editor/AppEditor.svelte.d.ts",
+			"svelte": "./package/components/apps/editor/AppEditor.svelte",
+			"default": "./package/components/apps/editor/AppEditor.svelte"
 		},
 		"./components/ScriptBuilder.svelte": {
 			"types": "./package/components/ScriptBuilder.svelte.d.ts",
@@ -438,7 +438,7 @@
 				"./package/components/FlowBuilder.svelte.d.ts"
 			],
 			"components/AppEditor.svelte": [
-				"./package/components/app/editor/AppEditor.svelte.d.ts"
+				"./package/components/apps/editor/AppEditor.svelte.d.ts"
 			],
 			"components/ScriptBuilder.svelte": [
 				"./package/components/ScriptBuilder.svelte.d.ts"
