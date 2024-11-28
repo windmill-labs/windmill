@@ -1166,7 +1166,7 @@ async fn spawn_uv_install(
         let req = if no_uv_install {
             format!("'{}'", req)
         } else {
-            req.clone()
+            req.to_owned()
         };
 
         #[cfg(windows)]
@@ -1258,14 +1258,15 @@ async fn spawn_uv_install(
                   .stderr(Stdio::piped());
               start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
             } else {
-               let mut cmd = Command::new(command_args[0]);
-                    cmd.env_clear()
-                        .envs(PROXY_ENVS.clone())
-                        .envs(envs)
-                        .args(&command_args[1..])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped());
-                    start_child_process(cmd, UV_PATH.as_str()).await?
+                let mut cmd = Command::new(command_args[0]);
+                cmd
+                    .env_clear()
+                    .envs(PROXY_ENVS.clone())
+                    .envs(envs)
+                    .args(&command_args[1..])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(cmd, UV_PATH.as_str()).await
             }
         }
 
@@ -1322,6 +1323,7 @@ pub async fn handle_python_reqs(
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
+    #[allow(unused_assignments)]
     async fn print_success(
         mut s3_pull: bool,
         mut s3_push: bool,
