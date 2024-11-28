@@ -1463,7 +1463,6 @@ pub async fn handle_python_reqs(
 
     //   ________ Read comments at the end of the function to get more context
     let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
-    let kill_tx_2 = kill_tx.clone();
 
     let job_id_2 = job_id.clone();
     let db_2 = db.clone();
@@ -1505,7 +1504,7 @@ pub async fn handle_python_reqs(
                             "cancelling installations",
                         );
 
-                        if let Err(ref e) = kill_tx_2.send(()){
+                        if let Err(ref e) = kill_tx.send(()){
                             tracing::error!(
                                 // If there is listener on other side, 
                                 workspace_id = %w_id_2,
@@ -1650,12 +1649,38 @@ pub async fn handle_python_reqs(
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 }
                 // Finished
-                exitstatus = uv_install_proccess.wait() => {
-                    if !exitstatus?.success() {
+                exitstatus = uv_install_proccess.wait() => match exitstatus {
+                    Ok(status) => if !status.success() {
+                        tracing::warn!(
+                            workspace_id = %w_id,
+                            "uv install {} did not succeed, exit status: {:?}",
+                            &req,
+                            status.code()
+                        );
+
                         let mut buf = String::new();
-                        stderr.read_to_string(&mut buf).await?;
+                        stderr.read_to_string(&mut buf).await.unwrap_or_else(|_|{
+                            buf = "Cannot read stderr to string".to_owned();
+                            0
+                        });
+
+                        append_logs(
+                            &job_id,
+                            w_id,
+                            format!(
+                                "\nError while installing {}:\n{buf}", 
+                                &req
+                            ),
+                            db,
+                        )
+                        .await;
                         return Err(anyhow!(buf));
-                    }
+                    },
+                    Err(e) => 
+                        tracing::error!(
+                            workspace_id = %w_id,
+                            "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
+                        ),
                 }
             };
 
