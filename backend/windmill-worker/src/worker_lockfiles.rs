@@ -1023,7 +1023,7 @@ async fn insert_flow_node<'c>(
         r#"
         WITH existing AS (
             SELECT id FROM flow_node
-            WHERE hash = $1 AND path = $2 AND workspace_id = $3 AND code = $4 AND lock = $5 AND flow = $6
+            WHERE hash = $1 AND path = $2 AND workspace_id = $3 AND code = $4 AND lock = $5 AND (flow IS NOT DISTINCT FROM $6)
             LIMIT 1
         ),
         inserted AS (
