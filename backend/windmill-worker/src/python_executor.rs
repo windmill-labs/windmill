@@ -1560,7 +1560,7 @@ pub async fn handle_python_reqs(
     for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
-        if let Err(e) = permit {
+        if let Err(_) = permit {
             tracing::error!(
                 workspace_id = %w_id,
                 "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
@@ -1631,15 +1631,28 @@ pub async fn handle_python_reqs(
                 }
             }
 
-            let mut uv_install_proccess = spawn_uv_install(
+            let mut uv_install_proccess = match spawn_uv_install(
                 &w_id,
                 &req,
                 &venv_p,
                 &job_dir,
                 pip_indexes,
                 no_uv_install,
-            )
-            .await?;
+            ).await {
+                Ok(r) => r,
+                Err(e) => { 
+                    append_logs(
+                        &job_id,
+                        w_id,
+                        format!(
+                            "\nError while spawning proccess:\n{e}", 
+                        ),
+                        db,
+                    )
+                    .await;
+                    return Err(e.into());
+                }
+            };
 
             let mut stderr = uv_install_proccess
                 .stderr
@@ -1725,16 +1738,9 @@ pub async fn handle_python_reqs(
     }
 
     let mut failed = false;
-    for (handle, (req, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
+    for (handle, (_, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
         if let Err(e) = handle.await.unwrap_or(Err(anyhow!("Problem by joining handle"))) {
             failed = true;
-            append_logs(
-                &job_id,
-                w_id,
-                format!("\n❌ Error while installing {}:\n{}", req, e),
-                db,
-            )
-            .await;
             tracing::warn!(
                 workspace_id = %w_id,
                 "Installation failed: {:?}",
