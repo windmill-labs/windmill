@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.434.1](https://github.com/windmill-labs/windmill/compare/v1.434.0...v1.434.1) (2024-11-29)
+
+
+### Bug Fixes
+
+* improve flow status viewer performance ([35a4a53](https://github.com/windmill-labs/windmill/commit/35a4a5390da0d3c2acad0f8af9aae9e4fdc149f5))
+
 ## [1.434.0](https://github.com/windmill-labs/windmill/compare/v1.433.0...v1.434.0) (2024-11-29)
 
 
