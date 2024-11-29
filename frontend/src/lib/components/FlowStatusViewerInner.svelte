@@ -112,41 +112,47 @@
 		newValue: GraphModuleState,
 		keepType: boolean | undefined
 	) {
-		moduleState.update((x) => {
+		const state = get(moduleState)
+		if (
+			newValue.selectedForloop != undefined &&
+			state[key]?.selectedForloop != undefined &&
+			newValue.selectedForloop != state[key].selectedForloop
+		) {
+			if (newValue.type == 'InProgress' && state[key]?.type != 'InProgress') {
+				moduleState.update((state) => {
+					state[key].type = 'InProgress'
+					return state
+				})
+			}
+			return
+		}
+
+		if (state[key]?.selectedForLoopSetManually) {
 			if (
 				newValue.selectedForloop != undefined &&
-				x[key]?.selectedForloop != undefined &&
-				newValue.selectedForloop != x[key].selectedForloop
+				state[key]?.selectedForloop != newValue.selectedForloop
 			) {
-				if (newValue.type == 'InProgress') {
-					x[key].type = 'InProgress'
-				}
-				return x
+				return state
+			} else {
+				newValue.selectedForLoopSetManually = true
+				newValue.selectedForloopIndex = state[key]?.selectedForloopIndex
+				newValue.selectedForloop = state[key]?.selectedForloop
 			}
+		} else if (state[key]?.selectedForloopIndex != undefined) {
+			newValue.selectedForloopIndex = state[key]?.selectedForloopIndex
+			newValue.selectedForloop = state[key]?.selectedForloop
+		}
 
-			if (x[key]?.selectedForLoopSetManually) {
-				if (
-					newValue.selectedForloop != undefined &&
-					x[key]?.selectedForloop != newValue.selectedForloop
-				) {
-					return x
-				} else {
-					newValue.selectedForLoopSetManually = true
-					newValue.selectedForloopIndex = x[key]?.selectedForloopIndex
-					newValue.selectedForloop = x[key]?.selectedForloop
-				}
-			} else if (x[key]?.selectedForloopIndex != undefined) {
-				newValue.selectedForloopIndex = x[key]?.selectedForloopIndex
-				newValue.selectedForloop = x[key]?.selectedForloop
-			}
+		if (keepType && (state[key]?.type == 'Success' || state[key]?.type == 'Failure')) {
+			newValue.type = state[key].type
+		}
 
-			if (keepType && (x[key]?.type == 'Success' || x[key]?.type == 'Failure')) {
-				newValue.type = x[key].type
-			}
-
-			x[key] = newValue
-			return x
-		})
+		if (!deepEqual(state[key], newValue)) {
+			moduleState.update((state) => {
+				state[key] = newValue
+				return state
+			})
+		}
 	}
 
 	function buildSubflowKey(key: string, prefix: string | undefined) {
@@ -167,7 +173,6 @@
 						return x
 					})
 				}
-				console.log(rootJob)
 
 				if (subflowParentsGlobalModuleStates.length > 0) {
 					subflowParentsGlobalModuleStates?.[subflowParentsGlobalModuleStates?.length - 1]?.update(
@@ -596,32 +601,37 @@
 		isForloop: boolean
 	) {
 		if (modId) {
-			if (clicked) {
-				await globalRefreshes?.[modId]?.(true, id)
+			let globalState = globalModuleStates?.[globalModuleStates?.length - 1]
+			let globalStateGet = globalState ? get(globalState) : undefined
+			let state = globalStateGet?.[modId]
+
+			if (clicked && state?.selectedForloop) {
+				await globalRefreshes?.[modId]?.(true, state.selectedForloop)
 			}
-			globalModuleStates?.[globalModuleStates?.length - 1]?.update((topLevelModuleStates) => {
-				let state = topLevelModuleStates?.[modId]
-				if (state) {
-					let manualOnce = state.selectedForLoopSetManually
-					if (
-						clicked ||
-						(!manualOnce &&
-							(state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)))
-					) {
-						let setManually = clicked || manualOnce
+			if (state) {
+				let manualOnce = state.selectedForLoopSetManually
+				if (
+					clicked ||
+					(!manualOnce &&
+						(state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)))
+				) {
+					let setManually = clicked || manualOnce
 
-						topLevelModuleStates[modId] = {
-							...(topLevelModuleStates[modId] ?? {}),
-							selectedForloop: id,
-							selectedForloopIndex: j,
-							selectedForLoopSetManually: setManually ?? false
-						}
-
-						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
+					let newState = {
+						...(state ?? {}),
+						selectedForloop: id,
+						selectedForloopIndex: j,
+						selectedForLoopSetManually: setManually
+					}
+					if (!deepEqual(state, newState)) {
+						globalState?.update((topLevelModuleStates) => {
+							topLevelModuleStates[modId] = newState
+							return topLevelModuleStates
+							// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
+						})
 					}
 				}
-				return topLevelModuleStates
-			})
+			}
 
 			if (clicked) {
 				await globalRefreshes?.[modId]?.(false, id)
@@ -1202,7 +1212,12 @@
 								let detail = e.detail
 								if (detail.manuallySet) {
 									let rootJobId = detail.id
-									await globalRefreshes?.[detail.moduleId]?.(true, rootJobId)
+									await tick()
+
+									let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
+									if (previousId) {
+										await globalRefreshes?.[detail.moduleId]?.(true, previousId)
+									}
 
 									$localModuleStates[detail.moduleId] = {
 										...$localModuleStates[detail.moduleId],
