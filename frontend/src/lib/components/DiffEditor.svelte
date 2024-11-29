@@ -54,10 +54,7 @@
 			defaultModified !== undefined &&
 			defaultLang !== undefined
 		) {
-			console.log('SETUP')
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
-		} else {
-			console.log('NO SETUP', defaultOriginal, defaultModified, defaultLang)
 		}
 	}
 

@@ -73,6 +73,8 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let newApp: boolean = false
+	export let editPath: string | undefined = undefined
 
 	migrateApp(app)
 
@@ -814,6 +816,8 @@
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader
+			{editPath}
+			{newApp}
 			on:restore
 			{policy}
 			{fromHub}

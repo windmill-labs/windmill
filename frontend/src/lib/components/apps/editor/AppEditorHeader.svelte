@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
 	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -127,6 +126,8 @@
 	export let leftPanelHidden: boolean = false
 	export let rightPanelHidden: boolean = false
 	export let bottomPanelHidden: boolean = false
+	export let newApp: boolean
+	export let editPath: string | undefined = undefined
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -512,12 +513,12 @@
 
 	let secretUrl: string | undefined = undefined
 
-	$: appPath != '' && secretUrl == undefined && getSecretUrl()
+	$: editPath && editPath != '' && secretUrl == undefined && getSecretUrl()
 
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
 			workspace: $workspaceStore!,
-			path: appPath
+			path: editPath!
 		})
 	}
 
@@ -592,7 +593,7 @@
 	}
 
 	async function saveDraft(forceSave = false) {
-		if ($page.params.path == undefined) {
+		if (newApp) {
 			// initial draft
 			draftDrawerOpen = true
 			return
@@ -621,7 +622,7 @@
 		loading.saveDraft = true
 		try {
 			await computeTriggerables()
-			let path = $page.params.path
+			let path = editPath ?? ''
 			if (savedApp.draft_only) {
 				await AppService.deleteApp({
 					workspace: $workspaceStore!,
@@ -676,7 +677,7 @@
 				console.error('error interacting with local storage', e)
 			}
 			loading.saveDraft = false
-			if (newPath || path !== path) {
+			if (newApp) {
 				goto(`/apps/edit/${newPath || path}`)
 			}
 		} catch (e) {
@@ -1126,8 +1127,8 @@
 			<div class="my-6 box">
 				Public url:
 				{#if secretUrl}
-					{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
-					{@const href = $page.url.protocol + '//' + url}
+					{@const url = `${window.location.hostname}/public/${$workspaceStore}/${secretUrl}`}
+					{@const href = window.location.protocol + '//' + url}
 					<a
 						on:click={(e) => {
 							e.preventDefault()
@@ -1632,7 +1633,7 @@
 			startIcon={{ icon: Save }}
 			on:click={() => saveDraft()}
 			size="xs"
-			disabled={$page.params.path !== undefined && !savedApp}
+			disabled={!newApp && !savedApp}
 			shortCut={{ key: 'S' }}
 		>
 			Draft

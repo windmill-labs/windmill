@@ -210,6 +210,8 @@
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
+				newApp={false}
+				editPath={$page.params.path}
 			/>
 		</div>
 	{/if}
