@@ -256,6 +256,10 @@ async fn windmill_main() -> anyhow::Result<()> {
                 Mode::Server
             } else if &x == "worker" {
                 tracing::info!("Binary is in 'worker' mode");
+                #[cfg(windows)]
+                {
+                    tracing::warn!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
+                }
                 Mode::Worker
             } else if &x == "agent" {
                 tracing::info!("Binary is in 'agent' mode");

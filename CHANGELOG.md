@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.433.0](https://github.com/windmill-labs/windmill/compare/v1.432.0...v1.433.0) (2024-11-29)
+
+
+### Features
+
+* **cache:** implement flow node caching ([#4808](https://github.com/windmill-labs/windmill/issues/4808)) ([3fbb2bf](https://github.com/windmill-labs/windmill/commit/3fbb2bfc8a191af9a1657824f2d9bff7e57e4b86))
+
+
+### Bug Fixes
+
+* fix windows build ([0a95b6f](https://github.com/windmill-labs/windmill/commit/0a95b6f9d241c59869c78919352e1bbacf7c1aa7))
+
+## [1.432.0](https://github.com/windmill-labs/windmill/compare/v1.431.1...v1.432.0) (2024-11-29)
+
+
+### Features
+
+* Parallelize `uv install` ([#4774](https://github.com/windmill-labs/windmill/issues/4774)) ([96371bc](https://github.com/windmill-labs/windmill/commit/96371bc89dfaabdf1e7a9ecd34d13db819985b3f))
+
 ## [1.431.1](https://github.com/windmill-labs/windmill/compare/v1.431.0...v1.431.1) (2024-11-28)
 
 

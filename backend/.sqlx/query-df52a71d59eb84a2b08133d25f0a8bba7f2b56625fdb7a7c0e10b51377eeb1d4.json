@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lock AS \"lock: String\", content AS \"code!: String\",\n                        language AS \"language: Option<ScriptLang>\", envs AS \"envs: Vec<String>\", codebase AS \"codebase: String\" FROM script WHERE hash = $1 AND workspace_id = $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "code!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "language: Option<ScriptLang>",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "envs: Vec<String>",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "codebase: String",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "df52a71d59eb84a2b08133d25f0a8bba7f2b56625fdb7a7c0e10b51377eeb1d4"
+}
