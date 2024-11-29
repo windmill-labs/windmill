@@ -1455,6 +1455,9 @@ pub async fn handle_python_reqs(
             req_with_penv.push((req.to_string(), venv_p));
         }
     }
+    if req_paths.len() > 0 {
+        append_logs(&job_id, w_id, format!("\nenv deps from local cache: {}\n", req_paths.join(", ")), db).await;
+    }
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
     let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = 
@@ -1547,7 +1550,7 @@ pub async fn handle_python_reqs(
 
         // Do we use Nsjail?
         if !*DISABLE_NSJAIL {
-            logs.push_str(&format!("\nStarting isolated installation... ({} tasks in parallel ) \n", parallel_limit));
+            logs.push_str(&format!("\nStarting isolated installation... ({} tasks in parallel) \n", parallel_limit));
         } else {
             logs.push_str(&format!("\nStarting installation... ({} tasks in parallel) \n", parallel_limit));
         }
