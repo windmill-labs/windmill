@@ -71,7 +71,7 @@ impl ScriptLang {
     }
 }
 
-#[derive(PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
 

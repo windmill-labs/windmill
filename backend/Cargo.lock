@@ -10625,6 +10625,7 @@ dependencies = [
  "mail-send",
  "object_store",
  "prometheus",
+ "quick_cache",
  "rand 0.8.5",
  "regex",
  "reqwest 0.12.9",

@@ -18,6 +18,7 @@ use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
 use crate::{
+    cache,
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
@@ -402,7 +403,7 @@ pub enum InputTransform {
 }
 
 /// Id in the `flow_node` table.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 #[serde(transparent)]
 pub struct FlowNodeId(pub i64);
 
@@ -759,11 +760,7 @@ pub async fn resolve_module(
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
             } else {
-                sqlx::query!("SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1", id.0)
-                    .fetch_one(e)
-                    .await
-                    .map_err(Error::SqlErr)
-                    .map(|record| (record.lock, record.code))?
+                cache::flow::fetch_script(e, id).await?
             };
             val = RawScript {
                 input_transforms, content, lock, path: None, tag, language, custom_concurrency_key,
@@ -799,31 +796,12 @@ pub async fn resolve_modules(
 ) -> Result<(), Error> {
     // Replace the `modules_node` with the actual modules.
     if let Some(id) = modules_node {
-        *modules = load_flow_modules(e, id).await?;
+        *modules = cache::flow::fetch_flow(e, id)
+            .await
+            .map(|flow| flow.modules)?;
     }
     for module in modules.iter_mut() {
         Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await?;
     }
     Ok(())
-}
-
-pub async fn load_flow_modules(
-    e: &sqlx::PgPool,
-    id: FlowNodeId,
-) -> Result<Vec<FlowModule>, Error> {
-    #[derive(Deserialize)]
-    struct FlowModulesOnly { modules: Vec<FlowModule> }
-
-    sqlx::query_scalar!(
-        "SELECT flow AS \"flow!: Json<Box<JsonRawValue>>\" FROM flow_node WHERE id = $1 LIMIT 1",
-        id.0
-    )
-    .fetch_one(e)
-    .await
-    .map_err(Error::SqlErr)
-    .and_then(|value| {
-        serde_json::from_str::<FlowModulesOnly>(value.get())
-            .map(|x| x.modules)
-            .map_err(|err| Error::InternalErr(format!("Failed to parse flow node value: {}", err)))
-    })
 }

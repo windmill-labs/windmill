@@ -46,7 +46,9 @@ use std::{
 use uuid::Uuid;
 
 use windmill_common::{
+    cache,
     error::{self, to_anyhow, Error},
+    flows::FlowNodeId,
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
@@ -2218,38 +2220,16 @@ pub async fn get_script_content_by_hash(
     w_id: &str,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let r = sqlx::query_as::<
-        _,
-        (
-            String,
-            Option<String>,
-            Option<ScriptLang>,
-            Option<Vec<String>>,
-            Option<bool>
-        ),
-    >(
-        "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
-    )
-    .bind(script_hash.0)
-    .bind(w_id)
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
+    let script = cache::script::fetch(db, *script_hash, w_id).await?;
     Ok(ContentReqLangEnvs {
-        content: r.0,
-        lockfile: r.1,
-        language: r.2,
-        envs: r.3,
-        codebase: if r.4.is_some() {
-            let b = r.4.unwrap();
-            let sh = script_hash.to_string();
-            if b {
-                Some(format!("{sh}.tar"))
-            } else {
-                Some(sh)
-            }
-        } else {
-            None
+        content: script.code,
+        lockfile: script.lock,
+        language: script.language,
+        envs: script.envs,
+        codebase: match script.codebase {
+            None => None,
+            Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
+            Some(_) => Some(script_hash.to_string()),
         },
     })
 }
@@ -2305,13 +2285,9 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = sqlx::query!(
-                "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
+            let (lockfile, content) = cache::flow::fetch_script(db, FlowNodeId(
                 job.script_hash.unwrap_or(ScriptHash(0)).0
-            )
-            .fetch_one(db)
-            .await
-            .map(|record| (record.lock, record.code))?;
+            )).await?;
             ContentReqLangEnvs {
                 content,
                 lockfile,

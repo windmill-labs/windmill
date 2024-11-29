@@ -39,6 +39,7 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
 use windmill_common::{
+    cache,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
@@ -3209,16 +3210,7 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::FlowNode { id, path } => {
-            let flow_value = sqlx::query_scalar!(
-                "SELECT flow as \"flow!: sqlx::types::Json<Box<RawValue>>\" FROM flow_node WHERE id = $1 LIMIT 1",
-                id.0
-            ).fetch_one(_db)
-            .await?;
-            let value = serde_json::from_str::<FlowValue>(flow_value.get()).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for node={}: {err:?}", id.0
-                ))
-            })?;
+            let value = cache::flow::fetch_flow(_db, id).await?;
             let status = Some(FlowStatus::new(&value));
             (
                 Some(id.0),
