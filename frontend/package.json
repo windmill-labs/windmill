@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.430.2",
+	"version": "1.433.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -255,6 +255,11 @@
 			"svelte": "./package/components/FlowBuilder.svelte",
 			"default": "./package/components/FlowBuilder.svelte"
 		},
+		"./components/AppEditor.svelte": {
+			"types": "./package/components/apps/editor/AppEditor.svelte.d.ts",
+			"svelte": "./package/components/apps/editor/AppEditor.svelte",
+			"default": "./package/components/apps/editor/AppEditor.svelte"
+		},
 		"./components/ScriptBuilder.svelte": {
 			"types": "./package/components/ScriptBuilder.svelte.d.ts",
 			"svelte": "./package/components/ScriptBuilder.svelte",
@@ -431,6 +436,9 @@
 			],
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
+			],
+			"components/AppEditor.svelte": [
+				"./package/components/apps/editor/AppEditor.svelte.d.ts"
 			],
 			"components/ScriptBuilder.svelte": [
 				"./package/components/ScriptBuilder.svelte.d.ts"

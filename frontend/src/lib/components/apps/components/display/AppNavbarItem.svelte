@@ -66,7 +66,7 @@
 	$: !initialized && resolvedPath && initSelection()
 
 	function getButtonProps(resolvedPath: string | undefined) {
-		if (appPath && resolvedPath?.includes(appPath)) {
+		if ($appPath && resolvedPath?.includes($appPath)) {
 			return {
 				onClick: () => {
 					output.result.set({ currentPath: resolvedPath ?? '' })

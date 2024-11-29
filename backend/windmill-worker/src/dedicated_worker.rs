@@ -16,6 +16,7 @@ use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
+    cache,
     error,
     flows::{FlowModule, FlowModuleValue},
     jobs::QueuedJob,
@@ -393,18 +394,14 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = sqlx::query!(
-                        "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
-                        id.0
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map(|record| SpawnWorker::RawScript {
-                        path: "".to_string(),
-                        content: record.code,
-                        lock: record.lock,
-                        lang: language.clone(),
-                    });
+                    let spawn = cache::flow::fetch_script(db, *id)
+                        .await
+                        .map(|(lock, content)| SpawnWorker::RawScript {
+                            path: "".to_string(),
+                            content,
+                            lock,
+                            lang: language.clone(),
+                        });
                     match spawn {
                         Ok(spawn) => {
                             if let Some(dedi_w) = spawn_dedicated_worker(

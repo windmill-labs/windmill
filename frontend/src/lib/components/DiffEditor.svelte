@@ -54,10 +54,7 @@
 			defaultModified !== undefined &&
 			defaultLang !== undefined
 		) {
-			console.log('SETUP')
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
-		} else {
-			console.log('NO SETUP', defaultOriginal, defaultModified, defaultLang)
 		}
 	}
 
@@ -80,7 +77,6 @@
 	}
 
 	export function setOriginal(code: string) {
-		console.log('setOriginal', code)
 		diffEditor?.getModel()?.original?.setValue(code)
 		defaultOriginal = code
 	}
@@ -99,7 +95,6 @@
 	}
 
 	export function show(): void {
-		console.log('show')
 		open = true
 	}
 	export function hide(): void {

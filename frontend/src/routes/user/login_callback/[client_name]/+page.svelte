@@ -45,8 +45,13 @@
 
 			if (rd?.startsWith('http')) {
 				if (closeUponLogin) {
-					window.opener.postMessage({ type: 'success' }, '*')
-					window.close()
+					if (window.opener) {
+						window.opener.postMessage({ type: 'success' }, '*')
+						window.close()
+					} else {
+						localStorage.setItem('oauth-success', 'true')
+						window.close()
+					}
 					return
 				}
 				window.location.href = rd
@@ -72,8 +77,13 @@
 				if (allWorkspaces?.length == 1) {
 					$workspaceStore = allWorkspaces[0].id
 					if (closeUponLogin) {
-						window.opener.postMessage({ type: 'success' }, '*')
-						window.close()
+						if (window.opener) {
+							window.opener.postMessage({ type: 'success' }, '*')
+							window.close()
+						} else {
+							localStorage.setItem('oauth-success', 'true')
+							window.close()
+						}
 						return
 					}
 					if (rd) {

@@ -20,6 +20,7 @@ pub mod apps;
 pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
+pub mod cache;
 pub mod db;
 pub mod ee;
 pub mod email_ee;

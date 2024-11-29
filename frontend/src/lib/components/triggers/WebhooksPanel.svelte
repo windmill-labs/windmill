@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import bash from 'svelte-highlight/languages/bash'
@@ -48,7 +47,7 @@
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let webhookBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
+		let webhookBase = `${window.location.origin}${base}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
 				hash: `${webhookBase}/run/h/${hash}`,
@@ -63,7 +62,7 @@
 	}
 
 	function computeFlowWebhooks(path: string) {
-		let webhooksBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
+		let webhooksBase = `${window.location.origin}${base}/api/w/${$workspaceStore}/jobs`
 
 		let urlAsync = `${webhooksBase}/run/f/${path}`
 		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
@@ -167,7 +166,7 @@ function waitForJobCompletion(UUID) {
   return new Promise(async (resolve, reject) => {
     try {
       const endpoint = \`${
-				$page.url.origin
+				window.location.origin
 			}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\${UUID}\`;
       const checkResponse = await fetch(endpoint, {
         method: 'GET',
@@ -209,7 +208,7 @@ ${
 	webhookType === 'sync'
 		? 'echo -E $RESULT | jq'
 		: `
-URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
+URL="${window.location.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
   curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
   COMPLETED=$(cat res.json | jq .completed)
