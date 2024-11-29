@@ -1560,6 +1560,8 @@ pub async fn handle_python_reqs(
     #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
+    let total_time = std::time::Instant::now();
+    let has_work = req_with_penv.len() > 0;
     for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
@@ -1751,7 +1753,7 @@ pub async fn handle_python_reqs(
             failed = true;
             tracing::warn!(
                 workspace_id = %w_id,
-                "Installation failed: {:?}",
+                "Env installation failed: {:?}",
                 e
             );
             if let Err(e) = fs::remove_dir_all(&venv_p) {
@@ -1766,12 +1768,25 @@ pub async fn handle_python_reqs(
         }
     }
 
+    if has_work {
+        let total_time = total_time.elapsed().as_millis();
+        append_logs(
+            &job_id,
+            w_id,
+            format!(
+                "\nEnv set in {}ms\n",
+                total_time
+            ),
+            db,
+        ).await;
+    }
+
     // Usually done_tx will drop after this return
     // If there is listener on other side, 
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {
-        Err(anyhow!("Installation did not succeed, check logs").into())
+        Err(anyhow!("Env installation did not succeed, check logs").into())
     } else {
         Ok(req_paths)
     };
