@@ -45,8 +45,12 @@
 
 			if (rd?.startsWith('http')) {
 				if (closeUponLogin) {
-					window.opener.postMessage({ type: 'success' }, '*')
-					window.close()
+					if (window.opener) {
+						window.opener.postMessage({ type: 'success' }, '*')
+						window.close()
+					} else {
+						sendUserToast(`Logged in successfully, but can't communicate with main page. Close this window and refresh main page.`, false)
+					}
 					return
 				}
 				window.location.href = rd
@@ -72,8 +76,12 @@
 				if (allWorkspaces?.length == 1) {
 					$workspaceStore = allWorkspaces[0].id
 					if (closeUponLogin) {
-						window.opener.postMessage({ type: 'success' }, '*')
-						window.close()
+						if (window.opener) {
+							window.opener.postMessage({ type: 'success' }, '*')
+							window.close()
+						} else {
+							sendUserToast(`Logged in successfully, but can't communicate with main page. Close this window and refresh main page.`, false)
+						}
 						return
 					}
 					if (rd) {
