@@ -214,7 +214,7 @@ export type AppViewerContext = {
 		>
 	>
 	staticExporter: Writable<Record<string, () => any>>
-	appPath: string
+	appPath: Writable<string>
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean

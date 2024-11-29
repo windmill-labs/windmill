@@ -118,6 +118,13 @@
 		})
 	}
 
+	let writablePath = writable(appPath)
+	$: appPath && onPathChange()
+
+	function onPathChange() {
+		writablePath.set(appPath)
+	}
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: worldStore,
 		initialized: writable({ initialized: false, initializedComponents: [] }),
@@ -129,7 +136,7 @@
 		connectingInput,
 		breakpoint,
 		runnableComponents: writable({}),
-		appPath,
+		appPath: writablePath,
 		workspace,
 		onchange: undefined,
 		isEditor,

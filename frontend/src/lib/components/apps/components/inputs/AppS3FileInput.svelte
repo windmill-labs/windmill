@@ -151,7 +151,7 @@
 			outputs.result.set(value)
 		}}
 		{forceDisplayUploads}
-		appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+		appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
 		{computeForceViewerPolicies}
 	/>
 {/if}

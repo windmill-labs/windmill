@@ -56,7 +56,7 @@
 				workspace={$workspaceStore ?? ''}
 				summary={app.summary}
 				app={app.value}
-				appPath={app.path}
+				appPath={$page.params.path}
 				{breakpoint}
 				policy={app.policy}
 				isEditor={false}
