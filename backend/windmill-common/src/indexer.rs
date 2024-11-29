@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::{error, DB};
@@ -52,20 +51,6 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
             .map(|x| serde_json::from_value(x).ok())
             .flatten()
             .unwrap_or_default();
-
-    // if config.should_clear_job_index.is_some() || config.should_clear_log_index.is_some() {
-    //     sqlx::query!(
-    //         "UPDATE global_settings SET value = $1 WHERE name = 'indexer_settings'",
-    //         serde_json::to_value(TantivyIndexerSettingsOpt {
-    //             should_clear_log_index: None,
-    //             should_clear_job_index: None,
-    //             ..config.clone()
-    //         })
-    //         .map_err(|e| anyhow!("Error serializing indexer settings: {e}"))?
-    //     )
-    //     .execute(db)
-    //     .await?;
-    // }
 
     let TantivyIndexerSettings {
         commit_job_max_batch_size,

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import ManuelDatePicker from './runs/ManuelDatePicker.svelte'
 	import CalendarPicker from './common/calendarPicker/CalendarPicker.svelte'
@@ -15,7 +14,6 @@
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
 	import AnsiUp from 'ansi_up'
 	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
-	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
 
 	export let searchTerm: string
