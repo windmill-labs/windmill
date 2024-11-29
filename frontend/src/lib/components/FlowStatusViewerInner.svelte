@@ -167,6 +167,7 @@
 						return x
 					})
 				}
+				console.log(rootJob)
 
 				if (subflowParentsGlobalModuleStates.length > 0) {
 					subflowParentsGlobalModuleStates?.[subflowParentsGlobalModuleStates?.length - 1]?.update(
@@ -203,10 +204,10 @@
 
 		for (let [k, rec] of Object.entries(recursiveRefresh)) {
 			if (rootJob != undefined && rootJob != k) {
-				return
+				continue
 			}
 			await tick()
-			await rec(clearLoop, false)
+			await rec(clearLoop, undefined)
 		}
 	}
 
@@ -711,9 +712,16 @@
 				})
 			}
 
-			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'flowscript' || jobLoaded.job_kind == 'preview') {
+			if (
+				jobLoaded.job_kind == 'script' ||
+				jobLoaded.job_kind == 'flowscript' ||
+				jobLoaded.job_kind == 'preview'
+			) {
 				let id: string | undefined = undefined
-				if ((innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') && innerModule.modules.length == 1) {
+				if (
+					(innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') &&
+					innerModule.modules.length == 1
+				) {
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {
