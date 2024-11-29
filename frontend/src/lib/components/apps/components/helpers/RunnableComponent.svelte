@@ -392,7 +392,7 @@
 
 				const uuid = await AppService.executeComponent({
 					workspace,
-					path: defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
+					path: defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
 					requestBody
 				})
 				if (isEditor) {
@@ -763,7 +763,7 @@
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
-					appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+					appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
 					{computeS3ForceViewerPolicies}
 					{workspace}
 					bind:this={schemaForm}
