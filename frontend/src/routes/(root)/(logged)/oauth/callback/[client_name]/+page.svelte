@@ -15,10 +15,16 @@
 	onMount(async () => {
 		if (error) {
 			sendUserToast(`Error trying to add ${client_name} connection: ${error}`, true)
-			window.opener?.postMessage(
-				{ type: 'error', error: `Error trying to add ${client_name} connection: ${error}` },
-				'*'
-			)
+			const message = {
+				type: 'error',
+				error: `Error trying to add ${client_name} connection: ${error}`
+			}
+			if (window.opener) {
+				window.opener?.postMessage(message, '*')
+			} else {
+				localStorage.setItem('oauth-callback', JSON.stringify(message))
+			}
+
 			// goto('/resources')
 		} else if (code && state) {
 			try {
@@ -26,23 +32,37 @@
 					clientName: client_name,
 					requestBody: { code, state }
 				})
+				const message = { type: 'success', res, resource_type: client_name }
 				sendUserToast('successful', false)
-				window.opener?.postMessage({ type: 'success', res, resource_type: client_name }, '*')
+				if (window.opener) {
+					window.opener?.postMessage(message, '*')
+				} else {
+					localStorage.setItem('oauth-callback', JSON.stringify(message))
+				}
 				// goto(`/resources?resource_type=${client_name}`)
 			} catch (e) {
 				sendUserToast(`Error trying to add ${client_name} connection: ${e.body}`, true)
-				window.opener?.postMessage(
-					{ type: 'error', error: `Error parsing the response token, ${e.body}` },
-					'*'
-				)
+				const message = { type: 'error', error: `Error parsing the response token, ${e.body}` }
+				if (window.opener) {
+					window.opener?.postMessage(message, '*')
+				} else {
+					localStorage.setItem('oauth-callback', JSON.stringify(message))
+				}
+
 				// goto('/resources')
 			}
 		} else {
 			sendUserToast('Missing code or state as query params', true)
-			window.opener?.postMessage(
-				{ type: 'error', error: 'Missing code or state as query params' },
-				'*'
-			)
+			const message = { type: 'error', error: 'Missing code or state as query params' }
+			if (window.opener) {
+				window.opener?.postMessage(message, '*')
+			} else {
+				localStorage.setItem(
+					'oauth-callback',
+					JSON.stringify({ type: 'error', error: 'Missing code or state as query params' })
+				)
+			}
+			window.opener?.postMessage(message, '*')
 			// goto('/resources')
 		}
 		close()

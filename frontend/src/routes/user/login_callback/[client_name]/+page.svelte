@@ -49,7 +49,8 @@
 						window.opener.postMessage({ type: 'success' }, '*')
 						window.close()
 					} else {
-						sendUserToast(`Logged in successfully, but can't communicate with main page. Close this window and refresh main page.`, false)
+						localStorage.setItem('oauth-success', 'true')
+						window.close()
 					}
 					return
 				}
@@ -80,7 +81,8 @@
 							window.opener.postMessage({ type: 'success' }, '*')
 							window.close()
 						} else {
-							sendUserToast(`Logged in successfully, but can't communicate with main page. Close this window and refresh main page.`, false)
+							localStorage.setItem('oauth-success', 'true')
+							window.close()
 						}
 						return
 					}
