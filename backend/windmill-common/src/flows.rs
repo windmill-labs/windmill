@@ -760,7 +760,7 @@ pub async fn resolve_module(
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
             } else {
-                cache::flow::fetch_code(e, id).await?
+                cache::flow::fetch_script(e, id).await?
             };
             val = RawScript {
                 input_transforms, content, lock, path: None, tag, language, custom_concurrency_key,

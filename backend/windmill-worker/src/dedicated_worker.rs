@@ -394,7 +394,7 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = cache::flow::fetch_code(db, *id)
+                    let spawn = cache::flow::fetch_script(db, *id)
                         .await
                         .map(|(lock, content)| SpawnWorker::RawScript {
                             path: "".to_string(),

@@ -65,7 +65,7 @@ pub enum Error {
     #[error("{0}")]
     Utf8(#[from] std::string::FromUtf8Error),
     #[error("Encoding/decoding error: {0}")]
-    Bitcode(#[from] bitcode::Error),
+    SerdeJson(#[from] serde_json::Error),
 }
 
 impl Error {

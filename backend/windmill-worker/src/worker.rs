@@ -2285,7 +2285,7 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = cache::flow::fetch_code(db, FlowNodeId(
+            let (lockfile, content) = cache::flow::fetch_script(db, FlowNodeId(
                 job.script_hash.unwrap_or(ScriptHash(0)).0
             )).await?;
             ContentReqLangEnvs {
