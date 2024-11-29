@@ -35,7 +35,7 @@ in pkgs.mkShell {
 
   # Add the following lines to set the LD_LIBRARY_PATH
   LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath (with pkgs; [
-    lzma
+    xz
     libseccomp
     bzip2
     openssl_3_3
