@@ -608,28 +608,36 @@
 			if (clicked && state?.selectedForloop) {
 				await globalRefreshes?.[modId]?.(true, state.selectedForloop)
 			}
-			if (state) {
-				let manualOnce = state.selectedForLoopSetManually
-				if (
-					clicked ||
-					(!manualOnce &&
-						(state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)))
-				) {
-					let setManually = clicked || manualOnce
+			let manualOnce = state?.selectedForLoopSetManually
+			if (
+				clicked ||
+				(!manualOnce &&
+					(state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)))
+			) {
+				let setManually = clicked || manualOnce
 
-					let newState = {
-						...(state ?? {}),
-						selectedForloop: id,
-						selectedForloopIndex: j,
-						selectedForLoopSetManually: setManually
-					}
-					if (!deepEqual(state, newState)) {
-						globalState?.update((topLevelModuleStates) => {
-							topLevelModuleStates[modId] = newState
-							return topLevelModuleStates
-							// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
-						})
-					}
+				let newState = {
+					...(state ?? {}),
+					selectedForloop: id,
+					selectedForloopIndex: j,
+					selectedForLoopSetManually: setManually
+				}
+
+				const selectedNotEqual =
+					id != state?.selectedForloop ||
+					j != state?.selectedForloopIndex ||
+					setManually != state?.selectedForLoopSetManually
+				if (selectedNotEqual) {
+					console.log('not equal')
+					globalState?.update((topLevelModuleStates) => {
+						topLevelModuleStates[modId] = {
+							type: 'WaitingForPriorSteps',
+							args: {},
+							...newState
+						}
+						return topLevelModuleStates
+						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
+					})
 				}
 			}
 
