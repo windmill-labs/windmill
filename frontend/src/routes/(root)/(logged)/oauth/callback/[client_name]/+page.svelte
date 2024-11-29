@@ -14,7 +14,8 @@
 
 	onMount(async () => {
 		if (error) {
-			window.opener.postMessage(
+			sendUserToast(`Error trying to add ${client_name} connection: ${error}`, true)
+			window.opener?.postMessage(
 				{ type: 'error', error: `Error trying to add ${client_name} connection: ${error}` },
 				'*'
 			)
@@ -26,17 +27,19 @@
 					requestBody: { code, state }
 				})
 				sendUserToast('successful', false)
-				window.opener.postMessage({ type: 'success', res, resource_type: client_name }, '*')
+				window.opener?.postMessage({ type: 'success', res, resource_type: client_name }, '*')
 				// goto(`/resources?resource_type=${client_name}`)
 			} catch (e) {
-				window.opener.postMessage(
+				sendUserToast(`Error trying to add ${client_name} connection: ${e.body}`, true)
+				window.opener?.postMessage(
 					{ type: 'error', error: `Error parsing the response token, ${e.body}` },
 					'*'
 				)
 				// goto('/resources')
 			}
 		} else {
-			window.opener.postMessage(
+			sendUserToast('Missing code or state as query params', true)
+			window.opener?.postMessage(
 				{ type: 'error', error: 'Missing code or state as query params' },
 				'*'
 			)
