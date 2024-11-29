@@ -19,7 +19,7 @@ use tokio::{
     task,
 };
 use uuid::Uuid;
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
@@ -71,10 +71,10 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK: &str =
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
@@ -1335,12 +1335,12 @@ pub async fn handle_python_reqs(
         instant: std::time::Instant,
         db: Pool<Postgres>,
     ) {
-        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
         {
             (s3_pull, s3_push) = (false, false);
         }
 
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
         if OBJECT_STORE_CACHE_SETTINGS.read().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
@@ -1557,6 +1557,9 @@ pub async fn handle_python_reqs(
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
     let mut handles = Vec::with_capacity(total_to_install);
 
+    #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+    let is_not_pro =  matches!(get_license_plan().await, LicensePlan::Pro);
+
     for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
@@ -1598,8 +1601,8 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            {
+            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            if is_not_pro {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                     tokio::select! {
                         // Cancel was called on the job
@@ -1717,9 +1720,9 @@ pub async fn handle_python_reqs(
             )
             .await;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                if matches!(get_license_plan().await, LicensePlan::Pro) {
+                if !is_not_pro {
                     tracing::warn!("S3 cache not available in the pro plan");
                 } else {
                     tokio::spawn(build_tar_and_push(os, venv_p.clone(), no_uv_install));

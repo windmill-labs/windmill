@@ -8,13 +8,15 @@
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
-    ee::LICENSE_KEY_VALID,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
         ROOT_CACHE_DIR, TMP_DIR,
     },
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::LICENSE_KEY_VALID;
 
 use anyhow::{Context, Result};
 use const_format::concatcp;
