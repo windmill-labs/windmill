@@ -1,4 +1,5 @@
-use serde::Deserialize;
+use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 
 use crate::{error, DB};
 
@@ -13,6 +14,8 @@ pub struct TantivyIndexerSettings {
     pub refresh_index_period: u64,
     pub refresh_log_index_period: u64,
     pub max_indexed_job_log_size: usize,
+    pub should_clear_job_index: bool,
+    pub should_clear_log_index: bool,
 }
 
 impl Default for TantivyIndexerSettings {
@@ -24,10 +27,12 @@ impl Default for TantivyIndexerSettings {
             refresh_index_period: 300,
             refresh_log_index_period: 300,
             max_indexed_job_log_size: 1_000_000,
+            should_clear_job_index: false,
+            should_clear_log_index: false,
         }
     }
 }
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Serialize, Default, sqlx::FromRow, Clone)]
 pub struct TantivyIndexerSettingsOpt {
     pub writer_memory_budget: Option<u64>,
     pub commit_job_max_batch_size: Option<u64>,
@@ -35,6 +40,8 @@ pub struct TantivyIndexerSettingsOpt {
     pub refresh_index_period: Option<u64>,
     pub refresh_log_index_period: Option<u64>,
     pub max_indexed_job_log_size: Option<usize>,
+    pub should_clear_job_index: Option<bool>,
+    pub should_clear_log_index: Option<bool>,
 }
 
 pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSettings> {
@@ -46,6 +53,20 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
             .flatten()
             .unwrap_or_default();
 
+    // if config.should_clear_job_index.is_some() || config.should_clear_log_index.is_some() {
+    //     sqlx::query!(
+    //         "UPDATE global_settings SET value = $1 WHERE name = 'indexer_settings'",
+    //         serde_json::to_value(TantivyIndexerSettingsOpt {
+    //             should_clear_log_index: None,
+    //             should_clear_job_index: None,
+    //             ..config.clone()
+    //         })
+    //         .map_err(|e| anyhow!("Error serializing indexer settings: {e}"))?
+    //     )
+    //     .execute(db)
+    //     .await?;
+    // }
+
     let TantivyIndexerSettings {
         commit_job_max_batch_size,
         commit_log_max_batch_size,
@@ -53,6 +74,8 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
         refresh_log_index_period,
         max_indexed_job_log_size,
         writer_memory_budget,
+        should_clear_job_index,
+        should_clear_log_index,
     } = get_indexer_rates_from_env();
 
     Ok(TantivyIndexerSettings {
@@ -70,6 +93,12 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
         max_indexed_job_log_size: config
             .max_indexed_job_log_size
             .unwrap_or(max_indexed_job_log_size),
+        should_clear_job_index: config
+            .should_clear_job_index
+            .unwrap_or(should_clear_job_index),
+        should_clear_log_index: config
+            .should_clear_log_index
+            .unwrap_or(should_clear_log_index),
     })
 }
 

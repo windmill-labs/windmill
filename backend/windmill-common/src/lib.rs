@@ -54,7 +54,7 @@ pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
-pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 24 * 14; // 2 weeks retention period for logs
+pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 
 #[macro_export]
 macro_rules! add_time {
