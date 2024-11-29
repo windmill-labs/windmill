@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
-	import { SettingService, SettingsService } from '$lib/gen'
+	import { IndexSearchService, SettingService, SettingsService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -39,6 +39,7 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import ConfirmButton from './ConfirmButton.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -1122,6 +1123,24 @@
 																bind:value={values[setting.key].refresh_log_index_period}
 															/>
 														</div>
+														<h3>Reset Index</h3>
+															This buttons will clear the whole index, and the service will start reindexing from scratch. Full text search might be down during this time.
+															<div>
+																<ConfirmButton
+																	on:click={async () => {
+																		let r = await IndexSearchService.clearIndex({idxName: "JobIndex"})
+																		console.log("asasd")
+																		sendUserToast(r)
+																	}}>Clear <b>Jobs</b> Index</ConfirmButton
+																>
+																<ConfirmButton
+																	on:click={async () => {
+																		let r = await IndexSearchService.clearIndex({idxName: "ServiceLogIndex"})
+																		console.log("asasd")
+																		sendUserToast(r)
+																	}}>Clear <b>Service Logs</b> Index</ConfirmButton
+																>
+															</div>
 													{/if}
 												</div>
 											{:else if setting.fieldType == 'smtp_connect'}

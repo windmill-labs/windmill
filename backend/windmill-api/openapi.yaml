@@ -10127,6 +10127,29 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
+  /srch/index/delete/{idx_name}:
+    delete:
+      summary: Restart container and delete the index to recreate it.
+      operationId: clearIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: idx_name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - JobIndex
+              - ServiceLogIndex
+      responses:
+        "200":
+          description: idx to be deleted and container restarting
+          content:
+            text/plain:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
