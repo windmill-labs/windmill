@@ -2935,8 +2935,9 @@ fn payload_from_modules<'a>(
     same_worker: bool,
     id: impl FnOnce() -> String,
     path: impl FnOnce() -> String,
+    opt_empty_inner_flows: bool,
 ) -> Option<JobPayload> {
-    if modules.is_empty() && modules_node.is_none() {
+    if opt_empty_inner_flows && modules.is_empty() && modules_node.is_none() {
         return None;
     }
 
@@ -3192,6 +3193,7 @@ async fn compute_next_flow_transform(
                                 modules.clone(), modules_node, flow.failure_module.as_ref(), flow.same_worker,
                                 || format!("{}-{i}", status.step),
                                 || format!("{}/forloop-{i}", flow_job.script_path()),
+                                true
                             ) else {
                                 return None;
                             };
@@ -3274,6 +3276,7 @@ async fn compute_next_flow_transform(
                 modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
                 || status.step.to_string(),
                 || format!("{}/branchone-{}", flow_job.script_path(), status.step),
+                true
             ) else {
                 return Ok(NextFlowTransform::EmptyInnerFlows);
             };
@@ -3294,7 +3297,7 @@ async fn compute_next_flow_transform(
                         return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else if parallel {
                         let len = branches.len();
-                        let payloads = branches
+                        let payloads: Vec<JobPayloadWithTag> = branches
                             .into_iter()
                             .enumerate()
                             .filter_map(|(i, Branch { modules, modules_node, .. })| {
@@ -3302,6 +3305,7 @@ async fn compute_next_flow_transform(
                                     modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
                                     || format!("{}-{i}", status.step),
                                     || format!("{}/branchall-{}", flow_job.script_path(), i),
+                                    false
                                 ) else {
                                     return None;
                                 };
@@ -3354,6 +3358,7 @@ async fn compute_next_flow_transform(
                 modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
                 || format!("{}-{}", status.step, branch_status.branch),
                 || format!("{}/branchall-{}", flow_job.script_path(), branch_status.branch),
+                false
             ) else {
                 return Ok(NextFlowTransform::EmptyInnerFlows);
             };
@@ -3411,6 +3416,7 @@ async fn next_loop_iteration(
         modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
         || format!("{}-{}", status.step, ns.index),
         inner_path,
+        true
     ) else {
         return Ok(NextFlowTransform::EmptyInnerFlows);
     };
