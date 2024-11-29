@@ -219,17 +219,19 @@
 		}
 	}
 
-	// let lastModules = structuredClone(modules)
-	// $: modules && onModulesChange2(modules)
+	let lastModules = structuredClone(modules)
+	let newModules = modules
+	$: modules && onModulesChange2(modules)
 
-	// function onModulesChange2(modules) {
-	// 	if (!deepEqual(modules, lastModules) || true) {
-	// 		lastModules = structuredClone(modules)
-	// 	}
-	// }
+	function onModulesChange2(modules) {
+		if (!deepEqual(modules, lastModules)) {
+			lastModules = structuredClone(modules)
+			newModules = modules
+		}
+	}
 
 	$: graph = graphBuilder(
-		modules,
+		newModules,
 		{
 			disableAi,
 			insertable,
