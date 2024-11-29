@@ -96,14 +96,6 @@
 				(schedule.args?.startup_duration as number) ?? appReportingStartupDuration
 			screenshotKind = (schedule.args?.kind as 'png' | 'pdf') ?? screenshotKind
 
-			args = schedule.args
-				? Object.fromEntries(
-						Object.entries(schedule.args).filter(
-							([key, _]) => key !== 'app_path' && key !== 'startup_duration' && key !== 'kind'
-						)
-				  )
-				: {}
-
 			selectedTab =
 				flow.value.modules[1]?.value.type === 'script'
 					? flow.value.modules[1].value.path === notificationScripts.email.path
@@ -114,6 +106,17 @@
 						? 'discord'
 						: 'custom'
 					: 'custom'
+
+			const nargs = schedule.args
+				? Object.fromEntries(
+						Object.entries(schedule.args).filter(
+							([key, _]) => key !== 'app_path' && key !== 'startup_duration' && key !== 'kind'
+						)
+				  )
+				: {}
+			setTimeout(() => {
+				args = structuredClone(nargs)
+			})
 
 			customPath =
 				selectedTab === 'custom' &&
@@ -511,7 +514,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 	tooltip="Send a PDF or PNG preview of any app at a given schedule"
 	documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
 	><svelte:fragment slot="actions">
-		<div class="mr-4 center-center -mt-2">
+		<div class="mr-4 center-center">
 			<Toggle
 				checked={appReportingEnabled}
 				options={{ right: 'enable', left: 'disable' }}
