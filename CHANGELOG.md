@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.432.0](https://github.com/windmill-labs/windmill/compare/v1.431.1...v1.432.0) (2024-11-29)
+
+
+### Features
+
+* Parallelize `uv install` ([#4774](https://github.com/windmill-labs/windmill/issues/4774)) ([96371bc](https://github.com/windmill-labs/windmill/commit/96371bc89dfaabdf1e7a9ecd34d13db819985b3f))
+
 ## [1.431.1](https://github.com/windmill-labs/windmill/compare/v1.431.0...v1.431.1) (2024-11-28)
 
 
