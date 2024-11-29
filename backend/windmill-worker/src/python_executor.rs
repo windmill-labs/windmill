@@ -1432,6 +1432,7 @@ pub async fn handle_python_reqs(
     let mut req_paths: Vec<String> = vec![];
     // Find out if there is already cached dependencies
     // If so, skip them
+    let mut in_cache = vec![];
     for req in requirements {
         // Ignore python version annotation backed into lockfile
         if req.starts_with('#') {
@@ -1451,12 +1452,13 @@ pub async fn handle_python_reqs(
         if metadata(&venv_p).await.is_ok() {
             // If dir exists skip installation and push path to output
             req_paths.push(venv_p);
+            in_cache.push(req.to_string());
         } else {
             req_with_penv.push((req.to_string(), venv_p));
         }
     }
-    if req_paths.len() > 0 {
-        append_logs(&job_id, w_id, format!("\nenv deps from local cache: {}\n", req_paths.join(", ")), db).await;
+    if in_cache.len() > 0 {
+        append_logs(&job_id, w_id, format!("\nenv deps from local cache: {}\n", in_cache.join(", ")), db).await;
     }
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
@@ -1777,7 +1779,7 @@ pub async fn handle_python_reqs(
             &job_id,
             w_id,
             format!(
-                "\nEnv set in {}ms\n",
+                "\nenv set in {}ms",
                 total_time
             ),
             db,
