@@ -1558,7 +1558,7 @@ pub async fn handle_python_reqs(
     let mut handles = Vec::with_capacity(total_to_install);
 
     #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-    let is_not_pro =  matches!(get_license_plan().await, LicensePlan::Pro);
+    let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
@@ -1706,9 +1706,16 @@ pub async fn handle_python_reqs(
                 }
             };
 
+            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            let s3_push = is_not_pro;
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+            let s3_push = false;
+
+
             print_success(
                 false,
-                true,
+                s3_push,
                 &job_id,
                 &w_id,
                 &req,
@@ -1721,10 +1728,8 @@ pub async fn handle_python_reqs(
             .await;
 
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                if !is_not_pro {
-                    tracing::warn!("S3 cache not available in the pro plan");
-                } else {
+            if s3_push {
+                if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                     tokio::spawn(build_tar_and_push(os, venv_p.clone(), no_uv_install));
                 }
             }
