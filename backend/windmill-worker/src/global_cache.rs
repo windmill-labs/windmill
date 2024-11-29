@@ -4,13 +4,13 @@ use crate::PIP_CACHE_DIR;
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use object_store::ObjectStore;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
@@ -115,7 +115,7 @@ pub async fn pull_from_tar(
     Ok(())
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use bytes::Buf;
     use tokio::fs::{self};
