@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.434.0](https://github.com/windmill-labs/windmill/compare/v1.433.0...v1.434.0) (2024-11-29)
+
+
+### Features
+
+* indexer extra settings + parallel downloads + many improvements ([#4822](https://github.com/windmill-labs/windmill/issues/4822)) ([088c666](https://github.com/windmill-labs/windmill/commit/088c666a7f9c0f074cdd312e39b79418045dc7db))
+
+
+### Bug Fixes
+
+* improve flow status viwer iteration picker ([a2411bc](https://github.com/windmill-labs/windmill/commit/a2411bcea5abc5388543ef903ec52de04e3a2082))
+
 ## [1.433.0](https://github.com/windmill-labs/windmill/compare/v1.432.0...v1.433.0) (2024-11-29)
 
 
