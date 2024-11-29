@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
 	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -127,8 +126,9 @@
 	export let rightPanelHidden: boolean = false
 	export let bottomPanelHidden: boolean = false
 	export let newApp: boolean
-	export let editPath: string | undefined = undefined
+	export let newPath: string = ''
 
+	let newEditedPath = ''
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
@@ -164,7 +164,6 @@
 		}
 	}
 
-	let newPath: string = ''
 	let pathError: string | undefined = undefined
 	let appExport: AppExportButton
 
@@ -254,11 +253,7 @@
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
-								console.log(
-									x.id,
-									getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
-									columnDefs
-								)
+
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
@@ -387,7 +382,7 @@
 	async function createApp(path: string) {
 		await computeTriggerables()
 		try {
-			const appId = await AppService.createApp({
+			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
 					value: $app,
@@ -410,7 +405,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			goto(`/apps/edit/${appId}`)
+			dispatch('savedNewAppPath', path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -437,7 +432,7 @@
 						replaceFalseWithUndefined({
 							summary: $summary,
 							value: $app,
-							path: newPath || savedApp.draft?.path || savedApp.path,
+							path: newEditedPath || savedApp.draft?.path || savedApp.path,
 							policy
 						})
 					)
@@ -457,7 +452,7 @@
 	async function syncWithDeployed() {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: $workspaceStore!,
-			path: appPath,
+			path: $appPath!,
 			withStarredInfo: true
 		})
 
@@ -478,7 +473,7 @@
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
-			path: appPath,
+			path: $appPath!,
 			requestBody: {
 				value: $app!,
 				summary: $summary,
@@ -501,24 +496,24 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		if (appPath !== npath) {
+		if ($appPath !== npath) {
 			try {
 				localStorage.removeItem(`app-${appPath}`)
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			window.location.pathname = `/apps/edit/${npath}?nodraft=true`
+			dispatch('savedNewAppPath', npath)
 		}
 	}
 
 	let secretUrl: string | undefined = undefined
 
-	$: editPath && editPath != '' && secretUrl == undefined && getSecretUrl()
+	$: $appPath && $appPath != '' && secretUrl == undefined && getSecretUrl()
 
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
 			workspace: $workspaceStore!,
-			path: editPath!
+			path: $appPath
 		})
 	}
 
@@ -526,7 +521,7 @@
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
-			path: appPath,
+			path: $appPath,
 			requestBody: { policy }
 		})
 		if (policy.execution_mode == 'anonymous') {
@@ -551,7 +546,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					value: $app,
-					path: newPath,
+					path: newEditedPath,
 					summary: $summary,
 					policy,
 					draft_only: true
@@ -560,11 +555,11 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: newPath,
+					path: newEditedPath,
 					typ: 'app',
 					value: {
 						value: $app,
-						path: newPath,
+						path: newEditedPath,
 						summary: $summary,
 						policy
 					}
@@ -573,19 +568,19 @@
 			savedApp = {
 				summary: $summary,
 				value: structuredClone($app),
-				path: newPath,
+				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
 					value: structuredClone($app),
-					path: newPath,
+					path: newEditedPath,
 					policy
 				}
 			}
 
 			draftDrawerOpen = false
-			goto(`/apps/edit/${newPath}`)
+			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
 		}
@@ -605,7 +600,7 @@
 		const current = cleanValueProperties({
 			summary: $summary,
 			value: $app,
-			path: newPath || savedApp.draft?.path || savedApp.path,
+			path: newEditedPath || savedApp.draft?.path || savedApp.path,
 			policy
 		})
 		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
@@ -622,7 +617,7 @@
 		loading.saveDraft = true
 		try {
 			await computeTriggerables()
-			let path = editPath ?? ''
+			let path = $appPath
 			if (savedApp.draft_only) {
 				await AppService.deleteApp({
 					workspace: $workspaceStore!,
@@ -634,7 +629,7 @@
 						value: $app!,
 						summary: $summary,
 						policy,
-						path: newPath || path,
+						path: newEditedPath || path,
 						draft_only: true
 					}
 				})
@@ -642,13 +637,13 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: savedApp.draft_only ? newPath || path : path,
+					path: savedApp.draft_only ? newEditedPath || path : path,
 					typ: 'app',
 					value: {
 						value: $app!,
 						summary: $summary,
 						policy,
-						path: newPath || path
+						path: newEditedPath || path
 					}
 				}
 			})
@@ -658,14 +653,15 @@
 					? {
 							summary: $summary,
 							value: structuredClone($app),
-							path: savedApp.draft_only ? newPath || path : path,
-							policy
+							path: savedApp.draft_only ? newEditedPath || path : path,
+							policy,
+							draft_only: true
 					  }
 					: savedApp),
 				draft: {
 					summary: $summary,
 					value: structuredClone($app),
-					path: newPath || path,
+					path: newEditedPath || path,
 					policy
 				}
 			}
@@ -677,8 +673,8 @@
 				console.error('error interacting with local storage', e)
 			}
 			loading.saveDraft = false
-			if (newApp) {
-				goto(`/apps/edit/${newPath || path}`)
+			if (newApp || savedApp.draft_only) {
+				dispatch('savedNewAppPath', newEditedPath || path)
 			}
 		} catch (e) {
 			loading.saveDraft = false
@@ -694,9 +690,9 @@
 		try {
 			const appVersion = await AppService.getAppLatestVersion({
 				workspace: $workspaceStore!,
-				path: appPath
+				path: $appPath
 			})
-			onLatest = version === appVersion?.version
+			onLatest = appVersion?.version === undefined || version === appVersion?.version
 		} catch (e) {
 			console.error('Error comparing versions', e)
 			onLatest = true
@@ -842,7 +838,7 @@
 					current: {
 						summary: $summary,
 						value: $app,
-						path: newPath || savedApp.draft?.path || savedApp.path,
+						path: newEditedPath || savedApp.draft?.path || savedApp.path,
 						policy
 					}
 				})
@@ -900,7 +896,7 @@
 	modifiedValue={{
 		summary: $summary,
 		value: $app,
-		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
 		policy
 	}}
 	additionalExitAction={() => {
@@ -917,12 +913,12 @@
 	currentValue={{
 		summary: $summary,
 		value: $app,
-		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
 		policy
 	}}
 />
 
-{#if appPath == ''}
+{#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
 			<Alert title="Require path" type="info">
@@ -939,7 +935,7 @@
 					on:keydown|stopPropagation
 					bind:value={$summary}
 					on:keyup={() => {
-						if (appPath == '' && $summary?.length > 0 && !dirtyPath) {
+						if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
 							path?.setName(
 								$summary
 									.toLowerCase()
@@ -956,7 +952,7 @@
 				autofocus={false}
 				bind:this={path}
 				bind:error={pathError}
-				bind:path={newPath}
+				bind:path={newEditedPath}
 				bind:dirty={dirtyPath}
 				initialPath=""
 				namePlaceholder="app"
@@ -995,7 +991,7 @@
 				bind:value={$summary}
 				on:keydown|stopPropagation
 				on:keyup={() => {
-					if (appPath == '' && $summary?.length > 0 && !dirtyPath) {
+					if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
 						path?.setName(
 							$summary
 								.toLowerCase()
@@ -1024,8 +1020,8 @@
 			bind:this={path}
 			bind:dirty={dirtyPath}
 			bind:error={pathError}
-			bind:path={newPath}
-			initialPath={appPath}
+			bind:path={newEditedPath}
+			initialPath={newPath}
 			namePlaceholder="app"
 			kind="app"
 			autofocus={false}
@@ -1052,16 +1048,16 @@
 						current: {
 							summary: $summary,
 							value: $app,
-							path: newPath || savedApp.draft?.path || savedApp.path,
+							path: newEditedPath || savedApp.draft?.path || savedApp.path,
 							policy
 						},
 						button: {
 							text: 'Looks good, deploy',
 							onClick: () => {
-								if (appPath == '') {
-									createApp(newPath)
+								if ($appPath == '') {
+									createApp(newEditedPath)
 								} else {
-									handleUpdateApp(newPath)
+									handleUpdateApp(newEditedPath)
 								}
 							}
 						}
@@ -1077,10 +1073,10 @@
 				startIcon={{ icon: Save }}
 				disabled={pathError != ''}
 				on:click={() => {
-					if (appPath == '') {
-						createApp(newPath)
+					if ($appPath == '') {
+						createApp(newEditedPath)
 					} else {
-						handleUpdateApp(newPath)
+						handleUpdateApp(newEditedPath)
 					}
 				}}
 			>
@@ -1088,7 +1084,7 @@
 			</Button>
 		</div>
 		<div class="py-2" />
-		{#if appPath == ''}
+		{#if $appPath == ''}
 			<Alert title="Require saving" type="error">
 				Save this app once before you can publish it
 			</Alert>
@@ -1169,7 +1165,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+		<DeploymentHistory on:restore appPath={$appPath} />
 	</DrawerContent>
 </Drawer>
 
@@ -1425,7 +1421,7 @@
 	</DrawerContent>
 </Drawer>
 
-<AppReportsDrawer bind:open={appReportingDrawerOpen} {appPath} />
+<AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
 <div
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
@@ -1553,7 +1549,7 @@
 			/>
 		</div>
 	{/if}
-	{#if $enterpriseLicense && appPath != ''}
+	{#if $enterpriseLicense && $appPath != ''}
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
@@ -1643,7 +1639,7 @@
 			startIcon={{ icon: Save }}
 			on:click={save}
 			size="xs"
-			dropdownItems={appPath != ''
+			dropdownItems={$appPath != ''
 				? () => [
 						{
 							label: 'Fork',

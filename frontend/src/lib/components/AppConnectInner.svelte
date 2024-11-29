@@ -180,11 +180,15 @@
 
 	function handleStorageEvent(event) {
 		if (event.key === 'oauth-callback') {
-			processPopupData(event.newValue)
-			console.log('OAuth from storage', event.newValue)
-			// Clean up
-			localStorage.removeItem('oauth-callback')
-			window.removeEventListener('storage', handleStorageEvent)
+			try {
+				processPopupData(JSON.parse(event.newValue))
+				console.log('OAuth from storage', event.newValue)
+				// Clean up
+				localStorage.removeItem('oauth-callback')
+				window.removeEventListener('storage', handleStorageEvent)
+			} catch (e) {
+				console.error('Error processing oauth-callback', e)
+			}
 		} else {
 			console.log('Storage event', event.key)
 		}

@@ -77,7 +77,6 @@
 	}
 
 	export function setOriginal(code: string) {
-		console.log('setOriginal', code)
 		diffEditor?.getModel()?.original?.setValue(code)
 		defaultOriginal = code
 	}
@@ -96,7 +95,6 @@
 	}
 
 	export function show(): void {
-		console.log('show')
 		open = true
 	}
 	export function hide(): void {

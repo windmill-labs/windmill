@@ -199,11 +199,15 @@
 
 	function handleStorageEvent(event) {
 		if (event.key === 'oauth-success') {
-			processPopupData(event.newValue)
-			console.log('oauth-success from storage')
-			// Clean up
-			localStorage.removeItem('oauth-success')
-			window.removeEventListener('storage', handleStorageEvent)
+			try {
+				processPopupData(JSON.parse(event.newValue))
+				console.log('oauth-success from storage')
+				// Clean up
+				localStorage.removeItem('oauth-success')
+				window.removeEventListener('storage', handleStorageEvent)
+			} catch (e) {
+				console.error('Could not process oauth-success from storage', e)
+			}
 		} else {
 			console.log('Storage event', event.key)
 		}
