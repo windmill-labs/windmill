@@ -5,7 +5,12 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { DatabaseTriggerService, type DatabaseToTrack, type TableToTrack } from '$lib/gen'
+	import {
+		DatabaseTriggerService,
+		type DatabaseToTrack,
+		type TableToTrack,
+		type TransactionType
+	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -28,13 +33,13 @@
 	let fixedScriptPath = ''
 	let path: string = ''
 	let pathError = ''
-	let urlError = ''
 	let enabled = false
 	let database: DatabaseToTrack
 	let tableToTrack: TableToTrack[] | undefined
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
+	let database_path = ''
 
 	const dispatch = createEventDispatcher()
 
@@ -102,7 +107,12 @@
 					script_path,
 					is_flow,
 					database,
-					table_to_track: tableToTrack
+					table_to_track: tables.map((table) => {
+						return {
+							table_name: table,
+							columns_name: []
+						}
+					})
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -110,12 +120,18 @@
 			await DatabaseTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
+					transaction_type: selected,
 					path,
 					script_path,
 					is_flow,
 					enabled: true,
-					database,
-					table_to_track: tableToTrack
+					database: database_path,
+					table_to_track: tables.map((table) => {
+						return {
+							table_name: table,
+							columns_name: []
+						}
+					})
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -127,7 +143,7 @@
 		drawer.closeDrawer()
 	}
 
-	let selected: 'insert' | 'updated' | 'delete' = 'insert'
+	let selected: TransactionType = 'Insert'
 	let tables: string[] = []
 </script>
 
@@ -163,7 +179,10 @@
 				{/if}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' || urlError != '' || emptyString(script_path) || !can_write}
+					disabled={pathError != '' ||
+						emptyString(database_path) ||
+						emptyString(script_path) ||
+						!can_write}
 					on:click={updateTrigger}
 				>
 					Save
@@ -217,7 +236,7 @@
 						Pick a database to connect to<Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
-						<ResourcePicker resourceType={'database'} />
+						<ResourcePicker bind:value={database_path} resourceType={'database'} />
 					</div>
 				</Section>
 				<Section label="Transactions">
@@ -225,22 +244,23 @@
 						Choose what kind of database transaction you want to track<Required required={true} />
 					</p>
 					<ToggleButtonGroup bind:selected>
-						<ToggleButton value="insert" label="Insert" />
-						<ToggleButton value="update" label="Update" />
-						<ToggleButton value="delete" label="Delete" />
+						<ToggleButton value="Insert" label="Insert" />
+						<ToggleButton value="Update" label="Update" />
+						<ToggleButton value="Delete" label="Delete" />
 					</ToggleButtonGroup>
 				</Section>
 				<Section label="Tables">
-					<p class="text-xs mb-1 text-tertiary">
+					<p class="text-xs mb-3 text-tertiary">
 						Tables will limit the execution of the trigger to only the given tables.<br />
 						If no tables table are choosen, this will be triggered for all tables.
 					</p>
 					<MultiSelect
-						outerDivClass="text-secondary !bg-surface-disabled !border-0"
-						selected={tables}
-						
-						options={[]}
-						selectedOptionsDraggable={false}
+						options={tables}
+						allowUserOptions="append"
+						bind:selected={tables}
+						noMatchingOptionsMsg=""
+						createOptionMsg={null}
+						duplicates={false}
 					/>
 				</Section>
 			</div>

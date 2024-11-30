@@ -6,8 +6,8 @@ use axum::{
 use http::StatusCode;
 use itertools::Itertools;
 use rand::seq::SliceRandom;
-use serde::{Deserialize, Serialize};
-
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::value::to_value;
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
@@ -20,6 +20,14 @@ use windmill_common::{
 };
 
 use crate::db::{ApiAuthed, DB};
+
+#[derive(Clone, Debug, sqlx::Type, Deserialize, Serialize)]
+#[sqlx(type_name = "transaction_type")]
+enum TransactionType {
+    Insert,
+    Update,
+    Delete,
+}
 
 #[derive(FromRow, Serialize, Deserialize)]
 struct Database {
@@ -42,7 +50,7 @@ impl Database {
     }
 }
 
-#[derive(FromRow, Serialize, Deserialize)]
+#[derive(FromRow, Serialize, Deserialize, Debug)]
 struct TableToTrack {
     table_name: String,
     columns_name: Option<Vec<String>>,
@@ -57,10 +65,12 @@ struct EditDatabaseTrigger {
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 
 struct NewDatabaseTrigger {
     path: String,
+    #[serde(deserialize_with = "check_if_valid_transaction_type")]
+    transaction_type: String,
     script_path: String,
     is_flow: bool,
     enabled: bool,
@@ -68,9 +78,24 @@ struct NewDatabaseTrigger {
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
+fn check_if_valid_transaction_type<'de, D>(transaction_type: D) -> std::result::Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let transaction_type = String::deserialize(transaction_type)?;
+    match transaction_type.as_str() {
+        "Insert" | "Update" | "Delete" => Ok(transaction_type),
+        _ => Err(serde::de::Error::custom(
+            "Only the following transaction types are allowed: Insert, Update and Delete"
+                .to_string(),
+        )),
+    }
+}
+
 #[derive(FromRow, Deserialize, Serialize)]
 struct DatabaseTrigger {
     workspace_id: String,
+    transaction_type: TransactionType,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -106,13 +131,21 @@ async fn create_database_trigger(
     Path(w_id): Path<String>,
     Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
-    let NewDatabaseTrigger { database, table_to_track, path, script_path, enabled, is_flow } =
-        new_database_trigger;
+    let NewDatabaseTrigger {
+        database,
+        table_to_track,
+        path,
+        script_path,
+        enabled,
+        is_flow,
+        transaction_type,
+    } = new_database_trigger;
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
     }
+
     let table_to_track = table_to_track.map(|table_to_track| {
         table_to_track
             .into_iter()
@@ -121,10 +154,11 @@ async fn create_database_trigger(
     });
 
     let mut tx = user_db.begin(&authed).await?;
-    sqlx::query_as::<_, DatabaseTrigger>("INSERT INTO database_trigger (workspace_id, path, script_path, is_flow, email, enabled, database, table_to_track, edited_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *")
+    sqlx::query_as::<_, DatabaseTrigger>("INSERT INTO database_trigger (workspace_id, path, script_path, transaction_type, is_flow, email, enabled, database, table_to_track, edited_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()) RETURNING *")
     .bind(&w_id)
     .bind(&path)
     .bind(script_path)
+    .bind(transaction_type)
     .bind(is_flow)
     .bind(&authed.email)
     .bind(enabled)
@@ -219,12 +253,10 @@ async fn update_database_trigger(
         database_trigger;
     let mut tx = user_db.begin(&authed).await?;
 
-    let table_to_track = table_to_track.map(|table_to_track| {
-        table_to_track
-            .into_iter()
-            .map(sqlx::types::Json)
-            .collect_vec()
-    });
+    let table_to_track = table_to_track
+        .into_iter()
+        .map(|table| to_value(table).unwrap())
+        .collect_vec();
 
     sqlx::query!(
         "UPDATE database_trigger SET script_path = $1, path = $2, is_flow = $3, edited_by = $4, email = $5, database = $6, table_to_track = $7, edited_at = now(), error = NULL
@@ -235,7 +267,7 @@ async fn update_database_trigger(
         &authed.username,
         &authed.email,
         database,
-        table_to_track,
+        table_to_track.as_slice(),
         w_id,
         workspace_path,
     )

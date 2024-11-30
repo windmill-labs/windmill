@@ -1,4 +1,5 @@
 -- Add up migration script here
+CREATE TYPE transaction AS ENUM ('Insert', 'Update', 'Delete');
 CREATE TABLE database_trigger(
     path VARCHAR(255) NOT NULL,
     script_path VARCHAR(255) NOT NULL,
@@ -9,6 +10,7 @@ CREATE TABLE database_trigger(
     edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     extra_perms JSONB NOT NULL DEFAULT '{}',
     database VARCHAR(255) NOT NULL,
+    transaction_type transaction NOT NULL,
     table_to_track JSONB[],
     error TEXT NULL,
     server_id VARCHAR(50) NULL,

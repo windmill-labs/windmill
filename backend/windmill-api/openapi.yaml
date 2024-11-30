@@ -12346,6 +12346,13 @@ components:
         - enabled
         - database
 
+    TransactionType:
+      type: string
+      enum:
+        - Insert
+        - Update
+        - Delete
+
     NewDatabaseTrigger:
       type: object
       properties:
@@ -12358,22 +12365,20 @@ components:
         enabled:
           type: boolean
         database:
-          $ref: "#/components/schemas/DatabaseToTrack"
-          required:
-            - username
-            - host
-            - port
+          type: string
         table_to_track:
           type: array
           items:
             $ref: "#/components/schemas/TableToTrack"
-  
+        transaction_type:
+          $ref: "#/components/schemas/TransactionType"
       required:
         - path
         - script_path
         - is_flow
         - enabled
         - database
+        - transaction_type
 
     EditDatabaseTrigger:
       type: object
