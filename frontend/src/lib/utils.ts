@@ -76,14 +76,9 @@ export function displayDate(
 		return ''
 	} else {
 		return date.toLocaleString(undefined, {
-			timeStyle: 'short',
-			dateStyle: 'short'
+			timeStyle: displaySecond ? 'medium' : 'short',
+			dateStyle: displayDate ? 'short' : undefined
 		})
-		// return `${date.toLocaleTimeString([], {
-		// 	hour: '2-digit',
-		// 	minute: '2-digit',
-		// 	second: displaySecond ? '2-digit' : undefined
-		// })}${displayDate ? ` ${date.getDate()}/${date.getMonth() + 1}` : ''}`
 	}
 }
 
