@@ -72,14 +72,18 @@ export function displayDate(
 	displayDate = true
 ): string {
 	const date = new Date(dateString ?? '')
-	if (date.toString() === 'Invalid Date') {
+	if (Number.isNaN(date.valueOf())) {
 		return ''
 	} else {
-		return `${date.toLocaleTimeString([], {
-			hour: '2-digit',
-			minute: '2-digit',
-			second: displaySecond ? '2-digit' : undefined
-		})}${displayDate ? ` ${date.getDate()}/${date.getMonth() + 1}` : ''}`
+		return date.toLocaleString(undefined, {
+			timeStyle: 'short',
+			dateStyle: 'short'
+		})
+		// return `${date.toLocaleTimeString([], {
+		// 	hour: '2-digit',
+		// 	minute: '2-digit',
+		// 	second: displaySecond ? '2-digit' : undefined
+		// })}${displayDate ? ` ${date.getDate()}/${date.getMonth() + 1}` : ''}`
 	}
 }
 
@@ -891,11 +895,10 @@ function replaceFalseWithUndefinedRec(obj: any) {
 				// If the value is false, replace it with undefined
 				if (obj[key] === false) {
 					// delete obj[key];
-					obj[key] = undefined;
-
+					obj[key] = undefined
 				} else {
 					// If the value is an object, call the function recursively
-					replaceFalseWithUndefinedRec(obj[key]);
+					replaceFalseWithUndefinedRec(obj[key])
 				}
 			}
 		}
