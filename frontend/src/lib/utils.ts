@@ -76,8 +76,13 @@ export function displayDate(
 		return ''
 	} else {
 		return date.toLocaleString(undefined, {
-			timeStyle: displaySecond ? 'medium' : 'short',
-			dateStyle: displayDate ? 'short' : undefined
+			hour: '2-digit',
+			minute: '2-digit',
+			second: displayDate ? '2-digit' : undefined,
+
+			day: 'numeric',
+			month: 'numeric',
+			year: undefined
 		})
 	}
 }
