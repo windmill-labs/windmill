@@ -75,14 +75,20 @@ export function displayDate(
 	if (Number.isNaN(date.valueOf())) {
 		return ''
 	} else {
-		return date.toLocaleString(undefined, {
+		const timeChoices: Intl.DateTimeFormatOptions = {
 			hour: '2-digit',
 			minute: '2-digit',
-			second: displayDate ? '2-digit' : undefined,
-
-			day: 'numeric',
-			month: 'numeric',
-			year: undefined
+			second: displaySecond ? '2-digit' : undefined
+		}
+		const dateChoices: Intl.DateTimeFormatOptions = displayDate
+			? {
+					day: 'numeric',
+					month: 'numeric'
+			  }
+			: {}
+		return date.toLocaleString(undefined, {
+			...timeChoices,
+			...dateChoices
 		})
 	}
 }
