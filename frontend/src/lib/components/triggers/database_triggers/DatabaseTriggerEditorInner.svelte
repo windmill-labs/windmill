@@ -251,8 +251,17 @@
 				</Section>
 				<Section label="Tables">
 					<p class="text-xs mb-3 text-tertiary">
-						Tables will limit the execution of the trigger to only the given tables.<br />
-						If no tables table are choosen, this will be triggered for all tables.
+						Tables will limit the execution of the trigger to only the specified tables.<br />
+						If no tables are selected, this will trigger for all tables.<br />
+						<strong
+							>If no fully qualified table names (e.g., <code>schema_name.table_name</code>) are
+							provided, the system will use the default table names from your current database
+							schema for the search.</strong
+						><br />
+						<strong>Example:</strong> If your schema is <code>public</code> and you select a table
+						called <code>users</code>, the system will look for <code>public.users</code> by
+						default. If you wish to specify a different schema, you can provide a fully qualified
+						name like <code>my_schema.users</code>.
 					</p>
 					<MultiSelect
 						options={tables}

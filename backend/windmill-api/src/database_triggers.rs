@@ -1,3 +1,6 @@
+use std::fmt;
+
+use crate::db::{ApiAuthed, DB};
 use axum::{
     extract::{Path, Query},
     routing::{delete, get, post},
@@ -5,7 +8,9 @@ use axum::{
 };
 use http::StatusCode;
 use itertools::Itertools;
+use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
+use rust_postgres::{Client, Config, NoTls, SimpleQueryMessage};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::to_value;
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -19,8 +24,6 @@ use windmill_common::{
     INSTANCE_NAME,
 };
 
-use crate::db::{ApiAuthed, DB};
-
 #[derive(Clone, Debug, sqlx::Type, Deserialize, Serialize)]
 #[sqlx(type_name = "transaction_type")]
 enum TransactionType {
@@ -29,24 +32,133 @@ enum TransactionType {
     Delete,
 }
 
+pub enum Error {
+    Sqlx(sqlx::Error),
+    MissingTables(Vec<String>),
+    Postgres(rust_postgres::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingTables(not_found_tables) => {
+                write!(
+                    f,
+                    "The following tables do not exist in your database: {}",
+                    not_found_tables.join(",")
+                )
+            }
+            Self::Postgres(e) => write!(f, "{}", e),
+            Self::Sqlx(e) => write!(f, "{}", e),
+        }
+    }
+}
+
 #[derive(FromRow, Serialize, Deserialize)]
 struct Database {
     username: String,
+    #[serde(skip_deserializing)]
     password: Option<String>,
     host: String,
     port: u16,
     db_name: String,
+    schema: String,
 }
 
-impl Database {
-    pub fn new(
-        username: String,
-        password: Option<String>,
-        host: String,
-        port: u16,
-        db_name: String,
-    ) -> Self {
-        Self { username, password, host, port, db_name }
+struct PostgresClient {
+    client: Client,
+}
+
+impl PostgresClient {
+    pub async fn new(database: &Database) -> Result<PostgresClient, Error> {
+        let mut config = Config::new();
+
+        config
+            .dbname(&database.db_name)
+            .host(&database.host)
+            .port(database.port)
+            .user(&database.username)
+            .replication_mode(rust_postgres::config::ReplicationMode::Logical);
+
+        if let Some(password) = &database.password {
+            config.password(password);
+        }
+
+        let (client, connection) = config.connect(NoTls).await.map_err(Error::Postgres)?;
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                println!("{:#?}", e);
+            };
+            println!("Connected");
+        });
+
+        Ok(PostgresClient { client })
+    }
+
+    pub async fn check_if_table_exists(
+        &self,
+        db_name: &str,
+        table_to_track: &[&str],
+    ) -> Result<(), Error> {
+        if table_to_track.is_empty() {
+            return Ok(());
+        }
+        let table_names = table_to_track
+            .iter()
+            .map(|table| quote_identifier(table))
+            .join(",");
+
+        let query = format!(
+            r#"WITH target_tables AS (
+                SELECT unnest(ARRAY[{}]) AS table_name
+            )
+            SELECT t.table_name
+            FROM target_tables t
+            LEFT JOIN information_schema.tables ist
+            ON t.table_name = ist.table_name
+            AND ist.table_type = 'BASE TABLE'
+            AND ist.table_catalog = {}
+            AND ist.table_schema NOT IN ('pg_catalog', 'information_schema')
+            WHERE ist.table_name IS NULL;
+            "#,
+            table_names,
+            quote_literal(db_name)
+        );
+
+        let rows = self
+            .client
+            .simple_query(&query)
+            .await
+            .map_err(Error::Postgres)?;
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        Err(Error::MissingTables(
+            rows.into_iter()
+                .filter_map(|row| {
+                    if let SimpleQueryMessage::Row(row) = row {
+                        return Some(row.get("table_name").unwrap().to_string());
+                    }
+                    None
+                })
+                .collect_vec(),
+        ))
+    }
+
+    pub async fn alter_database_schema(&self, schemas: &[&str]) -> Result<(), Error> {
+        let schemas = schemas
+            .iter()
+            .map(|table| quote_identifier(table))
+            .join(",");
+        let query = format!("SET search_path TO {}", schemas);
+        self.client
+            .execute(&query, &[])
+            .await
+            .map_err(Error::Postgres)?;
+        Ok(())
     }
 }
 
@@ -78,7 +190,9 @@ struct NewDatabaseTrigger {
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
-fn check_if_valid_transaction_type<'de, D>(transaction_type: D) -> std::result::Result<String, D::Error>
+fn check_if_valid_transaction_type<'de, D>(
+    transaction_type: D,
+) -> std::result::Result<String, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -108,7 +222,7 @@ struct DatabaseTrigger {
     error: Option<String>,
     enabled: bool,
     database: sqlx::types::Json<Database>,
-    table_to_track: sqlx::types::Json<TableToTrack>,
+    table_to_track: Vec<sqlx::types::Json<TableToTrack>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -377,12 +491,81 @@ async fn set_enabled(
     ))
 }
 
+async fn update_ping(
+    db: &DB,
+    database_trigger: &DatabaseTrigger,
+    error: Option<&str>,
+) -> Option<()> {
+    match sqlx::query_scalar!(
+        "UPDATE database_trigger SET last_server_ping = now(), error = $1 WHERE workspace_id = $2 AND path = $3 AND server_id = $4 AND enabled IS TRUE RETURNING 1",
+        error,
+        database_trigger.workspace_id,
+        database_trigger.path,
+        *INSTANCE_NAME
+    ).fetch_optional(db).await {
+        Ok(updated) => {
+            if updated.flatten().is_none() {
+                tracing::info!("Database {} changed, disabled, or deleted, stopping...", database_trigger.path); 
+                return None;
+            }
+        },
+        Err(err) => {
+            tracing::warn!("Error updating ping of database {}: {:?}", database_trigger.path, err);
+        }
+    };
+
+    Some(())
+}
+
+async fn loop_ping(db: &DB, database_trigger: &DatabaseTrigger, error: Option<&str>) {
+    loop {
+        if update_ping(db, database_trigger, error).await.is_none() {
+            return;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    }
+}
+
 async fn listen_to_transactions(
-    database: Database,
+    database_trigger: DatabaseTrigger,
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
+    let table_to_track = database_trigger
+        .table_to_track
+        .iter()
+        .map(|table| table.table_name.as_str())
+        .collect_vec();
+
+    let client = match PostgresClient::new(&database_trigger.database).await {
+        Ok(client) => client,
+        Err(e) => {
+            update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
+            return;
+        }
+    };
+
+    if let Err(e) = client
+        .check_if_table_exists(
+            &database_trigger.database.db_name,
+            table_to_track.as_slice(),
+        )
+        .await
+    {
+        update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
+        return;
+    };
+
+    tokio::select! {
+        biased;
+        _ = killpill_rx.recv() => {
+            return;
+        },
+        _ = loop_ping(&db, &database_trigger, None) => {
+            return ;
+        }
+    }
 }
 
 async fn try_to_listen_to_database_transactions(
@@ -400,12 +583,7 @@ async fn try_to_listen_to_database_transactions(
     match database_trigger {
         Ok(has_lock) => {
             if has_lock.flatten().unwrap_or(false) {
-                tokio::spawn(listen_to_transactions(
-                    db_trigger.database.0,
-                    db,
-                    rsmq,
-                    killpill_rx,
-                ));
+                tokio::spawn(listen_to_transactions(db_trigger, db, rsmq, killpill_rx));
             } else {
                 tracing::info!("Database {} already being listened to", db_trigger.path);
             }

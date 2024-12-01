@@ -96,8 +96,9 @@ url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit.workspace = true
 tokio-tungstenite.workspace = true
-
+rust-postgres.workspace = true
 pin-project.workspace = true
 http.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
+pg_escape.workspace = true
