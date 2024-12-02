@@ -43,6 +43,7 @@ pub mod stats_ee;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod resource;
 pub mod worker;
 pub mod workspaces;
 

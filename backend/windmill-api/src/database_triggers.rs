@@ -19,13 +19,15 @@ use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
+    resource::get_resource,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
+    variables::get_variable_or_self,
     worker::CLOUD_HOSTED,
     INSTANCE_NAME,
 };
 
 #[derive(Clone, Debug, sqlx::Type, Deserialize, Serialize)]
-#[sqlx(type_name = "transaction_type")]
+#[sqlx(type_name = "transaction")]
 enum TransactionType {
     Insert,
     Update,
@@ -70,7 +72,7 @@ struct PostgresClient {
 }
 
 impl PostgresClient {
-    pub async fn new(database: &Database) -> Result<PostgresClient, Error> {
+    pub async fn new(database: &Database) -> core::result::Result<PostgresClient, Error> {
         let mut config = Config::new();
 
         config
@@ -165,7 +167,7 @@ impl PostgresClient {
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 struct TableToTrack {
     table_name: String,
-    columns_name: Option<Vec<String>>,
+    columns_name: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -182,7 +184,7 @@ struct EditDatabaseTrigger {
 struct NewDatabaseTrigger {
     path: String,
     #[serde(deserialize_with = "check_if_valid_transaction_type")]
-    transaction_type: String,
+    transaction_type: TransactionType,
     script_path: String,
     is_flow: bool,
     enabled: bool,
@@ -192,13 +194,15 @@ struct NewDatabaseTrigger {
 
 fn check_if_valid_transaction_type<'de, D>(
     transaction_type: D,
-) -> std::result::Result<String, D::Error>
+) -> std::result::Result<TransactionType, D::Error>
 where
     D: Deserializer<'de>,
 {
     let transaction_type = String::deserialize(transaction_type)?;
     match transaction_type.as_str() {
-        "Insert" | "Update" | "Delete" => Ok(transaction_type),
+        "Insert" => Ok(TransactionType::Insert),
+        "Update" => Ok(TransactionType::Update),
+        "Delete" => Ok(TransactionType::Delete),
         _ => Err(serde::de::Error::custom(
             "Only the following transaction types are allowed: Insert, Update and Delete"
                 .to_string(),
@@ -221,7 +225,7 @@ struct DatabaseTrigger {
     extra_perms: serde_json::Value,
     error: Option<String>,
     enabled: bool,
-    database: sqlx::types::Json<Database>,
+    database: String,
     table_to_track: Vec<sqlx::types::Json<TableToTrack>>,
 }
 
@@ -260,26 +264,11 @@ async fn create_database_trigger(
         ));
     }
 
-    let table_to_track = table_to_track.map(|table_to_track| {
-        table_to_track
-            .into_iter()
-            .map(sqlx::types::Json)
-            .collect_vec()
-    });
+    let table_to_track = table_to_track.map(|table_to_track| to_value(table_to_track).unwrap());
 
     let mut tx = user_db.begin(&authed).await?;
-    sqlx::query_as::<_, DatabaseTrigger>("INSERT INTO database_trigger (workspace_id, path, script_path, transaction_type, is_flow, email, enabled, database, table_to_track, edited_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()) RETURNING *")
-    .bind(&w_id)
-    .bind(&path)
-    .bind(script_path)
-    .bind(transaction_type)
-    .bind(is_flow)
-    .bind(&authed.email)
-    .bind(enabled)
-    .bind(database)
-    .bind(table_to_track)
-    .bind(&authed.username)
-    .fetch_one(&mut *tx)
+    sqlx::query!("INSERT INTO database_trigger (workspace_id, path, script_path, transaction_type, is_flow, email, enabled, database, table_to_track, edited_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())", &w_id, &path, script_path, transaction_type as TransactionType, is_flow, &authed.email, enabled, database, table_to_track.as_slice(), &authed.username)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
@@ -327,8 +316,15 @@ async fn list_database_triggers(
         .map_err(|e| error::Error::InternalErr(e.to_string()))?;
     let rows = sqlx::query_as::<_, DatabaseTrigger>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
-    tx.commit().await?;
+        .await
+        .map_err(|e| {
+            tracing::debug!("Error fetching database_trigger: {:#?}", e);
+            windmill_common::error::Error::InternalErr("server error".to_string())
+        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::debug!("Error commiting database_trigger: {:#?}", e);
+        windmill_common::error::Error::InternalErr("server error".to_string())
+    })?;
 
     Ok(Json(rows))
 }
@@ -532,13 +528,38 @@ async fn listen_to_transactions(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let table_to_track = database_trigger
-        .table_to_track
-        .iter()
-        .map(|table| table.table_name.as_str())
-        .collect_vec();
+    let resource =
+        get_resource::<Database>(&db, &database_trigger.path, &database_trigger.workspace_id).await;
 
-    let client = match PostgresClient::new(&database_trigger.database).await {
+    let mut resource = match resource {
+        Ok(resource) => resource,
+        Err(e) => {
+            tracing::debug!("Error while retrieve resource: {:#?}", e);
+            update_ping(&db, &database_trigger, Some("Internal server error")).await;
+            return;
+        }
+    };
+
+    if resource.value.password.is_some() {
+        let password = get_variable_or_self(
+            database_trigger.path.clone(),
+            &db,
+            &database_trigger.workspace_id,
+        )
+        .await;
+
+        let password = match password {
+            Ok(password) => password,
+            Err(e) => {
+                tracing::debug!("Error decoded variable: {:#?}", e);
+                update_ping(&db, &database_trigger, Some("Internal server error")).await;
+                return;
+            }
+        };
+        resource.value.password = Some(password)
+    }
+
+    let client = match PostgresClient::new(&resource.value).await {
         Ok(client) => client,
         Err(e) => {
             update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
@@ -546,11 +567,14 @@ async fn listen_to_transactions(
         }
     };
 
+    let table_to_track = database_trigger
+        .table_to_track
+        .iter()
+        .map(|table| table.table_name.as_str())
+        .collect_vec();
+
     if let Err(e) = client
-        .check_if_table_exists(
-            &database_trigger.database.db_name,
-            table_to_track.as_slice(),
-        )
+        .check_if_table_exists(&resource.value.db_name, table_to_track.as_slice())
         .await
     {
         update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
@@ -603,8 +627,8 @@ async fn listen_to_unlistened_database_events(
     rsmq: &Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
-    let database_triggers =  sqlx::query_as::<_, DatabaseTrigger>(
-        r#"SELECT *
+    let database_triggers =  sqlx::query_as!(DatabaseTrigger,
+        r#"SELECT workspace_id, transaction_type as "transaction_type: TransactionType", path, script_path, is_flow, edited_by, email, edited_at, server_id, last_server_ping, extra_perms, error, enabled, database, table_to_track as "table_to_track: &[Json<TableToTrack>]"
             FROM database_trigger
             WHERE enabled IS TRUE AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')"#
     )

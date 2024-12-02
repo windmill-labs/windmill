@@ -42,7 +42,7 @@ use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -60,7 +60,6 @@ use windmill_common::{
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::oauth2_ee::InstanceEvent;
-use crate::variables::{decrypt, encrypt};
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

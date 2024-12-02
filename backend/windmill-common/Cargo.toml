@@ -58,6 +58,7 @@ async-stream.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
+
 semver.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

@@ -18,7 +18,6 @@ use crate::{
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
-    variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -55,7 +54,7 @@ use windmill_common::{
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
-    variables::{build_crypt, build_crypt_with_key_suffix},
+    variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::to_raw_value,
     HUB_BASE_URL,
 };
