@@ -156,7 +156,9 @@
 							{#if $superadmin}
 								<Toggle
 									bind:checked={muteSettings.global}
-									options={{ right: 'Mute critical alerts instance wide' }}
+									options={{
+										right: 'Automatically acknowledge critical alerts instance wide'
+									}}
 									size="xs"
 									stopPropagation={true}
 								/>
@@ -166,7 +168,9 @@
 						<div class="w-full">
 							<Toggle
 								bind:checked={muteSettings.workspace}
-								options={{ right: 'Mute critical alerts for current workspace' }}
+								options={{
+									right: 'Automatically acknowledge critical alerts for current workspace'
+								}}
 								size="xs"
 								stopPropagation={true}
 							/>
