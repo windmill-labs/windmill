@@ -17,11 +17,11 @@
 	export let numUnacknowledgedCriticalAlerts: number
 	export let page = 1
 	export let hasMore = true
-	export let tableHeight = 0
 	export let pageSize = 0
 
 	let tbodyElement: HTMLElement
 	let headerHeight = 0
+	let contentHeight = 0
 
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
@@ -36,12 +36,7 @@
 		}).format(date)
 	}
 
-	$: console.log('dbg tableHeight', tableHeight)
-	$: tableHeight = tbodyElement
-		? tbodyElement.scrollHeight
-			? tbodyElement.scrollHeight
-			: tbodyElement.clientHeight
-		: 0
+	$: availableHeight = (contentHeight - headerHeight - pageSize - 1) / pageSize
 </script>
 
 <div class="relative grow min-h-0 w-full">
@@ -52,6 +47,7 @@
 		on:previous={goToPreviousPage}
 		bind:currentPage={page}
 		{hasMore}
+		bind:contentHeight
 	>
 		<Head>
 			<tr bind:clientHeight={headerHeight}>
@@ -89,11 +85,8 @@
 				{#each alerts as { id, alert_type, message, created_at, acknowledged, workspace_id }}
 					{#if !hideAcknowledged || !acknowledged}
 						<Row disabled={acknowledged}>
-							<Cell>
-								<div
-									class="flex items-center justify-center"
-									style="min-height: {(tableHeight - headerHeight) / pageSize}px"
-								>
+							<Cell class="py-0">
+								<div class="flex items-center justify-center" style="height: {availableHeight}px">
 									{#if alert_type === 'recovered_critical_error'}
 										<span title="Recovered Critical Alert">
 											<CheckCircle2 size="20" color="green" />

@@ -67,45 +67,41 @@
 					close()
 				}}
 			>
-				<div class="h-full">
-					<List gap="md">
-						<div class="flex w-full">
-							<List horizontal justify="between">
-								<h3>{title}</h3>
-								<div class="grow w-min-0">
-									<List horizontal justify="between">
-										<div class="min-w-0 grow">
-											<slot name="header-left" />
-										</div>
-										<div class="min-w-0 grow-0 justify-end">
-											<List horizontal justify="end">
-												<slot name="header-right" />
-												<div class="w-8">
-													<button
-														on:click={() => {
-															isOpen = false
-														}}
-														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
-													>
-														<X class="text-tertiary " />
-													</button>
-												</div>
-											</List>
-										</div>
-									</List>
-								</div>
-							</List>
-						</div>
-
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div class="w-full h-full flex grow min-h-0" on:click|stopPropagation={() => {}}>
-							<div class="w-full">
-								<slot />
+				<List gap="md">
+					<div class="flex w-full">
+						<List horizontal justify="between">
+							<h3>{title}</h3>
+							<div class="grow w-min-0">
+								<List horizontal justify="between">
+									<div class="min-w-0 grow">
+										<slot name="header-left" />
+									</div>
+									<div class="min-w-0 grow-0 justify-end">
+										<List horizontal justify="end">
+											<slot name="header-right" />
+											<div class="w-8">
+												<button
+													on:click={() => {
+														isOpen = false
+													}}
+													class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
+												>
+													<X class="text-tertiary " />
+												</button>
+											</div>
+										</List>
+									</div>
+								</List>
 							</div>
-						</div>
-					</List>
-				</div>
+						</List>
+					</div>
+
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div class="w-full flex grow min-h-0" on:click|stopPropagation={() => {}}>
+						<slot />
+					</div>
+				</List>
 			</div>
 		</div>
 	</div>

@@ -203,7 +203,7 @@
 			filteredAlerts = filteredAlerts.filter((alert) => alert.acknowledged === false)
 		}
 		if (workspaceContext) {
-			filteredAlerts = filteredAlerts.filter((alert) => alert.workspace_id !== null)
+			filteredAlerts = filteredAlerts.filter((alert) => alert.workspace_id === $workspaceStore)
 		}
 		return filteredAlerts
 	}
@@ -212,12 +212,7 @@
 	async function getTotalNumber() {
 		loading = true
 		let alerts = await getCriticalAlerts({ page: 1, pageSize: 1000 })
-		if (hideAcknowledged) {
-			alerts = alerts.filter((alert) => alert.acknowledged === false)
-		}
-		if (workspaceContext) {
-			alerts = alerts.filter((alert) => alert.workspace_id !== null)
-		}
+		alerts = filterAlerts(alerts)
 		totalNumberOfAlerts = alerts.length
 		loading = false
 	}

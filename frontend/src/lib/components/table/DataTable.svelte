@@ -23,24 +23,25 @@
 	export let noBorder: boolean = false
 	export let rowCount: number | undefined = undefined
 	export let hasMore: boolean = true
-	export let fixHeight: number | undefined = undefined
+	export let contentHeight: number = 0
+
+	let footerHeight: number = 0
+	let tableHeight: number = 0
 	const dispatch = createEventDispatcher()
 
 	setContext<DatatableContext>('datatable', {
 		size
 	})
+
+	$: contentHeight = tableHeight - footerHeight
 </script>
 
 <div
-	class={twMerge(
-		'h-full overflow-auto',
-		rounded ? 'rounded-md' : '',
-		noBorder ? 'border-0' : 'border',
-		fixHeight ? `max-h-[${fixHeight}px]` : ''
-	)}
+	class={twMerge('h-full', rounded ? 'rounded-md' : '', noBorder ? 'border-0' : 'border')}
+	bind:clientHeight={tableHeight}
 >
-	<List justify="between">
-		<div class="overflow-auto w-full">
+	<List justify="between" gap="none">
+		<div class="w-full overflow-auto min-h-0 grow">
 			<table class={twMerge('min-w-full divide-y')}>
 				<slot />
 			</table>
@@ -48,6 +49,7 @@
 		{#if paginated && !shouldHidePagination}
 			<div
 				class="w-full bg-surface border-t flex flex-row justify-between p-1 items-center gap-2 sticky bottom-0"
+				bind:clientHeight={footerHeight}
 			>
 				<div>
 					{#if rowCount}
