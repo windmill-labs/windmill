@@ -904,13 +904,12 @@
 	}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 	async function validateCustomPath(customPath: string): Promise<void> {
-		console.log('saved app', savedApp)
 		customPathError = ''
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
 		}
 		validateTimeout = setTimeout(async () => {
-			if (!/^[\w-:]+(\/[\w-:]+)*$/.test(customPath)) {
+			if (!/^[\w-]+(\/[\w-]+)*$/.test(customPath)) {
 				customPathError = 'Invalid path'
 			} else if (customPath !== savedApp?.custom_path && (await appExists(customPath))) {
 				customPathError = 'Path already taken'
