@@ -6,7 +6,7 @@ use crate::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
-    users::{fetch_api_authed, OptAuthed},
+    users::{fetch_api_authed, AuthCache, OptTokened},
 };
 use axum::{
     extract::{Path, Query},
@@ -20,7 +20,7 @@ use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 #[cfg(feature = "parquet")]
@@ -422,7 +422,8 @@ struct TriggerRoute {
 
 async fn get_http_route_trigger(
     route_path: &str,
-    opt_authed: Option<ApiAuthed>,
+    auth_cache: &Arc<AuthCache>,
+    token: Option<&String>,
     db: &DB,
     user_db: UserDB,
 ) -> error::Result<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
@@ -476,6 +477,13 @@ async fn get_http_route_trigger(
         .collect();
 
     let username_override = if trigger.requires_auth {
+        let opt_authed = if let Some(token) = token {
+            auth_cache
+                .get_authed(Some(trigger.workspace_id.clone()), token)
+                .await
+        } else {
+            None
+        };
         if let Some(authed) = opt_authed {
             // check that the user has access to the trigger
             let mut tx = user_db.begin(&authed).await?;
@@ -517,19 +525,27 @@ async fn get_http_route_trigger(
 async fn route_job(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(auth_cache): Extension<Arc<AuthCache>>,
+    OptTokened { token }: OptTokened,
     Path(route_path): Path<StripPath>,
-    OptAuthed(opt_authed): OptAuthed,
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
     mut args: PushArgsOwned,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path();
-    let (trigger, called_path, params, authed) =
-        match get_http_route_trigger(route_path, opt_authed, &db, user_db.clone()).await {
-            Ok(trigger) => trigger,
-            Err(e) => return e.into_response(),
-        };
+    let (trigger, called_path, params, authed) = match get_http_route_trigger(
+        route_path,
+        &auth_cache,
+        token.as_ref(),
+        &db,
+        user_db.clone(),
+    )
+    .await
+    {
+        Ok(trigger) => trigger,
+        Err(e) => return e.into_response(),
+    };
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
@@ -653,7 +669,7 @@ async fn route_job(
                 authed,
                 db,
                 user_db,
-                        trigger.workspace_id.clone(),
+                trigger.workspace_id.clone(),
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
@@ -667,7 +683,7 @@ async fn route_job(
                 run_query,
                 StripPath(trigger.script_path.to_owned()),
                 authed,
-                        user_db,
+                user_db,
                 args,
                 trigger.workspace_id.clone(),
                 label_prefix,
@@ -681,7 +697,7 @@ async fn route_job(
                 authed,
                 db,
                 user_db,
-                        trigger.workspace_id.clone(),
+                trigger.workspace_id.clone(),
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
@@ -695,7 +711,7 @@ async fn route_job(
                 run_query,
                 StripPath(trigger.script_path.to_owned()),
                 authed,
-                        user_db,
+                user_db,
                 trigger.workspace_id.clone(),
                 args,
                 label_prefix,
