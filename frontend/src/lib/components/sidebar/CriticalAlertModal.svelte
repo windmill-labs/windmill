@@ -16,6 +16,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import Notification from '$lib/components/common/alert/Notification.svelte'
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
@@ -85,7 +86,7 @@
 		try {
 			const unacknowledged = await getCriticalAlerts({
 				page: 1,
-				pageSize: 10,
+				pageSize: 1000,
 				acknowledged: false
 			})
 			if (
@@ -128,6 +129,9 @@
 </script>
 
 <Modal2 bind:isOpen={open} title="Critical Alerts" target="#content" fixedSize="lg">
+	<svelte:fragment slot="header-left">
+		<Notification notificationCount={numUnacknowledgedCriticalAlerts} notificationLimit={9999} />
+	</svelte:fragment>
 	<svelte:fragment slot="header-right">
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}

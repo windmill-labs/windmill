@@ -50,9 +50,9 @@
 				<Cell head class="min-w-24 w-full">Message</Cell>
 				<Cell head class="min-w-28">Created At</Cell>
 				{#if $devopsRole}
-					<Cell head class="w-24">Context</Cell>
+					<Cell head class="min-w-24">Context</Cell>
 				{/if}
-				<Cell head last class="w-24">
+				<Cell head last class="min-w-36">
 					<List horizontal gap="sm">
 						<span>Acknowledged</span>
 

@@ -72,18 +72,25 @@
 						<div class="flex w-full">
 							<List horizontal justify="between">
 								<h3>{title}</h3>
-								<div>
-									<List horizontal justify="end">
-										<slot name="header-right" />
-										<div class="w-8">
-											<button
-												on:click={() => {
-													isOpen = false
-												}}
-												class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
-											>
-												<X class="text-tertiary " />
-											</button>
+								<div class="grow w-min-0">
+									<List horizontal justify="between">
+										<div class="min-w-0 grow">
+											<slot name="header-left" />
+										</div>
+										<div class="min-w-0 grow-0 justify-end">
+											<List horizontal justify="end">
+												<slot name="header-right" />
+												<div class="w-8">
+													<button
+														on:click={() => {
+															isOpen = false
+														}}
+														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
+													>
+														<X class="text-tertiary " />
+													</button>
+												</div>
+											</List>
 										</div>
 									</List>
 								</div>
