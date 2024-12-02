@@ -1160,8 +1160,7 @@
 					<div>Public URL</div>
 				</div>
 				{#if secretUrl}
-					{@const url = `${window.location.hostname}/public/${$workspaceStore}/${secretUrl}`}
-					{@const href = window.location.protocol + '//' + url}
+					{@const href = `${window.location.origin}${base}/public/${$workspaceStore}/${secretUrl}`}
 					<ClipboardPanel content={href} size="md" />
 				{:else}<Loader2 class="animate-spin" />
 				{/if}
@@ -1188,7 +1187,7 @@
 						}}
 						checked={customPath !== undefined}
 						options={{
-							right: 'Use a custom path'
+							right: 'Use a custom URL'
 						}}
 						disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
 					/>

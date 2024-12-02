@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Arc};
  */
 
 #[cfg(feature = "enterprise")]
-use crate::users::{Tokened, AuthCache};
+use crate::users::{OptTokened, AuthCache};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
@@ -97,10 +97,19 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
-        .route(
-            "/public_app_by_custom_path/*custom_path",
-            get(get_public_app_by_custom_path),
-        )
+}
+
+#[cfg(feature = "enterprise")]
+pub fn global_unauthed_service() -> Router {
+    Router::new().route(
+        "/public_app_by_custom_path/*custom_path",
+        get(get_public_app_by_custom_path),
+    )
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub fn global_unauthed_service() -> Router {
+    Router::new()
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -627,19 +636,15 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn get_public_app_by_custom_path() -> Result<()> {
-    return Err(Error::BadRequest("App custom paths are an enterprise only feature".to_string()));
-}
-
 #[cfg(feature = "enterprise")]
 async fn get_public_app_by_custom_path(
     Extension(cache): Extension<Arc<AuthCache>>,
-    Tokened { token }: Tokened,
+    OptTokened { token }: OptTokened,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(path): Path<String>,
 ) -> JsonResult<AppWithLastVersionAndWorkspace> {
+
     let (w_id, custom_path) = if *CLOUD_HOSTED {
         match path.split_once('/') {
             Some((w_id, path)) => (Some(w_id), path),
@@ -672,7 +677,11 @@ async fn get_public_app_by_custom_path(
         return Ok(Json(app));
     }
 
-    let opt_authed = cache.get_authed(Some(app.workspace_id.clone()), &token).await;
+    let opt_authed = if let Some(token) = token {
+        cache.get_authed(Some(app.workspace_id.clone()), token.as_str()).await
+    } else {
+        None
+    };
 
     if opt_authed.is_none() {
         {

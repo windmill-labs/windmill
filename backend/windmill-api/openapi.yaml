@@ -3733,7 +3733,7 @@ paths:
                 required:
                   - app
 
-  /apps/public_app_by_custom_path/{custom_path}:
+  /apps_u/public_app_by_custom_path/{custom_path}:
     get:
       summary: get public app by custom path
       operationId: getPublicAppByCustomPath
