@@ -1172,8 +1172,13 @@
 				</div>
 
 				<div class="mt-4">
-					{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
-						<Alert type="warning" title="Admin only">
+					{#if !$enterpriseLicense}
+						<Alert title="EE Only" type="warning" size="xs">
+							Custom path is an enterprise only feature.
+						</Alert>
+						<div class="mb-2" />
+					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
+						<Alert type="warning" title="Admin only" size="xs">
 							Custom path can only be set by workspace admins
 						</Alert>
 						<div class="mb-2" />
@@ -1186,7 +1191,7 @@
 						options={{
 							right: 'Use a custom path'
 						}}
-						disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+						disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
 					/>
 
 					{#if customPath !== undefined}

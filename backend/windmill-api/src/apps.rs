@@ -8,11 +8,13 @@ use std::{collections::HashMap, sync::Arc};
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(feature = "enterprise")]
+use crate::users::{Tokened, AuthCache};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
-    users::{require_owner_of_path, AuthCache, OptAuthed, Tokened},
-    utils::{require_super_admin, WithStarredInfoQuery},
+    users::{require_owner_of_path, OptAuthed},
+    utils::WithStarredInfoQuery,
     variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -56,7 +58,7 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath
     },
     variables::{build_crypt, build_crypt_with_key_suffix},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -151,6 +153,7 @@ pub struct AppWithLastVersionAndStarred {
     pub starred: Option<bool>,
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Serialize, FromRow)]
 pub struct AppWithLastVersionAndWorkspace {
     #[sqlx(flatten)]
@@ -624,6 +627,12 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
+#[cfg(not(feature = "enterprise"))]
+async fn get_public_app_by_custom_path() -> Result<()> {
+    return Err(Error::BadRequest("App custom paths are an enterprise only feature".to_string()));
+}
+
+#[cfg(feature = "enterprise")]
 async fn get_public_app_by_custom_path(
     Extension(cache): Extension<Arc<AuthCache>>,
     Tokened { token }: Tokened,
@@ -776,7 +785,7 @@ async fn create_app(
 
     if let Some(custom_path) = &app.custom_path {
 
-        require_super_admin(&db, &authed.email).await?;
+        require_admin(authed.is_admin, &authed.username)?;
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
@@ -1053,7 +1062,7 @@ async fn update_app(
 
         if let Some(ncustom_path) = &ns.custom_path {
 
-            require_super_admin(&db, &authed.email).await?;
+            require_admin(authed.is_admin, &authed.username)?;
 
             let exists = sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
