@@ -19,7 +19,6 @@
 	export let hasMore = true
 	export let pageSize = 0
 
-	let tbodyElement: HTMLElement
 	let headerHeight = 0
 	let contentHeight = 0
 
@@ -81,7 +80,7 @@
 				<p class="text-center text-gray-500 mt-4">No critical alerts.</p>
 			</div>
 		{:else}
-			<tbody bind:this={tbodyElement} class="divide-y border-b w-full overflow-y-auto">
+			<tbody class="divide-y border-b w-full overflow-y-auto">
 				{#each alerts as { id, alert_type, message, created_at, acknowledged, workspace_id }}
 					{#if !hideAcknowledged || !acknowledged}
 						<Row disabled={acknowledged}>

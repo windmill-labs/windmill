@@ -76,7 +76,6 @@
 	let page = 1
 	let pageSize = 10
 	let hasMore = true
-	let isLoading = false
 	let indexMapping: number[] = [0]
 
 	let hideAcknowledged = false
@@ -100,49 +99,44 @@
 	}
 
 	async function fetchAndFilterAlerts(pageNumber: number) {
-		isLoading = true
-		try {
-			if (indexMapping.length < pageNumber) {
-				indexMapping.push((pageNumber - 1) * pageSize)
-			}
-			let startIndex = indexMapping[pageNumber - 1]
-			let filteredResults: CriticalAlert[] = []
-
-			while (filteredResults.length < pageSize) {
-				const newAlerts = await getCriticalAlerts({
-					page: Math.floor(startIndex / pageSize) + 1,
-					pageSize: pageSize
-				})
-
-				if (newAlerts.length === 0) {
-					hasMore = false
-					break
-				}
-
-				const filtered = filterAlerts(newAlerts)
-				filteredResults.push(...filtered)
-
-				if (filteredResults.length >= pageSize) {
-					const lastAlertIndex =
-						startIndex +
-						newAlerts.findIndex((alert) => alert.id === filteredResults[pageSize - 1]?.id)
-					indexMapping[pageNumber] = lastAlertIndex + 1
-				}
-
-				startIndex += pageSize
-
-				if (newAlerts.length < pageSize) {
-					hasMore = false
-					break
-				}
-			}
-
-			hasMore = filteredResults.length >= pageSize
-
-			return filteredResults.slice(0, pageSize)
-		} finally {
-			isLoading = false
+		if (indexMapping.length < pageNumber) {
+			indexMapping.push((pageNumber - 1) * pageSize)
 		}
+		let startIndex = indexMapping[pageNumber - 1]
+		let filteredResults: CriticalAlert[] = []
+
+		while (filteredResults.length < pageSize) {
+			const newAlerts = await getCriticalAlerts({
+				page: Math.floor(startIndex / pageSize) + 1,
+				pageSize: pageSize
+			})
+
+			if (newAlerts.length === 0) {
+				hasMore = false
+				break
+			}
+
+			const filtered = filterAlerts(newAlerts)
+			filteredResults.push(...filtered)
+
+			if (filteredResults.length >= pageSize) {
+				const lastAlertIndex =
+					startIndex +
+					newAlerts.findIndex((alert) => alert.id === filteredResults[pageSize - 1]?.id)
+				indexMapping[pageNumber] = lastAlertIndex + 1
+			}
+
+			startIndex += pageSize
+
+			if (newAlerts.length < pageSize) {
+				hasMore = false
+				break
+			}
+		}
+
+		hasMore = filteredResults.length >= pageSize
+
+		return filteredResults.slice(0, pageSize)
 	}
 
 	async function getAlerts(reset?: boolean) {
