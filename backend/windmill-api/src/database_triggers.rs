@@ -26,6 +26,8 @@ use windmill_common::{
     INSTANCE_NAME,
 };
 
+use sqlx::types::Json as SqlxJson;
+
 #[derive(Clone, Debug, sqlx::Type, Deserialize, Serialize)]
 #[sqlx(type_name = "transaction")]
 enum TransactionType {
@@ -92,7 +94,7 @@ impl PostgresClient {
             if let Err(e) = connection.await {
                 println!("{:#?}", e);
             };
-            println!("Connected");
+            tracing::info!("Successfully Connected into database");
         });
 
         Ok(PostgresClient { client })
@@ -112,18 +114,23 @@ impl PostgresClient {
             .join(",");
 
         let query = format!(
-            r#"WITH target_tables AS (
-                SELECT unnest(ARRAY[{}]) AS table_name
-            )
-            SELECT t.table_name
-            FROM target_tables t
-            LEFT JOIN information_schema.tables ist
-            ON t.table_name = ist.table_name
-            AND ist.table_type = 'BASE TABLE'
-            AND ist.table_catalog = {}
-            AND ist.table_schema NOT IN ('pg_catalog', 'information_schema')
-            WHERE ist.table_name IS NULL;
-            "#,
+            r#"
+                WITH target_tables AS (
+                    SELECT unnest(ARRAY[{}]) AS table_name
+                )
+                SELECT t.table_name
+                FROM 
+                    target_tables t
+                LEFT JOIN 
+                    information_schema.tables ist
+                ON 
+                    t.table_name = ist.table_name
+                    AND ist.table_type = 'BASE TABLE'
+                    AND ist.table_catalog = {}
+                    AND ist.table_schema NOT IN ('pg_catalog', 'information_schema')
+                WHERE 
+                    ist.table_name IS NULL;
+                "#,
             table_names,
             quote_literal(db_name)
         );
@@ -210,23 +217,23 @@ where
     }
 }
 
-#[derive(FromRow, Deserialize, Serialize)]
+#[derive(FromRow, Deserialize, Serialize, Debug)]
 struct DatabaseTrigger {
-    workspace_id: String,
-    transaction_type: TransactionType,
     path: String,
     script_path: String,
     is_flow: bool,
+    workspace_id: String,
     edited_by: String,
     email: String,
     edited_at: chrono::DateTime<chrono::Utc>,
+    extra_perms: serde_json::Value,
+    database: String,
+    transaction_type: TransactionType,
+    table_to_track: Option<SqlxJson<Vec<TableToTrack>>>,
+    error: Option<String>,
     server_id: Option<String>,
     last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
-    extra_perms: serde_json::Value,
-    error: Option<String>,
     enabled: bool,
-    database: String,
-    table_to_track: Vec<sqlx::types::Json<TableToTrack>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -264,10 +271,48 @@ async fn create_database_trigger(
         ));
     }
 
-    let table_to_track = table_to_track.map(|table_to_track| to_value(table_to_track).unwrap());
+    let table_to_track = to_value(table_to_track).unwrap();
 
     let mut tx = user_db.begin(&authed).await?;
-    sqlx::query!("INSERT INTO database_trigger (workspace_id, path, script_path, transaction_type, is_flow, email, enabled, database, table_to_track, edited_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())", &w_id, &path, script_path, transaction_type as TransactionType, is_flow, &authed.email, enabled, database, table_to_track.as_slice(), &authed.username)
+    sqlx::query!(
+        r#"
+        INSERT INTO database_trigger (
+            workspace_id, 
+            path, 
+            script_path, 
+            transaction_type, 
+            is_flow, 
+            email, 
+            enabled, 
+            database, 
+            table_to_track, 
+            edited_by, 
+            edited_at
+        ) 
+        VALUES (
+            $1, 
+            $2, 
+            $3, 
+            $4, 
+            $5, 
+            $6, 
+            $7, 
+            $8, 
+            $9, 
+            $10, 
+            now()
+        )"#,
+        &w_id,
+        &path,
+        script_path,
+        transaction_type as TransactionType,
+        is_flow,
+        &authed.email,
+        enabled,
+        database,
+        table_to_track,
+        &authed.username
+    )
     .execute(&mut *tx)
     .await?;
 
@@ -296,7 +341,23 @@ async fn list_database_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
     let mut sqlb = SqlBuilder::select_from("database_trigger")
-        .field("*")
+        .fields(&[
+            "workspace_id",
+            "transaction_type",
+            "path",
+            "script_path",
+            "is_flow",
+            "edited_by",
+            "email",
+            "edited_at",
+            "server_id",
+            "last_server_ping",
+            "extra_perms",
+            "error",
+            "enabled",
+            "database",
+            "table_to_track",
+        ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
@@ -321,6 +382,7 @@ async fn list_database_triggers(
             tracing::debug!("Error fetching database_trigger: {:#?}", e);
             windmill_common::error::Error::InternalErr("server error".to_string())
         })?;
+    println!("rows: {:#?}", &rows);
     tx.commit().await.map_err(|e| {
         tracing::debug!("Error commiting database_trigger: {:#?}", e);
         windmill_common::error::Error::InternalErr("server error".to_string())
@@ -336,13 +398,34 @@ async fn get_database_trigger(
 ) -> error::JsonResult<DatabaseTrigger> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
-    let trigger = sqlx::query_as::<_, DatabaseTrigger>(
-        r#"SELECT *
-          FROM database_trigger
-          WHERE workspace_id = $1 AND path = $2"#,
+    let trigger = sqlx::query_as!(
+        DatabaseTrigger,
+        r#"
+        SELECT
+            workspace_id,
+            transaction_type AS "transaction_type: TransactionType",
+            path,
+            script_path,
+            is_flow,
+            edited_by,
+            email,
+            edited_at,
+            server_id,
+            last_server_ping,
+            extra_perms,
+            error,
+            enabled,
+            database,
+            table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
+        FROM 
+            database_trigger
+        WHERE 
+            workspace_id = $1 AND 
+            path = $2
+        "#,
+        &w_id,
+        &path
     )
-    .bind(w_id)
-    .bind(path)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -363,25 +446,37 @@ async fn update_database_trigger(
         database_trigger;
     let mut tx = user_db.begin(&authed).await?;
 
-    let table_to_track = table_to_track
-        .into_iter()
-        .map(|table| to_value(table).unwrap())
-        .collect_vec();
+    let table_to_track = to_value(table_to_track).unwrap();
 
     sqlx::query!(
-        "UPDATE database_trigger SET script_path = $1, path = $2, is_flow = $3, edited_by = $4, email = $5, database = $6, table_to_track = $7, edited_at = now(), error = NULL
-            WHERE workspace_id = $8 AND path = $9",
+        r#"
+            UPDATE database_trigger 
+            SET 
+                script_path = $1, 
+                path = $2, 
+                is_flow = $3, 
+                edited_by = $4, 
+                email = $5, 
+                database = $6, 
+                table_to_track = $7, 
+                edited_at = now(), 
+                error = NULL
+            WHERE 
+                workspace_id = $8 AND 
+                path = $9
+            "#,
         script_path,
         path,
         is_flow,
         &authed.username,
         &authed.email,
         database,
-        table_to_track.as_slice(),
+        table_to_track,
         w_id,
         workspace_path,
     )
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -407,7 +502,12 @@ async fn delete_database_trigger(
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "DELETE FROM database_trigger WHERE workspace_id = $1 AND path = $2",
+        r#"
+        DELETE FROM database_trigger 
+        WHERE 
+            workspace_id = $1 AND 
+            path = $2
+        "#,
         w_id,
         path,
     )
@@ -436,7 +536,14 @@ async fn exists_database_trigger(
 ) -> JsonResult<bool> {
     let path = path.to_path();
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM database_trigger WHERE path = $1 AND workspace_id = $2)",
+        r#"
+        SELECT EXISTS(
+            SELECT 1 
+            FROM database_trigger 
+            WHERE 
+                path = $1 AND 
+                workspace_id = $2
+        )"#,
         path,
         w_id,
     )
@@ -455,16 +562,30 @@ async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
 
-    // important to set server_id, last_server_ping and error to NULL to stop current websocket listener
+    // important to set server_id, last_server_ping and error to NULL to stop current database listener
     let one_o = sqlx::query_scalar!(
-        "UPDATE database_trigger SET enabled = $1, email = $2, edited_by = $3, edited_at = now(), server_id = NULL, error = NULL
-        WHERE path = $4 AND workspace_id = $5 RETURNING 1",
+        r#"
+        UPDATE database_trigger 
+        SET 
+            enabled = $1, 
+            email = $2, 
+            edited_by = $3, 
+            edited_at = now(), 
+            server_id = NULL, 
+            error = NULL
+        WHERE 
+            path = $4 AND 
+            workspace_id = $5 
+        RETURNING 1
+        "#,
         payload.enabled,
         &authed.email,
         &authed.username,
         path,
         w_id,
-    ).fetch_optional(&mut *tx).await?;
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
 
     not_found_if_none(one_o.flatten(), "Database trigger", path)?;
 
@@ -493,20 +614,42 @@ async fn update_ping(
     error: Option<&str>,
 ) -> Option<()> {
     match sqlx::query_scalar!(
-        "UPDATE database_trigger SET last_server_ping = now(), error = $1 WHERE workspace_id = $2 AND path = $3 AND server_id = $4 AND enabled IS TRUE RETURNING 1",
+        r#"
+        UPDATE 
+            database_trigger
+        SET 
+            last_server_ping = now(),
+            error = $1
+        WHERE
+            workspace_id = $2
+            AND path = $3
+            AND server_id = $4 
+            AND enabled IS TRUE
+        RETURNING 1
+        "#,
         error,
         database_trigger.workspace_id,
         database_trigger.path,
         *INSTANCE_NAME
-    ).fetch_optional(db).await {
+    )
+    .fetch_optional(db)
+    .await
+    {
         Ok(updated) => {
             if updated.flatten().is_none() {
-                tracing::info!("Database {} changed, disabled, or deleted, stopping...", database_trigger.path); 
+                tracing::info!(
+                    "Database {} changed, disabled, or deleted, stopping...",
+                    database_trigger.path
+                );
                 return None;
             }
-        },
+        }
         Err(err) => {
-            tracing::warn!("Error updating ping of database {}: {:?}", database_trigger.path, err);
+            tracing::warn!(
+                "Error updating ping of database {}: {:?}",
+                database_trigger.path,
+                err
+            );
         }
     };
 
@@ -567,19 +710,20 @@ async fn listen_to_transactions(
         }
     };
 
-    let table_to_track = database_trigger
-        .table_to_track
-        .iter()
-        .map(|table| table.table_name.as_str())
-        .collect_vec();
+    if let Some(table_to_track) = &database_trigger.table_to_track {
+        let table_to_track = table_to_track
+            .iter()
+            .map(|table| table.table_name.as_str())
+            .collect_vec();
 
-    if let Err(e) = client
-        .check_if_table_exists(&resource.value.db_name, table_to_track.as_slice())
-        .await
-    {
-        update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
-        return;
-    };
+        if let Err(e) = client
+            .check_if_table_exists(&resource.value.db_name, table_to_track.as_slice())
+            .await
+        {
+            update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
+            return;
+        };
+    }
 
     tokio::select! {
         biased;
@@ -598,12 +742,29 @@ async fn try_to_listen_to_database_transactions(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let database_trigger =  sqlx::query_scalar!(
-        "UPDATE database_trigger SET server_id = $1, last_server_ping = now() WHERE enabled IS TRUE AND workspace_id = $2 AND path = $3 AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds') RETURNING true",
+    let database_trigger = sqlx::query_scalar!(
+        r#"
+        UPDATE database_trigger 
+        SET 
+            server_id = $1, 
+            last_server_ping = now() 
+        WHERE 
+            enabled IS TRUE 
+            AND workspace_id = $2 
+            AND path = $3 
+            AND (
+                server_id IS NULL 
+                OR last_server_ping IS NULL 
+                OR last_server_ping < now() - INTERVAL '15 seconds'
+            ) 
+        RETURNING true
+        "#,
         *INSTANCE_NAME,
         db_trigger.workspace_id,
         db_trigger.path,
-    ).fetch_optional(&db).await;
+    )
+    .fetch_optional(&db)
+    .await;
     match database_trigger {
         Ok(has_lock) => {
             if has_lock.flatten().unwrap_or(false) {
@@ -627,10 +788,35 @@ async fn listen_to_unlistened_database_events(
     rsmq: &Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
-    let database_triggers =  sqlx::query_as!(DatabaseTrigger,
-        r#"SELECT workspace_id, transaction_type as "transaction_type: TransactionType", path, script_path, is_flow, edited_by, email, edited_at, server_id, last_server_ping, extra_perms, error, enabled, database, table_to_track as "table_to_track: &[Json<TableToTrack>]"
-            FROM database_trigger
-            WHERE enabled IS TRUE AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')"#
+    let database_triggers = sqlx::query_as!(
+        DatabaseTrigger,
+        r#"
+            SELECT
+                workspace_id,
+                transaction_type AS "transaction_type: TransactionType",
+                path,
+                script_path,
+                is_flow,
+                edited_by,
+                email,
+                edited_at,
+                server_id,
+                last_server_ping,
+                extra_perms,
+                error,
+                enabled,
+                database,
+                table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
+            FROM
+                database_trigger
+            WHERE
+                enabled IS TRUE
+                AND (
+                    server_id IS NULL OR
+                    last_server_ping IS NULL OR
+                    last_server_ping < now() - interval '15 seconds'
+                )
+            "#
     )
     .fetch_all(db)
     .await;
