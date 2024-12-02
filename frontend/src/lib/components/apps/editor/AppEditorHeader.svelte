@@ -1206,7 +1206,7 @@
 							}}
 						/>
 						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-							<div>Full URL</div>
+							<div>Custom public URL</div>
 						</div>
 						<ClipboardPanel content={fullCustomUrl} size="md" />
 
