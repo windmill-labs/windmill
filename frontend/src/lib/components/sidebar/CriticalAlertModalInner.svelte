@@ -17,7 +17,7 @@
 	export let acknowledgeAllCriticalAlerts
 	export let numUnacknowledgedCriticalAlerts
 
-	let alerts: CriticalAlert[] = []
+	let filteredAlerts: CriticalAlert[] = []
 
 	let isRefreshing = false
 	let hasCriticalAlertChannels = true
@@ -76,8 +76,11 @@
 	let page = 1
 	let pageSize = 10
 	let hasMore = true
+	let isLoading = false
+	let indexMapping: number[] = [0]
 
 	let hideAcknowledged = false
+	let workspaceContext = false
 
 	async function acknowledgeAll() {
 		await acknowledgeAllCriticalAlerts()
@@ -87,15 +90,7 @@
 	async function fetchAlerts(pageNumber: number) {
 		isRefreshing = true
 		try {
-			const newAlerts = await getCriticalAlerts({
-				page: pageNumber,
-				pageSize: pageSize,
-				acknowledged: hideAcknowledged ? false : undefined
-			})
-
-			alerts = newAlerts
-			hasMore = newAlerts.length === pageSize
-			page = pageNumber
+			filteredAlerts = await fetchAndFilterAlerts(pageNumber)
 			updateHasUnacknowledgedCriticalAlerts()
 		} finally {
 			setTimeout(() => {
@@ -104,8 +99,57 @@
 		}
 	}
 
+	async function fetchAndFilterAlerts(pageNumber: number) {
+		isLoading = true
+		try {
+			if (indexMapping.length < pageNumber) {
+				indexMapping.push((pageNumber - 1) * pageSize)
+			}
+			let startIndex = indexMapping[pageNumber - 1]
+			let filteredResults: CriticalAlert[] = []
+
+			while (filteredResults.length < pageSize) {
+				const newAlerts = await getCriticalAlerts({
+					page: Math.floor(startIndex / pageSize) + 1,
+					pageSize: pageSize
+				})
+
+				if (newAlerts.length === 0) {
+					hasMore = false
+					break
+				}
+
+				const filtered = filterAlerts(newAlerts)
+				filteredResults.push(...filtered)
+
+				if (filteredResults.length >= pageSize) {
+					const lastAlertIndex =
+						startIndex +
+						newAlerts.findIndex((alert) => alert.id === filteredResults[pageSize - 1]?.id)
+					indexMapping[pageNumber] = lastAlertIndex + 1
+				}
+
+				startIndex += pageSize
+
+				if (newAlerts.length < pageSize) {
+					hasMore = false
+					break
+				}
+			}
+
+			hasMore = filteredResults.length >= pageSize
+
+			return filteredResults.slice(0, pageSize)
+		} finally {
+			isLoading = false
+		}
+	}
+
 	async function getAlerts(reset?: boolean) {
-		if (reset) page = 1
+		if (reset) {
+			page = 1
+			indexMapping = [] // Reset the index mapping when filters change
+		}
 		updateHasUnacknowledgedCriticalAlerts()
 		await fetchAlerts(page)
 	}
@@ -127,13 +171,15 @@
 
 	function goToPreviousPage() {
 		if (page > 1) {
-			fetchAlerts(page - 1)
+			page -= 1
+			fetchAlerts(page)
 		}
 	}
 
 	function goToNextPage() {
 		if (hasMore) {
-			fetchAlerts(page + 1)
+			page += 1
+			fetchAlerts(page)
 		}
 	}
 
@@ -142,14 +188,23 @@
 		instanceSettingsSelectedTab.set('Core')
 	}
 
-	export let workspaceContext = false
-
-	$: {
-		workspaceContextChanged(workspaceContext)
+	function onFiltersChange() {
+		indexMapping = []
+		getAlerts(true)
 	}
 
-	async function workspaceContextChanged(_ctx) {
-		await getAlerts(true)
+	// Update filter change handlers
+	$: hideAcknowledged, workspaceContext, onFiltersChange()
+
+	function filterAlerts(alerts: CriticalAlert[]) {
+		let filteredAlerts = [...alerts]
+		if (hideAcknowledged) {
+			filteredAlerts = filteredAlerts.filter((alert) => alert.acknowledged === false)
+		}
+		if (workspaceContext) {
+			filteredAlerts = filteredAlerts.filter((alert) => alert.workspace_id !== null)
+		}
+		return filteredAlerts
 	}
 </script>
 
@@ -171,7 +226,8 @@
 					{#if $devopsRole}
 						<Toggle
 							bind:checked={workspaceContext}
-							options={{ left: `Workspace: '${$workspaceStore}' only` }}
+							on:change={refreshAlerts}
+							options={{ left: `Workspace only` }}
 							size="xs"
 						/>
 					{/if}
@@ -192,7 +248,7 @@
 	</div>
 
 	<CriticalAlertTable
-		{alerts}
+		alerts={filteredAlerts}
 		{acknowledgeAlert}
 		{hideAcknowledged}
 		{goToNextPage}

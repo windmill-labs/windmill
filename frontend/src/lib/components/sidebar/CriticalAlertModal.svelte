@@ -235,6 +235,5 @@
 		{acknowledgeCriticalAlert}
 		{acknowledgeAllCriticalAlerts}
 		{muteSettings}
-		bind:workspaceContext
 	/>
 </Modal2>

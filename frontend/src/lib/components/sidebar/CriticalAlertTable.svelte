@@ -47,8 +47,8 @@
 		<Head>
 			<tr>
 				<Cell head first class="w-12">Type</Cell>
-				<Cell head class="min-w-24">Message</Cell>
-				<Cell head class="w-26">Created At</Cell>
+				<Cell head class="min-w-24 w-full">Message</Cell>
+				<Cell head class="min-w-28">Created At</Cell>
 				{#if $devopsRole}
 					<Cell head class="w-24">Context</Cell>
 				{/if}
