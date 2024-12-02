@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "code!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "15a5db0202c61ed187d9594311cb32cbde4240e143df1c980843dcdfeef3499e"
+}

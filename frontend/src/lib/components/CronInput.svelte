@@ -19,6 +19,7 @@
 	export let timezone: string // = Intl.DateTimeFormat().resolvedOptions().timeZone
 	export let disabled = false
 	export let validCRON = true
+	export let cronVersion: string = 'v2'
 
 	let preview: string[] = []
 	// If the user has already entered a cron string, switching to the basic tab will override it.
@@ -62,7 +63,7 @@
 	async function handleScheduleInput(input: string, timezone: string): Promise<void> {
 		try {
 			preview = await ScheduleService.previewSchedule({
-				requestBody: { schedule: formatCron(input), timezone }
+				requestBody: { schedule: formatCron(input), timezone, cron_version: cronVersion }
 			})
 			validCRON = true
 		} catch (err) {
@@ -209,6 +210,13 @@
 					<div class="text-red-600 text-xs"> Invalid cron syntax </div>
 				{/if}
 			</svelte:fragment>
+			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1 hover:underline">
+				<a
+					class="text-tertiary"
+					href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
+					target="_blank">Croner</a
+				>
+			</div>
 			<input
 				class="inline-block"
 				type="text"
@@ -384,7 +392,7 @@
 						</Button>
 					</div>
 				</CronBuilder>
-				<CronGen bind:schedule />
+				<CronGen bind:schedule bind:cronVersion />
 			</div>
 		{/if}
 	</div>

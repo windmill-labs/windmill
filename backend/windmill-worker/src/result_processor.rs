@@ -1,4 +1,7 @@
-use opentelemetry::trace::FutureExt;
+use opentelemetry::{
+    global::ObjectSafeSpan,
+    trace::{FutureExt, TraceContextExt},
+};
 use serde::Serialize;
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
@@ -8,6 +11,8 @@ use std::{
         Arc,
     },
 };
+use tracing::{field, Instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use uuid::Uuid;
 
@@ -42,11 +47,12 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{read_result, save_in_cache},
+    job_logger_ee::span_cx_from_job_id,
     worker_flow::update_flow_status_after_job_completion,
     AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
 
-pub fn start_background_processor<R>(
+pub fn start_background_processor(
     mut job_completed_rx: Receiver<SendResult>,
     job_completed_sender: Sender<SendResult>,
     same_worker_queue_size: Arc<AtomicU16>,
@@ -55,14 +61,10 @@ pub fn start_background_processor<R>(
     db: DB,
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
-    rsmq: Option<R>,
     worker_name: String,
     killpill_tx: sync::broadcast::Sender<()>,
     is_dedicated_worker: bool,
-) -> JoinHandle<()>
-where
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
-{
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut has_been_killed = false;
 
@@ -82,8 +84,6 @@ where
 
             match sr {
                 SendResult::JobCompleted(jc) => {
-                    let rsmq = rsmq.clone();
-
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -91,19 +91,68 @@ where
                         JobKind::Dependencies | JobKind::FlowDependencies
                     );
 
-                    handle_receive_completed_job(
+                    let success = jc.success;
+
+                    let span = tracing::span!(
+                        tracing::Level::INFO,
+                        "job_postprocessing",
+                        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+                        // hostname = %hostname,
+                        language = field::Empty,
+                        script_path = field::Empty,
+                        flow_step_id = field::Empty,
+                        parent_job = field::Empty,
+                        otel.name = field::Empty
+                    );
+                    let rj = if let Some(root_job) = jc.job.root_job {
+                        root_job
+                    } else {
+                        jc.job.id
+                    };
+                    span.set_parent(
+                        opentelemetry::Context::new()
+                            .with_remote_span_context(span_cx_from_job_id(&rj)),
+                    );
+                    if let Some(lg) = jc.job.language.as_ref() {
+                        span.record("language", lg.as_str());
+                    }
+                    if let Some(step_id) = jc.job.flow_step_id.as_ref() {
+                        span.record(
+                            "otel.name",
+                            format!("job_postprocessing {}", step_id).as_str(),
+                        );
+                        span.record("flow_step_id", step_id.as_str());
+                    } else {
+                        span.record("otel.name", "job postprocessing");
+                    }
+                    if let Some(parent_job) = jc.job.parent_job.as_ref() {
+                        span.record("parent_job", parent_job.to_string().as_str());
+                    }
+                    if let Some(script_path) = jc.job.script_path.as_ref() {
+                        span.record("script_path", script_path.as_str());
+                    }
+                    if let Some(root_job) = jc.job.root_job.as_ref() {
+                        span.record("root_job", root_job.to_string().as_str());
+                    }
+
+                    let root_job = handle_receive_completed_job(
                         jc,
                         &base_internal_url,
                         &db,
                         &worker_dir,
                         &same_worker_tx,
-                        rsmq,
                         &worker_name,
                         job_completed_sender.clone(),
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
+                    .instrument(span)
                     .await;
+
+                    if let Some(root_job) = root_job {
+                        add_root_flow_job_to_otlp(&root_job, success);
+                        tracing::error!(job_id = %root_job.id, parent_job = ?root_job.parent_job, "ADDDED root job completed");
+                    }
 
                     if is_init_script_and_failure {
                         tracing::error!("init script errored, exiting");
@@ -156,7 +205,6 @@ where
                         same_worker_tx.clone(),
                         &worker_dir,
                         stop_early_override,
-                        rsmq.clone(),
                         &worker_name,
                         job_completed_sender.clone(),
                         #[cfg(feature = "benchmark")]
@@ -186,6 +234,53 @@ where
     })
 }
 
+pub fn add_root_flow_job_to_otlp(queued_job: &QueuedJob, success: bool) {
+    if queued_job.parent_job.is_none() {
+        if let Ok(tracer) = windmill_common::tracing_init::TRACER.read() {
+            if let Some(tracer) = tracer.as_ref() {
+                use opentelemetry::trace::Tracer;
+                let trace_id = opentelemetry::trace::TraceId::from_bytes(
+                    queued_job.id.as_u128().to_be_bytes(),
+                );
+                let span_id = opentelemetry::trace::SpanId::from_bytes(
+                    queued_job.id.as_u64_pair().1.to_be_bytes(),
+                );
+                let started_at = queued_job.started_at.unwrap_or(chrono::Utc::now());
+
+                let mut span = tracer
+                    .span_builder("full_job")
+                    .with_start_time(started_at)
+                    .with_trace_id(trace_id)
+                    .with_span_id(span_id)
+                    .with_attributes(vec![
+                        opentelemetry::KeyValue::new("job_id", queued_job.id.to_string()),
+                        opentelemetry::KeyValue::new(
+                            "workspace_id",
+                            queued_job.workspace_id.clone(),
+                        ),
+                        opentelemetry::KeyValue::new(
+                            "script_path",
+                            queued_job
+                                .script_path
+                                .clone()
+                                .unwrap_or_else(|| "".to_string()),
+                        ),
+                    ])
+                    .start(tracer);
+                if success {
+                    span.set_status(opentelemetry::trace::Status::Ok);
+                } else {
+                    span.set_status(opentelemetry::trace::Status::Error {
+                        description: "Job failed".into(),
+                    });
+                }
+                // span.add_event_with_timestamp("Job completed".into(), SystemTime::now(), vec![]);
+                span.end();
+            }
+        }
+    }
+}
+
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
     job: Arc<QueuedJob>,
@@ -195,8 +290,18 @@ async fn send_job_completed(
     success: bool,
     cached_res_path: Option<String>,
     token: String,
+    duration: Option<i64>,
 ) {
-    let jc = JobCompleted { job, result, mem_peak, canceled_by, success, cached_res_path, token };
+    let jc = JobCompleted {
+        job,
+        result,
+        mem_peak,
+        canceled_by,
+        success,
+        cached_res_path,
+        token,
+        duration,
+    };
     job_completed_tx
         .send(jc)
         .with_context(opentelemetry::Context::current())
@@ -216,6 +321,7 @@ pub async fn process_result(
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
+    duration: Option<i64>,
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
@@ -270,6 +376,7 @@ pub async fn process_result(
                 true,
                 cached_res_path,
                 token,
+                duration,
             )
             .with_context(opentelemetry::Context::current())
             .await;
@@ -314,6 +421,7 @@ pub async fn process_result(
                 false,
                 cached_res_path,
                 token,
+                duration,
             )
             .with_context(opentelemetry::Context::current())
             .await;
@@ -322,19 +430,16 @@ pub async fn process_result(
     }
 }
 
-pub async fn handle_receive_completed_job<
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
->(
+pub async fn handle_receive_completed_job(
     jc: JobCompleted,
     base_internal_url: &str,
     db: &DB,
     worker_dir: &str,
     same_worker_tx: &SameWorkerSender,
-    rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) {
+) -> Option<Arc<QueuedJob>> {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
     let client = AuthedClient {
@@ -346,13 +451,12 @@ pub async fn handle_receive_completed_job<
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
     let canceled_by = jc.canceled_by.clone();
-    if let Err(err) = process_completed_job(
+    match process_completed_job(
         jc,
         &client,
         db,
         &worker_dir,
         same_worker_tx.clone(),
-        rsmq.clone(),
         worker_name,
         job_completed_tx.clone(),
         #[cfg(feature = "benchmark")]
@@ -360,38 +464,39 @@ pub async fn handle_receive_completed_job<
     )
     .await
     {
-        handle_job_error(
-            db,
-            &client,
-            job.as_ref(),
-            mem_peak,
-            canceled_by,
-            err,
-            false,
-            same_worker_tx.clone(),
-            &worker_dir,
-            rsmq.clone(),
-            worker_name,
-            job_completed_tx,
-            #[cfg(feature = "benchmark")]
-            bench,
-        )
-        .await;
+        Err(err) => {
+            handle_job_error(
+                db,
+                &client,
+                job.as_ref(),
+                mem_peak,
+                canceled_by,
+                err,
+                false,
+                same_worker_tx.clone(),
+                &worker_dir,
+                worker_name,
+                job_completed_tx,
+                #[cfg(feature = "benchmark")]
+                bench,
+            )
+            .await;
+            None
+        }
+        Ok(r) => r,
     }
 }
 
-#[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
-pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
+pub async fn process_completed_job(
+    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, duration, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
     same_worker_tx: SameWorkerSender,
-    rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> windmill_common::error::Result<()> {
+) -> windmill_common::error::Result<Option<Arc<QueuedJob>>> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
@@ -411,10 +516,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             Json(&result),
             mem_peak.to_owned(),
             canceled_by,
-            rsmq.clone(),
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            duration,
         )
         .await?;
         drop(job);
@@ -423,8 +526,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
 
         if is_flow_step {
             if let Some(parent_job) = parent_job {
-                tracing::info!(parent_flow = %parent_job, subflow = %job_id, "updating flow status (2)");
-                update_flow_status_after_job_completion(
+                // tracing::info!(parent_flow = %parent_job, subflow = %job_id, "updating flow status (2)");
+                let r = update_flow_status_after_job_completion(
                     db,
                     client,
                     parent_job,
@@ -436,16 +539,16 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     same_worker_tx.clone(),
                     &worker_dir,
                     None,
-                    rsmq.clone(),
                     worker_name,
                     job_completed_tx,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
                 .await?;
+                add_time!(bench, "updated flow status END");
+                return Ok(r);
             }
         }
-        add_time!(bench, "updated flow status END");
     } else {
         let result = add_completed_job_error(
             db,
@@ -455,17 +558,15 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             serde_json::from_str(result.get()).unwrap_or_else(
                 |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
             ),
-            rsmq.clone(),
             worker_name,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            None,
         )
         .await?;
         if job.is_flow_step {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
-                update_flow_status_after_job_completion(
+                let r = update_flow_status_after_job_completion(
                     db,
                     client,
                     parent_job,
@@ -477,21 +578,21 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     same_worker_tx,
                     &worker_dir,
                     None,
-                    rsmq,
                     worker_name,
                     job_completed_tx,
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
                 .await?;
+                return Ok(r);
             }
         }
     }
-    Ok(())
+    return Ok(None);
 }
 
 #[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
-pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_job_error(
     db: &Pool<Postgres>,
     client: &AuthedClient,
     job: &QueuedJob,
@@ -501,7 +602,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     unrecoverable: bool,
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
-    rsmq: Option<R>,
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -511,7 +611,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         _ => json!({"message": err.to_string(), "name": "InternalErr"}),
     };
 
-    let rsmq_2 = rsmq.clone();
     let update_job_future = || async {
         append_logs(
             &job.id,
@@ -526,11 +625,9 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             mem_peak,
             canceled_by.clone(),
             err.clone(),
-            rsmq_2,
             worker_name,
             false,
-            #[cfg(feature = "benchmark")]
-            bench,
+            None,
         )
         .await
     };
@@ -562,7 +659,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             same_worker_tx,
             worker_dir,
             None,
-            rsmq.clone(),
             worker_name,
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
@@ -589,11 +685,9 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                         mem_peak,
                         canceled_by.clone(),
                         e,
-                        rsmq,
                         worker_name,
                         false,
-                        #[cfg(feature = "benchmark")]
-                        bench,
+                        None,
                     )
                     .await;
                 }

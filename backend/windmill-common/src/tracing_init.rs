@@ -8,9 +8,13 @@
 
 use const_format::concatcp;
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::{trace, Resource};
+use opentelemetry_sdk::{
+    trace::{self, Tracer},
+    Resource,
+};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{
+    filter::Targets,
     fmt::{format, Layer},
     prelude::*,
     EnvFilter,
@@ -30,6 +34,7 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
 
 lazy_static::lazy_static! {
     pub static ref JSON_FMT: bool = std::env::var("JSON_FMT").map(|x| x == "true").unwrap_or(false);
+    pub static ref TRACER: Arc<RwLock<Option<Tracer>>> = Arc::new(RwLock::new(None));
 }
 
 pub const LOGS_SERVICE: &str = "logs/services/";
@@ -67,9 +72,9 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
         .build()
         .tracer("windmill");
 
+    *TRACER.write().unwrap() = Some(tracer.clone());
     let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = EnvFilter::from_default_env();
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
     let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
@@ -86,35 +91,52 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
         .finish(file_appender);
     let stdout_and_log_file_writer = std::io::stdout.and(log_file_writer);
 
-    let ts_base = tracing_subscriber::registry().with(env_filter);
+    // let job_logs_filter = tracing_subscriber::filter::Targets::new()
+    //     .with_target("windmill:job_log", tracing::Level::TRACE);
 
-    #[cfg(feature = "loki")]
-    let ts_base = {
-        let (layer, task) = tracing_loki::builder()
-            .build_url(reqwest::Url::parse("http://127.0.0.1:3100").unwrap())
-            .expect("build loki url");
-        tokio::spawn(task);
-        ts_base.with(layer)
-    };
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(tracing::level_filters::LevelFilter::ERROR.into())
+        .from_env_lossy();
+
+    let ts_base = tracing_subscriber::registry().with(env_filter);
 
     match *JSON_FMT {
         true => ts_base
+            .with(opentelemetry)
+            // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
                 json_layer()
                     .with_writer(stdout_and_log_file_writer)
-                    .flatten_event(true),
+                    .flatten_event(true)
+                    .with_filter(
+                        Targets::new()
+                            .with_target(
+                                "windmill:job_log",
+                                tracing::level_filters::LevelFilter::OFF,
+                            )
+                            .with_default(tracing::level_filters::LevelFilter::INFO),
+                    ),
             )
             .with(CountingLayer::new())
             .init(),
         false => ts_base
             .with(opentelemetry)
+            // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
                 compact_layer()
                     .with_writer(stdout_and_log_file_writer)
                     .with_ansi(style.to_lowercase() != "never")
                     .with_file(true)
                     .with_line_number(true)
-                    .with_target(false),
+                    .with_target(false)
+                    .with_filter(
+                        Targets::new()
+                            .with_target(
+                                "windmill:job_log",
+                                tracing::level_filters::LevelFilter::OFF,
+                            )
+                            .with_default(tracing::level_filters::LevelFilter::INFO),
+                    ),
             )
             .with(CountingLayer::new())
             .init(),

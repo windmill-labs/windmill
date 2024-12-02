@@ -57,7 +57,6 @@ mappable-rc.workspace = true
 git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true
-rsmq_async.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
 deno_fetch = { workspace = true, optional = true }
@@ -95,6 +94,7 @@ swc_ecma_parser.workspace = true
 opentelemetry.workspace = true
 tracing-opentelemetry.workspace = true
 
+backon.workspace = true
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }

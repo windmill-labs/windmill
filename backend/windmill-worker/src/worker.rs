@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use opentelemetry::trace::{FutureExt, TraceContextExt};
+use opentelemetry::trace::TraceContextExt;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use windmill_common::{
@@ -18,12 +18,15 @@ use windmill_common::{
     },
 };
 
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::LICENSE_KEY_VALID;
+
 use anyhow::{Context, Result};
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 
-use tracing::{Instrument, Span};
+use tracing::{field, Instrument};
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
@@ -46,7 +49,9 @@ use std::{
 use uuid::Uuid;
 
 use windmill_common::{
+    cache,
     error::{self, to_anyhow, Error},
+    flows::FlowNodeId,
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
@@ -84,31 +89,16 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    ansible_executor::handle_ansible_job,
-    bash_executor::{handle_bash_job, handle_powershell_job},
-    bun_executor::handle_bun_job,
-    common::{
+    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    },
-    deno_executor::handle_deno_job,
-    go_executor::handle_go_job,
-    graphql_executor::do_graphql,
-    handle_child::SLOW_LOGS,
-    handle_job_error,
-    job_logger::NO_LOGS_AT_ALL,
-    js_eval::{eval_fetch_timeout, transpile_ts},
-    mysql_executor::do_mysql,
-    pg_executor::do_postgresql,
-    php_executor::handle_php_job,
-    python_executor::handle_python_job,
-    result_processor::{process_result, start_background_processor},
-    rust_executor::handle_rust_job,
-    worker_flow::{handle_flow, update_flow_status_in_progress, Step},
-    worker_lockfiles::{
+    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, job_logger_ee::span_cx_from_job_id, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{process_result, start_background_processor}, rust_executor::handle_rust_job, worker_flow::{handle_flow, update_flow_status_in_progress, Step}, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    },
+    }
 };
+
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
 
 #[cfg(feature = "enterprise")]
 use crate::dedicated_worker::create_dedicated_worker_map;
@@ -249,6 +239,7 @@ pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
@@ -610,21 +601,6 @@ impl JobCompletedSender {
         &self,
         jc: JobCompleted,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
-        let active_context = opentelemetry::Context::current();
-
-        // Extract the active span from the context
-        let active_span = opentelemetry::trace::TraceContextExt::span(&active_context);
-
-        // Retrieve the SpanContext from the active span
-        let span_context = active_span.span_context();
-
-        if span_context.is_valid() {
-            tracing::error!("Trace ID: {}", span_context.trace_id());
-            tracing::error!("Span ID: {}", span_context.span_id());
-            tracing::error!("Trace Flags: {:?}", span_context.trace_flags());
-        } else {
-            tracing::error!("No valid active span context!");
-        }
         self.0.send(SendResult::JobCompleted(jc)).await
     }
 }
@@ -725,8 +701,7 @@ fn add_outstanding_wait_time(
     }.in_current_span());
 }
 
-#[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name, hostname = %hostname))]
-pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn run_worker(
     db: &Pool<Postgres>,
     hostname: &str,
     worker_name: String,
@@ -736,12 +711,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: tokio::sync::broadcast::Sender<()>,
     base_internal_url: &str,
-    rsmq: Option<R>,
     agent_mode: bool,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
+            worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
         );
     }
@@ -749,10 +724,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
-    tracing::debug!(worker_dir = %worker_dir, "Creating worker dir");
+    tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
     if let Some(ref netrc) = *NETRC {
-        tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
+        tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
@@ -1005,7 +980,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         db.clone(),
         worker_dir.clone(),
         same_worker_tx.clone(),
-        rsmq.clone(),
         worker_name.clone(),
         killpill_tx.clone(),
         is_dedicated_worker,
@@ -1023,6 +997,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(
+        worker = %worker_name, hostname = %hostname,
         "listening for jobs, WORKER_GROUP: {}, config: {:?}",
         *WORKER_GROUP,
         WORKER_CONFIG.read().await
@@ -1056,11 +1031,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     ) = (HashMap::new(), false, vec![]);
 
     if i_worker == 1 {
-        if let Err(e) =
-            queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name, rsmq.clone()).await
-        {
+        if let Err(e) = queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send(()).unwrap_or_default();
-            tracing::error!("Error queuing init bash script for worker {worker_name}: {e:#}");
+            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
     }
@@ -1090,13 +1063,36 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut killed_but_draining_same_worker_jobs = false;
 
     loop {
+        #[cfg(feature = "enterprise")]
+        {
+            if let Ok(_) = killpill_rx.try_recv() {
+                tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received on worker waiting for valid key");
+                job_completed_tx
+                    .0
+                    .send(SendResult::Kill)
+                    .await
+                    .expect("send kill to job completed tx");
+                break;
+            }
+            let valid_key = *LICENSE_KEY_VALID.read().await;
+
+            if !valid_key {
+                tracing::error!(
+                    worker = %worker_name, hostname = %hostname, 
+                    "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
+                );
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        }
+
         #[cfg(feature = "benchmark")]
         let mut bench = BenchmarkIter::new();
 
         #[cfg(feature = "prometheus")]
         if let Some(wk) = worker_busy.as_ref() {
             wk.set(0);
-            tracing::debug!("set worker busy to 0");
+            tracing::debug!(worker = %worker_name, hostname = %hostname, "set worker busy to 0");
         }
 
         occupancy_metrics.running_job_started_at = None;
@@ -1108,7 +1104,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     .try_into()
                     .unwrap(),
             );
-            tracing::debug!("set uptime metric");
+            tracing::debug!(worker = %worker_name, hostname = %hostname, "set uptime metric");
         }
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
@@ -1129,7 +1125,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let (occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m) =
                 occupancy_metrics.update_occupancy_metrics();
 
-            if let Err(e) = sqlx::query!(
+            if let Err(e) = (|| sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
                  occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
                  memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
@@ -1144,11 +1140,27 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 occupancy_rate_15s,
                 occupancy_rate_5m,
                 occupancy_rate_30m
-            ).execute(db).await {
-                tracing::error!("failed to update worker ping, exiting: {}", e);
+            ).execute(db)).retry(
+                ConstantBuilder::default()
+                    .with_delay(std::time::Duration::from_secs(2))
+                    .with_max_times(10)
+                    .build(),
+            )
+            .notify(|err, dur| {
+                tracing::error!(
+                    worker = %worker_name, hostname = %hostname, 
+                    "retrying updating worker ping in {dur:#?}, err: {err:#?}"
+                );
+            })
+            .sleep(tokio::time::sleep)
+            .await {
+                tracing::error!(
+                    worker = %worker_name, hostname = %hostname, 
+                    "failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
             tracing::info!(
+                worker = %worker_name, hostname = %hostname, 
                 "ping update, memory: container={}MB, windmill={}MB",
                 memory_usage.unwrap_or_default() / (1024 * 1024),
                 wm_memory_usage.unwrap_or_default() / (1024 * 1024)
@@ -1160,16 +1172,18 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
             let current_span = tracing::Span::current();
+            let worker_name = worker_name.clone();
+            let hostname = hostname.to_string();
             tokio::task::spawn(
                 (async move {
-                    tracing::info!("vacuuming queue and completed_job");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
                     if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
                         .execute(&db2)
                         .await
                     {
-                        tracing::error!("failed to vacuum queue: {}", e);
+                        tracing::error!(worker = %worker_name, hostname = %hostname, "failed to vacuum queue: {}", e);
                     }
-                    tracing::info!("vacuumed queue and completed_job");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "vacuumed queue");
                 })
                 .instrument(current_span),
             );
@@ -1205,6 +1219,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                 same_worker_queue_size.fetch_sub(1, Ordering::SeqCst);
                 tracing::debug!(
+                    worker = %worker_name, hostname = %hostname, 
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
@@ -1217,6 +1232,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
+                        worker = %worker_name, hostname = %hostname, 
                         "failed to fetch same_worker job on a non recoverable job, exiting"
                     );
                     job_completed_tx
@@ -1230,7 +1246,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 }
             } else if let Ok(_) = killpill_rx.try_recv() {
                 if !killed_but_draining_same_worker_jobs {
-                    tracing::info!("received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
                     killed_but_draining_same_worker_jobs = true;
                     job_completed_tx
                         .0
@@ -1241,10 +1257,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 continue;
             } else if killed_but_draining_same_worker_jobs {
                 if job_completed_processor_is_done.load(Ordering::SeqCst) {
-                    tracing::info!("all running jobs have completed and all completed jobs have been fully processed, exiting");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "all running jobs have completed and all completed jobs have been fully processed, exiting");
                     break;
                 } else {
-                    tracing::info!("there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
@@ -1260,7 +1276,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     last_suspend_first = Instant::now();
                 }
 
-                let job = pull(&db, rsmq.clone(), suspend_first).await;
+                let job = pull(&db, suspend_first).await;
 
                 add_time!(bench, "job pulled from DB");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -1269,7 +1285,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
                 if !agent_mode && duration_pull_s > 0.5 {
                     let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
-                    tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
+                    tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
                         if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
@@ -1280,7 +1296,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     }
                 } else if !agent_mode && duration_pull_s > 0.1 {
                     let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
-                    tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
+                    tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
                         if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
@@ -1334,7 +1350,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                tracing::debug!("started handling of job {}", job.id);
+                tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
                     if !dedicated_workers.is_empty() {
@@ -1371,6 +1387,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             cached_res_path: None,
                             token: "".to_string(),
                             canceled_by: None,
+                            duration: None,
                         })
                         .await
                         .expect("send job completed END");
@@ -1485,6 +1502,40 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let PulledJob { job, raw_code, raw_lock, raw_flow } = job;
                     let arc_job = Arc::new(job);
                     add_time!(bench, "handle_queued_job START");
+
+
+                    let span = tracing::span!(tracing::Level::INFO, "job",
+                            job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
+                            language = field::Empty,
+                            script_path = field::Empty, flow_step_id = field::Empty, parent_job = field::Empty,
+                            otel.name = field::Empty);
+                    let rj = if let Some(root_job) = arc_job.root_job {
+                        root_job
+                    } else {
+                        arc_job.id
+                    };
+                    if let Some(lg) = arc_job.language.as_ref() {
+                        span.record("language", lg.as_str());
+                    }
+                    if let Some(step_id) = arc_job.flow_step_id.as_ref() {
+                        span.record("otel.name", format!("job {}", step_id).as_str());
+                        span.record("flow_step_id", step_id.as_str());
+                    } else {
+                        span.record("otel.name", "job");
+                    }
+                    if let Some(parent_job) = arc_job.parent_job.as_ref() {
+                        span.record("parent_job", parent_job.to_string().as_str());
+                    }
+                    if let Some(script_path) = arc_job.script_path.as_ref() {
+                        span.record("script_path", script_path.as_str());
+                    }
+                    if let Some(root_job) = arc_job.root_job.as_ref() {
+                        span.record("root_job", root_job.to_string().as_str());
+                    }
+
+                    span.set_parent(opentelemetry::Context::new().with_remote_span_context(span_cx_from_job_id(&rj)));
+                    // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
+
                     match handle_queued_job(
                         arc_job.clone(),
                         raw_code,
@@ -1498,12 +1549,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         &job_dir,
                         same_worker_tx.clone(),
                         base_internal_url,
-                        rsmq.clone(),
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
+                    .instrument(span)
                     .await
                     {
                         Err(err) => {
@@ -1517,7 +1568,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                                 false,
                                 same_worker_tx.clone(),
                                 &worker_dir,
-                                rsmq.clone(),
                                 &worker_name,
                                 (&job_completed_tx.0).clone(),
                                 #[cfg(feature = "benchmark")]
@@ -1543,6 +1593,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         }
                         _ => {}
                     }
+
+
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -1583,7 +1635,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 if let Some(secs) = *EXIT_AFTER_NO_JOB_FOR_SECS {
                     if let Some(lj) = last_executed_job {
                         if lj.elapsed().as_secs() > secs {
-                            tracing::info!("no job for {} seconds, exiting", secs);
+                            tracing::info!(worker = %worker_name, hostname = %hostname, "no job for {} seconds, exiting", secs);
                             break;
                         }
                     } else {
@@ -1614,12 +1666,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 });
             }
             Err(err) => {
-                tracing::error!("Failed to pull jobs: {}", err);
+                tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
             }
         };
     }
 
-    tracing::info!("worker {} exiting", worker_name);
+    tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
 
     #[cfg(feature = "benchmark")]
     {
@@ -1634,29 +1686,29 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     if has_dedicated_workers {
         for handle in dedicated_handles {
             if let Err(e) = handle.await {
-                tracing::error!("error in dedicated worker waiting for it to end: {:?}", e)
+                tracing::error!(worker = %worker_name, hostname = %hostname, "error in dedicated worker waiting for it to end: {:?}", e)
             }
         }
-        tracing::info!("all dedicated workers have exited");
+        tracing::info!(worker = %worker_name, hostname = %hostname, "all dedicated workers have exited");
     }
 
     drop(job_completed_tx);
 
+    tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for job_completed_processor to finish processing remaining jobs");
     if let Err(e) = send_result.await {
         tracing::error!("error in awaiting send_result process: {e:?}")
     }
-    tracing::info!("worker {} exited", worker_name);
-    tracing::info!("number of jobs executed: {}", jobs_executed);
+    tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
+    tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
 
-async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+async fn queue_init_bash_maybe<'c>(
     db: &Pool<Postgres>,
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
-    rsmq: Option<R>,
 ) -> error::Result<bool> {
     if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
-        let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let ehm = HashMap::new();
         let (uuid, inner_tx) = push(
             &db,
@@ -1729,6 +1781,7 @@ pub struct JobCompleted {
     pub cached_res_path: Option<String>,
     pub token: String,
     pub canceled_by: Option<CanceledBy>,
+    pub duration: Option<i64>,
 }
 
 async fn do_nativets(
@@ -1773,8 +1826,7 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
-#[tracing::instrument(name = "job", level = "info", skip_all, fields(job_id = %job.id))]
-async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+async fn handle_queued_job(
     job: Arc<QueuedJob>,
     raw_code: Option<String>,
     raw_lock: Option<String>,
@@ -1787,23 +1839,12 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job_dir: &str,
     same_worker_tx: SameWorkerSender,
     base_internal_url: &str,
-    rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
-    let otel_context = Span::current();
-    let ctx = otel_context.context();
-    let span = ctx.span();
-    let cx = span.span_context();
-    if cx.is_valid() {
-        // Access the SpanId
-        let span_id = cx.span_id();
-        tracing::error!("Current OpenTelemetry SpanId: {:?}", span_id);
-    } else {
-        tracing::error!("No OpenTelemetry context found.");
-    }
+
 
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
@@ -1813,7 +1854,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     }
 
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
-    if job.created_by.starts_with("email-") {
+    if job.parent_job.is_none() && job.created_by.starts_with("email-") {
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
         ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
@@ -1867,6 +1908,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         None
     };
 
+    let started = Instant::now();
     let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
         (None, None, None) => sqlx::query!(
             "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
@@ -1883,7 +1925,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
-            format!("script_{}", h.to_string())
+            if matches!(job.job_kind, JobKind::FlowScript) {
+                format!("flowscript_{}", h.to_string())
+            } else {
+                format!("script_{}", h.to_string())
+            }
         } else if let Some(rc) = raw_code.as_ref() {
             use std::hash::Hasher;
             let mut s = DefaultHasher::new();
@@ -1961,6 +2007,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     success: true,
                     cached_res_path: None,
                     token: authed_client.token,
+                    duration: None,
                 })
                 .await
                 .expect("send job completed");
@@ -1980,7 +2027,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             None,
             same_worker_tx,
             worker_dir,
-            rsmq,
             job_completed_tx.0.clone(),
         )
         .await?;
@@ -2037,7 +2083,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
-                    rsmq.clone(),
                     occupancy_metrics,
                 )
                 .await
@@ -2054,7 +2099,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
-                    rsmq.clone(),
                     occupancy_metrics,
                 )
                 .await
@@ -2069,7 +2113,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 worker_dir,
                 base_internal_url,
                 &client.get_token().await,
-                rsmq.clone(),
                 occupancy_metrics,
             )
             .await
@@ -2130,11 +2173,12 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             column_order,
             new_args,
             db,
+            Some(started.elapsed().as_millis() as i64),
         )
-        .with_context(ctx)
         .await
     }
 }
+
 
 pub fn build_envs(
     envs: Option<Vec<String>>,
@@ -2211,38 +2255,16 @@ pub async fn get_script_content_by_hash(
     w_id: &str,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let r = sqlx::query_as::<
-        _,
-        (
-            String,
-            Option<String>,
-            Option<ScriptLang>,
-            Option<Vec<String>>,
-            Option<bool>
-        ),
-    >(
-        "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
-    )
-    .bind(script_hash.0)
-    .bind(w_id)
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
+    let script = cache::script::fetch(db, *script_hash, w_id).await?;
     Ok(ContentReqLangEnvs {
-        content: r.0,
-        lockfile: r.1,
-        language: r.2,
-        envs: r.3,
-        codebase: if r.4.is_some() {
-            let b = r.4.unwrap();
-            let sh = script_hash.to_string();
-            if b {
-                Some(format!("{sh}.tar"))
-            } else {
-                Some(sh)
-            }
-        } else {
-            None
+        content: script.code,
+        lockfile: script.lock,
+        language: script.language,
+        envs: script.envs,
+        codebase: match script.codebase {
+            None => None,
+            Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
+            Some(_) => Some(script_hash.to_string()),
         },
     })
 }
@@ -2296,6 +2318,20 @@ async fn handle_code_execution_job(
                 db,
             )
             .await?
+        }
+        JobKind::FlowScript => {
+            let (lockfile, content) = cache::flow::fetch_script(
+                db,
+                FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            )
+            .await?;
+            ContentReqLangEnvs {
+                content,
+                lockfile,
+                language: job.language.to_owned(),
+                envs: None,
+                codebase: None,
+            }
         }
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?

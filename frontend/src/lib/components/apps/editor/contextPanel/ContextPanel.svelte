@@ -57,8 +57,16 @@
 					<div>
 						<span class="text-xs font-semibold text-secondary p-2">State & Context</span>
 
-						<OutputHeader selectable={false} id={'ctx'} name={'App Context'} first color="blue">
+						<OutputHeader
+							let:render
+							selectable={false}
+							id={'ctx'}
+							name={'App Context'}
+							first
+							color="blue"
+						>
 							<ComponentOutputViewer
+								{render}
 								componentId={'ctx'}
 								on:select={({ detail }) => {
 									$connectingInput = connectInput($connectingInput, 'ctx', detail)
@@ -67,6 +75,7 @@
 						</OutputHeader>
 
 						<OutputHeader
+							let:render
 							selectable={false}
 							id={'state'}
 							name={'State'}
@@ -74,6 +83,7 @@
 							disabled={!hasState}
 						>
 							<ComponentOutputViewer
+								{render}
 								bind:hasContent={hasState}
 								componentId={'state'}
 								on:select={({ detail }) => {

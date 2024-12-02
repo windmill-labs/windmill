@@ -1,4 +1,4 @@
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use crate::PIP_CACHE_DIR;
 
 // #[cfg(feature = "enterprise")]
@@ -7,16 +7,16 @@ use crate::PIP_CACHE_DIR;
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use object_store::ObjectStore;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use std::sync::Arc;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
@@ -24,15 +24,15 @@ pub async fn build_tar_and_push(
 ) -> error::Result<()> {
     use object_store::path::Path;
 
-    use crate::PY311_CACHE_DIR;
+    use crate::{TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR};
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
     let prefix = if no_uv {
-        PIP_CACHE_DIR
+        TAR_PIP_CACHE_DIR
     } else {
-        PY311_CACHE_DIR
+        TAR_PY311_CACHE_DIR
     };
     let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
@@ -81,7 +81,7 @@ pub async fn build_tar_and_push(
     Ok(())
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
+#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 pub async fn pull_from_tar(
     client: Arc<dyn ObjectStore>,
     folder: String,

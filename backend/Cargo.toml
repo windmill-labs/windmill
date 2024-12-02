@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.429.0"
+version = "1.434.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -29,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.429.0"
+version = "1.434.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -83,7 +83,6 @@ chrono.workspace = true
 git-version.workspace = true
 base64.workspace = true
 sha2.workspace = true
-rsmq_async.workspace = true
 url.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true
@@ -230,7 +229,6 @@ async-stripe = { version = "0.39.1", features = [
 ] }
 async_zip = { version = "0.0.11", features = ["full"] }
 once_cell = "1.17.1"
-rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
@@ -295,6 +293,7 @@ triomphe = "^0"
 
 tantivy = "0.22.0"
 
+backon = "1.3.0"
 
 # Macro-related
 proc-macro2 = "1.0"

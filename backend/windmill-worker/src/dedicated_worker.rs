@@ -16,6 +16,7 @@ use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
+    cache,
     error,
     flows::{FlowModule, FlowModuleValue},
     jobs::QueuedJob,
@@ -185,14 +186,14 @@ pub async fn handle_dedicated_process(
                                 let result = Arc::new(result);
                                 append_logs(&job.id, &job.workspace_id,  logs.clone(), db).await;
                                 if line.starts_with("wm_res[success]:") {
-                                    job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap()
+                                    job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap()
                                 } else {
-                                    job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap()
+                                    job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap()
                                 }
                             },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                                job_completed_tx.send(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))),  mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                                job_completed_tx.send(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))),  mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap();
                             },
                         };
                         logs = init_log.clone();
@@ -329,7 +330,7 @@ async fn spawn_dedicated_workers_for_flow(
                     .await;
                     workers.extend(w);
                 }
-                FlowModuleValue::BranchOne { branches, default } => {
+                FlowModuleValue::BranchOne { branches, default, .. } => {
                     for modules in branches
                         .iter()
                         .map(|x| &x.modules)
@@ -392,6 +393,40 @@ async fn spawn_dedicated_workers_for_flow(
                         workers.push(dedi_w);
                     }
                 }
+                FlowModuleValue::FlowScript { id, language, .. } => {
+                    let spawn = cache::flow::fetch_script(db, *id)
+                        .await
+                        .map(|(lock, content)| SpawnWorker::RawScript {
+                            path: "".to_string(),
+                            content,
+                            lock,
+                            lang: language.clone(),
+                        });
+                    match spawn {
+                        Ok(spawn) => {
+                            if let Some(dedi_w) = spawn_dedicated_worker(
+                                spawn,
+                                w_id,
+                                killpill_tx.clone(),
+                                killpill_rx,
+                                db,
+                                worker_dir,
+                                base_internal_url,
+                                worker_name,
+                                job_completed_tx,
+                                Some(module.id.clone()),
+                            )
+                              .await
+                            {
+                                workers.push(dedi_w);
+                            }
+                        },
+                        Err(err) => tracing::error!(
+                            "failed to get script for module: {:?}, err: {:?}",
+                            module, err
+                        )
+                    }
+                },
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }
@@ -422,7 +457,7 @@ pub async fn create_dedicated_worker_map(
         if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
             is_flow_worker = true;
             let value = sqlx::query_scalar!(
-                "SELECT flow_version.value 
+                "SELECT flow_version.value AS \"value!: sqlx::types::Json<Box<sqlx::types::JsonRawValue>>\" 
                 FROM flow 
                 LEFT JOIN flow_version 
                     ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
@@ -434,7 +469,7 @@ pub async fn create_dedicated_worker_map(
             .await;
             if let Ok(v) = value {
                 if let Some(v) = v {
-                    let value = serde_json::from_value::<FlowValue>(v).map_err(|err| {
+                    let value = serde_json::from_str::<FlowValue>(v.get()).map_err(|err| {
                         Error::InternalErr(format!(
                             "could not convert json to flow for {flow_path}: {err:?}"
                         ))
