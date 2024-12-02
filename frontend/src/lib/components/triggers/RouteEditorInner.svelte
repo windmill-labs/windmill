@@ -14,7 +14,6 @@
 	import Label from '$lib/components/Label.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import S3FilePicker from '../S3FilePicker.svelte'
@@ -163,7 +162,7 @@
 
 	let dirtyPath = false
 
-	$: fullRoute = `${$page.url.origin}${base}/api/r/${
+	$: fullRoute = `${window.location.origin}${base}/api/r/${
 		isCloudHosted() ? $workspaceStore + '/' : ''
 	}${route_path}`
 

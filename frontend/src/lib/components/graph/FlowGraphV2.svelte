@@ -41,6 +41,7 @@
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -218,8 +219,19 @@
 		}
 	}
 
+	let lastModules = structuredClone(modules)
+	let newModules = modules
+	$: modules && onModulesChange2(modules)
+
+	function onModulesChange2(modules) {
+		if (!deepEqual(modules, lastModules)) {
+			lastModules = structuredClone(modules)
+			newModules = modules
+		}
+	}
+
 	$: graph = graphBuilder(
-		modules,
+		newModules,
 		{
 			disableAi,
 			insertable,

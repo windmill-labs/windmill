@@ -9,7 +9,7 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Path from './Path.svelte'
 	import { Button, Skeleton } from './common'
 	import ApiConnectForm from './ApiConnectForm.svelte'
@@ -175,9 +175,33 @@
 		}
 
 		window.removeEventListener('message', popupListener)
+		processPopupData(data)
+	}
 
+	function handleStorageEvent(event) {
+		if (event.key === 'oauth-callback') {
+			try {
+				processPopupData(JSON.parse(event.newValue))
+				console.log('OAuth from storage', event.newValue)
+				// Clean up
+				localStorage.removeItem('oauth-callback')
+				window.removeEventListener('storage', handleStorageEvent)
+			} catch (e) {
+				console.error('Error processing oauth-callback', e)
+			}
+		} else {
+			console.log('Storage event', event.key)
+		}
+	}
+
+	onDestroy(() => {
+		window.removeEventListener('message', popupListener)
+		window.removeEventListener('storage', handleStorageEvent)
+	})
+
+	function processPopupData(data) {
 		if (data.type === 'error') {
-			sendUserToast(event.data.error, true)
+			sendUserToast(data.error, true)
 			step = 2
 		} else if (data.type === 'success') {
 			resourceType = data.resource_type
@@ -228,6 +252,7 @@
 			// 	window.location.href = url.toString()
 			// } else {
 			window.addEventListener('message', popupListener)
+			window.addEventListener('storage', handleStorageEvent)
 			window.open(url.toString(), '_blank', 'popup=true')
 			step += 1
 
@@ -250,14 +275,13 @@
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
-
 			if (resourceType == 'snowflake_oauth') {
 				const account_identifier = extra_params.find(([key, _]) => key == 'account_identifier')
 				if (account_identifier) {
 					args['account_identifier'] = account_identifier[1]
 				}
 			}
-			
+
 			let account: number | undefined = undefined
 			if (valueToken?.expires_in != undefined) {
 				account = Number(

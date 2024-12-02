@@ -15,6 +15,9 @@ use windmill_common::{
     },
 };
 
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::LICENSE_KEY_VALID;
+
 use anyhow::{Context, Result};
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
@@ -43,7 +46,9 @@ use std::{
 use uuid::Uuid;
 
 use windmill_common::{
+    cache,
     error::{self, to_anyhow, Error},
+    flows::FlowNodeId,
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
@@ -249,6 +254,7 @@ pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
@@ -1071,6 +1077,28 @@ pub async fn run_worker(
     let mut killed_but_draining_same_worker_jobs = false;
 
     loop {
+        #[cfg(feature = "enterprise")]
+        {
+            if let Ok(_) = killpill_rx.try_recv() {
+                tracing::info!("killpill received on worker waiting for valid key");
+                job_completed_tx
+                    .0
+                    .send(SendResult::Kill)
+                    .await
+                    .expect("send kill to job completed tx");
+                break;
+            }
+            let valid_key = *LICENSE_KEY_VALID.read().await;
+
+            if !valid_key {
+                tracing::error!(
+                    "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
+                );
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        }
+
         #[cfg(feature = "benchmark")]
         let mut bench = BenchmarkIter::new();
 
@@ -1634,6 +1662,7 @@ pub async fn run_worker(
 
     drop(job_completed_tx);
 
+    tracing::info!("waiting for job_completed_processor to finish processing remaining jobs");
     if let Err(e) = send_result.await {
         tracing::error!("error in awaiting send_result process: {e:?}")
     }
@@ -2191,38 +2220,16 @@ pub async fn get_script_content_by_hash(
     w_id: &str,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let r = sqlx::query_as::<
-        _,
-        (
-            String,
-            Option<String>,
-            Option<ScriptLang>,
-            Option<Vec<String>>,
-            Option<bool>
-        ),
-    >(
-        "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
-    )
-    .bind(script_hash.0)
-    .bind(w_id)
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
+    let script = cache::script::fetch(db, *script_hash, w_id).await?;
     Ok(ContentReqLangEnvs {
-        content: r.0,
-        lockfile: r.1,
-        language: r.2,
-        envs: r.3,
-        codebase: if r.4.is_some() {
-            let b = r.4.unwrap();
-            let sh = script_hash.to_string();
-            if b {
-                Some(format!("{sh}.tar"))
-            } else {
-                Some(sh)
-            }
-        } else {
-            None
+        content: script.code,
+        lockfile: script.lock,
+        language: script.language,
+        envs: script.envs,
+        codebase: match script.codebase {
+            None => None,
+            Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
+            Some(_) => Some(script_hash.to_string()),
         },
     })
 }
@@ -2278,13 +2285,9 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = sqlx::query!(
-                "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
+            let (lockfile, content) = cache::flow::fetch_script(db, FlowNodeId(
                 job.script_hash.unwrap_or(ScriptHash(0)).0
-            )
-            .fetch_one(db)
-            .await
-            .map(|record| (record.lock, record.code))?;
+            )).await?;
             ContentReqLangEnvs {
                 content,
                 lockfile,
@@ -2292,7 +2295,7 @@ async fn handle_code_execution_job(
                 envs: None,
                 codebase: None,
             }
-        },
+        }
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
         }

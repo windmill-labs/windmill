@@ -39,6 +39,7 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
 use windmill_common::{
+    cache,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
@@ -2139,7 +2140,7 @@ fn fullpath_with_workspace(
     let path = script_path.map(String::as_str).unwrap_or("tmp/main");
     let is_flow = matches!(
         job_kind,
-        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow
+        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow | &JobKind::FlowNode
     );
     format!(
         "{}/{}/{}",
@@ -3208,6 +3209,25 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
             None,
         ),
+        JobPayload::FlowNode { id, path } => {
+            let value = cache::flow::fetch_flow(_db, id).await?;
+            let status = Some(FlowStatus::new(&value));
+            (
+                Some(id.0),
+                Some(path),
+                None,
+                JobKind::FlowNode,
+                Some(value),
+                status,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        },
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -3965,6 +3985,7 @@ pub async fn push<'c, 'd>(
             JobKind::AppDependencies => "jobs.run.app_dependencies",
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
             JobKind::FlowScript => "jobs.run.flow_script",
+            JobKind::FlowNode => "jobs.run.flow_node",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

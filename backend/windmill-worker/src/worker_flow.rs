@@ -36,7 +36,7 @@ use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
-use windmill_common::flows::add_virtual_items_if_necessary;
+use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
     RawCode, ENTRYPOINT_OVERRIDE,
@@ -333,7 +333,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         Error::InternalErr(format!("retrieval of args from state: {e:#}"))
                     })?;
                     compute_bool_from_expr(
-                        expr.to_string(),
+                        &expr,
                         Marc::new(args.args.unwrap_or_default().0),
                         result.clone(),
                         all_iters,
@@ -862,7 +862,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     })?;
 
                     let should_stop = compute_bool_from_expr(
-                        expr.to_string(),
+                        &expr,
                         Marc::new(args.args.unwrap_or_default().0),
                         nresult.clone(),
                         None,
@@ -1298,11 +1298,11 @@ fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
 }
 
 async fn compute_bool_from_expr(
-    expr: String,
+    expr: &str,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     result: Arc<Box<RawValue>>,
     all_iters: Option<Arc<Box<RawValue>>>,
-    by_id: Option<IdContext>,
+    by_id: Option<&IdContext>,
     client: Option<&AuthedClient>,
     resumes: Option<(Arc<Box<RawValue>>, Arc<Box<RawValue>>, Arc<Box<RawValue>>)>,
     ctx: Option<Vec<(String, String)>>,
@@ -1465,7 +1465,7 @@ async fn transform_input(
                     env.clone(),
                     Some(flow_args.clone()),
                     Some(client),
-                    Some(by_id.clone()),
+                    Some(by_id),
                     None,
                 )
                 .await
@@ -1715,7 +1715,7 @@ async fn push_next_flow_job(
         }
         if let Some(skip_expr) = &flow.skip_expr {
             let skip = compute_bool_from_expr(
-                skip_expr.to_string(),
+                &skip_expr,
                 arc_flow_job_args.clone(),
                 Arc::new(to_raw_value(&json!("{}"))),
                 None,
@@ -2187,11 +2187,11 @@ async fn push_next_flow_job(
     let is_skipped = if let Some(skip_if) = &module.skip_if {
         let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status).await?;
         compute_bool_from_expr(
-            skip_if.expr.to_string(),
+            &skip_if.expr,
             arc_flow_job_args.clone(),
             arc_last_job_result.clone(),
             None,
-            Some(idcontext.clone()),
+            Some(&idcontext),
             Some(client),
             Some((resumes.clone(), resume.clone(), approvers.clone())),
             None,
@@ -2340,15 +2340,15 @@ async fn push_next_flow_job(
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
 
-    let len = match &job_payloads {
-        ContinuePayload::SingleJob(_) => 1,
-        ContinuePayload::BranchAllJobs(payloads) => payloads.len(),
-        ContinuePayload::ForloopJobs { n, .. } => *n,
+    let job_payloads = match job_payloads {
+        ContinuePayload::SingleJob(payload) => vec![payload],
+        ContinuePayload::ParallelJobs(payloads) => payloads,
     };
+    let len = job_payloads.len();
 
     let mut tx = db.begin().await?;
     let nargs = args.as_ref();
-    for i in (0..len).into_iter() {
+    for (i, payload_tag) in job_payloads.into_iter().enumerate() {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             sqlx::query!(
@@ -2361,27 +2361,6 @@ async fn push_next_flow_job(
             .await?;
         }
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushing job {i} of {len}");
-        let payload_tag = match &job_payloads {
-            ContinuePayload::SingleJob(payload) => payload,
-            ContinuePayload::BranchAllJobs(payloads) => &payloads[i],
-            ContinuePayload::ForloopJobs { flow_value, delete_after_use, .. } => {
-                let mut fv = flow_value.clone();
-
-                if let Some(failure_module) = fv.failure_module.as_mut() {
-                    failure_module.id_append(&format!("{}-{i}", &status.step.to_string()));
-                }
-                &JobPayloadWithTag {
-                    payload: JobPayload::RawFlow {
-                        value: fv,
-                        path: Some(format!("{}/forloop-{i}", flow_job.script_path())),
-                        restarted_from: None,
-                    },
-                    tag: None,
-                    delete_after_use: delete_after_use.clone(),
-                    timeout: None,
-                }
-            }
-        };
 
         // compute job-to-be-pushed priority
         // The job definition itself might have its own priority, but as we're running
@@ -2922,8 +2901,7 @@ struct JobPayloadWithTag {
 }
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
-    ForloopJobs { n: usize, flow_value: FlowValue, delete_after_use: bool },
-    BranchAllJobs(Vec<JobPayloadWithTag>),
+    ParallelJobs(Vec<JobPayloadWithTag>),
 }
 
 enum NextFlowTransform {
@@ -2948,6 +2926,37 @@ fn insert_iter_arg(
         );
     }
     args.insert(desired_key, value);
+}
+
+fn payload_from_modules<'a>(
+    mut modules: Vec<FlowModule>,
+    modules_node: Option<FlowNodeId>,
+    failure_module: Option<&Box<FlowModule>>,
+    same_worker: bool,
+    id: impl FnOnce() -> String,
+    path: impl FnOnce() -> String,
+    opt_empty_inner_flows: bool,
+) -> Option<JobPayload> {
+    if opt_empty_inner_flows && modules.is_empty() && modules_node.is_none() {
+        return None;
+    }
+
+    if let Some(id) = modules_node {
+        return Some(JobPayload::FlowNode { id, path: path() });
+    }
+    
+    add_virtual_items_if_necessary(&mut modules);
+
+    let mut failure_module = failure_module.cloned();
+    if let Some(failure_module) = failure_module.as_mut() {
+        failure_module.id_append(&id());
+    }
+
+    Some(JobPayload::RawFlow {
+        value: FlowValue { modules, failure_module, same_worker, ..Default::default() },
+        path: Some(path()),
+        restarted_from: None,
+    })
 }
 
 async fn compute_next_flow_transform(
@@ -2998,7 +3007,7 @@ async fn compute_next_flow_transform(
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
-            let payload = flow_to_payload(&path, &delete_after_use);
+            let payload = flow_to_payload(path, delete_after_use);
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
@@ -3006,7 +3015,7 @@ async fn compute_next_flow_transform(
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             let payload =
-                script_to_payload(&script_hash, &script_path, db, flow_job, module, &tag_override)
+                script_to_payload(script_hash, script_path, db, flow_job, module, tag_override)
                     .await?;
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
@@ -3037,15 +3046,15 @@ async fn compute_next_flow_transform(
             });
             let payload = raw_script_to_payload(
                 path,
-                &content,
-                &language,
-                &lock,
-                &custom_concurrency_key,
-                &concurrent_limit,
-                &concurrency_time_window_s,
+                content,
+                language,
+                lock,
+                custom_concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
                 module,
-                &tag,
-                &delete_after_use,
+                tag,
+                delete_after_use,
             );
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
@@ -3080,9 +3089,9 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         },
-        FlowModuleValue::WhileloopFlow { modules, .. } => {
+        FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = is_simple_modules(&modules, flow);
+            let is_simple = is_simple_modules(&modules, flow.failure_module.as_ref());
             let (flow_jobs, flow_jobs_success) = match status_module {
                 FlowStatusModule::InProgress {
                     flow_jobs: Some(flow_jobs),
@@ -3106,7 +3115,8 @@ async fn compute_next_flow_transform(
                     },
                     while_loop: true,
                 },
-                &modules,
+                modules,
+                modules_node,
                 flow_job,
                 is_simple,
                 db,
@@ -3116,9 +3126,9 @@ async fn compute_next_flow_transform(
             .await
         }
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
-        FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
+        FlowModuleValue::ForloopFlow { modules, modules_node, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = !parallel && is_simple_modules(&modules, flow);
+            let is_simple = !parallel && is_simple_modules(&modules, flow.failure_module.as_ref());
 
             // if is_simple {
             //     match value {
@@ -3154,7 +3164,8 @@ async fn compute_next_flow_transform(
                         flow,
                         status,
                         ns,
-                        &modules,
+                        modules,
+                        modules_node,
                         flow_job,
                         is_simple,
                         db,
@@ -3164,67 +3175,62 @@ async fn compute_next_flow_transform(
                     .await
                 }
                 ForLoopStatus::ParallelIteration { itered, .. } => {
-                    if modules.is_empty() {
-                        return Ok(NextFlowTransform::EmptyInnerFlows);
-                    } else {
-                        // let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
-                        // let value = &modules[0].get_value()?;
+                    // let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
+                    // let value = &modules[0].get_value()?;
 
-                        // we removed the is_simple_case
-                        // if is_simple {
-                        //     let payload =
-                        //         payload_from_simple_module(value, db, flow_job, module, inner_path)
-                        //             .await?;
-                        //     ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
-                        // } else {
+                    // we removed the is_simple_case
+                    // if is_simple {
+                    //     let payload =
+                    //         payload_from_simple_module(value, db, flow_job, module, inner_path)
+                    //             .await?;
+                    //     ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
+                    // } else {
 
-                        let continue_payload = {
-                            let flow_value = FlowValue {
-                                modules,
-                                failure_module: flow.failure_module.clone(),
-                                same_worker: flow.same_worker,
-                                concurrent_limit: None,
-                                concurrency_time_window_s: None,
-                                skip_expr: None,
-                                cache_ttl: None,
-                                priority: None,
-                                early_return: None,
-                                concurrency_key: None,
-                                preprocessor_module: None,
+                    let payloads = (0..itered.len())
+                        .into_iter()
+                        .filter_map(|i| {
+                            let Some(payload) = payload_from_modules(
+                                modules.clone(), modules_node, flow.failure_module.as_ref(), flow.same_worker,
+                                || format!("{}-{i}", status.step),
+                                || format!("{}/forloop-{i}", flow_job.script_path()),
+                                true
+                            ) else {
+                                return None;
                             };
-                            ContinuePayload::ForloopJobs {
-                                n: itered.len(),
-                                flow_value,
-                                delete_after_use,
-                            }
-                        };
-                        Ok(NextFlowTransform::Continue(
-                            continue_payload,
-                            NextStatus::AllFlowJobs {
-                                branchall: None,
-                                iterator: Some(windmill_common::flow_status::Iterator {
-                                    index: 0,
-                                    itered,
-                                }),
-                                // we removed the is_simple_case for simple_input_transforms
-                                // if is_simple {
-                                //     match value {
-                                //         FlowModuleValue::Script { input_transforms, .. }
-                                //         | FlowModuleValue::RawScript { input_transforms, .. }
-                                //         | FlowModuleValue::FlowScript { input_transforms, .. }
-                                //         | FlowModuleValue::Flow { input_transforms, .. } => {
-                                //             Some(input_transforms.clone())
-                                //         }
-                                //         _ => None,
-                                //     }
-                                simple_input_transforms: None,
-                            },
-                        ))
+                            Some(JobPayloadWithTag {
+                                payload, tag: None, delete_after_use, timeout: None
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if payloads.is_empty() {
+                        return Ok(NextFlowTransform::EmptyInnerFlows);
                     }
+                    Ok(NextFlowTransform::Continue(
+                        ContinuePayload::ParallelJobs(payloads),
+                        NextStatus::AllFlowJobs {
+                            branchall: None,
+                            iterator: Some(windmill_common::flow_status::Iterator {
+                                index: 0,
+                                itered,
+                            }),
+                            // we removed the is_simple_case for simple_input_transforms
+                            // if is_simple {
+                            //     match value {
+                            //         FlowModuleValue::Script { input_transforms, .. }
+                            //         | FlowModuleValue::RawScript { input_transforms, .. }
+                            //         | FlowModuleValue::FlowScript { input_transforms, .. }
+                            //         | FlowModuleValue::Flow { input_transforms, .. } => {
+                            //             Some(input_transforms.clone())
+                            //         }
+                            //         _ => None,
+                            //     }
+                            simple_input_transforms: None,
+                        },
+                    ))
                 }
             }
         }
-        FlowModuleValue::BranchOne { branches, default, .. } => {
+        FlowModuleValue::BranchOne { branches, default, default_node } => {
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
                 | FlowStatusModule::WaitingForEvents { .. }
@@ -3233,11 +3239,11 @@ async fn compute_next_flow_transform(
                     let idcontext = get_transform_context(&flow_job, previous_id, &status).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
-                            b.expr.to_string(),
+                            &b.expr,
                             arc_flow_job_args.clone(),
                             arc_last_job_result.clone(),
                             None,
-                            Some(idcontext.clone()),
+                            Some(&idcontext),
                             Some(client),
                             Some((resumes.clone(), resume.clone(), approvers.clone())),
                             None,
@@ -3256,51 +3262,28 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let mut modules = if let BranchChosen::Branch { branch } = branch {
-                branches
-                    .get(branch)
-                    .map(|b| b.modules.clone())
-                    .ok_or_else(|| {
-                        Error::BadRequest(format!(
-                            "Unrecognized branch for BranchAll {status_module:?}"
-                        ))
-                    })?
-            } else {
-                default.clone()
+            
+            let (modules, modules_node) = match branch {
+                BranchChosen::Default => (default, default_node),
+                BranchChosen::Branch { branch } => branches
+                    .into_iter()
+                    .nth(branch)
+                    .map(|Branch { modules, modules_node, .. }| (modules, modules_node))
+                    .ok_or_else(|| Error::BadRequest(format!("Unrecognized branch for BranchOne {status_module:?}")))?
             };
-            add_virtual_items_if_necessary(&mut modules);
 
-            let mut fm = flow.failure_module.clone();
-            if let Some(mut failure_module) = flow.failure_module.clone() {
-                failure_module.id_append(&status.step.to_string());
-                fm = Some(failure_module);
-            }
+            let Some(payload) = payload_from_modules(
+                modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
+                || status.step.to_string(),
+                || format!("{}/branchone-{}", flow_job.script_path(), status.step),
+                true
+            ) else {
+                return Ok(NextFlowTransform::EmptyInnerFlows);
+            };
+
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
-                    payload: JobPayload::RawFlow {
-                        value: FlowValue {
-                            modules,
-                            failure_module: fm,
-                            same_worker: flow.same_worker,
-                            concurrent_limit: None,
-                            concurrency_time_window_s: None,
-                            skip_expr: None,
-                            cache_ttl: None,
-                            priority: None,
-                            early_return: None,
-                            concurrency_key: None,
-                            preprocessor_module: None,
-                        },
-                        path: Some(format!(
-                            "{}/branchone-{}",
-                            flow_job.script_path(),
-                            status.step
-                        )),
-                        restarted_from: None,
-                    },
-                    tag: None,
-                    delete_after_use: delete_after_use,
-                    timeout: None,
+                    payload, tag: None, delete_after_use, timeout: None
                 }),
                 NextStatus::BranchChosen(branch),
             ))
@@ -3313,53 +3296,31 @@ async fn compute_next_flow_transform(
                     if branches.is_empty() {
                         return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else if parallel {
+                        let len = branches.len();
+                        let payloads: Vec<JobPayloadWithTag> = branches
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(i, Branch { modules, modules_node, .. })| {
+                                let Some(payload) = payload_from_modules(
+                                    modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
+                                    || format!("{}-{i}", status.step),
+                                    || format!("{}/branchall-{}", flow_job.script_path(), i),
+                                    false
+                                ) else {
+                                    return None;
+                                };
+                                Some(JobPayloadWithTag {
+                                    payload, tag: None, delete_after_use, timeout: None
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        if payloads.is_empty() {
+                            return Ok(NextFlowTransform::EmptyInnerFlows);
+                        }
                         return Ok(NextFlowTransform::Continue(
-                            ContinuePayload::BranchAllJobs(
-                                branches
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, b)| {
-                                        let mut fm = flow.failure_module.clone();
-                                        if let Some(mut failure_module) =
-                                            flow.failure_module.clone()
-                                        {
-                                            failure_module
-                                                .id_append(&format!("{}-{i}", status.step,));
-                                            fm = Some(failure_module);
-                                        }
-                                        let mut modules = b.modules.clone();
-                                        add_virtual_items_if_necessary(&mut modules);
-                                        JobPayloadWithTag {
-                                            payload: JobPayload::RawFlow {
-                                                value: FlowValue {
-                                                    modules,
-                                                    failure_module: fm.clone(),
-                                                    same_worker: flow.same_worker,
-                                                    concurrent_limit: None,
-                                                    concurrency_time_window_s: None,
-                                                    skip_expr: None,
-                                                    cache_ttl: None,
-                                                    priority: None,
-                                                    early_return: None,
-                                                    concurrency_key: None,
-                                                    preprocessor_module: None,
-                                                },
-                                                path: Some(format!(
-                                                    "{}/branchall-{}",
-                                                    flow_job.script_path(),
-                                                    i
-                                                )),
-                                                restarted_from: None,
-                                            },
-                                            tag: None,
-                                            delete_after_use: delete_after_use,
-                                            timeout: None,
-                                        }
-                                    })
-                                    .collect(),
-                            ),
+                            ContinuePayload::ParallelJobs(payloads),
                             NextStatus::AllFlowJobs {
-                                branchall: Some(BranchAllStatus { branch: 0, len: branches.len() }),
+                                branchall: Some(BranchAllStatus { branch: 0, len }),
                                 iterator: None,
                                 simple_input_transforms: None,
                             },
@@ -3388,47 +3349,23 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let mut modules = branches
-                .get(branch_status.branch)
-                .map(|b| b.modules.clone())
-                .ok_or_else(|| {
-                    Error::BadRequest(format!(
-                        "Unrecognized branch for BranchAll {status_module:?}"
-                    ))
-                })?;
+            let Branch { modules, modules_node, .. } = branches
+                .into_iter()
+                .nth(branch_status.branch)
+                .ok_or_else(|| Error::BadRequest(format!("Unrecognized branch for BranchAll {status_module:?}")))?;
 
-            add_virtual_items_if_necessary(&mut modules);
-            let mut fm = flow.failure_module.clone();
-            if let Some(mut failure_module) = flow.failure_module.clone() {
-                failure_module.id_append(&format!("{}-{}", status.step, branch_status.branch));
-                fm = Some(failure_module);
-            }
+            let Some(payload) = payload_from_modules(
+                modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
+                || format!("{}-{}", status.step, branch_status.branch),
+                || format!("{}/branchall-{}", flow_job.script_path(), branch_status.branch),
+                false
+            ) else {
+                return Ok(NextFlowTransform::EmptyInnerFlows);
+            };
+
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
-                    payload: JobPayload::RawFlow {
-                        value: FlowValue {
-                            modules,
-                            failure_module: fm.clone(),
-                            same_worker: flow.same_worker,
-                            concurrent_limit: None,
-                            concurrency_time_window_s: None,
-                            skip_expr: None,
-                            cache_ttl: None,
-                            priority: None,
-                            early_return: None,
-                            concurrency_key: None,
-                            preprocessor_module: None,
-                        },
-                        path: Some(format!(
-                            "{}/branchall-{}",
-                            flow_job.script_path(),
-                            branch_status.branch
-                        )),
-                        restarted_from: None,
-                    },
-                    tag: None,
-                    delete_after_use: delete_after_use,
-                    timeout: None,
+                    payload, tag: None, delete_after_use, timeout: None
                 }),
                 NextStatus::NextBranchStep(NextBranch {
                     status: branch_status,
@@ -3444,73 +3381,58 @@ async fn next_loop_iteration(
     flow: &FlowValue,
     status: &FlowStatus,
     ns: ForloopNextIteration,
-    modules: &Vec<FlowModule>,
+    modules: Vec<FlowModule>,
+    modules_node: Option<FlowNodeId>,
     flow_job: &QueuedJob,
     is_simple: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
     module: &FlowModule,
     delete_after_use: bool,
 ) -> Result<NextFlowTransform, Error> {
-    let mut fm = flow.failure_module.clone();
-    if let Some(mut failure_module) = flow.failure_module.clone() {
-        failure_module.id_append(&format!("{}-{}", status.step, ns.index));
-        fm = Some(failure_module);
-    }
-    let mut modules = (*modules).clone();
-    add_virtual_items_if_necessary(&mut modules);
-    let inner_path = Some(format!("{}/loop-{}", flow_job.script_path(), ns.index));
+    let inner_path = || format!("{}/loop-{}", flow_job.script_path(), ns.index);
     if is_simple {
-        let value = &modules[0].get_value()?;
-        let payload = payload_from_simple_module(value, db, flow_job, module, inner_path).await?;
-        Ok(NextFlowTransform::Continue(
-            ContinuePayload::SingleJob(payload),
+        let mut value = modules[0].get_value()?;
+        let simple_input_transforms = match &mut value {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::Flow { input_transforms, .. } => {
+                Some(std::mem::take(input_transforms))
+            },
+            _ => None,
+        };
+        return Ok(NextFlowTransform::Continue(
+            ContinuePayload::SingleJob(
+                payload_from_simple_module(value, db, flow_job, module, Some(inner_path())).await?
+            ),
             NextStatus::NextLoopIteration {
                 next: ns,
-                simple_input_transforms: if is_simple {
-                    match value {
-                        FlowModuleValue::Script { input_transforms, .. }
-                        | FlowModuleValue::RawScript { input_transforms, .. }
-                        | FlowModuleValue::FlowScript { input_transforms, .. }
-                        | FlowModuleValue::Flow { input_transforms, .. } => {
-                            Some(input_transforms.clone())
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                },
+                simple_input_transforms,
             },
-        ))
-    } else {
-        Ok(NextFlowTransform::Continue(
-            ContinuePayload::SingleJob(JobPayloadWithTag {
-                payload: JobPayload::RawFlow {
-                    value: FlowValue {
-                        modules,
-                        failure_module: fm,
-                        same_worker: flow.same_worker,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
-                        skip_expr: None,
-                        cache_ttl: None,
-                        priority: None,
-                        early_return: None,
-                        concurrency_key: None,
-                        preprocessor_module: None,
-                    },
-                    path: inner_path,
-                    restarted_from: None,
-                },
-                tag: None,
-                delete_after_use,
-                timeout: None,
-            }),
-            NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None },
-        ))
+        ));
     }
+    
+    let Some(payload) = payload_from_modules(
+        modules, modules_node, flow.failure_module.as_ref(), flow.same_worker,
+        || format!("{}-{}", status.step, ns.index),
+        inner_path,
+        true
+    ) else {
+        return Ok(NextFlowTransform::EmptyInnerFlows);
+    };
+
+    Ok(NextFlowTransform::Continue(
+        ContinuePayload::SingleJob(JobPayloadWithTag {
+            payload,
+            tag: None,
+            delete_after_use,
+            timeout: None,
+        }),
+        NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None },
+    ))
 }
 
-fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
+pub(super) fn is_simple_modules(modules: &Vec<FlowModule>, failure_module: Option<&Box<FlowModule>>) -> bool {
     let is_simple = modules.len() == 1
         && modules[0].is_simple()
         && modules[0].sleep.is_none()
@@ -3521,7 +3443,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].stop_after_all_iters_if.is_none()
         && modules[0].skip_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
-        && flow.failure_module.is_none();
+        && failure_module.is_none();
     is_simple
 }
 
@@ -3565,7 +3487,7 @@ async fn next_forloop_status(
                         context,
                         Some(arc_flow_job_args),
                         Some(client),
-                        Some(by_id),
+                        Some(&by_id),
                         None,
                     )
                     .await?
@@ -3626,7 +3548,7 @@ async fn next_forloop_status(
                             context,
                             Some(arc_flow_job_args),
                             Some(client),
-                            Some(by_id),
+                            Some(&by_id),
                             None,
                         )
                         .await?
@@ -3665,7 +3587,7 @@ async fn next_forloop_status(
 }
 
 async fn payload_from_simple_module(
-    value: &FlowModuleValue,
+    value: FlowModuleValue,
     db: &sqlx::Pool<sqlx::Postgres>,
     flow_job: &QueuedJob,
     module: &FlowModule,
@@ -3673,7 +3595,7 @@ async fn payload_from_simple_module(
 ) -> Result<JobPayloadWithTag, Error> {
     let delete_after_use = module.delete_after_use.unwrap_or(false);
     Ok(match value {
-        FlowModuleValue::Flow { path, .. } => flow_to_payload(path, &delete_after_use),
+        FlowModuleValue::Flow { path, .. } => flow_to_payload(path, delete_after_use),
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             script_to_payload(script_hash, script_path, db, flow_job, module, tag_override).await?
         }
@@ -3688,7 +3610,7 @@ async fn payload_from_simple_module(
             concurrency_time_window_s,
             ..
         } => raw_script_to_payload(
-            path.clone().or(inner_path),
+            path.or(inner_path),
             content,
             language,
             lock,
@@ -3697,68 +3619,90 @@ async fn payload_from_simple_module(
             concurrency_time_window_s,
             module,
             tag,
-            &delete_after_use,
+            delete_after_use,
         ),
+        FlowModuleValue::FlowScript {
+            id, // flow_node(id).
+            tag,
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            ..
+        } => JobPayloadWithTag {
+            payload: JobPayload::FlowScript {
+                id,
+                language,
+                custom_concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                cache_ttl: module.cache_ttl.map(|x| x as i32),
+                dedicated_worker: None,
+            },
+            tag,
+            delete_after_use,
+            timeout: module.timeout,
+        },
         _ => unreachable!("is simple flow"),
     })
 }
 
 fn raw_script_to_payload(
     path: Option<String>,
-    content: &String,
-    language: &windmill_common::scripts::ScriptLang,
-    lock: &Option<String>,
-    custom_concurrency_key: &Option<String>,
-    concurrent_limit: &Option<i32>,
-    concurrency_time_window_s: &Option<i32>,
+    content: String,
+    language: windmill_common::scripts::ScriptLang,
+    lock: Option<String>,
+    custom_concurrency_key: Option<String>,
+    concurrent_limit: Option<i32>,
+    concurrency_time_window_s: Option<i32>,
     module: &FlowModule,
-    tag: &Option<String>,
-    delete_after_use: &bool,
+    tag: Option<String>,
+    delete_after_use: bool,
 ) -> JobPayloadWithTag {
     JobPayloadWithTag {
         payload: JobPayload::Code(RawCode {
             hash: None,
             path,
-            content: content.clone(),
-            language: language.clone(),
-            lock: lock.clone(),
-            custom_concurrency_key: custom_concurrency_key.clone(),
-            concurrent_limit: *concurrent_limit,
-            concurrency_time_window_s: *concurrency_time_window_s,
+            content,
+            language,
+            lock,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
         }),
-        tag: tag.clone(),
-        delete_after_use: *delete_after_use,
+        tag,
+        delete_after_use,
         timeout: module.timeout,
     }
 }
 
-fn flow_to_payload(path: &str, delete_after_use: &bool) -> JobPayloadWithTag {
+fn flow_to_payload(path: String, delete_after_use: bool) -> JobPayloadWithTag {
     let payload = JobPayload::Flow {
-        path: path.to_string(),
+        path,
         dedicated_worker: None,
         apply_preprocessor: false,
     };
-    JobPayloadWithTag { payload, tag: None, delete_after_use: *delete_after_use, timeout: None }
+    JobPayloadWithTag { payload, tag: None, delete_after_use, timeout: None }
 }
 
 async fn script_to_payload(
-    script_hash: &Option<windmill_common::scripts::ScriptHash>,
-    script_path: &String,
+    script_hash: Option<windmill_common::scripts::ScriptHash>,
+    script_path: String,
     db: &sqlx::Pool<sqlx::Postgres>,
     flow_job: &QueuedJob,
     module: &FlowModule,
-    tag_override: &Option<String>,
+    tag_override: Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
     let tag_override = if tag_override.as_ref().is_some_and(|x| x.trim().is_empty()) {
         None
     } else {
-        tag_override.clone()
+        tag_override
     };
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         let (jp, tag, delete_after_use, script_timeout) =
-            script_path_to_payload(script_path, db, &flow_job.workspace_id, Some(true)).await?;
+            script_path_to_payload(&script_path, db, &flow_job.workspace_id, Some(true)).await?;
         (
             jp,
             tag_override.to_owned().or(tag),
@@ -3766,7 +3710,7 @@ async fn script_to_payload(
             script_timeout,
         )
     } else {
-        let hash = script_hash.clone().unwrap();
+        let hash = script_hash.unwrap();
         let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
         let (
             tag,
@@ -3783,7 +3727,7 @@ async fn script_to_payload(
         (
             JobPayload::ScriptHash {
                 hash,
-                path: script_path.to_owned(),
+                path: script_path,
                 custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,

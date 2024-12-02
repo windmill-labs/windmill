@@ -11,6 +11,7 @@ use std::{
 };
 
 use chrono::{NaiveDateTime, Utc};
+use futures::{stream::FuturesUnordered, StreamExt};
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
@@ -26,7 +27,7 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts, LICENSE_KEY_VALID};
+use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -37,8 +38,9 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -52,10 +54,11 @@ use windmill_common::{
     worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG,
-        SMTP_CONFIG, WORKER_CONFIG, WORKER_GROUP,
+        SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
     HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    MONITOR_LOGS_ON_OBJECT_STORE, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -179,6 +182,7 @@ pub async fn initial_load(
     }
 
     if worker_mode {
+        reload_job_default_timeout_setting(&db).await;
         reload_extra_pip_index_url_setting(&db).await;
         reload_pip_index_url_setting(&db).await;
         reload_npm_config_registry_setting(&db).await;
@@ -567,6 +571,11 @@ pub async fn load_require_preexisting_user(db: &DB) {
     };
 }
 
+struct LogFile {
+    file_path: String,
+    hostname: String,
+}
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
         "DELETE FROM token WHERE expiration <= now()
@@ -629,6 +638,25 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
+    match sqlx::query_as!(
+        LogFile,
+        "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval RETURNING file_path, hostname",
+        SERVICE_LOG_RETENTION_SECS,
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(log_files_to_delete) => {
+                let paths = log_files_to_delete
+                    .iter()
+                    .map(|f| format!("{}/{}", f.hostname, f.file_path))
+                    .collect();
+                delete_log_files_from_disk_and_store(paths, TMP_WINDMILL_LOGS_SERVICE, windmill_common::tracing_init::LOGS_SERVICE).await;
+
+        }
+        Err(e) => tracing::error!("Error deleting log file: {:?}", e),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
@@ -658,14 +686,22 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             {
                                 tracing::error!("Error deleting job stats: {:?}", e);
                             }
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM job_logs WHERE job_id = ANY($1)",
+                            match sqlx::query_scalar!(
+                                "DELETE FROM job_logs WHERE job_id = ANY($1) RETURNING log_file_index",
                                 &deleted_jobs
                             )
-                            .execute(&mut *tx)
+                            .fetch_all(&mut *tx)
                             .await
                             {
-                                tracing::error!("Error deleting job stats: {:?}", e);
+                                Ok(log_file_index) => {
+                                    let paths = log_file_index
+                                        .into_iter()
+                                        .filter_map(|opt| opt)
+                                        .flat_map(|inner_vec| inner_vec.into_iter())
+                                        .collect();
+                                    delete_log_files_from_disk_and_store(paths, TMP_DIR, "").await;
+                                }
+                                Err(e) => tracing::error!("Error deleting job stats: {:?}", e),
                             }
                             if let Err(e) = sqlx::query!(
                                 "DELETE FROM concurrency_key WHERE  ended_at <= now() - ($1::bigint::text || ' s')::interval ",
@@ -676,15 +712,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             {
                                 tracing::error!("Error deleting  custom concurrency key: {:?}", e);
                             }
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval ",
-                                job_retention_secs
-                            )
-                            .execute(&mut *tx)
-                            .await
-                            {
-                                tracing::error!("Error deleting log file: {:?}", e);
-                            }
+
                             if let Err(e) =
                                 sqlx::query!("DELETE FROM job WHERE id = ANY($1)", &deleted_jobs)
                                     .execute(&mut *tx)
@@ -709,6 +737,59 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
     }
+}
+
+async fn delete_log_files_from_disk_and_store(
+    paths_to_delete: Vec<String>,
+    tmp_dir: &str,
+    _s3_prefix: &str,
+) {
+    #[cfg(feature = "parquet")]
+    let os = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone();
+    #[cfg(not(feature = "parquet"))]
+    let os: Option<()> = None;
+
+    let _should_del_from_store = MONITOR_LOGS_ON_OBJECT_STORE.read().await.clone();
+
+    let delete_futures = FuturesUnordered::new();
+
+    for path in paths_to_delete {
+        let _os2 = &os;
+
+        delete_futures.push(async move {
+            let disk_path = std::path::Path::new(tmp_dir).join(&path);
+            if tokio::fs::metadata(&disk_path).await.is_ok() {
+                if let Err(e) = tokio::fs::remove_file(&disk_path).await {
+                    tracing::error!(
+                        "Failed to delete from disk {}: {e}",
+                        disk_path.to_string_lossy()
+                    );
+                } else {
+                    tracing::debug!(
+                        "Succesfully deleted {} from disk",
+                        disk_path.to_string_lossy()
+                    );
+                }
+            }
+
+            #[cfg(feature = "parquet")]
+            if _should_del_from_store {
+                if let Some(os) = _os2 {
+                    let p = object_store::path::Path::from(format!("{}{}", _s3_prefix, path));
+                    if let Err(e) = os.delete(&p).await {
+                        tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
+                    } else {
+                        tracing::debug!("Succesfully deleted {} from object store", p.to_string());
+                    }
+                }
+            }
+        });
+    }
+
+    let _: Vec<_> = delete_futures.collect().await;
 }
 
 pub async fn reload_scim_token_setting(db: &DB) {
@@ -782,6 +863,20 @@ pub async fn reload_retention_period_setting(db: &DB) {
         "JOB_RETENTION_SECS",
         60 * 60 * 24 * 30,
         JOB_RETENTION_SECS.clone(),
+        |x| x,
+    )
+    .await
+    {
+        tracing::error!("Error reloading retention period: {:?}", e)
+    }
+}
+pub async fn reload_delete_logs_periodically_setting(db: &DB) {
+    if let Err(e) = reload_setting(
+        db,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        "MONITOR_LOGS_ON_OBJECT_STORE",
+        false,
+        MONITOR_LOGS_ON_OBJECT_STORE.clone(),
         |x| x,
     )
     .await
@@ -1054,13 +1149,6 @@ pub async fn monitor_db(
         #[cfg(feature = "enterprise")]
         if !initial_load {
             verify_license_key().await;
-            if _worker_mode {
-                let valid_key = *LICENSE_KEY_VALID.read().await;
-                if !valid_key {
-                    tracing::error!("Invalid license key, exiting...");
-                    _killpill_tx.send(()).expect("send");
-                }
-            }
         }
     };
 
