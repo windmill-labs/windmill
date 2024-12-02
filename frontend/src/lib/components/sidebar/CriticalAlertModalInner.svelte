@@ -191,6 +191,7 @@
 	function onFiltersChange() {
 		indexMapping = []
 		getAlerts(true)
+		getTotalNumber()
 	}
 
 	// Update filter change handlers
@@ -205,6 +206,20 @@
 			filteredAlerts = filteredAlerts.filter((alert) => alert.workspace_id !== null)
 		}
 		return filteredAlerts
+	}
+
+	let totalNumberOfAlerts = 0
+	async function getTotalNumber() {
+		loading = true
+		let alerts = await getCriticalAlerts({ page: 1, pageSize: 1000 })
+		if (hideAcknowledged) {
+			alerts = alerts.filter((alert) => alert.acknowledged === false)
+		}
+		if (workspaceContext) {
+			alerts = alerts.filter((alert) => alert.workspace_id !== null)
+		}
+		totalNumberOfAlerts = alerts.length
+		loading = false
 	}
 </script>
 
@@ -238,6 +253,10 @@
 						options={{ left: 'Hide Acknowledged' }}
 						size="xs"
 					/>
+
+					<div class="text-xs text-tertiary"
+						>{`Results (${totalNumberOfAlerts === 1000 ? '1000+' : totalNumberOfAlerts})`}
+					</div>
 				</List>
 			</div>
 
@@ -257,5 +276,6 @@
 		{hasMore}
 		{acknowledgeAll}
 		{numUnacknowledgedCriticalAlerts}
+		{pageSize}
 	/>
 </List>

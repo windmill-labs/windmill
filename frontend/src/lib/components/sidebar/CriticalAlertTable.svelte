@@ -18,6 +18,10 @@
 	export let page = 1
 	export let hasMore = true
 	export let tableHeight = 0
+	export let pageSize = 0
+
+	let tbodyElement: HTMLElement
+	let headerHeight = 0
 
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
@@ -33,6 +37,11 @@
 	}
 
 	$: console.log('dbg tableHeight', tableHeight)
+	$: tableHeight = tbodyElement
+		? tbodyElement.scrollHeight
+			? tbodyElement.scrollHeight
+			: tbodyElement.clientHeight
+		: 0
 </script>
 
 <div class="relative grow min-h-0 w-full">
@@ -45,7 +54,7 @@
 		{hasMore}
 	>
 		<Head>
-			<tr>
+			<tr bind:clientHeight={headerHeight}>
 				<Cell head first class="w-12">Type</Cell>
 				<Cell head class="min-w-24 w-full">Message</Cell>
 				<Cell head class="min-w-28">Created At</Cell>
@@ -76,12 +85,15 @@
 				<p class="text-center text-gray-500 mt-4">No critical alerts.</p>
 			</div>
 		{:else}
-			<tbody class="divide-y border-b w-full overflow-y-auto">
+			<tbody bind:this={tbodyElement} class="divide-y border-b w-full overflow-y-auto">
 				{#each alerts as { id, alert_type, message, created_at, acknowledged, workspace_id }}
 					{#if !hideAcknowledged || !acknowledged}
 						<Row disabled={acknowledged}>
 							<Cell>
-								<div class="flex items-center justify-center">
+								<div
+									class="flex items-center justify-center"
+									style="min-height: {(tableHeight - headerHeight) / pageSize}px"
+								>
 									{#if alert_type === 'recovered_critical_error'}
 										<span title="Recovered Critical Alert">
 											<CheckCircle2 size="20" color="green" />
