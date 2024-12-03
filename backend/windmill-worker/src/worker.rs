@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use opentelemetry::trace::TraceContextExt;
+use opentelemetry::{global, trace::TraceContextExt, KeyValue};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use windmill_common::{
@@ -942,6 +942,19 @@ pub async fn run_worker(
             None
         };
 
+
+    let worker_resource = &[
+        KeyValue::new("hostname", hostname.to_string()),
+        KeyValue::new("worker", worker_name.to_string()),
+    ];
+    // Create a meter from the above MeterProvider.
+    let meter = global::meter("windmill");
+
+    // Create a Counter Instrument.
+    let counter = meter.u64_counter("jobs.execution").build();
+
+
+
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
 
@@ -1414,6 +1427,11 @@ pub async fn run_worker(
                         |c| c.inc(),
                     )
                     .await;
+
+                    counter.add(
+                        1,
+                        worker_resource
+                    );
 
                     #[cfg(feature = "prometheus")]
                     let _timer = register_metric(

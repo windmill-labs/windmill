@@ -69,6 +69,7 @@ opentelemetry_sdk.workspace = true
 opentelemetry.workspace = true
 tracing-opentelemetry.workspace = true
 opentelemetry-stdout.workspace = true
+opentelemetry-appender-tracing.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

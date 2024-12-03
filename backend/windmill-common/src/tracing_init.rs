@@ -7,8 +7,12 @@
  */
 
 use const_format::concatcp;
-use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::{global, trace::TracerProvider as _};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{
+    logs::LoggerProvider,
+    metrics::{PeriodicReader, SdkMeterProvider},
+    runtime,
     trace::{self, Tracer},
     Resource,
 };
@@ -41,7 +45,64 @@ pub const LOGS_SERVICE: &str = "logs/services/";
 
 pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
 
-pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
+fn otlp_service_resource(mode: &Mode) -> Resource {
+    Resource::new(vec![
+        opentelemetry::KeyValue::new(
+            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+            format!("windmill-{}", mode.to_string().to_lowercase()),
+        ),
+        opentelemetry::KeyValue::new(
+            opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+            GIT_VERSION,
+        ),
+    ])
+}
+
+fn init_logs_provider(mode: &Mode) -> LoggerProvider {
+    // Setup LoggerProvider with a stdout exporter
+    let exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .build()
+        .unwrap();
+    LoggerProvider::builder()
+        .with_resource(otlp_service_resource(mode))
+        .with_batch_exporter(exporter, runtime::Tokio)
+        .build()
+}
+
+fn init_meter_provider(mode: &Mode) -> opentelemetry_sdk::metrics::SdkMeterProvider {
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .build()
+        .unwrap();
+
+    let reader = PeriodicReader::builder(exporter, runtime::Tokio).build();
+    let provider = SdkMeterProvider::builder()
+        .with_reader(reader)
+        .with_resource(otlp_service_resource(mode))
+        .build();
+    global::set_meter_provider(provider.clone());
+    provider
+}
+
+fn init_otlp_tracer(mode: &Mode) -> Tracer {
+    // let exporter: opentelemetry_stdout::SpanExporter = opentelemetry_stdout::SpanExporter::default();
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()
+        .unwrap();
+    // Then pass it into provider builder
+    let tracer = opentelemetry_sdk::trace::TracerProvider::builder()
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_config(trace::Config::default().with_resource(otlp_service_resource(mode)))
+        .build()
+        .tracer("windmill");
+
+    *TRACER.write().unwrap() = Some(tracer.clone());
+    tracer
+}
+
+pub fn initialize_tracing(hostname: &str, mode: &Mode) -> (WorkerGuard, SdkMeterProvider) {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
     if std::env::var("RUST_LOG").is_ok_and(|x| x == "debug" || x == "info") {
@@ -51,29 +112,9 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
         )
     }
 
-    // let exporter: opentelemetry_stdout::SpanExporter = opentelemetry_stdout::SpanExporter::default();
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .unwrap();
-    // Then pass it into provider builder
-    let tracer = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_config(trace::Config::default().with_resource(Resource::new(vec![
-            opentelemetry::KeyValue::new(
-                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                format!("windmill-{}", mode.to_string().to_lowercase()),
-            ),
-            opentelemetry::KeyValue::new(
-                opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-                GIT_VERSION,
-            ),
-        ])))
-        .build()
-        .tracer("windmill");
-
-    *TRACER.write().unwrap() = Some(tracer.clone());
-    let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+    let meter_provider = init_meter_provider(mode);
+    let opentelemetry = tracing_opentelemetry::layer().with_tracer(init_otlp_tracer(mode));
+    let logs_layer = OpenTelemetryTracingBridge::new(&init_logs_provider(&mode));
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
@@ -102,6 +143,7 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
 
     match *JSON_FMT {
         true => ts_base
+            .with(logs_layer)
             .with(opentelemetry)
             // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
@@ -120,6 +162,7 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
             .with(CountingLayer::new())
             .init(),
         false => ts_base
+            .with(logs_layer)
             .with(opentelemetry)
             // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
@@ -141,7 +184,7 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> WorkerGuard {
             .with(CountingLayer::new())
             .init(),
     }
-    _guard
+    (_guard, meter_provider)
 }
 
 #[cfg(feature = "flamegraph")]
