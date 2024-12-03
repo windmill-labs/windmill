@@ -14,6 +14,7 @@ use serde_json::value::RawValue;
 use sqlx::Pool;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
@@ -5484,4 +5485,166 @@ async fn delete_completed_job<'a>(
 
     let response = Json(cj).into_response();
     Ok(response)
+}
+
+use axum::extract::Form;
+use regex::Regex;
+use serde_json::Value;
+use reqwest::Client;
+
+// Define a struct for the form data (x-www-form-urlencoded)
+#[derive(Deserialize, Debug)]
+pub struct SlackFormData {
+    payload: String, // The `payload` field as a raw JSON string
+}
+
+#[derive(Deserialize, Debug)]
+struct Payload {
+    actions: Vec<Action>,
+    state: State,
+    response_url: Option<String>
+}
+
+#[derive(Deserialize, Debug)]
+struct Action {
+    value: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct State {
+    values: HashMap<String, HashMap<String, ValueInput>>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum ValueInput {
+    PlainTextInput {
+        #[serde(rename = "type")]
+        input_type: String,
+        value: Option<Value>,
+    },
+    StaticSelect {
+        #[serde(rename = "type")]
+        input_type: String,
+        selected_option: Option<SelectedOption>,
+    },
+}
+
+#[derive(Deserialize, Debug)]
+struct SelectedOption {
+    text: Option<Text>,
+    value: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct Text {
+    #[serde(rename = "type")]
+    text_type: String,
+    text: String,
+    emoji: Option<bool>,
+}
+
+// Define your handler
+pub async fn slack_app_handler(
+    authed: Option<ApiAuthed>,
+    Extension(db): Extension<DB>,
+    Form(form_data): Form<SlackFormData>,
+) -> error::Result<StatusCode> {
+    // Parse the `payload` parameter as JSON
+    let payload: Payload = serde_json::from_str(&form_data.payload)?;
+
+    let action_value = payload.actions[0].value.clone();
+    let response_url = payload.response_url;
+
+    // Define the regex to capture w_id, action, job_id, resume_id, secret, and approver
+    let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>[^/]+)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[^/]+)\?approver=(?P<approver>[^&]+)").unwrap();
+
+    if let Some(captures) = re.captures(&action_value) {
+        let w_id = captures.name("w_id").map_or("", |m| m.as_str());
+        let action = captures.name("action").map_or("", |m| m.as_str());
+        let job_id = captures.name("job_id").map_or("", |m| m.as_str());
+        let resume_id = captures.name("resume_id").map_or("", |m| m.as_str());
+        let secret = captures.name("secret").map_or("", |m| m.as_str());
+        let approver =
+            QueryApprover { approver: captures.name("approver").map(|m| m.as_str().to_string()) };
+
+        println!("W ID: {}", w_id);
+        println!("Action: {}", action);
+        println!("Job ID: {}", job_id);
+        println!("Resume ID: {}", resume_id);
+        println!("Secret: {}", secret);
+        println!("Approver: {:?}", approver.approver);
+
+        let res = resume_suspended_job_internal(
+            Some(Value::Null),
+            db,
+            w_id.to_string(),
+            Uuid::from_str(job_id).unwrap_or_default(),
+            resume_id.parse::<u32>().unwrap_or_default(),
+            approver,
+            secret.to_string(),
+            authed,
+            action == "resume",
+        )
+        .await;
+
+        tracing::debug!("Res: {:?}", res);
+    } else {
+        println!("URL does not match the pattern.");
+    }
+
+    // Extract and process state values
+    // TODO: we'll need to pass them to the resume_suspended_job_internal function
+    for (block_id, inputs) in payload.state.values {
+        for (input_id, input) in inputs {
+            match input {
+                ValueInput::PlainTextInput { input_type, value } => {
+                    println!(
+                        "Block: {}, Input: {}, Type: {}, Value: {:?}",
+                        block_id, input_id, input_type, value
+                    );
+                }
+                ValueInput::StaticSelect { input_type, selected_option } => {
+                    if let Some(selected_option) = selected_option {
+                        println!(
+                            "Block: {}, Input: {}, Type: {}, Selected Value: {}",
+                            block_id, input_id, input_type, selected_option.value
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // TODO: think about what to do with the original message, here we just delete it
+    // probably just post link to approval page where user can see the status of the flow
+    if (response_url.is_some()){
+        let _ = post_slack_response(response_url.unwrap().as_str(), "Process has been resumed!").await;
+    }
+
+    Ok(StatusCode::OK)
+}
+
+async fn post_slack_response(response_url: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = serde_json::json!({
+        "replace_original": "true",
+        "text": message
+    });
+
+    let client = Client::new();
+
+    let response = client
+        .post(response_url)
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        tracing::debug!("Slack response to approval sent successfully!");
+    } else {
+        tracing::error!("Slack response to approval failed. Status: {}", response.status());
+    }
+
+    Ok(())
 }

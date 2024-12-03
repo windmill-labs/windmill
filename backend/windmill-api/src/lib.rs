@@ -23,7 +23,7 @@ use crate::{
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
-use axum::{middleware::from_extractor, routing::get, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
 use db::DB;
 use http::HeaderValue;
 use reqwest::Client;
@@ -353,6 +353,7 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
+                .route("/slack", post(jobs::slack_app_handler))
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
