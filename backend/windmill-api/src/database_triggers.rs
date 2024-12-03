@@ -774,37 +774,61 @@ async fn listen_to_transactions(
             return ;
         }
         _ = async {
-            while let Ok(message) = logical_replication_stream.next().await.unwrap() {
-                if let Some((first_byte, mut message)) = message.split_first() {
-                    let code = char::from_u32(*first_byte as u32).unwrap();
+                loop {
+                    let message = logical_replication_stream.next().await;
 
-                    match code {
-                        'k' => {
-                            let end_wal_server: i64 = message.read_i64::<BigEndian>().unwrap();
-                            message.read_i64::<BigEndian>().unwrap();
-                            let reply = message.read_u8().unwrap();
-                            if reply == 1 {
-                                let mut buf = BytesMut::new();
-                                let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
-                                let ts = chrono::Utc::now()
-                                    .signed_duration_since(ts)
-                                    .num_microseconds()
-                                    .unwrap_or(0);
+                    if message.is_none() {
+                        tracing::info!("Stream is empty leaving....");
+                        return;
+                    }
 
-                                buf.put_u8(b'r');
-                                buf.put_i64(end_wal_server);
-                                buf.put_i64(end_wal_server);
-                                buf.put_i64(end_wal_server);
-                                buf.put_i64(ts);
-                                buf.put_u8(0);
-                                logical_replication_stream.send(buf.freeze()).await.unwrap();
+                    let message = message.unwrap();
+
+                    if let Err(err) = &message {
+                        tracing::debug!("{}", err.to_string());
+                        update_ping(&db, &database_trigger, Some(&err.to_string())).await;
+                        return;
+                    }
+
+                    let message = message.unwrap();
+
+                    let splitted_message = message.split_first();
+
+                    if let Some((first_byte, mut message)) = splitted_message {
+                        let first_byte = char::from_u32(*first_byte as u32).unwrap();
+
+                        match first_byte {
+                            'k' => {
+                                let end_wal_server: i64 = message.read_i64::<BigEndian>().unwrap();
+                                
+                                let _ = message.read_i64::<BigEndian>();
+                                
+                                let reply = message.read_u8().unwrap();
+                                
+                                if reply == 1 {
+                                    let mut buf = BytesMut::new();
+                                    let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+                                    let ts = chrono::Utc::now()
+                                        .signed_duration_since(ts)
+                                        .num_microseconds()
+                                        .unwrap_or(0);
+
+                                    buf.put_u8(b'r');
+                                    buf.put_i64(end_wal_server);
+                                    buf.put_i64(end_wal_server);
+                                    buf.put_i64(end_wal_server);
+                                    buf.put_i64(ts);
+                                    buf.put_u8(0);
+                                    //client.send(buf.freeze()).await.unwrap();
+                                }
                             }
+                            'w' => {
+                                
+                            }
+                            _ => {}
                         }
-                        'w' => {}
-                        _ => {}
                     }
                 }
-            }
         } => {
             return;
         }
