@@ -1,15 +1,14 @@
 <script lang="ts">
-	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
-	import { RouteIcon } from 'lucide-svelte'
-
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { getContext, onMount } from 'svelte'
+	import Section from '$lib/components/Section.svelte'
+	import TriggersEditorSection from './TriggersEditorSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -58,57 +57,56 @@
 	bind:this={routeEditor}
 />
 
-<div class="flex flex-col gap-4">
-	{#if !newItem}
-		{#if $userStore?.is_admin || $userStore?.is_super_admin}
-			<Button
-				on:click={() => routeEditor?.openNew(isFlow, path)}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: RouteIcon }}
-			>
-				New Route
-			</Button>
-		{:else}
-			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
+<div class="flex flex-col gap-8">
+	<TriggersEditorSection
+		on:saveTrigger={(e) => {
+			routeEditor?.openNew(isFlow, path, e.detail.config)
+		}}
+		cloudDisabled={false}
+		captureType="webhook"
+		{isFlow}
+	/>
+	<Section label="Routes">
+		{#if !newItem}
+			{#if !$userStore?.is_admin && !$userStore?.is_super_admin}
+				<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
+			{/if}
 		{/if}
-	{/if}
-
-	{#if httpTriggers}
-		{#if httpTriggers.length == 0}
-			<div class="text-xs text-secondary"> No http routes </div>
+		{#if httpTriggers}
+			{#if httpTriggers.length == 0}
+				<div class="text-xs text-secondary text-center"> No http routes </div>
+			{:else}
+				<div class="flex flex-col divide-y pt-2">
+					{#each httpTriggers as httpTriggers (httpTriggers.path)}
+						<div class="grid grid-cols-5 text-2xs items-center py-2">
+							<div class="col-span-2 truncate">{httpTriggers.path}</div>
+							<div class="col-span-2 truncate">
+								{httpTriggers.http_method.toUpperCase()} /{httpTriggers.route_path}
+							</div>
+							<div class="flex justify-end">
+								<button
+									on:click={() => routeEditor?.openEdit(httpTriggers.path, isFlow)}
+									class="px-2"
+								>
+									{#if httpTriggers.canWrite}
+										Edit
+									{:else}
+										View
+									{/if}
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		{:else}
-			<div class="flex flex-col divide-y pt-2">
-				{#each httpTriggers as httpTriggers (httpTriggers.path)}
-					<div class="grid grid-cols-5 text-2xs items-center py-2">
-						<div class="col-span-2 truncate">{httpTriggers.path}</div>
-						<div class="col-span-2 truncate">
-							{httpTriggers.http_method.toUpperCase()} /{httpTriggers.route_path}
-						</div>
-						<div class="flex justify-end">
-							<button
-								on:click={() => routeEditor?.openEdit(httpTriggers.path, isFlow)}
-								class="px-2"
-							>
-								{#if httpTriggers.canWrite}
-									Edit
-								{:else}
-									View
-								{/if}
-							</button>
-						</div>
-					</div>
-				{/each}
-			</div>
+			<Skeleton layout={[[8]]} />
 		{/if}
-	{:else}
-		<Skeleton layout={[[8]]} />
-	{/if}
 
-	{#if newItem}
-		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to add http routes.
-		</Alert>
-	{/if}
+		{#if newItem}
+			<Alert title="Triggers disabled" type="warning" size="xs">
+				Deploy the {isFlow ? 'flow' : 'script'} to add http routes.
+			</Alert>
+		{/if}
+	</Section>
 </div>
