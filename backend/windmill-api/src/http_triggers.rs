@@ -678,35 +678,33 @@ async fn route_job(
             .await
             .into_response()
         }
+    } else if trigger.is_async {
+        run_script_by_path_inner(
+            authed,
+            db,
+            user_db,
+            rsmq,
+            trigger.workspace_id.clone(),
+            StripPath(trigger.script_path.to_owned()),
+            run_query,
+            args,
+            label_prefix,
+        )
+        .await
+        .into_response()
     } else {
-        if trigger.is_async {
-            run_script_by_path_inner(
-                authed,
-                db,
-                user_db,
-                rsmq,
-                trigger.workspace_id.clone(),
-                StripPath(trigger.script_path.to_owned()),
-                run_query,
-                args,
-                label_prefix,
-            )
-            .await
-            .into_response()
-        } else {
-            run_wait_result_script_by_path_internal(
-                db,
-                run_query,
-                StripPath(trigger.script_path.to_owned()),
-                authed,
-                rsmq,
-                user_db,
-                trigger.workspace_id.clone(),
-                args,
-                label_prefix,
-            )
-            .await
-            .into_response()
-        }
+        run_wait_result_script_by_path_internal(
+            db,
+            run_query,
+            StripPath(trigger.script_path.to_owned()),
+            authed,
+            rsmq,
+            user_db,
+            trigger.workspace_id.clone(),
+            args,
+            label_prefix,
+        )
+        .await
+        .into_response()
     }
 }

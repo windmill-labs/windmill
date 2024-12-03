@@ -1,6 +1,10 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
-use crate::db::{ApiAuthed, DB};
+use crate::{
+    db::{ApiAuthed, DB},
+    jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
+    users::fetch_api_authed,
+};
 use axum::{
     extract::{Path, Query},
     routing::{delete, get, post},
@@ -16,9 +20,10 @@ use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::value::to_value;
+use serde_json::value::{to_raw_value, to_value};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
+use std::pin::Pin;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -29,6 +34,7 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
     INSTANCE_NAME,
 };
+use windmill_queue::PushArgsOwned;
 
 use sqlx::types::Json as SqlxJson;
 
@@ -166,7 +172,7 @@ impl PostgresClient {
         logical_replication_slot_name: &str,
     ) -> Result<CopyBothDuplex<Bytes>, Error> {
         let options = format!(
-            r#"("proto_version" '1', "publication_names" {}, "binary")"#,
+            r#"("proto_version" '2', "publication_names" {}, "binary")"#,
             quote_literal(publication_name)
         );
 
@@ -180,6 +186,36 @@ impl PostgresClient {
             .copy_both_simple::<bytes::Bytes>(query.as_str())
             .await
             .map_err(Error::Postgres)
+    }
+
+    pub async fn send_status_update(
+        &self,
+        mut message: &[u8],
+        copy_both_stream: &mut Pin<&mut CopyBothDuplex<Bytes>>,
+    ) {
+        let end_wal_server: i64 = message.read_i64::<BigEndian>().unwrap();
+
+        let _ = message.read_i64::<BigEndian>();
+
+        let reply = message.read_u8().unwrap();
+
+        if reply == 1 {
+            let mut buf = BytesMut::new();
+            let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+            let ts = chrono::Utc::now()
+                .signed_duration_since(ts)
+                .num_microseconds()
+                .unwrap_or(0);
+
+            buf.put_u8(b'r');
+            buf.put_i64(end_wal_server);
+            buf.put_i64(end_wal_server);
+            buf.put_i64(end_wal_server);
+            buf.put_i64(ts);
+            buf.put_u8(0);
+            copy_both_stream.send(buf.freeze()).await.unwrap();
+            tracing::info!("Send update status message");
+        }
     }
 }
 
@@ -750,7 +786,7 @@ async fn listen_to_transactions(
     tracing::info!("Starting tokio select futures");
 
     let logical_replication_stream = client
-        .get_logical_replication_stream("publication_name", "logical_replication_slot_name")
+        .get_logical_replication_stream("user_publication", "rust_cdc_slot")
         .await;
 
     let logical_replication_stream = match logical_replication_stream {
@@ -774,6 +810,7 @@ async fn listen_to_transactions(
             return ;
         }
         _ = async {
+                tracing::info!("Start to listen for database transaction");
                 loop {
                     let message = logical_replication_stream.next().await;
 
@@ -799,31 +836,31 @@ async fn listen_to_transactions(
 
                         match first_byte {
                             'k' => {
-                                let end_wal_server: i64 = message.read_i64::<BigEndian>().unwrap();
-                                
-                                let _ = message.read_i64::<BigEndian>();
-                                
-                                let reply = message.read_u8().unwrap();
-                                
-                                if reply == 1 {
-                                    let mut buf = BytesMut::new();
-                                    let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
-                                    let ts = chrono::Utc::now()
-                                        .signed_duration_since(ts)
-                                        .num_microseconds()
-                                        .unwrap_or(0);
-
-                                    buf.put_u8(b'r');
-                                    buf.put_i64(end_wal_server);
-                                    buf.put_i64(end_wal_server);
-                                    buf.put_i64(end_wal_server);
-                                    buf.put_i64(ts);
-                                    buf.put_u8(0);
-                                    //client.send(buf.freeze()).await.unwrap();
+                                    client.send_status_update(message, &mut logical_replication_stream).await;
                                 }
-                            }
                             'w' => {
-                                
+                                let start_wal_message = message.read_i64::<BigEndian>();
+                                let end_wal_server = message.read_i64::<BigEndian>();
+                                let server_timestamp = message.read_i64::<BigEndian>();
+
+                                let (first_byte, wal_data) = message.split_first().unwrap();
+                                let first_byte = char::from_u32(*first_byte as u32).unwrap();
+                                match first_byte {
+                                    'I' => {
+                                        println!("Insert");
+                                        run_job(&db, rsmq.clone(), &database_trigger).await;
+                                    }
+                                    'U' => {
+                                        println!("Update");
+                                        run_job(&db, rsmq.clone(), &database_trigger).await;
+                                    }
+                                    'D' => {
+                                        println!("Delete");
+                                        run_job(&db, rsmq.clone(), &database_trigger).await;
+                                    }
+                                    'C' => {}
+                                    _ => {}
+                                }
                             }
                             _ => {}
                         }
@@ -959,6 +996,59 @@ pub async fn start_database(
             }
         }
     });
+}
+
+async fn run_job(
+    db: &DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    trigger: &DatabaseTrigger,
+) -> anyhow::Result<()> {
+    let args = PushArgsOwned { args: HashMap::new(), extra: None };
+
+    let label_prefix = Some(format!("db-{}-", trigger.path));
+
+    let authed = fetch_api_authed(
+        trigger.edited_by.clone(),
+        trigger.email.clone(),
+        &trigger.workspace_id,
+        db,
+        "anonymous".to_string(),
+    )
+    .await?;
+
+    let user_db = UserDB::new(db.clone());
+
+    let run_query = RunJobQuery::default();
+
+    if trigger.is_flow {
+        run_flow_by_path_inner(
+            authed,
+            db.clone(),
+            user_db,
+            rsmq,
+            trigger.workspace_id.clone(),
+            StripPath(trigger.script_path.to_owned()),
+            run_query,
+            args,
+            label_prefix,
+        )
+        .await?;
+    } else {
+        run_script_by_path_inner(
+            authed,
+            db.clone(),
+            user_db,
+            rsmq,
+            trigger.workspace_id.clone(),
+            StripPath(trigger.script_path.to_owned()),
+            run_query,
+            args,
+            label_prefix,
+        )
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn can_be_listened(
