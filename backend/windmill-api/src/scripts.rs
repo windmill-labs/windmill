@@ -1439,14 +1439,27 @@ async fn delete_script_by_path(
         require_admin(authed.is_admin, &authed.username)?;
     }
 
-    let script = sqlx::query_scalar!(
-        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?;
+    let script = if !draft_only {
+        require_admin(authed.is_admin, &authed.username)?;
+        sqlx::query_scalar!(
+            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+            path,
+            w_id
+        )
+        .fetch_one(&db)
+        .await
+        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+    } else {
+        // If the script is draft only, we can delete it without admin permissions but we still need write permissions
+        sqlx::query_scalar!(
+            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+            path,
+            w_id
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+    };
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
