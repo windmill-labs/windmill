@@ -196,7 +196,7 @@ Sets the value of specified resource
 #>
 function Set-WindmillResource {
     param(
-        [string] $Path,
+        [string] $Path = $null,
         [Hashtable] $Value,
         [string] $ResourceType = $null
     )
@@ -204,8 +204,32 @@ function Set-WindmillResource {
     if (-not $script:WindmillConnection) {
         throw "Windmill connection not established. Run Connect-Windmill first."
     }
-
+    
     $script:WindmillConnection.SetResource($Path, $Value, $ResourceType)
+}
+
+<#
+.SYNOPSIS
+Sets the value of a resource with type "state".
+#>
+function Set-WindmillState {
+    param(
+        [Hashtable] $Value
+    )
+
+    if (-not $script:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    $script:WindmillConnection.SetResource($script:WindmillConnection.GetStatePath(), $Value, "state")
+}
+
+<#
+.SYNOPSIS
+Gets the value of a resource with type "state".
+#>
+function Get-WindmillState {
+    Get-WindmillResource -Value $Value -Path $script:WindmillConnection.GetStatePath()
 }
 
 <#
@@ -502,14 +526,20 @@ class Windmill {
         return $response.Content | ConvertFrom-Json
     }
 
-    [void] SetResource([string] $Path, [Hashtable] $Value, [string] $ResourceType) {
-        $response = $this.Get("/w/$($this.Workspace)/resources/get/$Path", $false)
-
-        if ($response.StatusCode -eq 404) {
-            throw "Resource $Path not found"
+    [void] SetResource([string] $Path, [Hashtable] $Value, [string] $ResourceType) {    
+        # Resolve the effective path
+        $resolvedPath = if ($Path) { $Path } else { $script:WindmillConnection.GetStatePath() }
+    
+        if ($this.Get("/w/$($this.Workspace)/resources/exists/$resolvedPath", $false).Content -eq "true") {
+            $this.Post("/w/$($this.Workspace)/resources/update_value/$resolvedPath", @{ "value" = $Value }, $true)
         }
+
+        elseif ($ResourceType) {
+            $this.CreateResource($resolvedPath, $Value, $ResourceType)
+        }
+        
         else {
-            $this.Post("/w/$($this.Workspace)/resources/update_value/$Path", @{ "value" = $Value }, $true)
+            throw "Resource at path $resolvedPath does not exist and no type was provided to initialize it"
         }
     }
 
@@ -645,30 +675,46 @@ class Windmill {
 
         return $result
     }
+
+    [string] GetStatePath() {
+        $statePath = $env:WM_STATE_PATH_NEW
+
+        if (-not $statePath) {
+            $statePath = $env:WM_STATE_PATH
+        }
+
+        if (-not $statePath) {
+            throw "State path not set"
+        }
+    
+        return $statePath
+    }
 }
 
 Export-ModuleMember -Function @(
-  'Connect-Windmill',
-  'Disconnect-Windmill',
-  'New-WindmillToken',
-  'Get-WindmillIdToken',
-  'Get-WindmillWorkspace',
-  'Get-WindmillVersion',
-  'Get-WindmillUser',
-  'Get-WindmillVariable',
-  'New-WindmillVariable',
-  'Set-WindmillVariable',
-  'Remove-WindmillVariable',
-  'Get-WindmillResource',
-  'New-WindmillResource',
-  'Set-WindmillResource',
-  'Remove-WindmillResource',
-  'Invoke-WindmillScript',
-  'Start-WindmillScript',
-  'Start-WindmillFlow',
-  'Stop-WindmillJob',
-  'Wait-WindmillJob',
-  'Stop-WindmillExecution',
-  'Get-WindmillJob',
-  'Get-WindmillResult'
+    'Connect-Windmill',
+    'Disconnect-Windmill',
+    'New-WindmillToken',
+    'Get-WindmillIdToken',
+    'Get-WindmillWorkspace',
+    'Get-WindmillVersion',
+    'Get-WindmillUser',
+    'Get-WindmillVariable',
+    'New-WindmillVariable',
+    'Set-WindmillVariable',
+    'Remove-WindmillVariable',
+    'Get-WindmillResource',
+    'Get-WindmillState',
+    'New-WindmillResource',
+    'Set-WindmillResource',
+    'Set-WindmillState',
+    'Remove-WindmillResource',
+    'Invoke-WindmillScript',
+    'Start-WindmillScript',
+    'Start-WindmillFlow',
+    'Stop-WindmillJob',
+    'Wait-WindmillJob',
+    'Stop-WindmillExecution',
+    'Get-WindmillJob',
+    'Get-WindmillResult'
 )
