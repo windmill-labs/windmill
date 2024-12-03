@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE capture_config SET server_id = $1, last_server_ping = now() WHERE last_client_ping > NOW() - INTERVAL '10 seconds'  AND workspace_id = $2 AND path = $3 AND is_flow = $4 AND trigger_kind = 'kafka' AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds') RETURNING true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ee9adcbf82d3f62088a38ff65e8c90ac1c18b5df7aab6a143a328a6bddc6ad32"
+}

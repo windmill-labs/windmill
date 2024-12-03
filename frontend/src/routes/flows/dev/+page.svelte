@@ -82,7 +82,8 @@
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
-		simplifiedPoll: writable(false)
+		simplifiedPoll: writable(false),
+		defaultValues: writable(undefined)
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
@@ -226,6 +227,8 @@
 			console.error('issue parsing new change:', code, e)
 		}
 	}
+
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -251,7 +254,7 @@
 			</div>
 
 			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-				<FlowPreviewButtons />
+				<FlowPreviewButtons bind:this={flowPreviewButtons} />
 			</div>
 			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>
@@ -268,7 +271,18 @@
 					{/if}
 				</Pane>
 				<Pane size={67}>
-					<FlowEditorPanel noEditor />
+					<FlowEditorPanel
+						noEditor
+						on:applyArgs={(ev) => {
+							if (ev.detail.kind === 'preprocessor') {
+								$testStepStore['preprocessor'] = ev.detail.args ?? {}
+								$selectedIdStore = 'preprocessor'
+							} else {
+								$previewArgsStore = ev.detail.args ?? {}
+								flowPreviewButtons?.openPreview()
+							}
+						}}
+					/>
 				</Pane>
 			</Splitpanes>
 		</div>

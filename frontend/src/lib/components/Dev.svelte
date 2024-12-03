@@ -488,7 +488,8 @@
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
-		simplifiedPoll: writable(false)
+		simplifiedPoll: writable(false),
+		defaultValues: writable(undefined)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -714,7 +715,19 @@
 					</Pane>
 					<Pane size={33}>
 						{#key reload}
-							<FlowEditorPanel enableAi noEditor />
+							<FlowEditorPanel
+								enableAi
+								noEditor
+								on:applyArgs={(ev) => {
+									if (ev.detail.kind === 'preprocessor') {
+										$testStepStore['preprocessor'] = ev.detail.args ?? {}
+										$selectedIdStore = 'preprocessor'
+									} else {
+										$previewArgsStore = ev.detail.args ?? {}
+										flowPreviewButtons?.openPreview()
+									}
+								}}
+							/>
 						{/key}
 					</Pane>
 				</Splitpanes>

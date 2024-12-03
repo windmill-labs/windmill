@@ -72,14 +72,18 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		fixedScriptPath_?: string,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			url = ''
+			url = defaultValues?.url ?? ''
 			dirtyUrl = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''

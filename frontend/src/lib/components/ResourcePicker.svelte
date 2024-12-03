@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
@@ -23,6 +23,15 @@
 	export let showSchemaExplorer = false
 	export let selectFirst = false
 	export let expressOAuthSetup = false
+	export let defaultValues: Record<string, any> | undefined = undefined
+
+	onMount(() => {
+		setTimeout(() => {
+			if (Object.keys(defaultValues ?? {}).length > 0 && resourceType) {
+				resourceEditor?.initNew?.(resourceType, defaultValues)
+			}
+		}, 500)
+	})
 
 	let valueSelect =
 		initialValue || value

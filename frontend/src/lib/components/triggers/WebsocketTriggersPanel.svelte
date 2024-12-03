@@ -8,7 +8,7 @@
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { TriggerContext } from '../triggers'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import WebsocketTriggerEditor from './WebsocketTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -20,7 +20,19 @@
 
 	$: path && loadTriggers()
 
-	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, selectedTrigger, defaultValues } =
+		getContext<TriggerContext>('TriggerContext')
+
+	onMount(() => {
+		if (
+			defaultValues &&
+			$selectedTrigger === 'websockets' &&
+			Object.keys($defaultValues ?? {}).length > 0
+		) {
+			wsTriggerEditor.openNew(isFlow, path, $defaultValues)
+			defaultValues.set(undefined)
+		}
+	})
 
 	let wsTriggers: (WebsocketTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {

@@ -8,6 +8,7 @@
 	let drawer: Drawer
 	let canSave = true
 	let resource_type: string | undefined = undefined
+	let defaultValues: Record<string, any> | undefined = undefined
 
 	let resourceEditor: { editResource: () => void } | undefined = undefined
 
@@ -21,10 +22,14 @@
 		drawer.openDrawer?.()
 	}
 
-	export async function initNew(resourceType: string): Promise<void> {
+	export async function initNew(
+		resourceType: string,
+		nDefaultValues?: Record<string, any>
+	): Promise<void> {
 		newResource = true
 		path = undefined
 		resource_type = resourceType
+		defaultValues = nDefaultValues
 		drawer.openDrawer?.()
 	}
 </script>
@@ -38,6 +43,7 @@
 				{newResource}
 				{path}
 				{resource_type}
+				{defaultValues}
 				on:refresh
 				bind:this={resourceEditor}
 				bind:canSave

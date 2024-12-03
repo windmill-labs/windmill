@@ -54,6 +54,9 @@
 		args = {}
 	}
 
+	$: console.log('args', args)
+	$: console.log('schema', schema)
+
 	export function setDefaults() {
 		const nargs = {}
 

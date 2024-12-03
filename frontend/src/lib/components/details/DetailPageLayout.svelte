@@ -28,7 +28,8 @@
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		simplifiedPoll
+		simplifiedPoll,
+		defaultValues: writable(undefined)
 	})
 </script>
 

@@ -6,7 +6,7 @@
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { TriggerContext } from '../triggers'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
@@ -19,7 +19,19 @@
 
 	$: path && loadTriggers()
 
-	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, selectedTrigger, defaultValues } =
+		getContext<TriggerContext>('TriggerContext')
+
+	onMount(() => {
+		if (
+			defaultValues &&
+			$selectedTrigger === 'kafka' &&
+			Object.keys($defaultValues ?? {}).length > 0
+		) {
+			kafkaTriggerEditor.openNew(isFlow, path, $defaultValues)
+			defaultValues.set(undefined)
+		}
+	})
 
 	let kafkaTriggers: (KafkaTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {

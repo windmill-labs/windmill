@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, is_flow, workspace_id, trigger_config as \"trigger_config!: _\", owner FROM capture_config WHERE trigger_kind = 'kafka' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "trigger_config!: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "owner",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "f8fc1c07c70ccf4ca46540967412ee3619b5818bec3600cca3dd49ce0dd4bfe7"
+}

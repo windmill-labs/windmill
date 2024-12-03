@@ -8,7 +8,6 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -16,7 +15,6 @@
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils'
 
-	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
 
@@ -116,8 +114,6 @@
 	let inputLibraryDrawer: Drawer
 	let renderCount: number = 0
 </script>
-
-<CapturePayload bind:this={capturePayload} />
 
 <svelte:window on:keydown={onKeyDown} />
 
@@ -286,15 +282,6 @@
 					}}>Past Runs/Input library</Button
 				>
 			{/if}
-
-			<Button
-				btnClasses="h-full truncate"
-				size="sm"
-				variant="border"
-				on:click={() => {
-					capturePayload.openDrawer()
-				}}>Fill args from a request</Button
-			>
 		</div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
