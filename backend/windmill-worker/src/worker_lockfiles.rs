@@ -15,7 +15,7 @@ use windmill_common::scripts::ScriptHash;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
 use windmill_common::{
     error::{self, to_anyhow},
-    flows::FlowValue,
+    flows::{add_virtual_items_if_necessary, FlowValue},
     jobs::QueuedJob,
     scripts::ScriptLang,
     DB,
@@ -648,7 +648,7 @@ pub async fn handle_flow_dependency_job(
 
         // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
         let mut value_lite = flow.clone();
-        tx = reduce(tx, &mut value_lite.modules, &job_path, &job.workspace_id).await?;
+        tx = reduce(tx, &mut value_lite.modules, &job_path, &job.workspace_id, flow.failure_module.as_ref(), flow.same_worker).await?;
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
@@ -748,6 +748,7 @@ async fn lock_modules<'c>(
                 FlowModuleValue::ForloopFlow {
                     iterator,
                     modules,
+                    modules_node,
                     skip_failures,
                     parallel,
                     parallelism,
@@ -773,6 +774,7 @@ async fn lock_modules<'c>(
                     e.value = FlowModuleValue::ForloopFlow {
                         iterator,
                         modules: nmodules,
+                        modules_node,
                         skip_failures,
                         parallel,
                         parallelism,
@@ -808,7 +810,7 @@ async fn lock_modules<'c>(
                     }
                     e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
                 }
-                FlowModuleValue::WhileloopFlow { modules, skip_failures } => {
+                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
                         modules,
@@ -828,9 +830,9 @@ async fn lock_modules<'c>(
                     ))
                     .await?;
                     e.value =
-                        FlowModuleValue::WhileloopFlow { modules: nmodules, skip_failures }.into()
+                        FlowModuleValue::WhileloopFlow { modules: nmodules, modules_node, skip_failures }.into()
                 }
-                FlowModuleValue::BranchOne { branches, default } => {
+                FlowModuleValue::BranchOne { branches, default, default_node } => {
                     let mut nbranches = vec![];
                     nmodified_ids = vec![];
                     for mut b in branches {
@@ -876,7 +878,7 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
-                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default: ndefault }
+                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default: ndefault, default_node }
                         .into();
                 }
                 _ => (),
@@ -1021,7 +1023,10 @@ async fn insert_flow_node<'c>(
         r#"
         WITH existing AS (
             SELECT id FROM flow_node
-            WHERE hash = $1 AND path = $2 AND workspace_id = $3 AND code = $4 AND lock = $5 AND flow = $6
+            WHERE hash = $1 AND path = $2 AND workspace_id = $3
+                AND (code IS NOT DISTINCT FROM $4)
+                AND (lock IS NOT DISTINCT FROM $5)
+                AND (flow IS NOT DISTINCT FROM $6)
             LIMIT 1
         ),
         inserted AS (
@@ -1042,11 +1047,46 @@ async fn insert_flow_node<'c>(
     Ok((tx, FlowNodeId(id)))
 }
 
+async fn insert_flow_modules<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    path: &str,
+    workspace_id: &str,
+    failure_module: Option<&Box<FlowModule>>,
+    same_worker: bool,
+    modules: &mut Vec<FlowModule>,
+    modules_node: &mut Option<FlowNodeId>,
+) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    tx = Box::pin(reduce(tx, modules, path, workspace_id, failure_module, same_worker)).await?;
+    add_virtual_items_if_necessary(modules);
+    if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
+        return Ok(tx);
+    }
+    let id;
+    (tx, id) = insert_flow_node(
+        tx,
+        path,
+        workspace_id,
+        None,
+        None,
+        Some(&Json(to_raw_value(&FlowValue {
+            modules: std::mem::take(modules),
+            failure_module: failure_module.cloned(),
+            same_worker,
+            ..Default::default()
+        })))
+    )
+    .await?;
+    *modules_node = Some(id);
+    Ok(tx)
+}
+
 async fn reduce<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     modules: &mut Vec<FlowModule>,
     path: &str,
     workspace_id: &str,
+    failure_module: Option<&Box<FlowModule>>,
+    same_worker: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
@@ -1081,12 +1121,31 @@ async fn reduce<'c>(
                     is_trigger,
                 };
             },
-            ForloopFlow { modules, .. } | WhileloopFlow { modules, .. }  => {
-                tx = Box::pin(reduce(tx, &mut *modules, path, workspace_id)).await?;
+            ForloopFlow { modules, modules_node, .. }
+            | WhileloopFlow { modules, modules_node, .. }  => {
+                tx = insert_flow_modules(
+                    tx, path, workspace_id, failure_module, same_worker,
+                    modules, modules_node
+                ).await?;
             }
-            BranchOne { branches, .. } | BranchAll { branches, .. } => {
-                for branch in &mut *branches {
-                    tx = Box::pin(reduce(tx, &mut branch.modules, path, workspace_id)).await?;
+            BranchOne { branches, default, default_node, .. } => {
+                for branch in branches.iter_mut() {
+                    tx = insert_flow_modules(
+                        tx, path, workspace_id, failure_module, same_worker,
+                        &mut branch.modules, &mut branch.modules_node
+                    ).await?;
+                }
+                tx = insert_flow_modules(
+                    tx, path, workspace_id, failure_module, same_worker, 
+                    default, default_node
+                ).await?;
+            }
+            BranchAll { branches, .. } => {
+                for branch in branches.iter_mut() {
+                    tx = insert_flow_modules(
+                        tx, path, workspace_id, failure_module, same_worker,
+                        &mut branch.modules, &mut branch.modules_node
+                    ).await?;
                 }
             }
             _ => {}

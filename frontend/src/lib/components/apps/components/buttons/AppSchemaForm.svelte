@@ -159,7 +159,7 @@
 					bind:this={schemaForm}
 					displayType={Boolean(resolvedConfig.displayType)}
 					largeGap={Boolean(resolvedConfig.largeGap)}
-					appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+					appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
 					{computeS3ForceViewerPolicies}
 					{workspace}
 					{css}

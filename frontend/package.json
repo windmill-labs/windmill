@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.430.2",
+	"version": "1.434.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -9,7 +9,7 @@
 		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
-		"package": "svelte-package -o package",
+		"package": "./preprocess_pkg_toggle.sh && svelte-package -o package && ./preprocess_pkg_toggle.sh",
 		"generate-backend-client": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript --format false",
 		"generate-backend-client-mac": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
@@ -255,6 +255,11 @@
 			"svelte": "./package/components/FlowBuilder.svelte",
 			"default": "./package/components/FlowBuilder.svelte"
 		},
+		"./components/AppEditor.svelte": {
+			"types": "./package/components/apps/editor/AppEditor.svelte.d.ts",
+			"svelte": "./package/components/apps/editor/AppEditor.svelte",
+			"default": "./package/components/apps/editor/AppEditor.svelte"
+		},
 		"./components/ScriptBuilder.svelte": {
 			"types": "./package/components/ScriptBuilder.svelte.d.ts",
 			"svelte": "./package/components/ScriptBuilder.svelte",
@@ -431,6 +436,9 @@
 			],
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
+			],
+			"components/AppEditor.svelte": [
+				"./package/components/apps/editor/AppEditor.svelte.d.ts"
 			],
 			"components/ScriptBuilder.svelte": [
 				"./package/components/ScriptBuilder.svelte.d.ts"

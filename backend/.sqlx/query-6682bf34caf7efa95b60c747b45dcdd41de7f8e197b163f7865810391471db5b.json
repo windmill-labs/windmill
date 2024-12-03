@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT created_by, CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index\n        FROM completed_job \n        LEFT JOIN job_logs ON job_logs.job_id = completed_job.id \n        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2",
+  "query": "SELECT created_by, CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index\n            FROM queue \n            LEFT JOIN job_logs ON job_logs.job_id = queue.id \n            WHERE queue.id = $1 AND queue.workspace_id = $2 AND ($3::text[] IS NULL OR queue.tag = ANY($3))",
   "describe": {
     "columns": [
       {
@@ -27,15 +27,16 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text"
+        "Text",
+        "TextArray"
       ]
     },
     "nullable": [
       false,
       null,
-      false,
+      null,
       true
     ]
   },
-  "hash": "b4c4b1aa4bcf7e5f49ce3bd93fff3b7c49e812271e4888d33eb73dd638486488"
+  "hash": "6682bf34caf7efa95b60c747b45dcdd41de7f8e197b163f7865810391471db5b"
 }

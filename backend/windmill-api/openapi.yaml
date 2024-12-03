@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.430.2
+  version: 1.434.1
   title: Windmill API
 
   contact:
@@ -10098,11 +10098,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: hosts
-          in: query
-          required: true
-          schema:
-            type: string
         - name: min_ts
           in: query
           required: false
@@ -10131,6 +10126,29 @@ paths:
                   count_per_host:
                     description: count of log lines that matched the query per hostname
                     type: object
+
+  /srch/index/delete/{idx_name}:
+    delete:
+      summary: Restart container and delete the index to recreate it.
+      operationId: clearIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: idx_name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - JobIndex
+              - ServiceLogIndex
+      responses:
+        "200":
+          description: idx to be deleted and container restarting
+          content:
+            text/plain:
+              schema:
+                type: string
 
 components:
   securitySchemes:
@@ -10873,6 +10891,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string
@@ -10992,6 +11011,7 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
             ]
         schedule_path:
           type: string

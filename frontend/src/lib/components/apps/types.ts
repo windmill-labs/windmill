@@ -148,6 +148,7 @@ export type AppTheme =
 
 export type App = {
 	grid: GridItem[]
+	darkMode?: boolean
 	fullscreen: boolean
 	norefreshbar?: boolean
 	unusedInlineScripts: Array<{
@@ -213,7 +214,7 @@ export type AppViewerContext = {
 		>
 	>
 	staticExporter: Writable<Record<string, () => any>>
-	appPath: string
+	appPath: Writable<string>
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean
