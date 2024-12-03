@@ -34,7 +34,8 @@
 	let can_write = true
 	let drawerLoading = true
 	let database_resource_path = ''
-
+	let publication_name: string = ''
+	let replication_slot_name: string = ''
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -120,6 +121,8 @@
 					is_flow,
 					enabled: true,
 					database_resource_path,
+					replication_slot_name,
+					publication_name,
 					table_to_track: tables.map((table) => {
 						return {
 							table_name: table,
@@ -176,6 +179,8 @@
 					disabled={pathError != '' ||
 						emptyString(database_resource_path) ||
 						emptyString(script_path) ||
+						emptyString(replication_slot_name) ||
+						emptyString(publication_name) ||
 						!can_write}
 					on:click={updateTrigger}
 				>
@@ -233,6 +238,25 @@
 						<ResourcePicker bind:value={database_resource_path} resourceType={'database'} />
 					</div>
 				</Section>
+
+				<Section label="Publication">
+					<p class="text-xs mb-1 text-tertiary">
+						Choose a publication name<Required required={true} />
+					</p>
+					<input type="text" bind:value={publication_name} placeholder={'Publication Name'} />
+				</Section>
+
+				<Section label="Publication">
+					<p class="text-xs mb-1 text-tertiary">
+						Choose a slot name<Required required={true} />
+					</p>
+					<input
+						type="text"
+						bind:value={replication_slot_name}
+						placeholder={'Replication Slot Name'}
+					/>
+				</Section>
+
 				<Section label="Transactions">
 					<p class="text-xs mb-1 text-tertiary">
 						Choose what kind of database transaction you want to track<Required required={true} />

@@ -5,6 +5,7 @@ use crate::{
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     users::fetch_api_authed,
 };
+
 use axum::{
     extract::{Path, Query},
     routing::{delete, get, post},
@@ -70,6 +71,24 @@ impl fmt::Display for Error {
     }
 }
 
+trait RowExist {
+    fn row_exist(&self) -> bool;
+}
+
+impl RowExist for Vec<SimpleQueryMessage> {
+    fn row_exist(&self) -> bool {
+        self.iter()
+            .find_map(|element| {
+                if let SimpleQueryMessage::CommandComplete(value) = element {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .is_some_and(|value| value > 0)
+    }
+}
+
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 struct Database {
     username: String,
@@ -121,7 +140,6 @@ impl PostgresClient {
             .iter()
             .map(|table| quote_literal(table))
             .join(",");
-
         let query = format!(
             r#"
                 WITH target_tables AS (
@@ -143,14 +161,13 @@ impl PostgresClient {
             table_names,
             quote_literal(db_name)
         );
-
         let rows = self
             .client
             .simple_query(&query)
             .await
             .map_err(Error::Postgres)?;
-
-        if rows.is_empty() {
+        tracing::info!("{:#?}", rows);
+        if !rows.row_exist() {
             return Ok(());
         }
 
@@ -217,6 +234,107 @@ impl PostgresClient {
             tracing::info!("Send update status message");
         }
     }
+
+    async fn get_slot(&self, slot_name: &str) -> Result<bool, Error> {
+        let query = format!(
+            r#"select 1 from pg_replication_slots where slot_name = {};"#,
+            quote_literal(slot_name)
+        );
+
+        let query_result = self
+            .client
+            .simple_query(&query)
+            .await
+            .map_err(Error::Postgres)?;
+
+        if query_result.row_exist() {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    async fn create_slot(&self, slot_name: &str) -> Result<(), Error> {
+        let query = format!(
+            "SELECT * FROM pg_create_logical_replication_slot({}, 'pgoutput')",
+            quote_literal(slot_name)
+        );
+        self.client
+            .simple_query(&query)
+            .await
+            .map_err(Error::Postgres)?;
+        Ok(())
+    }
+
+    pub async fn get_or_create_slot(&self, slot_name: &str) -> Result<(), Error> {
+        if self.get_slot(slot_name).await? {
+            tracing::info!("Slot name {} already exists", slot_name);
+            return Ok(());
+        }
+        tracing::info!("Slot name {} do not exist, trying to create it", slot_name);
+        self.create_slot(slot_name).await
+    }
+
+    async fn check_if_publication_exists(&self, publication: &str) -> Result<bool, Error> {
+        let publication_exists_query = format!(
+            "select 1 as exists from pg_publication where pubname = {};",
+            quote_literal(publication)
+        );
+        let rows = self
+            .client
+            .simple_query(&publication_exists_query)
+            .await
+            .map_err(Error::Postgres)?;
+        for msg in rows {
+            if let SimpleQueryMessage::Row(_) = msg {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn create_publication(
+        &self,
+        publication_name: &str,
+        tables: Option<Vec<&str>>,
+    ) -> Result<(), Error> {
+        let mut query = String::new();
+        let quoted_publication_name = quote_identifier(publication_name);
+        query.push_str("CREATE PUBLICATION ");
+        query.push_str(&quoted_publication_name);
+        query.push_str(" FOR TABLE ONLY ");
+
+        if let Some(tables) = tables {
+            for (i, table) in tables.iter().enumerate() {
+                let quoted_table = quote_identifier(table);
+                query.push_str(&quoted_table);
+
+                if i < tables.len() - 1 {
+                    query.push(',')
+                }
+            }
+        }
+
+        self.client
+            .simple_query(&query)
+            .await
+            .map_err(Error::Postgres)?;
+
+        Ok(())
+    }
+
+    pub async fn create_publication_if_not_exist(
+        &self,
+        publication_name: &str,
+        tables: Option<Vec<&str>>,
+    ) -> Result<(), Error> {
+        if self.check_if_publication_exists(publication_name).await? {
+            tracing::info!("Publication {} already exists", publication_name);
+            return Ok(());
+        }
+        tracing::info!("Publication {} do no exist", publication_name);
+        self.create_publication(publication_name, tables).await
+    }
 }
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
@@ -245,6 +363,8 @@ struct NewDatabaseTrigger {
     enabled: bool,
     database_resource_path: String,
     table_to_track: Option<Vec<TableToTrack>>,
+    replication_slot_name: String,
+    publication_name: String,
 }
 
 fn check_if_valid_transaction_type<'de, D>(
@@ -280,6 +400,8 @@ struct DatabaseTrigger {
     table_to_track: Option<SqlxJson<Vec<TableToTrack>>>,
     error: Option<String>,
     server_id: Option<String>,
+    replication_slot_name: String,
+    publication_name: String,
     last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     enabled: bool,
 }
@@ -313,6 +435,8 @@ async fn create_database_trigger(
         enabled,
         is_flow,
         transaction_type,
+        publication_name,
+        replication_slot_name,
     } = new_database_trigger;
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
@@ -326,6 +450,8 @@ async fn create_database_trigger(
     sqlx::query!(
         r#"
         INSERT INTO database_trigger (
+            publication_name,
+            replication_slot_name,
             workspace_id, 
             path, 
             script_path, 
@@ -335,7 +461,7 @@ async fn create_database_trigger(
             enabled, 
             database_resource_path, 
             table_to_track, 
-            edited_by, 
+            edited_by,
             edited_at
         ) 
         VALUES (
@@ -349,8 +475,12 @@ async fn create_database_trigger(
             $8, 
             $9, 
             $10, 
+            $11,
+            $12, 
             now()
         )"#,
+        &publication_name,
+        &replication_slot_name,
         &w_id,
         &path,
         script_path,
@@ -405,6 +535,8 @@ async fn list_database_triggers(
             "error",
             "enabled",
             "database_resource_path",
+            "replication_slot_name",
+            "publication_name",
             "table_to_track",
         ])
         .order_by("edited_at", true)
@@ -463,6 +595,8 @@ async fn get_database_trigger(
             extra_perms,
             error,
             enabled,
+            replication_slot_name,
+            publication_name,
             database_resource_path,
             table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
         FROM 
@@ -766,12 +900,12 @@ async fn listen_to_transactions(
         }
     };
 
-    if let Some(table_to_track) = &database_trigger.table_to_track {
+    let table_to_track = if let Some(table_to_track) = &database_trigger.table_to_track {
         let table_to_track = table_to_track
             .iter()
             .map(|table| table.table_name.as_str())
             .collect_vec();
-
+        tracing::info!("{:#?}", &table_to_track);
         if let Err(e) = client
             .check_if_table_exists(&resource.value.db_name, table_to_track.as_slice())
             .await
@@ -781,12 +915,38 @@ async fn listen_to_transactions(
             update_ping(&db, &database_trigger, Some(&err)).await;
             return;
         };
-    }
+        Some(table_to_track)
+    } else {
+        None
+    };
 
     tracing::info!("Starting tokio select futures");
 
+    if let Err(e) = client
+        .get_or_create_slot(&database_trigger.replication_slot_name)
+        .await
+    {
+        let err = e.to_string();
+        tracing::debug!("{}", &err);
+        update_ping(&db, &database_trigger, Some(&err)).await;
+        return;
+    }
+
+    if let Err(e) = client
+        .create_publication_if_not_exist(&database_trigger.publication_name, table_to_track)
+        .await
+    {
+        let err = e.to_string();
+        tracing::debug!("{}", &err);
+        update_ping(&db, &database_trigger, Some(&err)).await;
+        return;
+    }
+
     let logical_replication_stream = client
-        .get_logical_replication_stream("user_publication", "rust_cdc_slot")
+        .get_logical_replication_stream(
+            &database_trigger.publication_name,
+            &database_trigger.replication_slot_name,
+        )
         .await;
 
     let logical_replication_stream = match logical_replication_stream {
@@ -859,7 +1019,7 @@ async fn listen_to_transactions(
                                         run_job(&db, rsmq.clone(), &database_trigger).await;
                                     }
                                     'C' => {}
-                                    _ => {}
+                                    _ => { }
                                 }
                             }
                             _ => {}
@@ -933,6 +1093,8 @@ async fn listen_to_unlistened_database_events(
                 transaction_type AS "transaction_type: TransactionType",
                 path,
                 script_path,
+                replication_slot_name,
+                publication_name,
                 is_flow,
                 edited_by,
                 email,

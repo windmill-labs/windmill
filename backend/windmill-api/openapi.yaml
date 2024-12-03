@@ -12320,6 +12320,10 @@ components:
     NewDatabaseTrigger:
       type: object
       properties:
+        replication_slot_name:
+          type: string
+        publication_name:
+          type: string
         path:
           type: string
         script_path:
@@ -12343,7 +12347,8 @@ components:
         - enabled
         - database_resource_path
         - transaction_type
-
+        - replication_slot_name
+        - publication_name
     EditDatabaseTrigger:
       type: object
       properties:
