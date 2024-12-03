@@ -12282,38 +12282,6 @@ components:
       required:
         - table_name
 
-    DatabaseToTrack:
-      type: object
-      properties:
-        username:
-          type: string
-        password:
-          type: string
-        host:
-          type: string
-        port:
-          type: number
-      required:
-        - username
-        - host
-        - port
-
-    DatabaseToTrackWithoutPass:
-      allOf:
-        $ref: "#/components/schemas/DatabaseToTrack"
-      type: object
-      properties:
-        username:
-          type: string
-        host:
-          type: string
-        port:
-          type: number
-      required:
-        - username
-        - host
-        - port
-
     DatabaseTrigger:
       allOf:
         - $ref: '#/components/schemas/TriggerExtraProperty'
@@ -12327,12 +12295,8 @@ components:
           type: boolean
         enabled:
           type: boolean
-        database:
-            $ref: "#/components/schemas/DatabaseToTrackWithoutPass"
-            required:
-              - username
-              - host
-              - port
+        database_resource_path:
+          type: string
         table_to_track:
           type: array
           items:
@@ -12344,7 +12308,7 @@ components:
         - script_path
         - is_flow
         - enabled
-        - database
+        - database_resource_path
 
     TransactionType:
       type: string
@@ -12364,7 +12328,7 @@ components:
           type: boolean
         enabled:
           type: boolean
-        database:
+        database_resource_path:
           type: string
         table_to_track:
           type: array
@@ -12377,7 +12341,7 @@ components:
         - script_path
         - is_flow
         - enabled
-        - database
+        - database_resource_path
         - transaction_type
 
     EditDatabaseTrigger:
@@ -12391,16 +12355,19 @@ components:
           type: boolean
         enabled:
           type: boolean
-        database:
-          $ref: "#/components/schemas/DatabaseToTrack"
-          required:
-            - username
-            - host
-            - port
+        database_resource_path:
+          type: string
         table_to_track:
           type: array
           items:
             $ref: "#/components/schemas/TableToTrack"
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - database_resource_path
+        - transaction_type
 
     Group:
       type: object

@@ -24,7 +24,7 @@ pub async fn get_resource<'de, T>(
 ) -> Result<Resource<T>, sqlx::Error>
 where
     T: Send + Sync + std::marker::Unpin + DeserializeOwned,
-{
+{   println!("{} {}", path, w_id);
     let resource = sqlx::query_as!(Resource, "SELECT resource_type, value, extra_perms FROM resource WHERE path = $1 AND workspace_id = $2", path, w_id).fetch_one(db).await?;
 
     let val: T = serde_json::from_value(resource.value).unwrap();

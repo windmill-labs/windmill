@@ -9,7 +9,7 @@ CREATE TABLE database_trigger(
     email VARCHAR(255) NOT NULL,
     edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     extra_perms JSONB NULL,
-    database VARCHAR(255) NOT NULL,
+    database_resource_path VARCHAR(255) NOT NULL,
     transaction_type transaction NOT NULL,
     table_to_track JSONB NULL,
     error TEXT NULL,

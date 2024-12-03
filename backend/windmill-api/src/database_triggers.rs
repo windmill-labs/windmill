@@ -6,11 +6,15 @@ use axum::{
     routing::{delete, get, post},
     Extension, Json, Router,
 };
+use byteorder::{BigEndian, ReadBytesExt};
+use bytes::{BufMut, Bytes, BytesMut};
+use chrono::TimeZone;
+use futures::{pin_mut, SinkExt, StreamExt};
 use http::StatusCode;
 use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
-use rust_postgres::{Client, Config, NoTls, SimpleQueryMessage};
+use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::to_value;
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -40,6 +44,7 @@ pub enum Error {
     Sqlx(sqlx::Error),
     MissingTables(Vec<String>),
     Postgres(rust_postgres::Error),
+    Wal(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -54,19 +59,18 @@ impl fmt::Display for Error {
             }
             Self::Postgres(e) => write!(f, "{}", e),
             Self::Sqlx(e) => write!(f, "{}", e),
+            Self::Wal(e) => write!(f, "{}", e),
         }
     }
 }
 
-#[derive(FromRow, Serialize, Deserialize)]
+#[derive(FromRow, Serialize, Deserialize, Debug)]
 struct Database {
     username: String,
-    #[serde(skip_deserializing)]
     password: Option<String>,
     host: String,
     port: u16,
     db_name: String,
-    schema: String,
 }
 
 struct PostgresClient {
@@ -89,7 +93,6 @@ impl PostgresClient {
         }
 
         let (client, connection) = config.connect(NoTls).await.map_err(Error::Postgres)?;
-
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 println!("{:#?}", e);
@@ -110,7 +113,7 @@ impl PostgresClient {
         }
         let table_names = table_to_track
             .iter()
-            .map(|table| quote_identifier(table))
+            .map(|table| quote_literal(table))
             .join(",");
 
         let query = format!(
@@ -157,17 +160,26 @@ impl PostgresClient {
         ))
     }
 
-    pub async fn alter_database_schema(&self, schemas: &[&str]) -> Result<(), Error> {
-        let schemas = schemas
-            .iter()
-            .map(|table| quote_identifier(table))
-            .join(",");
-        let query = format!("SET search_path TO {}", schemas);
+    pub async fn get_logical_replication_stream(
+        &self,
+        publication_name: &str,
+        logical_replication_slot_name: &str,
+    ) -> Result<CopyBothDuplex<Bytes>, Error> {
+        let options = format!(
+            r#"("proto_version" '1', "publication_names" {}, "binary")"#,
+            quote_literal(publication_name)
+        );
+
+        let query = format!(
+            r#"START_REPLICATION SLOT {} LOGICAL 0/0 {}"#,
+            quote_identifier(logical_replication_slot_name),
+            options
+        );
+
         self.client
-            .execute(&query, &[])
+            .copy_both_simple::<bytes::Bytes>(query.as_str())
             .await
-            .map_err(Error::Postgres)?;
-        Ok(())
+            .map_err(Error::Postgres)
     }
 }
 
@@ -182,7 +194,7 @@ struct EditDatabaseTrigger {
     path: String,
     script_path: String,
     is_flow: bool,
-    database: String,
+    database_resource_path: String,
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
@@ -195,7 +207,7 @@ struct NewDatabaseTrigger {
     script_path: String,
     is_flow: bool,
     enabled: bool,
-    database: String,
+    database_resource_path: String,
     table_to_track: Option<Vec<TableToTrack>>,
 }
 
@@ -226,8 +238,8 @@ struct DatabaseTrigger {
     edited_by: String,
     email: String,
     edited_at: chrono::DateTime<chrono::Utc>,
-    extra_perms: serde_json::Value,
-    database: String,
+    extra_perms: Option<serde_json::Value>,
+    database_resource_path: String,
     transaction_type: TransactionType,
     table_to_track: Option<SqlxJson<Vec<TableToTrack>>>,
     error: Option<String>,
@@ -256,8 +268,9 @@ async fn create_database_trigger(
     Path(w_id): Path<String>,
     Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
+    println!("{:#?}", &new_database_trigger);
     let NewDatabaseTrigger {
-        database,
+        database_resource_path,
         table_to_track,
         path,
         script_path,
@@ -284,7 +297,7 @@ async fn create_database_trigger(
             is_flow, 
             email, 
             enabled, 
-            database, 
+            database_resource_path, 
             table_to_track, 
             edited_by, 
             edited_at
@@ -309,7 +322,7 @@ async fn create_database_trigger(
         is_flow,
         &authed.email,
         enabled,
-        database,
+        database_resource_path,
         table_to_track,
         &authed.username
     )
@@ -355,7 +368,7 @@ async fn list_database_triggers(
             "extra_perms",
             "error",
             "enabled",
-            "database",
+            "database_resource_path",
             "table_to_track",
         ])
         .order_by("edited_at", true)
@@ -382,7 +395,6 @@ async fn list_database_triggers(
             tracing::debug!("Error fetching database_trigger: {:#?}", e);
             windmill_common::error::Error::InternalErr("server error".to_string())
         })?;
-    println!("rows: {:#?}", &rows);
     tx.commit().await.map_err(|e| {
         tracing::debug!("Error commiting database_trigger: {:#?}", e);
         windmill_common::error::Error::InternalErr("server error".to_string())
@@ -415,7 +427,7 @@ async fn get_database_trigger(
             extra_perms,
             error,
             enabled,
-            database,
+            database_resource_path,
             table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
         FROM 
             database_trigger
@@ -442,7 +454,7 @@ async fn update_database_trigger(
     Json(database_trigger): Json<EditDatabaseTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditDatabaseTrigger { script_path, path, is_flow, database, table_to_track } =
+    let EditDatabaseTrigger { script_path, path, is_flow, database_resource_path, table_to_track } =
         database_trigger;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -457,7 +469,7 @@ async fn update_database_trigger(
                 is_flow = $3, 
                 edited_by = $4, 
                 email = $5, 
-                database = $6, 
+                database_resource_path = $6, 
                 table_to_track = $7, 
                 edited_at = now(), 
                 error = NULL
@@ -470,7 +482,7 @@ async fn update_database_trigger(
         is_flow,
         &authed.username,
         &authed.email,
-        database,
+        database_resource_path,
         table_to_track,
         w_id,
         workspace_path,
@@ -671,21 +683,28 @@ async fn listen_to_transactions(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let resource =
-        get_resource::<Database>(&db, &database_trigger.path, &database_trigger.workspace_id).await;
+    let resource = get_resource::<Database>(
+        &db,
+        &database_trigger.database_resource_path,
+        &database_trigger.workspace_id,
+    )
+    .await;
 
     let mut resource = match resource {
         Ok(resource) => resource,
         Err(e) => {
-            tracing::debug!("Error while retrieve resource: {:#?}", e);
-            update_ping(&db, &database_trigger, Some("Internal server error")).await;
+            tracing::debug!(
+                "Error while trying to retrieve resource from database: {:#?}",
+                e
+            );
+            update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
             return;
         }
     };
 
     if resource.value.password.is_some() {
         let password = get_variable_or_self(
-            database_trigger.path.clone(),
+            resource.value.password.unwrap(),
             &db,
             &database_trigger.workspace_id,
         )
@@ -705,7 +724,8 @@ async fn listen_to_transactions(
     let client = match PostgresClient::new(&resource.value).await {
         Ok(client) => client,
         Err(e) => {
-            update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
+            tracing::debug!("Failed to connect to database: {}", e.to_string());
+            update_ping(&db, &database_trigger, Some("Internal Server Error")).await;
             return;
         }
     };
@@ -720,18 +740,73 @@ async fn listen_to_transactions(
             .check_if_table_exists(&resource.value.db_name, table_to_track.as_slice())
             .await
         {
-            update_ping(&db, &database_trigger, Some(e.to_string().as_str())).await;
+            let err = e.to_string();
+            tracing::debug!("{}", &err);
+            update_ping(&db, &database_trigger, Some(&err)).await;
             return;
         };
     }
+
+    tracing::info!("Starting tokio select futures");
+
+    let logical_replication_stream = client
+        .get_logical_replication_stream("publication_name", "logical_replication_slot_name")
+        .await;
+
+    let logical_replication_stream = match logical_replication_stream {
+        Ok(logical_replication_stream) => logical_replication_stream,
+        Err(e) => {
+            let err = e.to_string();
+            tracing::debug!("{}", &err);
+            update_ping(&db, &database_trigger, Some(&err)).await;
+            return;
+        }
+    };
+
+    pin_mut!(logical_replication_stream);
 
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
             return;
-        },
+        }
         _ = loop_ping(&db, &database_trigger, None) => {
             return ;
+        }
+        _ = async {
+            while let Ok(message) = logical_replication_stream.next().await.unwrap() {
+                if let Some((first_byte, mut message)) = message.split_first() {
+                    let code = char::from_u32(*first_byte as u32).unwrap();
+
+                    match code {
+                        'k' => {
+                            let end_wal_server: i64 = message.read_i64::<BigEndian>().unwrap();
+                            message.read_i64::<BigEndian>().unwrap();
+                            let reply = message.read_u8().unwrap();
+                            if reply == 1 {
+                                let mut buf = BytesMut::new();
+                                let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+                                let ts = chrono::Utc::now()
+                                    .signed_duration_since(ts)
+                                    .num_microseconds()
+                                    .unwrap_or(0);
+
+                                buf.put_u8(b'r');
+                                buf.put_i64(end_wal_server);
+                                buf.put_i64(end_wal_server);
+                                buf.put_i64(end_wal_server);
+                                buf.put_i64(ts);
+                                buf.put_u8(0);
+                                logical_replication_stream.send(buf.freeze()).await.unwrap();
+                            }
+                        }
+                        'w' => {}
+                        _ => {}
+                    }
+                }
+            }
+        } => {
+            return;
         }
     }
 }
@@ -768,6 +843,7 @@ async fn try_to_listen_to_database_transactions(
     match database_trigger {
         Ok(has_lock) => {
             if has_lock.flatten().unwrap_or(false) {
+                tracing::info!("Spawning new task to listen_to_database_transaction");
                 tokio::spawn(listen_to_transactions(db_trigger, db, rsmq, killpill_rx));
             } else {
                 tracing::info!("Database {} already being listened to", db_trigger.path);
@@ -805,7 +881,7 @@ async fn listen_to_unlistened_database_events(
                 extra_perms,
                 error,
                 enabled,
-                database,
+                database_resource_path,
                 table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
             FROM
                 database_trigger

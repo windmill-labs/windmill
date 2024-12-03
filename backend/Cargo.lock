@@ -10737,6 +10737,7 @@ dependencies = [
  "axum",
  "base32",
  "base64 0.22.1",
+ "byteorder",
  "bytes",
  "candle-core",
  "candle-nn",

@@ -5,12 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import {
-		DatabaseTriggerService,
-		type DatabaseToTrack,
-		type TableToTrack,
-		type TransactionType
-	} from '$lib/gen'
+	import { DatabaseTriggerService, type TableToTrack, type TransactionType } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -34,12 +29,11 @@
 	let path: string = ''
 	let pathError = ''
 	let enabled = false
-	let database: DatabaseToTrack
 	let tableToTrack: TableToTrack[] | undefined
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
-	let database_path = ''
+	let database_resource_path = ''
 
 	const dispatch = createEventDispatcher()
 
@@ -73,7 +67,6 @@
 			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
-			database = { username: '', password: '', host: '', port: 0 }
 			tableToTrack = []
 			dirtyPath = false
 		} finally {
@@ -92,7 +85,7 @@
 		is_flow = s.is_flow
 		path = s.path
 		enabled = s.enabled
-		database = s.database
+		database_resource_path = s.database_resource_path
 		tableToTrack = s.table_to_track
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
@@ -106,7 +99,8 @@
 					path,
 					script_path,
 					is_flow,
-					database,
+					database_resource_path,
+					enabled,
 					table_to_track: tables.map((table) => {
 						return {
 							table_name: table,
@@ -125,7 +119,7 @@
 					script_path,
 					is_flow,
 					enabled: true,
-					database: database_path,
+					database_resource_path,
 					table_to_track: tables.map((table) => {
 						return {
 							table_name: table,
@@ -180,7 +174,7 @@
 				<Button
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' ||
-						emptyString(database_path) ||
+						emptyString(database_resource_path) ||
 						emptyString(script_path) ||
 						!can_write}
 					on:click={updateTrigger}
@@ -236,7 +230,7 @@
 						Pick a database to connect to<Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
-						<ResourcePicker bind:value={database_path} resourceType={'database'} />
+						<ResourcePicker bind:value={database_resource_path} resourceType={'database'} />
 					</div>
 				</Section>
 				<Section label="Transactions">
