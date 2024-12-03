@@ -204,7 +204,6 @@ function Set-WindmillResource {
     if (-not $script:WindmillConnection) {
         throw "Windmill connection not established. Run Connect-Windmill first."
     }
-    
     $script:WindmillConnection.SetResource($Path, $Value, $ResourceType)
 }
 
@@ -537,7 +536,7 @@ class Windmill {
         elseif ($ResourceType) {
             $this.CreateResource($resolvedPath, $Value, $ResourceType)
         }
-        
+
         else {
             throw "Resource at path $resolvedPath does not exist and no type was provided to initialize it"
         }
