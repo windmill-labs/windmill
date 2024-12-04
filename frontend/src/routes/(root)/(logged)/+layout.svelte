@@ -29,9 +29,7 @@
 		defaultScripts,
 		hubBaseUrlStore,
 		usedTriggerKinds,
-
 		devopsRole
-
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -289,7 +287,12 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $userStore && ($devopsRole || $userStore.is_admin)) {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			($devopsRole || $userStore.is_admin)
+		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}
@@ -298,13 +301,11 @@
 	let numUnacknowledgedCriticalAlerts = 0
 	let mountModal = false
 	let isCriticalAlertsUiMuted = true
-	let muteSettings = {
-		global: true,
-		workspace: true
-	}
+	let muteSettings: { global: boolean; workspace: boolean } | undefined = undefined
+
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
-		const ws_muted =
+		let ws_muted =
 			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
 			false
 
@@ -316,6 +317,7 @@
 		} else {
 			isCriticalAlertsUiMuted = ws_muted
 		}
+		console.log('dbg loadCriticalAlertsMuted global', g_muted, 'workspace', ws_muted)
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}

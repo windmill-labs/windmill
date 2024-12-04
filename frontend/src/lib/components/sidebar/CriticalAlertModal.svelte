@@ -20,7 +20,7 @@
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
-	export let muteSettings
+	export let muteSettings: { global: boolean; workspace: boolean } | undefined = undefined
 	let workspaceContext = false
 
 	$: {
@@ -93,7 +93,7 @@
 				numUnacknowledgedCriticalAlerts === 0 &&
 				unacknowledged.length > 0 &&
 				sendToast &&
-				(($devopsRole && !muteSettings.global) || (!$devopsRole && !muteSettings.workspace))
+				(($devopsRole && !muteSettings?.global) || (!$devopsRole && !muteSettings?.workspace))
 			) {
 				sendUserToast(
 					'Critical Alert:',
@@ -143,7 +143,7 @@
 					<svelte:fragment slot="button">
 						<div id="mute-settings-button">
 							<Button variant="border" color="light" nonCaptureEvent>
-								{#if muteSettings.global || muteSettings.workspace}
+								{#if muteSettings?.global || muteSettings?.workspace}
 									<BellOff size="16" />
 								{:else}
 									<Bell size="16" />
@@ -153,7 +153,7 @@
 					</svelte:fragment>
 					<List justify="start">
 						<div class="w-full">
-							{#if $superadmin}
+							{#if $superadmin && muteSettings}
 								<Toggle
 									bind:checked={muteSettings.global}
 									options={{
@@ -166,14 +166,16 @@
 						</div>
 
 						<div class="w-full">
-							<Toggle
-								bind:checked={muteSettings.workspace}
-								options={{
-									right: 'Automatically acknowledge critical alerts for current workspace'
-								}}
-								size="xs"
-								stopPropagation={true}
-							/>
+							{#if muteSettings}
+								<Toggle
+									bind:checked={muteSettings.workspace}
+									options={{
+										right: 'Automatically acknowledge critical alerts for current workspace'
+									}}
+									size="xs"
+									stopPropagation={true}
+								/>
+							{/if}
 						</div>
 					</List>
 				</Popup>
