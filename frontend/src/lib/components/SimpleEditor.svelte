@@ -225,6 +225,8 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
+			lineDecorationsWidth: 6,
+			lineNumbersMinChars: 2,
 			// overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})

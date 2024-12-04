@@ -303,6 +303,7 @@
 							{#if !noEditor}
 								{#key flowModule.id}
 									<Editor
+										
 										folding
 										path={$pathStore + '/' + flowModule.id}
 										bind:websocketAlive
