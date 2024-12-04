@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
 	import { Clipboard } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let content: string
 	export let title: string | undefined = undefined
+	export let size: 'sm' | 'md' = 'sm'
 </script>
 
 {#if title !== undefined}
@@ -19,6 +21,8 @@
 		copyToClipboard(content)
 	}}
 >
-	<div class="text-xs truncate whitespace-no-wrap grow">{content}</div>
+	<div class={twMerge('truncate whitespace-no-wrap grow', size === 'sm' ? 'text-xs' : 'text-sm')}
+		>{content}</div
+	>
 	<Clipboard size={12} class="flex-shrink-0" />
 </div>

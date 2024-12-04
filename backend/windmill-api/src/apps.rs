@@ -56,10 +56,10 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath
     },
     variables::{build_crypt, build_crypt_with_key_suffix},
-    worker::to_raw_value,
+    worker::{to_raw_value, CLOUD_HOSTED},
     HUB_BASE_URL,
 };
 
@@ -81,6 +81,7 @@ pub fn workspaced_service() -> Router {
         .route("/history/p/*path", get(get_app_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
+        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
 }
 
 pub fn unauthed_service() -> Router {
@@ -90,11 +91,15 @@ pub fn unauthed_service() -> Router {
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
 }
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub fn global_unauthed_service() -> Router {
+    Router::new()
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -147,21 +152,26 @@ pub struct AppWithLastVersionAndStarred {
     pub starred: Option<bool>,
 }
 
+#[cfg(feature = "enterprise")]
+#[derive(Serialize, FromRow)]
+pub struct AppWithLastVersionAndWorkspace {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub app: AppWithLastVersion,
+    pub workspace_id: String,
+}
+
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersionAndDraft {
-    pub id: i64,
-    pub path: String,
-    pub summary: String,
-    pub policy: sqlx::types::Json<Box<RawValue>>,
-    pub versions: Vec<i64>,
-    pub value: sqlx::types::Json<Box<RawValue>>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub extra_perms: serde_json::Value,
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -229,6 +239,7 @@ pub struct CreateApp {
     pub policy: Policy,
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
+    pub custom_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -238,6 +249,7 @@ pub struct EditApp {
     pub value: Option<sqlx::types::Json<Box<RawValue>>>,
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
+    pub custom_path: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -408,7 +420,7 @@ async fn get_app_w_draft(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
         r#"SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        app.extra_perms, app_version.value, 
+        app.extra_perms, app_version.value, app.custom_path,
         app_version.created_at, app_version.created_by,
         app.draft_only, draft.value as "draft"
         from app
@@ -515,6 +527,22 @@ async fn update_app_history(
     return Ok(());
 }
 
+
+async fn custom_path_exists(
+    Extension(db): Extension<DB>,
+    Path((w_id, custom_path)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    let exists = 
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+            custom_path,
+            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+        )
+        .fetch_one(&db)
+        .await?.unwrap_or(false);
+    Ok(Json(exists))
+}
+
 async fn get_app_by_id(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -598,6 +626,7 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
+
 async fn get_public_resource(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -680,6 +709,26 @@ async fn create_app(
         )));
     }
 
+    if let Some(custom_path) = &app.custom_path {
+
+        require_admin(authed.is_admin, &authed.username)?;
+
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+            custom_path,
+            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+        )
+        .fetch_one(&mut *tx)
+        .await?.unwrap_or(false);
+
+        if exists {
+            return Err(Error::BadRequest(format!(
+                "App with custom path {} already exists",
+                custom_path
+            )));
+        }
+    }
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         &app.path,
@@ -690,13 +739,14 @@ async fn create_app(
 
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only)
-            VALUES ($1, $2, $3, $4, '{}', $5) RETURNING id",
+            (workspace_id, path, summary, policy, versions, draft_only, custom_path)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
         app.draft_only,
+        app.custom_path,
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -899,7 +949,11 @@ async fn update_app(
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
-    let npath = if ns.policy.is_some() || ns.path.is_some() || ns.summary.is_some() {
+    let npath = if ns.policy.is_some()
+        || ns.path.is_some()
+        || ns.summary.is_some()
+        || ns.custom_path.is_some()
+    {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
@@ -930,6 +984,29 @@ async fn update_app(
 
         if let Some(nsummary) = &ns.summary {
             sqlb.set_str("summary", nsummary);
+        }
+
+        if let Some(ncustom_path) = &ns.custom_path {
+
+            require_admin(authed.is_admin, &authed.username)?;
+
+            let exists = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                ncustom_path,
+                if *CLOUD_HOSTED { Some(&w_id) } else { None },
+                path,
+                w_id
+            )
+            .fetch_one(&mut *tx)
+            .await?.unwrap_or(false);
+
+            if exists {
+                return Err(Error::BadRequest(format!(
+                    "App with custom path {} already exists",
+                    ncustom_path
+                )));
+            }
+            sqlb.set_str("custom_path", ncustom_path);
         }
 
         if let Some(mut npolicy) = ns.policy {

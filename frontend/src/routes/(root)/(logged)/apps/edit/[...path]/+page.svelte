@@ -19,6 +19,7 @@
 				summary: string
 				policy: any
 				draft_only?: boolean
+				custom_path?: string
 		  }
 		| undefined = undefined
 	let redraw = 0
@@ -58,7 +59,8 @@
 							path: app_w_draft_.path,
 							policy: app_w_draft_.policy
 					  }
-					: undefined
+					: undefined,
+			custom_path: app_w_draft_.custom_path
 		}
 
 		if (stateLoadedFromUrl) {
