@@ -10,7 +10,6 @@
 
 	export let css: any = {}
 	export let target: string = ''
-	export let mode: 'dnd' | 'fixed' = 'dnd'
 	export let isOpen = false
 	export let fixedSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md'
 
@@ -46,10 +45,9 @@
 <Portal name="always-mounted" {target}>
 	<div
 		class={twMerge(
-			`${
-				mode == 'dnd' ? 'absolute' : 'fixed'
-			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
-			isOpen ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
+			'fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-auto',
+			isOpen ? 'z-[1100] bg-black bg-opacity-60' : 'hidden',
+			'w-full h-full'
 		)}
 	>
 		<div class="flex min-h-full items-center justify-center p-8">
