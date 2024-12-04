@@ -14,6 +14,7 @@ use windmill_common::{
     add_time,
     error::{self, Error},
     jobs::{JobKind, QueuedJob},
+    utils::WarnAfterExt,
     worker::{to_raw_value, WORKER_GROUP},
     DB,
 };
@@ -431,6 +432,7 @@ pub async fn process_completed_job(
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
+                .warn_after_seconds(10, "update_flow_status_after_job_completion success")
                 .await?;
             }
         }
@@ -469,6 +471,7 @@ pub async fn process_completed_job(
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
+                .warn_after_seconds(10, "update_flow_status_after_job_completion error")
                 .await?;
             }
         }
