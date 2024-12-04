@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, PythonAnnotations};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::{add_virtual_items_if_necessary, FlowValue},
@@ -26,7 +26,9 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
+};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -1432,6 +1434,8 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    no_uv_compile: bool,
+    no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
     let req: std::result::Result<String, Error> = uv_pip_compile(
@@ -1444,7 +1448,7 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        false,
+        no_uv_compile,
         false,
     )
     .await;
@@ -1461,7 +1465,7 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            false,
+            no_uv_install,
             false,
         )
         .await;
@@ -1512,6 +1516,8 @@ async fn capture_dependency_job(
                 .join("\n")
             };
 
+            let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
+                PythonAnnotations::parse(job_raw_code);
             python_dep(
                 reqs,
                 job_id,
@@ -1523,6 +1529,8 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                no_uv_compile | no_uv,
+                no_uv_install | no_uv,
             )
             .await
         }
@@ -1546,6 +1554,8 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                false,
+                false,
             )
             .await
         }
