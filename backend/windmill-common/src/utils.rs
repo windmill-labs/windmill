@@ -34,7 +34,7 @@ pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
-use std::panic::{self, AssertUnwindSafe};
+use std::panic::{self, AssertUnwindSafe, Location};
 use std::sync::atomic::Ordering;
 
 use crate::worker::CLOUD_HOSTED;
@@ -544,13 +544,16 @@ use pin_project_lite::pin_project;
 
 pub trait WarnAfterExt: Future + Sized {
     /// Warns if the future takes longer than the specified number of seconds to complete.
-    fn warn_after_seconds(self, seconds: u8, location: &'static str) -> WarnAfterFuture<Self> {
+    #[track_caller]
+    fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
             future: self,
             timeout: time::sleep(Duration::from_secs(seconds as u64)),
             warned: false,
             start_time: std::time::Instant::now(),
-            location,
+            location: location,
             seconds,
         }
     }
@@ -567,7 +570,7 @@ pin_project! {
         #[pin]
         timeout: Sleep,
         warned: bool,
-        location: &'static str,
+        location: String,
         start_time: std::time::Instant,
         seconds: u8,
     }

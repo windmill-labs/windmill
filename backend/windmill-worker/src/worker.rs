@@ -160,7 +160,7 @@ pub async fn create_token_for_owner_in_bg(
                 &email,
                 &job_id,
             )
-            .warn_after_seconds(5, "creating token for owner")
+            .warn_after_seconds(5)
             .await
             .expect("could not create job token");
             *locked = token;
@@ -1826,7 +1826,7 @@ async fn handle_queued_job(
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
         ).fetch_optional(db)
-        .warn_after_seconds(5, "getting email_trigger_usage")
+        .warn_after_seconds(5)
         .await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
 
         if let Some(count) = daily_count {
@@ -1840,7 +1840,7 @@ async fn handle_queued_job(
                     serde_json::json!(count + 1)
                 )
                 .execute(db)
-                .warn_after_seconds(5, "updating email_trigger_usage")
+                .warn_after_seconds(5)
                 .await?;
             }
         } else {
@@ -1848,7 +1848,7 @@ async fn handle_queued_job(
                 "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
             )
             .execute(db)
-            .warn_after_seconds(5, "inserting email_trigger_usage")
+            .warn_after_seconds(5)
             .await?;
         }
     }
@@ -1861,7 +1861,7 @@ async fn handle_queued_job(
                 .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
             job.id,
         )
-        .warn_after_seconds(5, "updating flow status in progress")
+        .warn_after_seconds(5)
         .await?;
 
         Some(r)
@@ -1874,7 +1874,7 @@ async fn handle_queued_job(
                 &job.workspace_id
             )
             .execute(db)
-            .warn_after_seconds(5, "updating parent job started_at flow_status")
+            .warn_after_seconds(5)
             .await {
                 tracing::error!("Could not update parent job started_at flow_status: {}", e);
             }
@@ -1891,7 +1891,7 @@ async fn handle_queued_job(
             job.workspace_id
         )
         .fetch_one(db)
-        .warn_after_seconds(5, "getting job raw values")
+        .warn_after_seconds(5)
         .await
         .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
         .unwrap_or_default(),
@@ -1932,7 +1932,7 @@ async fn handle_queued_job(
                 &job.parent_job.unwrap()
             )
             .fetch_one(db)
-            .warn_after_seconds(5, "getting script path from queue for caching purposes")
+            .warn_after_seconds(5)
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
@@ -1967,7 +1967,7 @@ async fn handle_queued_job(
             &job.workspace_id,
             &cached_res_path,
         )
-        .warn_after_seconds(5, "getting cached resource value")
+        .warn_after_seconds(5)
         .await;
         if let Some(cached_resource_value) = cached_resource_value_maybe {
             {
@@ -2006,7 +2006,7 @@ async fn handle_queued_job(
             worker_dir,
             job_completed_tx.0.clone(),
         )
-        .warn_after_seconds(10, "handling flow")
+        .warn_after_seconds(10)
         .await?;
         Ok(true)
     } else {
