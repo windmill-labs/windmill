@@ -28,6 +28,8 @@
 	import { convert } from '@redocly/json-to-json-schema'
 	import SchemaViewer from '../SchemaViewer.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
+	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
+	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -36,8 +38,8 @@
 	export let captureType: CaptureTriggerKind = 'webhook'
 	export let captureMode = false
 	export let active = false
+	export let data: any = {}
 
-	$: console.log('dbg isFlow', isFlow)
 	const dispatch = createEventDispatcher<{
 		openTriggers: {
 			kind: TriggerKind
@@ -333,7 +335,6 @@
 	}
 
 	export async function handleCapture() {
-		console.log('dbg handleCapture')
 		if (!active) {
 			await setConfig()
 			capture()
@@ -392,19 +393,18 @@
 			{/key}
 		{/if}
 
-		{#if captureType === 'webhook'}
-			<Label label="URL">
-				<ClipboardPanel content={webhookUrl} />
-			</Label>
-			<Label label="Example curl">
-				<CopyableCodeBlock
-					code={`curl \\
--X POST ${webhookUrl} \\
--H 'Content-Type: application/json' \\
--d '{"foo": 42}'`}
-					language={bash}
-				/>
-			</Label>
+		{#if captureType === 'websocket'}
+			<WebsocketEditorConfigSection url={''} can_write={true} headless={true} bind:args />
+		{:else if captureType === 'webhook'}
+			<WebhooksConfigSection
+				{isFlow}
+				{path}
+				hash={data?.hash}
+				token={data?.token}
+				{args}
+				scopes={data?.scopes}
+				{captureMode}
+			/>
 		{:else if captureType === 'http'}
 			<RouteEditorConfigSection {path} {captureMode} can_write={true} bind:args headless />
 		{:else if captureType === 'email'}

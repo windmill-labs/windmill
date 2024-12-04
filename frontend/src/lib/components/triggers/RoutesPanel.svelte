@@ -63,7 +63,7 @@
 			routeEditor?.openNew(isFlow, path, e.detail.config)
 		}}
 		cloudDisabled={false}
-		captureType="webhook"
+		captureType="http"
 		{isFlow}
 	/>
 	<Section label="Routes">

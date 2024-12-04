@@ -13,6 +13,16 @@
 	export let cloudDisabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let isFlow: boolean = false
+	export let data: any = {}
+	export let noSave = false
+
+	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
+		http: 'Route',
+		websocket: 'Websocket',
+		webhook: 'Webhook',
+		kafka: 'Kafka',
+		email: 'Email'
+	}
 
 	let args: Record<string, any> = {}
 	let captureMode = false
@@ -28,7 +38,7 @@
 	let handleCapture: (() => Promise<void>) | undefined
 </script>
 
-<Section label="New Route">
+<Section label={`New ${captureTypeLabels[captureType]}`}>
 	<svelte:fragment slot="action">
 		<div class=" flex flex-row grow w-min-0 gap-2 px-2 items-center justify-between">
 			<Toggle bind:checked={captureMode} options={{ left: 'Capture' }} size="xs" />
@@ -45,34 +55,36 @@
 					</Button>
 				{/if}
 
-				{#if newItem || cloudDisabled}
-					<Popover notClickable>
+				{#if !noSave}
+					{#if newItem || cloudDisabled}
+						<Popover notClickable>
+							<Button
+								size="xs2"
+								disabled
+								startIcon={{ icon: Save }}
+								iconOnly
+								wrapperClasses="h-full"
+							/>
+							<svelte:fragment slot="text">
+								{#if newItem}
+									Deploy the runnable to enable trigger creation
+								{:else if cloudDisabled}
+									{capitalize(captureType)} triggers are disabled in the multi-tenant cloud
+								{/if}
+							</svelte:fragment>
+						</Popover>
+					{:else}
 						<Button
 							size="xs2"
-							disabled
+							on:click={() => {
+								dispatch('saveTrigger', {
+									config: { ...args, captureMode }
+								})
+							}}
 							startIcon={{ icon: Save }}
 							iconOnly
-							wrapperClasses="h-full"
 						/>
-						<svelte:fragment slot="text">
-							{#if newItem}
-								Deploy the runnable to enable trigger creation
-							{:else if cloudDisabled}
-								{capitalize(captureType)} triggers are disabled in the multi-tenant cloud
-							{/if}
-						</svelte:fragment>
-					</Popover>
-				{:else}
-					<Button
-						size="xs2"
-						on:click={() => {
-							dispatch('saveTrigger', {
-								config: { ...args, captureMode }
-							})
-						}}
-						startIcon={{ icon: Save }}
-						iconOnly
-					/>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -81,7 +93,7 @@
 	<CaptureWrapper
 		path={$pathStore}
 		{isFlow}
-		captureType="http"
+		{captureType}
 		hasPreprocessor={!!$flowStore.value.preprocessor_module}
 		canHavePreprocessor
 		on:applyArgs
@@ -101,5 +113,6 @@
 		{captureMode}
 		bind:handleCapture
 		bind:active
+		{data}
 	/>
 </Section>
