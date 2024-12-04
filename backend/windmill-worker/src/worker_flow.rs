@@ -2137,6 +2137,7 @@ async fn push_next_flow_job(
                 .bind(status.step)
                 .bind(json!(status.retry.failed_jobs))
                 .execute(db)
+                .warn_after_seconds(2)
                 .await
                 .context("update flow retry")?;
 
@@ -2562,6 +2563,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
         )
+        .warn_after_seconds(2)
         .await?;
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
@@ -2774,7 +2776,7 @@ async fn push_next_flow_job(
     .execute(&mut *tx)
     .await?;
 
-    tx.commit().await?;
+    tx.commit().warn_after_seconds(3).await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
 
     if continue_on_same_worker {

@@ -1,4 +1,4 @@
-use crate::{db::DB, error};
+use crate::{db::DB, error, utils::WarnAfterExt};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -90,6 +90,7 @@ pub async fn register_metric_for_job(
     .bind(timeseries_int)
     .bind(timeseries_float)
     .execute(db)
+    .warn_after_seconds(1)
     .await?;
 
     Ok(metric_id)

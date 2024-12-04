@@ -599,7 +599,7 @@ impl<F: Future> Future for WarnAfterFuture<F> {
                     let elapsed = this.start_time.elapsed();
                     tracing::warn!(
                         location = this.location,
-                        "SLOW QUERY: completed with total duration: {:.2?}",
+                        "SLOW_QUERY: completed with total duration: {:.2?}",
                         elapsed
                     );
                 }
