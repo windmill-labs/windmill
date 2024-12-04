@@ -16,6 +16,8 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import CapturePanel from '$lib/components/triggers/CapturePanel.svelte'
 	import { insertNewPreprocessorModule } from '../flowStateUtils'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import InputSchemaPicker from '$lib/components/flows/pickers/InputSchemaPicker.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -55,6 +57,14 @@
 		{#if tabSelected === 'input'}
 			<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
 				<div class="text-sm">Copy input's schema from</div>
+				<Popover closeButton={false}>
+					<svelte:fragment slot="trigger">
+						<Button color="dark" size="xs" nonCaptureEvent>Captures</Button>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<InputSchemaPicker isFlow={true} path={$pathStore} />
+					</svelte:fragment>
+				</Popover>
 				<Button
 					color="dark"
 					size="xs"

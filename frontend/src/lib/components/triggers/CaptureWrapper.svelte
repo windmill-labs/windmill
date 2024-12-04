@@ -1,32 +1,23 @@
 <script lang="ts">
-	import { Clipboard, Info, Trash2 } from 'lucide-svelte'
 	import { base32 } from 'rfc4648'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import {
 		CaptureService,
 		SettingService,
-		type Capture,
 		type CaptureConfig,
 		type CaptureTriggerKind
 	} from '$lib/gen'
-	import Button from '../common/button/Button.svelte'
-	import { capitalize, copyToClipboard, isObject, sendUserToast, sleep } from '$lib/utils'
-	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { type TriggerKind } from '../triggers'
+	import { onDestroy } from 'svelte'
+	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import Label from '../Label.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
-	import CustomPopover from '../CustomPopover.svelte'
-	import { convert } from '@redocly/json-to-json-schema'
-	import SchemaViewer from '../SchemaViewer.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
-
+	import CaptureTable from './CaptureTable.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let hasPreprocessor: boolean
@@ -42,28 +33,9 @@
 		  }
 		| undefined = undefined
 
-	const dispatch = createEventDispatcher<{
-		openTriggers: {
-			kind: TriggerKind
-			config: Record<string, any>
-		}
-		applyArgs: {
-			kind: 'main' | 'preprocessor'
-			args: Record<string, any> | undefined
-		}
-		addPreprocessor: null
-		updateSchema: {
-			schema: any
-			redirect: boolean
-		}
-	}>()
-
 	export let args: Record<string, any> = {}
 
 	let isValid = true
-	let testKind: 'preprocessor' | 'main' = 'main'
-
-	$: hasPreprocessor && (testKind = 'preprocessor')
 
 	$: captureType && (isValid = true)
 
@@ -230,16 +202,6 @@
 	}
 	$: emailAddress = getEmailAddress(emailDomain)
 
-	let captures: Capture[] = []
-	async function refreshCaptures() {
-		captures = await CaptureService.listCaptures({
-			workspace: $workspaceStore!,
-			runnableKind: isFlow ? 'flow' : 'script',
-			path
-		})
-	}
-	refreshCaptures()
-
 	let captureConfigs: {
 		[key: string]: CaptureConfig
 	} = {}
@@ -268,7 +230,10 @@
 	}
 	getCaptureConfigs()
 
-	export async function capture() {
+	let refreshCaptures: () => Promise<void>
+
+	async function capture() {
+		console.log('dbg capture')
 		let i = 0
 		active = true
 		while (active) {
@@ -284,20 +249,6 @@
 			refreshCaptures()
 			i++
 			await sleep(1000)
-		}
-	}
-
-	let deleteLoading: number | null = null
-	async function deleteCapture(id: number) {
-		deleteLoading = id
-		try {
-			await CaptureService.deleteCapture({
-				workspace: $workspaceStore!,
-				id
-			})
-			refreshCaptures()
-		} finally {
-			deleteLoading = null
 		}
 	}
 
@@ -343,11 +294,9 @@
 
 	$: cloudDisabled = (captureType === 'websocket' || captureType === 'kafka') && isCloudHosted()
 
-	$: selectedCaptures = captures.filter((c) => c.trigger_kind === captureType)
-
 	function updateConnectionInfo(
 		captureType: CaptureTriggerKind,
-		config: CaptureConfig,
+		config: CaptureConfig | undefined,
 		active: boolean
 	) {
 		if ((captureType === 'websocket' || captureType === 'kafka') && config && active) {
@@ -399,141 +348,14 @@
 		{/if}
 
 		{#if captureMode}
-			<Label label="Captures">
-				<svelte:fragment slot="action">
-					{#if canHavePreprocessor}
-						<div>
-							<ToggleButtonGroup bind:selected={testKind}>
-								<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small />
-								<ToggleButton
-									value="preprocessor"
-									label="Preprocessor"
-									small
-									tooltip="When the runnable has a preprocessor, it receives additional information about the request"
-								/>
-							</ToggleButtonGroup>
-						</div>
-					{/if}
-				</svelte:fragment>
-				<div class="flex flex-col gap-1 mt-2">
-					{#if selectedCaptures.length === 0}
-						<div class="text-xs text-secondary">No {captureType} captures yet</div>
-					{:else}
-						{#each selectedCaptures as capture}
-							{@const payload = isObject(capture.payload) ? capture.payload : {}}
-							{@const triggerExtra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}}
-							{@const payloadData =
-								testKind === 'preprocessor'
-									? {
-											...payload,
-											...triggerExtra
-									  }
-									: payload}
-							{@const schema =
-								isFlow && testKind === 'main'
-									? { required: [], properties: {}, ...convert(payloadData) }
-									: {}}
-							<div class="flex flex-row gap-1">
-								<div class="text-xs border p-2 rounded-md overflow-auto grow whitespace-nowrap">
-									{JSON.stringify(payloadData)}
-								</div>
-								<Button
-									size="xs2"
-									color="light"
-									variant="border"
-									on:click={() => {
-										copyToClipboard(JSON.stringify(payloadData))
-									}}
-									iconOnly
-									startIcon={{ icon: Clipboard }}
-								/>
-
-								{#if isFlow && testKind === 'main'}
-									<CustomPopover>
-										<Button
-											size="xs"
-											color="light"
-											variant="border"
-											on:click={() => {
-												dispatch('updateSchema', { schema, redirect: true })
-											}}
-											wrapperClasses="h-full"
-										>
-											Apply schema
-										</Button>
-
-										<svelte:fragment slot="overlay">
-											{#if schema}
-												<div class="min-w-[400px]">
-													<SchemaViewer {schema} />
-												</div>
-											{/if}
-										</svelte:fragment>
-									</CustomPopover>
-								{/if}
-
-								{#if testKind === 'preprocessor' && !hasPreprocessor}
-									<CustomPopover noPadding>
-										<Button
-											size="xs"
-											color="dark"
-											disabled
-											endIcon={{
-												icon: Info
-											}}
-											wrapperClasses="h-full"
-										>
-											Apply args
-										</Button>
-										<svelte:fragment slot="overlay">
-											<div class="text-sm p-2 flex flex-col gap-1 items-start">
-												<p>You need to add a preprocessor to use preprocessor captures as args</p>
-												<Button
-													size="xs"
-													color="dark"
-													on:click={() => {
-														dispatch('addPreprocessor')
-													}}
-												>
-													Add preprocessor
-												</Button>
-											</div>
-										</svelte:fragment>
-									</CustomPopover>
-								{:else}
-									<Button
-										size="xs"
-										color="dark"
-										on:click={() => {
-											if (isFlow && testKind === 'main') {
-												dispatch('updateSchema', { schema, redirect: false })
-											}
-											dispatch('applyArgs', {
-												kind: testKind,
-												args: payloadData
-											})
-										}}
-										disabled={testKind === 'preprocessor' && !hasPreprocessor}
-									>
-										{isFlow && testKind === 'main' ? 'Apply schema and args' : 'Apply args'}
-									</Button>
-								{/if}
-
-								<Button
-									size="xs2"
-									color="red"
-									iconOnly
-									startIcon={{ icon: Trash2 }}
-									loading={deleteLoading === capture.id}
-									on:click={() => {
-										deleteCapture(capture.id)
-									}}
-								/>
-							</div>
-						{/each}
-					{/if}
-				</div>
-			</Label>
+			<CaptureTable
+				{captureType}
+				{hasPreprocessor}
+				{canHavePreprocessor}
+				{isFlow}
+				{path}
+				bind:refreshCaptures
+			/>
 		{/if}
 	{/if}
 </div>
