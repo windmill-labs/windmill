@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Circle, Clipboard, Info, Trash2 } from 'lucide-svelte'
+	import { Clipboard, Info, Trash2 } from 'lucide-svelte'
 	import { base32 } from 'rfc4648'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -18,13 +18,9 @@
 	import { type TriggerKind } from '../triggers'
 	import Label from '../Label.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
-	import CopyableCodeBlock from '../details/CopyableCodeBlock.svelte'
-	import { bash } from 'svelte-highlight/languages'
-	import Popover from '../Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
 	import CustomPopover from '../CustomPopover.svelte'
-	import { page } from '$app/stores'
 	import { convert } from '@redocly/json-to-json-schema'
 	import SchemaViewer from '../SchemaViewer.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
@@ -39,6 +35,12 @@
 	export let captureMode = false
 	export let active = false
 	export let data: any = {}
+	export let connectionInfo:
+		| {
+				status: 'connected' | 'disconnected' | 'error'
+				message?: string
+		  }
+		| undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		openTriggers: {
@@ -228,13 +230,6 @@
 	}
 	$: emailAddress = getEmailAddress(emailDomain)
 
-	function webhook() {
-		return `${$page.url.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
-			isFlow ? 'flow' : 'script'
-		}/${path}`
-	}
-	const webhookUrl = webhook()
-
 	let captures: Capture[] = []
 	async function refreshCaptures() {
 		captures = await CaptureService.listCaptures({
@@ -349,39 +344,29 @@
 	$: cloudDisabled = (captureType === 'websocket' || captureType === 'kafka') && isCloudHosted()
 
 	$: selectedCaptures = captures.filter((c) => c.trigger_kind === captureType)
+
+	function updateConnectionInfo(
+		captureType: CaptureTriggerKind,
+		config: CaptureConfig,
+		active: boolean
+	) {
+		if ((captureType === 'websocket' || captureType === 'kafka') && config && active) {
+			const serverEnabled = getServerEnabled(config)
+			const message = serverEnabled
+				? 'Websocket is connected'
+				: `Websocket is not connected${config.error ? ': ' + config.error : ''}`
+			connectionInfo = {
+				status: serverEnabled ? 'connected' : 'disconnected',
+				message
+			}
+		} else {
+			connectionInfo = undefined
+		}
+	}
+	$: updateConnectionInfo(captureType, config, active)
 </script>
 
 <div class="flex flex-col gap-4 w-full">
-	{#if (captureType === 'websocket' || captureType === 'kafka') && config && active}
-		{@const serverEnabled = getServerEnabled(config)}
-		<div class="flex flex-row gap-2 justify-between">
-			<div class="flex gap-1">
-				<div class="self-center">
-					{#if serverEnabled}
-						<Popover notClickable>
-							<span class="flex h-4 w-4">
-								<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
-							</span>
-							<div slot="text"> Websocket is connected </div>
-						</Popover>
-					{:else}
-						<Popover notClickable>
-							<span class="flex h-4 w-4">
-								<Circle
-									class="text-red-600 animate-ping absolute inline-flex fill-current"
-									size={12}
-								/>
-								<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-							</span>
-							<div slot="text">
-								Websocket is not connected{config.error ? ': ' + config.error : ''}
-							</div>
-						</Popover>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
 	{#if cloudDisabled}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
 			{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.

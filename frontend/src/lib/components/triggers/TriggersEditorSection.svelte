@@ -9,7 +9,7 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
 	import Toggle from '../Toggle.svelte'
-
+	import ConnectionIndicator from '$lib/components/common/alert/ConnectionIndicator.svelte'
 	export let cloudDisabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let isFlow: boolean = false
@@ -27,6 +27,12 @@
 	let args: Record<string, any> = {}
 	let captureMode = false
 	let active = false
+	let connectionInfo:
+		| {
+				status: 'connected' | 'disconnected' | 'error'
+				message?: string
+		  }
+		| undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -43,6 +49,8 @@
 		<div class=" flex flex-row grow w-min-0 gap-2 px-2 items-center justify-between">
 			<Toggle bind:checked={captureMode} options={{ left: 'Capture' }} size="xs" />
 			<div class="flex flex-row gap-2">
+				<ConnectionIndicator {connectionInfo} />
+
 				{#if captureMode}
 					<Button
 						size="xs2"
@@ -114,5 +122,6 @@
 		bind:handleCapture
 		bind:active
 		{data}
+		bind:connectionInfo
 	/>
 </Section>
