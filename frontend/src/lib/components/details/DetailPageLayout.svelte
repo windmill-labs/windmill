@@ -29,7 +29,8 @@
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: writable(undefined)
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 </script>
 

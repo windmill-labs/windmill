@@ -63,6 +63,6 @@
 		</div>
 	</div>
 	<div class="grow p-2">
-		<CaptureTable captureType={selected} {isFlow} {path} />
+		<CaptureTable captureType={selected} {isFlow} {path} addButton={true} on:openTriggers />
 	</div>
 </div>

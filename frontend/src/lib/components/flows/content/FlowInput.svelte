@@ -62,7 +62,7 @@
 						<Button color="dark" size="xs" nonCaptureEvent>Captures</Button>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
-						<InputSchemaPicker isFlow={true} path={$pathStore} />
+						<InputSchemaPicker isFlow={true} path={$pathStore} on:openTriggers />
 					</svelte:fragment>
 				</Popover>
 				<Button

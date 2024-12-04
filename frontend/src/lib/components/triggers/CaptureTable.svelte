@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Clipboard, Info, Trash2 } from 'lucide-svelte'
+	import { Clipboard, Info, Trash2, Plus } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { copyToClipboard } from '$lib/utils'
@@ -15,6 +15,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import type { Capture } from '$lib/gen'
+	import { captureTriggerKindToTriggerKind } from '../triggers'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -22,6 +23,7 @@
 	export let isFlow = false
 	export let captureType: CaptureTriggerKind = 'webhook'
 	export let headless = false
+	export let addButton = false
 
 	let captures: Capture[] = []
 	let selectedCaptures: any[] = []
@@ -73,6 +75,22 @@
 </script>
 
 <Label label="Captures" {headless}>
+	<svelte:fragment slot="header">
+		{#if addButton}
+			<Button
+				size="xs2"
+				color="light"
+				variant="contained"
+				iconOnly
+				startIcon={{ icon: Plus }}
+				on:click={() =>
+					dispatch('openTriggers', {
+						kind: captureTriggerKindToTriggerKind(captureType),
+						config: {}
+					})}
+			/>
+		{/if}
+	</svelte:fragment>
 	<svelte:fragment slot="action">
 		{#if canHavePreprocessor}
 			<div>

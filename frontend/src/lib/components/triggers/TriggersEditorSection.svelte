@@ -10,6 +10,8 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import Toggle from '../Toggle.svelte'
 	import ConnectionIndicator from '$lib/components/common/alert/ConnectionIndicator.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import { onDestroy } from 'svelte'
 	export let cloudDisabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let isFlow: boolean = false
@@ -24,8 +26,10 @@
 		email: 'Email'
 	}
 
+	const { captureOn } = getContext<TriggerContext>('TriggerContext')
+
 	let args: Record<string, any> = {}
-	let captureMode = false
+
 	let active = false
 	let connectionInfo:
 		| {
@@ -42,16 +46,20 @@
 	$: newItem = initialPath === ''
 
 	let handleCapture: (() => Promise<void>) | undefined
+
+	onDestroy(() => {
+		$captureOn = false
+	})
 </script>
 
 <Section label={`${captureTypeLabels[captureType]} Configuration`}>
 	<svelte:fragment slot="action">
 		<div class=" flex flex-row grow w-min-0 gap-2 px-2 items-center justify-between">
-			<Toggle bind:checked={captureMode} options={{ left: 'Capture' }} size="xs" />
+			<Toggle bind:checked={$captureOn} options={{ left: 'Capture' }} size="xs" />
 			<div class="flex flex-row gap-2">
 				<ConnectionIndicator {connectionInfo} />
 
-				{#if captureMode}
+				{#if $captureOn}
 					<Button
 						size="xs2"
 						on:click={() => handleCapture?.()}
@@ -86,7 +94,7 @@
 							size="xs2"
 							on:click={() => {
 								dispatch('saveTrigger', {
-									config: { ...args, captureMode }
+									config: args
 								})
 							}}
 							startIcon={{ icon: Save }}
@@ -118,7 +126,7 @@
 			}
 		}}
 		bind:args
-		{captureMode}
+		captureMode={$captureOn}
 		bind:handleCapture
 		bind:active
 		{data}
