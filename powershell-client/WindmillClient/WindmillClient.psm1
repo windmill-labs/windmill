@@ -228,7 +228,7 @@ function Set-WindmillState {
 Gets the value of a resource with type "state".
 #>
 function Get-WindmillState {
-    Get-WindmillResource -Value $Value -Path $script:WindmillConnection.GetStatePath()
+    Get-WindmillResource -Path $script:WindmillConnection.GetStatePath()
 }
 
 <#
