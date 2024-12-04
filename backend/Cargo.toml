@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.434.1"
+version = "1.434.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -29,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.434.1"
+version = "1.434.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -284,6 +284,7 @@ tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
 
 triomphe = "^0"
+pin-project-lite = "^0"
 
 tantivy = "0.22.0"
 
