@@ -22,7 +22,7 @@
 	const { selectedId, flowStore, flowStateStore, flowInputsStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, defaultValues } = getContext<TriggerContext>('TriggerContext')
+	const { selectedTrigger, defaultValues, captureOn } = getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
 		for (const m of modules) {
@@ -66,9 +66,11 @@
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
+			console.log('dbg openTriggers', ev.detail)
 			$selectedId = 'triggers'
 			selectedTrigger.set(ev.detail.kind)
 			defaultValues.set(ev.detail.config)
+			captureOn.set(true)
 		}}
 		on:applyArgs
 	/>

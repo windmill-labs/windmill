@@ -489,7 +489,8 @@
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined)
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,

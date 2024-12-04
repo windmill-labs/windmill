@@ -22,7 +22,8 @@
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined)
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 
 	async function loadFlow(path: string) {

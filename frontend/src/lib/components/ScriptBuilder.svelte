@@ -142,7 +142,8 @@
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: triggerDefaultValuesStore
+		defaultValues: triggerDefaultValuesStore,
+		captureOn: writable(undefined)
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']

@@ -1,8 +1,6 @@
 <script lang="ts">
-	import { Button } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { WebsocketTriggerService, type WebsocketTrigger } from '$lib/gen'
-	import { UnplugIcon } from 'lucide-svelte'
 
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { canWrite } from '$lib/utils'
@@ -11,7 +9,8 @@
 	import { getContext, onMount } from 'svelte'
 	import WebsocketTriggerEditor from './WebsocketTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-
+	import TriggersEditorSection from './TriggersEditorSection.svelte'
+	import Section from '$lib/components/Section.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
@@ -66,48 +65,52 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
-		{#if newItem}
-			<Alert title="Triggers disabled" type="warning" size="xs">
-				Deploy the {isFlow ? 'flow' : 'script'} to add WS triggers.
-			</Alert>
-		{:else if wsTriggers}
-			<Button
-				on:click={() => wsTriggerEditor?.openNew(isFlow, path)}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: UnplugIcon }}
-			>
-				New WS Trigger
-			</Button>
-			{#if wsTriggers.length == 0}
-				<div class="text-xs text-secondary"> No WS triggers </div>
-			{:else}
-				<div class="flex flex-col divide-y pt-2">
-					{#each wsTriggers as wsTriggers (wsTriggers.path)}
-						<div class="grid grid-cols-5 text-2xs items-center py-2">
-							<div class="col-span-2 truncate">{wsTriggers.path}</div>
-							<div class="col-span-2 truncate">
-								{wsTriggers.url}
-							</div>
-							<div class="flex justify-end">
-								<button
-									on:click={() => wsTriggerEditor?.openEdit(wsTriggers.path, isFlow)}
-									class="px-2"
-								>
-									{#if wsTriggers.canWrite}
-										Edit
-									{:else}
-										View
-									{/if}
-								</button>
-							</div>
+		<TriggersEditorSection
+			on:saveTrigger={(e) => {
+				wsTriggerEditor?.openNew(isFlow, path)
+			}}
+			cloudDisabled={false}
+			captureType="websocket"
+			{isFlow}
+		/>
+
+		<Section label="Websockets">
+			<div class="flex flex-col gap-4">
+				{#if newItem}
+					<Alert title="Triggers disabled" type="warning" size="xs">
+						Deploy the {isFlow ? 'flow' : 'script'} to add WS triggers.
+					</Alert>
+				{:else if wsTriggers}
+					{#if wsTriggers.length == 0}
+						<div class="text-xs text-secondary text-center"> No WS triggers </div>
+					{:else}
+						<div class="flex flex-col divide-y pt-2">
+							{#each wsTriggers as wsTriggers (wsTriggers.path)}
+								<div class="grid grid-cols-5 text-2xs items-center py-2">
+									<div class="col-span-2 truncate">{wsTriggers.path}</div>
+									<div class="col-span-2 truncate">
+										{wsTriggers.url}
+									</div>
+									<div class="flex justify-end">
+										<button
+											on:click={() => wsTriggerEditor?.openEdit(wsTriggers.path, isFlow)}
+											class="px-2"
+										>
+											{#if wsTriggers.canWrite}
+												Edit
+											{:else}
+												View
+											{/if}
+										</button>
+									</div>
+								</div>
+							{/each}
 						</div>
-					{/each}
-				</div>
-			{/if}
-		{:else}
-			<Skeleton layout={[[8]]} />
-		{/if}
+					{/if}
+				{:else}
+					<Skeleton layout={[[8]]} />
+				{/if}
+			</div>
+		</Section>
 	</div>
 {/if}
