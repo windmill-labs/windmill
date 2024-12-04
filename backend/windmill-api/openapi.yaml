@@ -872,9 +872,20 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CriticalAlert'
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CriticalAlert'
+                  total_rows:
+                    type: integer
+                    description: Total number of rows matching the query.
+                    example: 100
+                  total_pages:
+                    type: integer
+                    description: Total number of pages based on the page size.
+                    example: 10
 
   /settings/critical_alerts/{id}/acknowledge:
     post:
@@ -2757,9 +2768,20 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CriticalAlert'
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CriticalAlert'
+                  total_rows:
+                    type: integer
+                    description: Total number of rows matching the query.
+                    example: 100
+                  total_pages:
+                    type: integer
+                    description: Total number of pages based on the page size.
+                    example: 10
 
   /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
     post:

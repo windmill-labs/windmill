@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte'
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
-	import { SettingService } from '$lib/gen'
+	import { SettingService, type CriticalAlert } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		workspaceStore,
@@ -80,15 +80,48 @@
 		clearInterval(checkForNewAlertsInterval)
 	})
 
+	async function saveWorkSpaceMuteSetting() {
+		await SettingService.workspaceMuteCriticalAlertsUi({
+			workspace: $workspaceStore!,
+			requestBody: {
+				mute_critical_alerts: muteSettings.workspace
+			}
+		})
+		sendUserToast(
+			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
+		)
+	}
+	async function saveGlobalMuteSetting() {
+		await SettingService.setGlobal({
+			key: 'critical_alert_mute_ui',
+			requestBody: { value: muteSettings.global }
+		})
+		sendUserToast(
+			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
+		)
+	}
+
 	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
 		if (checkingForNewAlerts) return
 		checkingForNewAlerts = true
 		try {
-			const unacknowledged = await getCriticalAlerts({
+			const params = {
 				page: 1,
 				pageSize: 1000,
 				acknowledged: false
-			})
+			}
+			let unacknowledged: CriticalAlert[] = []
+			if (!$devopsRole && $workspaceStore) {
+				const res = await SettingService.workspaceGetCriticalAlerts({
+					...params,
+					workspace: $workspaceStore
+				})
+				unacknowledged = res.alerts ?? []
+			} else {
+				const res = await SettingService.getCriticalAlerts(params)
+				unacknowledged = res.alerts ?? []
+			}
+
 			if (
 				numUnacknowledgedCriticalAlerts === 0 &&
 				unacknowledged.length > 0 &&
@@ -155,6 +188,7 @@
 						<div class="w-full">
 							{#if $superadmin}
 								<Toggle
+									on:change={saveGlobalMuteSetting}
 									bind:checked={muteSettings.global}
 									options={{
 										right: 'Automatically acknowledge critical alerts instance wide'
@@ -167,6 +201,7 @@
 
 						<div class="w-full">
 							<Toggle
+								on:change={saveWorkSpaceMuteSetting}
 								bind:checked={muteSettings.workspace}
 								options={{
 									right: 'Automatically acknowledge critical alerts for current workspace'

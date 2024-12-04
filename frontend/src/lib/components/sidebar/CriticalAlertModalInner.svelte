@@ -3,9 +3,8 @@
 	import { SettingService } from '$lib/gen'
 	import type { CriticalAlert } from '$lib/gen'
 	import { onMount } from 'svelte'
-	import { devopsRole, workspaceStore, instanceSettingsSelectedTab, superadmin } from '$lib/stores'
+	import { devopsRole, instanceSettingsSelectedTab, superadmin } from '$lib/stores'
 	import { goto } from '$app/navigation'
-	import { sendUserToast } from '$lib/toast'
 	import List from '$lib/components/common/layout/List.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import CriticalAlertTable from './CriticalAlertTable.svelte'
@@ -16,67 +15,27 @@
 	export let acknowledgeCriticalAlert
 	export let acknowledgeAllCriticalAlerts
 	export let numUnacknowledgedCriticalAlerts
+	export let muteSettings
+
+	$: if (muteSettings) {
+		refreshAlerts()
+	}
 
 	let filteredAlerts: CriticalAlert[] = []
 
 	let isRefreshing = false
 	let hasCriticalAlertChannels = true
 
-	export let muteSettings = {
-		workspace: true,
-		global: true
-	}
-
-	$: muteSettings
-	$: {
-		if (
-			initialMuteSettings.workspace !== muteSettings.workspace ||
-			initialMuteSettings.global !== muteSettings.global
-		) {
-			saveMuteSettings()
-		}
-	}
-
-	$: numUnacknowledgedCriticalAlerts >= 0 && getAlerts(true)
-
-	let initialMuteSettings = muteSettings
-
-	async function saveMuteSettings() {
-		if (initialMuteSettings.workspace !== muteSettings.workspace) {
-			// Workspace
-			await SettingService.workspaceMuteCriticalAlertsUi({
-				workspace: $workspaceStore!,
-				requestBody: {
-					mute_critical_alerts: muteSettings.workspace
-				}
-			})
-		}
-		if ($superadmin && initialMuteSettings.global !== muteSettings.global) {
-			// Global
-			await SettingService.setGlobal({
-				key: 'critical_alert_mute_ui',
-				requestBody: { value: muteSettings.global }
-			})
-		}
-		sendUserToast(
-			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
-		)
-		getAlerts(true)
-		initialMuteSettings = { ...muteSettings }
-	}
-
 	$: loading = isRefreshing
 
 	onMount(() => {
 		refreshAlerts()
-		initialMuteSettings = { ...muteSettings }
 	})
 
 	// Pagination
 	let page = 1
 	let pageSize = 10
 	let hasMore = true
-	let indexMapping: number[] = [0]
 
 	let hideAcknowledged = false
 	let workspaceContext = false
@@ -89,7 +48,14 @@
 	async function fetchAlerts(pageNumber: number) {
 		isRefreshing = true
 		try {
-			filteredAlerts = await fetchAndFilterAlerts(pageNumber)
+			const res = await getCriticalAlerts({
+				page: pageNumber,
+				pageSize: pageSize,
+				acknowledged: hideAcknowledged ? false : undefined
+			})
+
+			hasMore = pageNumber < res.total_pages
+			filteredAlerts = res.alerts
 			updateHasUnacknowledgedCriticalAlerts()
 		} finally {
 			setTimeout(() => {
@@ -98,53 +64,12 @@
 		}
 	}
 
-	async function fetchAndFilterAlerts(pageNumber: number) {
-		if (indexMapping.length < pageNumber) {
-			indexMapping.push((pageNumber - 1) * pageSize)
-		}
-		let startIndex = indexMapping[pageNumber - 1]
-		let filteredResults: CriticalAlert[] = []
-
-		while (filteredResults.length < pageSize) {
-			const newAlerts = await getCriticalAlerts({
-				page: Math.floor(startIndex / pageSize) + 1,
-				pageSize: pageSize
-			})
-
-			if (newAlerts.length === 0) {
-				hasMore = false
-				break
-			}
-
-			const filtered = filterAlerts(newAlerts)
-			filteredResults.push(...filtered)
-
-			if (filteredResults.length >= pageSize) {
-				const lastAlertIndex =
-					startIndex +
-					newAlerts.findIndex((alert) => alert.id === filteredResults[pageSize - 1]?.id)
-				indexMapping[pageNumber] = lastAlertIndex + 1
-			}
-
-			startIndex += pageSize
-
-			if (newAlerts.length < pageSize) {
-				hasMore = false
-				break
-			}
-		}
-
-		hasMore = filteredResults.length >= pageSize
-
-		return filteredResults.slice(0, pageSize)
-	}
-
 	async function getAlerts(reset?: boolean) {
 		if (reset) {
 			page = 1
-			indexMapping = [] // Reset the index mapping when filters change
 		}
 		updateHasUnacknowledgedCriticalAlerts()
+		await getTotalNumber()
 		await fetchAlerts(page)
 	}
 
@@ -183,7 +108,6 @@
 	}
 
 	function onFiltersChange() {
-		indexMapping = []
 		getAlerts(true)
 		getTotalNumber()
 	}
@@ -191,23 +115,15 @@
 	// Update filter change handlers
 	$: hideAcknowledged, workspaceContext, onFiltersChange()
 
-	function filterAlerts(alerts: CriticalAlert[]) {
-		let filteredAlerts = [...alerts]
-		if (hideAcknowledged) {
-			filteredAlerts = filteredAlerts.filter((alert) => alert.acknowledged === false)
-		}
-		if (workspaceContext) {
-			filteredAlerts = filteredAlerts.filter((alert) => alert.workspace_id === $workspaceStore)
-		}
-		return filteredAlerts
-	}
-
 	let totalNumberOfAlerts = 0
 	async function getTotalNumber() {
 		loading = true
-		let alerts = await getCriticalAlerts({ page: 1, pageSize: 1000 })
-		alerts = filterAlerts(alerts)
-		totalNumberOfAlerts = alerts.length
+		const res = await getCriticalAlerts({
+			page: 1,
+			pageSize: 1000,
+			acknowledged: hideAcknowledged ? false : undefined
+		})
+		totalNumberOfAlerts = res.total_rows
 		loading = false
 	}
 </script>
@@ -230,7 +146,6 @@
 					{#if $devopsRole}
 						<Toggle
 							bind:checked={workspaceContext}
-							on:change={refreshAlerts}
 							options={{ left: `Workspace only` }}
 							size="xs"
 						/>
@@ -238,7 +153,6 @@
 
 					<Toggle
 						bind:checked={hideAcknowledged}
-						on:change={refreshAlerts}
 						options={{ left: 'Hide Acknowledged' }}
 						size="xs"
 					/>
