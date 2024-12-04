@@ -14,6 +14,7 @@
 	import Toggle from './Toggle.svelte'
 	import { loadSchedules, saveSchedule } from './flows/scheduleUtils'
 	import { type Writable, writable } from 'svelte/store'
+	import Description from '$lib/components/Description.svelte'
 
 	export let schema: any
 	export let isFlow: boolean
@@ -48,14 +49,18 @@
 	}
 </script>
 
-<ScheduleEditor
-	on:update={() => {
-		updateSchedules(true)
-	}}
-	bind:this={scheduleEditor}
-/>
-
 <div class="flex flex-col gap-4 w-full">
+	<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
+		Run scripts and flows automatically on a recurring basis using cron expressions. Each script or
+		flow can have multiple schedules, with one designated as primary.
+	</Description>
+	<ScheduleEditor
+		on:update={() => {
+			updateSchedules(true)
+		}}
+		bind:this={scheduleEditor}
+	/>
+
 	{#if $primarySchedule == undefined}
 		<Skeleton layout={[[12]]} />
 	{:else if $primarySchedule}
@@ -163,7 +168,7 @@
 					}}
 					variant="contained"
 					color="dark"
-					size="md"
+					size="sm"
 					startIcon={{ icon: Calendar }}
 				>
 					Set Primary Schedule

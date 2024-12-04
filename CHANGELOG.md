@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.434.2](https://github.com/windmill-labs/windmill/compare/v1.434.1...v1.434.2) (2024-12-04)
+
+
+### Bug Fixes
+
+* custom http routes auth ([#4835](https://github.com/windmill-labs/windmill/issues/4835)) ([02611e4](https://github.com/windmill-labs/windmill/commit/02611e42e1b5c81d9bc57e3b46795e4c8cad67f7))
+
 ## [1.434.1](https://github.com/windmill-labs/windmill/compare/v1.434.0...v1.434.1) (2024-11-29)
 
 
