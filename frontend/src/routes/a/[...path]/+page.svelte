@@ -29,8 +29,12 @@
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	function isJwt(t: string) {
+		// simply check that the first part is a valid base64 encoded json
 		try {
-			return JSON.parse(Buffer.from(t, 'base64').toString())
+			const parts = t.split('.')
+			const header = atob(parts[0])
+			JSON.parse(header)
+			return true
 		} catch (e) {
 			return false
 		}
@@ -40,8 +44,8 @@
 		const parts = customPath.split('/')
 		if (parts.length > 1 && isJwt(parts[parts.length - 1])) {
 			return {
-				path: parts[0],
-				jwt: parts[1]
+				path: parts.slice(0, -1).join('/'),
+				jwt: parts[parts.length - 1]
 			}
 		} else {
 			return {
