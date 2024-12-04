@@ -1110,7 +1110,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_dir,
                 job_completed_tx,
         )
-        .warn_after_seconds(10, "handle_flow in update_flow_status")
+        .warn_after_seconds(10)
         .await
         {
             Err(err) => {
@@ -1512,7 +1512,7 @@ pub async fn handle_flow(
         let schedule_path = flow_job.schedule_path.as_ref().unwrap();
 
         let schedule =
-            get_schedule_opt(&mut tx, &flow_job.workspace_id, schedule_path).warn_after_seconds(5, "get schedule_opt in handle_flow").await?;
+            get_schedule_opt(&mut tx, &flow_job.workspace_id, schedule_path).warn_after_seconds(5).await?;
 
         tx.commit().await?;
 
@@ -1524,7 +1524,7 @@ pub async fn handle_flow(
                 flow_job.script_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
             )
-            .warn_after_seconds(5, "handle_maybe_scheduled_job in handle_flow")
+            .warn_after_seconds(5)
             .await
             {
                 match err {
@@ -1552,7 +1552,7 @@ pub async fn handle_flow(
         worker_dir,
         job_completed_tx,
     )
-    .warn_after_seconds(10, "push next flow job")
+    .warn_after_seconds(10)
     .await?;
     Ok(())
 }

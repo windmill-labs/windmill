@@ -432,7 +432,7 @@ pub async fn process_completed_job(
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
-                .warn_after_seconds(10, "update_flow_status_after_job_completion success")
+                .warn_after_seconds(10)
                 .await?;
             }
         }
@@ -471,7 +471,7 @@ pub async fn process_completed_job(
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
-                .warn_after_seconds(10, "update_flow_status_after_job_completion error")
+                .warn_after_seconds(10)
                 .await?;
             }
         }
