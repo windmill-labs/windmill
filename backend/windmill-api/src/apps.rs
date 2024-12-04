@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /*
  * Author: Ruben Fiszel
@@ -8,8 +8,6 @@ use std::{collections::HashMap, sync::Arc};
  * LICENSE-AGPL for a copy of the license.
  */
 
-#[cfg(feature = "enterprise")]
-use crate::users::{OptTokened, AuthCache};
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
@@ -97,14 +95,6 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
-}
-
-#[cfg(feature = "enterprise")]
-pub fn global_unauthed_service() -> Router {
-    Router::new().route(
-        "/public_app_by_custom_path/*custom_path",
-        get(get_public_app_by_custom_path),
-    )
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -636,79 +626,6 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
-#[cfg(feature = "enterprise")]
-async fn get_public_app_by_custom_path(
-    Extension(cache): Extension<Arc<AuthCache>>,
-    OptTokened { token }: OptTokened,
-    Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
-    Path(path): Path<String>,
-) -> JsonResult<AppWithLastVersionAndWorkspace> {
-
-    let (w_id, custom_path) = if *CLOUD_HOSTED {
-        match path.split_once('/') {
-            Some((w_id, path)) => (Some(w_id), path),
-            None => {
-                return Err(Error::BadRequest(
-                    "Workspace ID is required for cloud-hosted apps with custom paths".to_string(),
-                ));
-            }
-        }
-    } else {
-        (None, path.as_str())
-    };
-
-    let app_o = sqlx::query_as::<_, AppWithLastVersionAndWorkspace>(
-        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        null as extra_perms, app_version.value,
-        app_version.created_at, app_version.created_by, app.workspace_id
-        FROM app, app_version
-        WHERE app.custom_path = $1 AND ($2::TEXT IS NULL OR app.workspace_id = $2) AND app_version.id = app.versions[array_upper(app.versions, 1)]")
-        .bind(&custom_path)
-        .bind(&w_id)
-    .fetch_optional(&db)
-    .await?;
-
-    let app = not_found_if_none(app_o, "App", &path)?;
-
-    let policy = serde_json::from_str::<Policy>(app.app.policy.0.get()).map_err(to_anyhow)?;
-
-    if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
-        return Ok(Json(app));
-    }
-
-    let opt_authed = if let Some(token) = token {
-        cache.get_authed(Some(app.workspace_id.clone()), token.as_str()).await
-    } else {
-        None
-    };
-
-    if opt_authed.is_none() {
-        {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are not logged in".to_string(),
-            ));
-        }
-    } else {
-        let authed = opt_authed.unwrap();
-        let mut tx = user_db.begin(&authed).await?;
-        let is_visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
-            custom_path,
-            &app.workspace_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        if !is_visible.unwrap_or(false) {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-            ));
-        }
-    }
-
-    Ok(Json(app))
-}
 
 async fn get_public_resource(
     Extension(db): Extension<DB>,
