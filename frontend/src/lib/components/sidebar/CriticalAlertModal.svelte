@@ -20,8 +20,9 @@
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
-	export let muteSettings
+	export let muteSettings;
 	let workspaceContext = false
+	let childRef;
 
 	$: {
 		setupApiFunctions(workspaceContext)
@@ -90,6 +91,7 @@
 		sendUserToast(
 			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
 		)
+		childRef.refreshAlerts()
 	}
 	async function saveGlobalMuteSetting() {
 		await SettingService.setGlobal({
@@ -99,6 +101,7 @@
 		sendUserToast(
 			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
 		)
+		childRef.refreshAlerts()
 	}
 
 	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
@@ -277,6 +280,6 @@
 		{getCriticalAlerts}
 		{acknowledgeCriticalAlert}
 		{acknowledgeAllCriticalAlerts}
-		{muteSettings}
+		bind:this={childRef}
 	/>
 </Modal2>

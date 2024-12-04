@@ -15,11 +15,6 @@
 	export let acknowledgeCriticalAlert
 	export let acknowledgeAllCriticalAlerts
 	export let numUnacknowledgedCriticalAlerts
-	export let muteSettings
-
-	$: if (muteSettings) {
-		refreshAlerts()
-	}
 
 	let filteredAlerts: CriticalAlert[] = []
 
@@ -27,6 +22,10 @@
 	let hasCriticalAlertChannels = true
 
 	$: loading = isRefreshing
+
+	$: if (numUnacknowledgedCriticalAlerts) {
+		refreshAlerts()
+	}
 
 	onMount(() => {
 		refreshAlerts()
@@ -83,7 +82,7 @@
 		getAlerts(false)
 	}
 
-	async function refreshAlerts() {
+	export async function refreshAlerts() {
 		if ($superadmin) checkCriticalAlertChannels()
 		await getAlerts(true)
 	}
