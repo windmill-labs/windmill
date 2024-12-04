@@ -1785,16 +1785,6 @@ checksum = "147be55d677052dabc6b22252d5dd0fd4c29c8c27aa4f2fbef0f94aa003b406f"
 
 [[package]]
 name = "cookie"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
-dependencies = [
- "time",
- "version_check",
-]
-
-[[package]]
-name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
@@ -9500,7 +9490,7 @@ checksum = "4fd0118512cf0b3768f7fcccf0bef1ae41d68f2b45edc1e77432b36c97c56c6d"
 dependencies = [
  "async-trait",
  "axum-core",
- "cookie 0.18.1",
+ "cookie",
  "futures-util",
  "http 1.2.0",
  "parking_lot",
@@ -10506,7 +10496,7 @@ dependencies = [
  "chrono",
  "chrono-tz 0.10.0",
  "const_format",
- "cookie 0.17.0",
+ "cookie",
  "cron",
  "datafusion",
  "futures",
