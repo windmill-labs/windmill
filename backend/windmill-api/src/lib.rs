@@ -64,6 +64,8 @@ mod indexer_ee;
 mod inputs;
 mod integration;
 
+#[cfg(feature = "enterprise")]
+mod apps_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
@@ -343,6 +345,17 @@ pub async fn run_server(
                 )
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/apps_u", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        apps_ee::global_unauthed_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/apps_u",
                     apps::unauthed_service()

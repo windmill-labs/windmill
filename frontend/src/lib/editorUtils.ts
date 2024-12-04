@@ -12,12 +12,13 @@ export function editorConfig(
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		//lineNumbers: 'off',
-		lineDecorationsWidth: 15,
-		lineNumbersMinChars: 2,
+		lineNumbers: 'on' as const,
+		lineDecorationsWidth: 10,
+		lineNumbersMinChars: 3,
 		scrollbar: { alwaysConsumeMouseWheel: false },
 		folding: false,
 		scrollBeyondLastLine: false,
+		glyphMargin: false,
 		minimap: {
 			enabled: false
 		},
