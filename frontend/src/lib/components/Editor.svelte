@@ -214,6 +214,7 @@
 	export let small = false
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
+	export let lineNumbersMinChars = 3
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -1131,6 +1132,7 @@
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
 			fontSize: !small ? 14 : 12,
+			lineNumbersMinChars,
 			// overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
