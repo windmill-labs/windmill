@@ -34,8 +34,8 @@ pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
-use std::sync::atomic::Ordering;
 use std::panic::{self, AssertUnwindSafe};
+use std::sync::atomic::Ordering;
 
 use crate::worker::CLOUD_HOSTED;
 
@@ -78,14 +78,18 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     }
 }
 
-pub async fn require_admin_or_devops(is_admin: bool, username: &str, email: &str, db: &DB) -> Result<()> {
+pub async fn require_admin_or_devops(
+    is_admin: bool,
+    username: &str,
+    email: &str,
+    db: &DB,
+) -> Result<()> {
     if !is_admin {
         if !is_devops_email(db, email).await? {
             return Err(Error::RequireAdmin(username.to_string()));
         }
     }
     Ok(())
-
 }
 
 pub fn hostname() -> String {
@@ -94,7 +98,7 @@ pub fn hostname() -> String {
             .to_str()
             .map(|x| x.to_string())
             .unwrap_or_else(|| rd_string(5))
-    }) 
+    })
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -440,9 +444,7 @@ impl ScheduleType {
             Some("v2") | Some(_) => {
                 // Use Croner for v2
                 let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
-                    Cron::new(schedule_str)
-                        .with_seconds_optional()
-                        .parse()
+                    Cron::new(schedule_str).with_seconds_optional().parse()
                 }))
                 .map_err(|_| {
                     tracing::error!(
@@ -478,8 +480,14 @@ impl ScheduleType {
                     }
 
                     if let Err(e) = result {
-                        tracing::error!("An error occurred while finding the next occurrence: {:?}", e);
-                        return Err(Error::BadRequest(format!("cron: error during find_next_occurrence: {:?}", e)));
+                        tracing::error!(
+                            "An error occurred while finding the next occurrence: {:?}",
+                            e
+                        );
+                        return Err(Error::BadRequest(format!(
+                            "cron: error during find_next_occurrence: {:?}",
+                            e
+                        )));
                     }
                 }
 
@@ -524,5 +532,77 @@ impl ScheduleType {
         }
 
         Ok(events)
+    }
+}
+
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context as TContext, Poll};
+use tokio::time::{self, Duration, Sleep};
+
+use pin_project_lite::pin_project;
+
+pub trait WarnAfterExt: Future + Sized {
+    /// Warns if the future takes longer than the specified number of seconds to complete.
+    fn warn_after_seconds(self, seconds: u8, location: &'static str) -> WarnAfterFuture<Self> {
+        WarnAfterFuture {
+            future: self,
+            timeout: time::sleep(Duration::from_secs(seconds as u64)),
+            warned: false,
+            start_time: std::time::Instant::now(),
+            location,
+            seconds,
+        }
+    }
+}
+
+// Blanket implementation for all futures.
+impl<F: Future> WarnAfterExt for F {}
+
+pin_project! {
+    /// A future that wraps another future and prints a warning if it takes too long.
+    pub struct WarnAfterFuture<F> {
+        #[pin]
+        future: F,
+        #[pin]
+        timeout: Sleep,
+        warned: bool,
+        location: &'static str,
+        start_time: std::time::Instant,
+        seconds: u8,
+    }
+}
+
+impl<F: Future> Future for WarnAfterFuture<F> {
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut TContext<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+
+        // Poll the timeout future to check if it has elapsed.
+        if !*this.warned {
+            if this.timeout.poll(cx).is_ready() {
+                tracing::warn!(location = this.location, "SLOW_QUERY: query to db taking longer than expected (> {} seconds). This is a sign the database is under heavy load, query is too heavy or database is undersized",
+                    this.seconds,
+                );
+                *this.warned = true;
+            }
+        }
+
+        // Poll the wrapped future.
+        match this.future.poll(cx) {
+            Poll::Ready(output) => {
+                if *this.warned {
+                    let elapsed = this.start_time.elapsed();
+                    tracing::warn!(
+                        location = this.location,
+                        "SLOW QUERY: completed with total duration: {:.2?}",
+                        elapsed
+                    );
+                }
+                Poll::Ready(output)
+            }
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

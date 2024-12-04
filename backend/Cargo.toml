@@ -284,6 +284,7 @@ tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
 
 triomphe = "^0"
+pin-project-lite = "^0"
 
 tantivy = "0.22.0"
 

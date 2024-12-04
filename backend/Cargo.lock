@@ -10644,6 +10644,7 @@ dependencies = [
  "magic-crypt",
  "mail-send",
  "object_store",
+ "pin-project-lite",
  "prometheus",
  "quick_cache",
  "rand 0.8.5",
