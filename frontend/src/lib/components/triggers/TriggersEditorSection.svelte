@@ -44,7 +44,7 @@
 	let handleCapture: (() => Promise<void>) | undefined
 </script>
 
-<Section label={`New ${captureTypeLabels[captureType]}`}>
+<Section label={`${captureTypeLabels[captureType]} Configuration`}>
 	<svelte:fragment slot="action">
 		<div class=" flex flex-row grow w-min-0 gap-2 px-2 items-center justify-between">
 			<Toggle bind:checked={captureMode} options={{ left: 'Capture' }} size="xs" />
