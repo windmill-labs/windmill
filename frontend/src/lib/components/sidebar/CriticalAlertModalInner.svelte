@@ -16,56 +16,61 @@
 	export let acknowledgeCriticalAlert
 	export let acknowledgeAllCriticalAlerts
 	export let numUnacknowledgedCriticalAlerts
-	export let muteSettings: { global: boolean; workspace: boolean } | undefined = undefined
 
 	let filteredAlerts: CriticalAlert[] = []
 
-	let initialMuteSettings: { global: boolean; workspace: boolean } | undefined = undefined
 	let isRefreshing = false
 	let hasCriticalAlertChannels = true
 
-	$: initialMuteSettings && muteSettings && saveMuteSettings(initialMuteSettings, muteSettings)
+	export let muteSettings = {
+		workspace: true,
+		global: true
+	}
+
+	$: muteSettings
+	$: {
+		if (
+			initialMuteSettings.workspace !== muteSettings.workspace ||
+			initialMuteSettings.global !== muteSettings.global
+		) {
+			saveMuteSettings()
+		}
+	}
 
 	$: numUnacknowledgedCriticalAlerts >= 0 && getAlerts(true)
 
-	async function saveMuteSettings(
-		previousMuteSettings: { global: boolean; workspace: boolean },
-		currentMuteSettings: { global: boolean; workspace: boolean }
-	) {
-		if (JSON.stringify(previousMuteSettings) === JSON.stringify(currentMuteSettings)) return
-		if (previousMuteSettings.workspace !== currentMuteSettings.workspace) {
+	let initialMuteSettings = muteSettings
+
+	async function saveMuteSettings() {
+		if (initialMuteSettings.workspace !== muteSettings.workspace) {
 			// Workspace
 			await SettingService.workspaceMuteCriticalAlertsUi({
 				workspace: $workspaceStore!,
 				requestBody: {
-					mute_critical_alerts: currentMuteSettings.workspace
+					mute_critical_alerts: muteSettings.workspace
 				}
 			})
 		}
-		if ($superadmin && previousMuteSettings.global !== currentMuteSettings.global) {
+		if ($superadmin && initialMuteSettings.global !== muteSettings.global) {
 			// Global
 			await SettingService.setGlobal({
 				key: 'critical_alert_mute_ui',
-				requestBody: { value: currentMuteSettings.global }
+				requestBody: { value: muteSettings.global }
 			})
 		}
 		sendUserToast(
 			`Critical alert UI mute settings changed.\nPlease reload page for UI changes to take effect.`
 		)
 		getAlerts(true)
-		if (muteSettings) initialMuteSettings = { ...muteSettings }
+		initialMuteSettings = { ...muteSettings }
 	}
 
 	$: loading = isRefreshing
 
 	onMount(() => {
 		refreshAlerts()
+		initialMuteSettings = { ...muteSettings }
 	})
-
-	let initialized = false
-	$: !initialized &&
-		muteSettings &&
-		((initialMuteSettings = { ...muteSettings }), (initialized = true))
 
 	// Pagination
 	let page = 1
