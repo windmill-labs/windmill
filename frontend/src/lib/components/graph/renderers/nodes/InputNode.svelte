@@ -18,6 +18,8 @@
 		index: number
 		disableAi: boolean
 		disableMoveIds: string[]
+		cache: boolean
+		earlyStop: boolean
 	}
 
 	const { selectedId } = getContext<{
@@ -83,5 +85,7 @@
 		inputJson={filteredInput}
 		prefix="flow_input"
 		alwaysPluggable
+		cache={data.cache}
+		earlyStop={data.earlyStop}
 	/>
 </NodeWrapper>
