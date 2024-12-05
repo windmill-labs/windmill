@@ -817,6 +817,8 @@
 
 		return rec(ids, undefined)
 	}
+
+	let subflowsSize = 500
 </script>
 
 {#if notAnonynmous}
@@ -946,7 +948,12 @@
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
-						{#if render}
+						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
+							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
+								>Load 500 more...</Button
+							>
+						{/if}
+						{#if render && j + subflowsSize + 1 > (flowJobIds?.flowJobs.length ?? 0)}
 							<Button
 								variant={forloop_selected === loopJobId ? 'contained' : 'border'}
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
