@@ -121,7 +121,7 @@
 				By default, adding a trigger will set the schedule to 15 minutes. To see all ways to trigger
 				a flow, check
 				<a
-					href="https://www.windmill.dev/docs/getting_started/trigger_flows"
+					href="https://www.windmill.dev/docs/getting_started/triggers"
 					target="_blank"
 					class="text-blue-400">Triggering Flows</a
 				>.
