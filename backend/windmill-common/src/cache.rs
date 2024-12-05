@@ -34,24 +34,36 @@ pub mod flow {
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch_script(e: impl PgExecutor<'_>, node: FlowNodeId)
-        -> error::Result<(Option<String>, String)>
-    {
-        fetch(e, node).await.and_then(|Val { lock, code, .. }| Ok((lock, code.ok_or_else(|| {
-            error::Error::InternalErr(format!("Flow node ({:x}) isn't a script node.", node.0))
-        })?)))
+    pub async fn fetch_script(
+        e: impl PgExecutor<'_>,
+        node: FlowNodeId,
+    ) -> error::Result<(Option<String>, String)> {
+        fetch(e, node).await.and_then(|Val { lock, code, .. }| {
+            Ok((
+                lock,
+                code.ok_or_else(|| {
+                    error::Error::InternalErr(format!(
+                        "Flow node ({:x}) isn't a script node.",
+                        node.0
+                    ))
+                })?,
+            ))
+        })
     }
 
     /// Fetch the flow node flow value referenced by `node` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch_flow(e: impl PgExecutor<'_>, node: FlowNodeId)
-        -> error::Result<FlowValue>
-    {
-        fetch(e, node).await.and_then(|Val { flow, .. }| flow.ok_or_else(|| {
-            error::Error::InternalErr(format!("Flow node ({:x}) isn't a flow value node.", node.0))
-        }))
+    pub async fn fetch_flow(e: impl PgExecutor<'_>, node: FlowNodeId) -> error::Result<FlowValue> {
+        fetch(e, node).await.and_then(|Val { flow, .. }| {
+            flow.ok_or_else(|| {
+                error::Error::InternalErr(format!(
+                    "Flow node ({:x}) isn't a flow value node.",
+                    node.0
+                ))
+            })
+        })
     }
 
     /// Fetch the flow node referenced by `node` from the cache.
@@ -62,32 +74,40 @@ pub mod flow {
         // If not present, `get_or_insert_async` will lock the key until the future completes,
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
-        CACHE.get_or_insert_async(
-            &node,
-            fs::import_or_insert_with(CACHE_DIR, node.0 as u64, async {
-                sqlx::query!(
-                    "SELECT \
+        CACHE
+            .get_or_insert_async(
+                &node,
+                fs::import_or_insert_with(CACHE_DIR, node.0 as u64, async {
+                    sqlx::query!(
+                        "SELECT \
                         lock AS \"lock: String\", \
                         code AS \"code: String\", \
                         flow::text AS \"flow: Box<str>\" \
                     FROM flow_node WHERE id = $1 LIMIT 1",
-                    node.0,
-                )
-                .fetch_one(e)
-                .await
-                .map_err(Into::into)
-                .and_then(|r| Ok(Val {
-                    lock: r.lock.and_then(|x| if x.is_empty() { None } else { Some(x) }),
-                    code: r.code,
-                    flow: match r.flow {
-                        None => None,
-                        Some(flow) => serde_json::from_str(&flow).map_err(|err| {
-                            error::Error::InternalErr(format!("Unable to parse flow value: {err:?}"))
-                        })?,
-                    }
-                }))
-            })
-        ).await
+                        node.0,
+                    )
+                    .fetch_one(e)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(|r| {
+                        Ok(Val {
+                            lock: r
+                                .lock
+                                .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+                            code: r.code,
+                            flow: match r.flow {
+                                None => None,
+                                Some(flow) => serde_json::from_str(&flow).map_err(|err| {
+                                    error::Error::InternalErr(format!(
+                                        "Unable to parse flow value: {err:?}"
+                                    ))
+                                })?,
+                            },
+                        })
+                    })
+                }),
+            )
+            .await
     }
 
     // ----------------------------------------------------------------------------------------------
@@ -130,7 +150,11 @@ pub mod flow {
             match item {
                 Item::Lock => Ok(self.lock.as_ref().map(|s| s.as_bytes().to_vec())),
                 Item::Code => Ok(self.code.as_ref().map(|s| s.as_bytes().to_vec())),
-                Item::Flow => Ok(self.flow.as_ref().map(|f| serde_json::to_vec(f)).transpose()?),
+                Item::Flow => Ok(self
+                    .flow
+                    .as_ref()
+                    .map(|f| serde_json::to_vec(f))
+                    .transpose()?),
             }
         }
     }
@@ -164,39 +188,44 @@ pub mod script {
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch(e: impl PgExecutor<'_>, hash: ScriptHash, workspace_id: &str)
-        -> error::Result<Val>
-    {
+    pub async fn fetch(
+        e: impl PgExecutor<'_>,
+        hash: ScriptHash,
+        workspace_id: &str,
+    ) -> error::Result<Val> {
         // If not present, `get_or_insert_async` will lock the key until the future completes,
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
-        CACHE.get_or_insert_async(
-            &hash,
-            fs::import_or_insert_with(CACHE_DIR, hash.0 as u64, async {
-                sqlx::query!(
-                    "SELECT \
+        CACHE
+            .get_or_insert_async(
+                &hash,
+                fs::import_or_insert_with(CACHE_DIR, hash.0 as u64, async {
+                    sqlx::query!(
+                        "SELECT \
                         lock AS \"lock: String\", \
                         content AS \"code!: String\",
                         language AS \"language: Option<ScriptLang>\", \
                         envs AS \"envs: Vec<String>\", \
                         codebase AS \"codebase: String\" \
                     FROM script WHERE hash = $1 AND workspace_id = $2 LIMIT 1",
-                    hash.0,
-                    workspace_id,
-                )
-                .fetch_one(e)
-                .await
-                .map_err(Into::into)
-                .map(|r| Val {
-                    lock: r.lock.and_then(|x| if x.is_empty() { None } else { Some(x) }),
-                    code: r.code,
-                    language: r.language,
-                    envs: r.envs,
-                    codebase: r.codebase,
-                })
-            })
-        )
-        .await
+                        hash.0,
+                        workspace_id,
+                    )
+                    .fetch_one(e)
+                    .await
+                    .map_err(Into::into)
+                    .map(|r| Val {
+                        lock: r
+                            .lock
+                            .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+                        code: r.code,
+                        language: r.language,
+                        envs: r.envs,
+                        codebase: r.codebase,
+                    })
+                }),
+            )
+            .await
     }
 
     // ----------------------------------------------------------------------------------------------
@@ -230,7 +259,9 @@ pub mod script {
             match item {
                 Item::Lock => self.lock = Some(String::from_utf8(data)?),
                 Item::Code => self.code = String::from_utf8(data)?,
-                Item::Info => (self.language, self.envs, self.codebase) = serde_json::from_slice(&data)?,
+                Item::Info => {
+                    (self.language, self.envs, self.codebase) = serde_json::from_slice(&data)?
+                }
             }
             Ok(())
         }
@@ -239,7 +270,11 @@ pub mod script {
             match item {
                 Item::Lock => Ok(self.lock.as_ref().map(|s| s.as_bytes().to_vec())),
                 Item::Code => Ok(Some(self.code.as_bytes().to_vec())),
-                Item::Info => Ok(Some(serde_json::to_vec(&(&self.language, &self.envs, &self.codebase))?)),
+                Item::Info => Ok(Some(serde_json::to_vec(&(
+                    &self.language,
+                    &self.envs,
+                    &self.codebase,
+                ))?)),
             }
         }
     }
@@ -272,8 +307,7 @@ mod fs {
     }
 
     /// Import or insert a bundle within the given combination of `{root}/{key}/`.
-    pub async fn import_or_insert_with<T, F>(root: &str, key: u64, f: F)
-        -> error::Result<T>
+    pub async fn import_or_insert_with<T, F>(root: &str, key: u64, f: F) -> error::Result<T>
     where
         T: Bundle,
         F: Future<Output = error::Result<T>>,
@@ -287,8 +321,9 @@ mod fs {
                 let mut data = T::default();
                 for item in T::items() {
                     let mut buf = vec![];
-                    let Ok(mut file) = OpenOptions::new().read(true).open(item.path(&path))
-                    else { continue };
+                    let Ok(mut file) = OpenOptions::new().read(true).open(item.path(&path)) else {
+                        continue;
+                    };
                     file.read_to_end(&mut buf)?;
                     data.import(*item, buf)?;
                 }
@@ -299,7 +334,7 @@ mod fs {
                 Ok(data) => return Ok(data),
                 Err(err) => tracing::warn!(
                     "Failed to import from file-system, fetch source..: {path:?}: {err:?}"
-                )
+                ),
             }
         }
         // Cache path doesn't exist or import failed, generate the content.
@@ -308,9 +343,13 @@ mod fs {
             fs::create_dir_all(&path)?;
             // Write the generated data to the file.
             for item in T::items() {
-                let Some(buf) = data.export(*item)?
-                else { continue };
-                let mut file = OpenOptions::new().write(true).create(true).open(item.path(&path))?;
+                let Some(buf) = data.export(*item)? else {
+                    continue;
+                };
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(item.path(&path))?;
                 file.write_all(&buf)?;
             }
             tracing::debug!("Exported to file-system: {:?}", path);
