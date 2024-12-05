@@ -145,24 +145,19 @@
 					{#if $devopsRole}
 						<Toggle
 							bind:checked={workspaceContext}
-							options={{ left: `Workspace only` }}
+							options={{ right: `Workspace only` }}
 							size="xs"
 						/>
 					{/if}
 
-					<Toggle
-						bind:checked={hideAcknowledged}
-						options={{ left: 'Hide Acknowledged' }}
-						size="xs"
-					/>
-
-					<div class="text-xs text-tertiary"
-						>{`Results (${totalNumberOfAlerts === 1000 ? '1000+' : totalNumberOfAlerts})`}
-					</div>
+					<Toggle bind:checked={hideAcknowledged} options={{ right: 'Non-Acked only' }} size="xs" />
 				</List>
 			</div>
 
-			<List horizontal gap="md" justify="end">
+			<List wFull={false} horizontal gap="md" justify="end">
+				<div class="text-xs text-tertiary whitespace-nowrap"
+					>{`${totalNumberOfAlerts === 1000 ? '1000+' : totalNumberOfAlerts ?? '?'} items`}
+				</div>
 				<RefreshButton {loading} on:click={refreshAlerts} />
 			</List>
 		</List>

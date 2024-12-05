@@ -7,6 +7,7 @@
 	import { AlertCircle, CheckCircle2 } from 'lucide-svelte'
 	import { devopsRole } from '$lib/stores'
 	import List from '$lib/components/common/layout/List.svelte'
+	import { Skeleton } from '../common'
 
 	export let alerts: any[]
 	export let hideAcknowledged = false
@@ -50,7 +51,7 @@
 	>
 		<Head>
 			<tr bind:clientHeight={headerHeight}>
-				<Cell head first class="w-12">Type</Cell>
+				<Cell head first class="min-w-12">&nbsp;</Cell>
 				<Cell head class="min-w-24 w-full">Message</Cell>
 				<Cell head class="min-w-28">Created At</Cell>
 				{#if $devopsRole}
@@ -58,7 +59,7 @@
 				{/if}
 				<Cell head last class="min-w-36">
 					<List horizontal gap="sm">
-						<span>Acknowledged</span>
+						<span>Acked</span>
 
 						<Button
 							color="green"
@@ -74,8 +75,19 @@
 				</Cell>
 			</tr>
 		</Head>
-
-		{#if alerts.length === 0}
+		{#if alerts == undefined}
+			<tbody>
+				{#each new Array(3) as _}
+					<Row>
+						{#each new Array(5) as _}
+							<Cell>
+								<Skeleton layout={[[5]]} />
+							</Cell>
+						{/each}
+					</Row>
+				{/each}
+			</tbody>
+		{:else if alerts.length === 0}
 			<div class="absolute top-0 left-0 w-full h-full center-center">
 				<p class="text-center text-gray-500 mt-4">No critical alerts.</p>
 			</div>
