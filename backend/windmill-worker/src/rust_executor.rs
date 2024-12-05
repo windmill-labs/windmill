@@ -403,8 +403,10 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
-        run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        {
+            run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
+            run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
 
         start_child_process(run_rust, compiled_executable_name).await?
     };
