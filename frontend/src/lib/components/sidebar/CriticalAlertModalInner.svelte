@@ -37,7 +37,7 @@
 	let hasMore = true
 
 	let hideAcknowledged = false
-	let workspaceContext = false
+	export let workspaceContext = false
 
 	async function acknowledgeAll() {
 		await acknowledgeAllCriticalAlerts()
