@@ -32,7 +32,7 @@
 		"@types/lodash": "^4.14.195",
 		"@types/node": "^20.3.3",
 		"@types/vscode": "^1.83.5",
-		"@typescript-eslint/eslint-plugin": "^5.59.8",
+		"@typescript-eslint/eslint-plugin": "^8.17.0",
 		"@typescript-eslint/parser": "^5.60.0",
 		"@windmill-labs/esbuild-import-meta-url-plugin": "0.0.0-semantic-release",
 		"@zerodevx/svelte-toast": "^0.9.5",
