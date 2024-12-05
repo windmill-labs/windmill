@@ -57,6 +57,8 @@
 	export let newFlow: boolean = false
 
 	export let insertable = false
+	export let earlyStop: boolean = false
+	export let cache: boolean = false
 	export let scroll = false
 	export let moving: string | undefined = undefined
 
@@ -238,7 +240,9 @@
 			flowModuleStates,
 			selectedId: $selectedId,
 			path,
-			newFlow
+			newFlow,
+			cache,
+			earlyStop
 		},
 		failureModule,
 		preprocessorModule,

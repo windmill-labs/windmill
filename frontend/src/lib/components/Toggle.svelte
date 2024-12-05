@@ -104,9 +104,7 @@
 	<slot name="right" />
 </label>
 {#if eeOnly && disabled}
-	<span
-		class="inline-flex text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-	>
+	<span class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8">
 		<AlertTriangle size={16} />
 		EE only <Tooltip>Enterprise Edition only feature</Tooltip>
 	</span>

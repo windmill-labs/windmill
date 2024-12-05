@@ -6,6 +6,9 @@
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import { fade } from 'svelte/transition'
+	import { Database, Square } from 'lucide-svelte'
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
@@ -19,6 +22,8 @@
 	export let inputJson: Object | undefined = undefined
 	export let prefix = ''
 	export let alwaysPluggable: boolean = false
+	export let cache: boolean = false
+	export let earlyStop: boolean = false
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -62,7 +67,30 @@
 			</div>
 		{/if}
 	</div>
-
+	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
+		{#if cache}
+			<Popover notClickable>
+				<div
+					transition:fade|local={{ duration: 200 }}
+					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+				>
+					<Database size={12} />
+				</div>
+				<svelte:fragment slot="text">Cached</svelte:fragment>
+			</Popover>
+		{/if}
+		{#if earlyStop}
+			<Popover notClickable>
+				<div
+					transition:fade|local={{ duration: 200 }}
+					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+				>
+					<Square size={12} />
+				</div>
+				<svelte:fragment slot="text">Early stop if condition met</svelte:fragment>
+			</Popover>
+		{/if}
+	</div>
 	{#if inputJson && $flowPropPickerConfig && (Object.keys(inputJson).length > 0 || alwaysPluggable)}
 		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
 			<FlowPropPicker json={inputJson} {prefix} />
