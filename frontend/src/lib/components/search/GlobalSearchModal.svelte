@@ -244,7 +244,7 @@
 					queryParseErrors = searchResults.query_parse_errors
 					indexMetadata = searchResults.index_metadata
 				} catch (e) {
-					sendUserToast(e, true)
+					sendUserToast(e.body, true)
 				}
 				loadingCompletedRuns = false
 				selectedItem = selectItem(0)
