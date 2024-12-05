@@ -1,5 +1,8 @@
 {
   "python.analysis.typeCheckingMode": "basic",
   "rust-analyzer.linkedProjects": ["./windmill-common/Cargo.toml"],
-  "rust-analyzer.showUnlinkedFileNotification": false
+  "rust-analyzer.showUnlinkedFileNotification": false,
+  "conventionalCommits.scopes": [
+    "restructring triggers, decoding trigger message on work"
+  ]
 }

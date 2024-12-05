@@ -51,7 +51,6 @@ mod concurrency_groups;
 mod configs;
 mod db;
 mod drafts;
-mod database_triggers;
 pub mod ee;
 pub mod embeddings;
 mod favorite;
@@ -64,6 +63,7 @@ mod indexer_ee;
 mod inputs;
 mod integration;
 mod ai;
+mod database_triggers;
 
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
