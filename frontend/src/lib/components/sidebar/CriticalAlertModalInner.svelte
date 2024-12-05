@@ -2,7 +2,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
 	import type { CriticalAlert } from '$lib/gen'
-	import { onMount } from 'svelte'
 	import { devopsRole, instanceSettingsSelectedTab, superadmin } from '$lib/stores'
 	import { goto } from '$app/navigation'
 	import List from '$lib/components/common/layout/List.svelte'
@@ -27,10 +26,6 @@
 		refreshAlerts()
 	}
 
-	onMount(() => {
-		refreshAlerts()
-	})
-
 	// Pagination
 	let page = 1
 	let pageSize = 10
@@ -54,6 +49,7 @@
 			})
 
 			hasMore = pageNumber < res.total_pages
+			totalNumberOfAlerts = res.total_rows
 			filteredAlerts = res.alerts
 			updateHasUnacknowledgedCriticalAlerts()
 		} finally {
@@ -67,8 +63,6 @@
 		if (reset) {
 			page = 1
 		}
-		updateHasUnacknowledgedCriticalAlerts()
-		await getTotalNumber()
 		await fetchAlerts(page)
 	}
 
@@ -108,23 +102,12 @@
 
 	function onFiltersChange() {
 		getAlerts(true)
-		getTotalNumber()
 	}
 
 	// Update filter change handlers
 	$: hideAcknowledged, workspaceContext, onFiltersChange()
 
 	let totalNumberOfAlerts = 0
-	async function getTotalNumber() {
-		loading = true
-		const res = await getCriticalAlerts({
-			page: 1,
-			pageSize: 1000,
-			acknowledged: hideAcknowledged ? false : undefined
-		})
-		totalNumberOfAlerts = res.total_rows
-		loading = false
-	}
 </script>
 
 <List gap="sm">
