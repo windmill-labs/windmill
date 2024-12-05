@@ -3,7 +3,7 @@
 	import { ButtonType } from './model'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropdown from './ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames, getModifierKey } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 
@@ -300,7 +300,7 @@
 			<ButtonDropdown target={portalTarget}>
 				<svelte:fragment slot="items">
 					{#each computeDropdowns() ?? [] as item}
-						<MenuItem on:click={item.onClick} href={item.href}>
+						<!-- <MenuItem on:click={item.onClick} href={item.href}>
 							<div
 								class={classNames(
 									'!text-secondary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
@@ -311,7 +311,7 @@
 								{/if}
 								{item.label}
 							</div>
-						</MenuItem>
+						</MenuItem> -->
 					{/each}
 				</svelte:fragment>
 			</ButtonDropdown>

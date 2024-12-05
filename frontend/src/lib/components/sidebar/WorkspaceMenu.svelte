@@ -17,7 +17,7 @@
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { isCloudHosted } from '$lib/cloud'
 	import { initAllAiWorkspace } from '../copilot/lib'
 
@@ -49,7 +49,7 @@
 		}
 	}
 </script>
-
+<!-- 
 <Menu>
 	<div slot="trigger">
 		<MenuButton class="!text-xs" icon={Building} label={$workspaceStore ?? ''} {isCollapsed} />
@@ -149,4 +149,4 @@
 	{#if $enterpriseLicense}
 		<MultiplayerMenu />
 	{/if}
-</Menu>
+</Menu> -->

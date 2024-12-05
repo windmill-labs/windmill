@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Menu, Transition, MenuButton, MenuItems } from '@rgossiaux/svelte-headlessui'
+	// import { Menu, Transition, MenuButton, MenuItems } from '@rgossiaux/svelte-headlessui'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import Portal from '$lib/components/Portal.svelte'
@@ -23,7 +23,7 @@
 	}
 </script>
 
-<Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
+<!-- <Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
 	<span use:popperRef>
 		<MenuButton>
 			<Button
@@ -59,4 +59,4 @@
 			</Transition>
 		</div>
 	</Portal>
-</Menu>
+</Menu> -->

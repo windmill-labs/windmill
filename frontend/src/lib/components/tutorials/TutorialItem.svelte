@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	import { tutorialsToDo } from '$lib/stores'
 	import { CheckCircle, Circle } from 'lucide-svelte'
@@ -10,7 +10,7 @@
 	export let disabled: boolean = false
 </script>
 
-<MenuItem on:click {disabled}>
+<!-- <MenuItem on:click {disabled}>
 	<div
 		class={classNames(
 			'flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold',
@@ -27,4 +27,4 @@
 			<slot />
 		</div>
 	</div>
-</MenuItem>
+</MenuItem> -->

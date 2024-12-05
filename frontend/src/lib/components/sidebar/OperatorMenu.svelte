@@ -19,7 +19,7 @@
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import MenuLink from './MenuLink.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
@@ -82,7 +82,7 @@
 	</div>
 	<div class="w-full max-w-full">
 		{#each favoriteLinks ?? [] as favorite (favorite.href)}
-			<MenuItem href={favorite.href}>
+			<!-- <MenuItem href={favorite.href}>
 				<span class="w-full inline-flex flex-row px-2 py-2 hover:bg-surface-hover">
 					<span class="center-center">
 						{#if favorite.kind == 'script'}
@@ -97,7 +97,7 @@
 						{favorite.label}
 					</span>
 				</span>
-			</MenuItem>
+			</MenuItem> -->
 		{/each}
 	</div>
 
@@ -107,7 +107,7 @@
 
 	<div class="divide-y" role="none">
 		<div role="none">
-			<MenuItem
+			<!-- <MenuItem
 				href={USER_SETTINGS_HASH}
 				class={twMerge(
 					'flex flex-row gap-3.5 items-center px-2 py-2 ',
@@ -117,7 +117,7 @@
 			>
 				<Settings size={14} />
 				Account settings
-			</MenuItem>
+			</MenuItem> -->
 		</div>
 
 		<div role="none">
@@ -158,7 +158,7 @@
 				All Workspaces
 			</a>
 
-			<MenuItem
+			<!-- <MenuItem
 				href="#"
 				on:click={() => logout()}
 				class={twMerge(
@@ -169,7 +169,7 @@
 			>
 				<LogOut size={14} />
 				Sign out
-			</MenuItem>
+			</MenuItem> -->
 		</div>
 		<div
 			on:mouseenter={() => (moreOpen = true)}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Menu, MenuButton, MenuItems, Transition } from '@rgossiaux/svelte-headlessui'
+	// import { Menu, MenuButton, MenuItems, Transition } from '@rgossiaux/svelte-headlessui'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
@@ -18,7 +18,7 @@
 	})
 </script>
 
-<Menu  let:open as="div" class="relative hover:z-50 flex w-full h-8">
+<!-- <Menu  let:open as="div" class="relative hover:z-50 flex w-full h-8">
 	<ResolveOpen {open} on:open on:close />
 	<div use:floatingRef class="w-full">
 		<MenuButton class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')}>
@@ -50,4 +50,4 @@
 			</Transition>
 		</div>
 	</Portal>
-</Menu>
+</Menu> -->

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Tab } from '@rgossiaux/svelte-headlessui'
+	// import { Tab } from '@rgossiaux/svelte-headlessui'
 	import { twMerge } from 'tailwind-merge'
 
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -13,7 +13,7 @@
 	export let id: string | undefined = undefined
 </script>
 
-<div {id} class="flex">
+<!-- <div {id} class="flex">
 	<Tab
 		{disabled}
 		class={twMerge(
@@ -34,4 +34,4 @@
 			bind:checked
 		/>
 	</Tab>
-</div>
+</div> -->

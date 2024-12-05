@@ -79,7 +79,7 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
 	import ButtonDropdown from './common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { twMerge } from 'tailwind-merge'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
@@ -1351,7 +1351,7 @@
 								</svelte:fragment>
 								<svelte:fragment slot="items">
 									{#each moreItems as item}
-										<MenuItem
+										<!-- <MenuItem
 											on:click={item.action}
 											disabled={item.disabled}
 											class={item.disabled ? 'opacity-50' : ''}
@@ -1364,7 +1364,7 @@
 												<svelte:component this={item.icon} size={14} />
 												{item.displayName}
 											</div>
-										</MenuItem>
+										</MenuItem> -->
 									{/each}
 								</svelte:fragment>
 							</ButtonDropdown>

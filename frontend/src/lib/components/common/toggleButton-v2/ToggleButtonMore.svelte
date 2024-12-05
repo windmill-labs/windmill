@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { Tab } from '@rgossiaux/svelte-headlessui'
+	// import { Tab } from '@rgossiaux/svelte-headlessui'
 	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
@@ -35,7 +35,7 @@
 >
 	<div {id} class="flex">
 		{#if isAnOptionSelected($selected)}
-			<Tab
+			<!-- <Tab
 				{disabled}
 				class={twMerge(
 					' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
@@ -48,7 +48,7 @@
 				)}
 			>
 				{togglableItems.find((i) => i.value === $selected)?.label}
-			</Tab>
+			</Tab> -->
 		{/if}
 		<div class="flex items-center">
 			<DropdownV2 {items} />

@@ -2,7 +2,7 @@
 	import { Loader2, RefreshCw, TimerReset } from 'lucide-svelte'
 	import Button from '../../common/button/Button.svelte'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -77,7 +77,7 @@
 			</svelte:fragment>
 			<svelte:fragment slot="items">
 				{#each items ?? [] as { }, index}
-					<MenuItem
+					<!-- <MenuItem
 						on:click={() => {
 							if (index === 0) {
 								dispatch('setInter', undefined)
@@ -97,7 +97,7 @@
 								{`Every ${index * 5} seconds`}
 							{/if}
 						</div>
-					</MenuItem>
+					</MenuItem> -->
 				{/each}
 			</svelte:fragment>
 		</ButtonDropdown>

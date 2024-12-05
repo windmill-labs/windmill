@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import { Bug } from 'lucide-svelte'
@@ -54,7 +54,7 @@
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="items">
-			{#each tabs ?? [] as { }, index}
+			<!-- {#each tabs ?? [] as { }, index}
 				<MenuItem
 					on:click={() => {
 						$componentControl?.[id]?.setTab?.(index)
@@ -89,7 +89,7 @@
 				>
 					{`Reset debug mode`}
 				</div>
-			</MenuItem>
+			</MenuItem> -->
 		</svelte:fragment>
 	</ButtonDropdown>
 </button>

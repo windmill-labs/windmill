@@ -11,7 +11,7 @@
 
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let row: {
 		name: string
@@ -58,7 +58,7 @@
 			<button on:pointerdown|stopPropagation>
 				<ButtonDropdown target="#group_portal" hasPadding={false}>
 					<svelte:fragment slot="items">
-						<MenuItem on:click={toggleDelete}>
+						<!-- <MenuItem on:click={toggleDelete}>
 							<div
 								class={classNames(
 									'!text-red-600 flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
@@ -67,7 +67,7 @@
 								<Trash size={16} />
 								Delete
 							</div>
-						</MenuItem>
+						</MenuItem> -->
 					</svelte:fragment>
 				</ButtonDropdown>
 			</button>

@@ -16,15 +16,18 @@
 		"test": "playwright test --config=tests-out/playwright.config.js",
 		"filter-classes": "node filterTailwindClasses.js"
 	},
+	"type": "module",
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",
 		"@hey-api/openapi-ts": "^0.43.0",
 		"@playwright/test": "^1.34.3",
-		"@rgossiaux/svelte-headlessui": "^2.0.0",
-		"@sveltejs/adapter-static": "^3.0.0",
 		"@sveltejs/kit": "^2.0.0",
-		"@sveltejs/package": "^2.2.2",
-		"@sveltejs/vite-plugin-svelte": "^3.0.0",
+		"@sveltejs/adapter-static": "^3",
+		"@sveltejs/vite-plugin-svelte": "^4.0.0",
+		"svelte": "^5.0.0",
+		"svelte-check": "^4.0.0",
+		"typescript": "^5.0.0",
+		"vite": "^5.0.3",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
@@ -45,32 +48,28 @@
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.49",
 		"postcss-load-config": "^4.0.1",
-		"prettier": "^2.8.8",
-		"prettier-plugin-svelte": "^2.10.1",
+		"prettier": "^3",
+		"prettier-plugin-svelte": "^3",
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^13.0.0",
-		"svelte": "^4.2.19",
 		"svelte-awesome-color-picker": "^3.0.4",
-		"svelte-check": "^3.4.3",
 		"svelte-floating-ui": "^1.5.8",
 		"svelte-highlight": "^7.6.0",
-		"svelte-multiselect": "^10.0.0",
+		"svelte-multiselect": "v11.0.0-rc.1",
 		"svelte-popperjs": "^1.3.2",
 		"svelte-preprocess": "^5.0.1",
 		"svelte-range-slider-pips": "^2.3.1",
-		"svelte-splitpanes": "^0.8.0",
+		"svelte-splitpanes": "^8.0.9",
 		"svelte2tsx": "^0.6.16",
 		"tailwindcss": "^3.4.1",
 		"tslib": "^2.6.1",
-		"typescript": "^5.1.3",
-		"vite": "^5",
 		"vite-plugin-circular-dependency": "^0.2.1",
 		"vite-plugin-mkcert": "^1.17.5",
 		"yootils": "^0.3.1"
 	},
 	"overrides": {
-		"@rgossiaux/svelte-headlessui": {
+		"svelte-splitpanes": {
 			"svelte": "$svelte"
 		},
 		"monaco-graphql": {
@@ -78,9 +77,11 @@
 		},
 		"svelte-chartjs": {
 			"svelte": "$svelte"
+		},
+		"@tanstack/svelte-table": {
+			"svelte": "$svelte"
 		}
 	},
-	"type": "module",
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.32.1",
 		"@aws-crypto/sha256-js": "^4.0.0",
@@ -98,7 +99,7 @@
 		"@mistralai/mistralai": "^1.3.0",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.9.9",
+		"@tanstack/svelte-table": "^v9.0.0-alpha.10",
 		"@windmill-labs/svelte-dnd-action": "latest",
 		"@xyflow/svelte": "^0.1.15",
 		"ag-charts-community": "^9.0.1",
@@ -156,7 +157,7 @@
 		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
-		"svelte": "^4.0.0"
+		"svelte": "^5.0.0"
 	},
 	"exports": {
 		"./package.json": "./package.json",

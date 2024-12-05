@@ -4,7 +4,7 @@
 
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	export let lightMode: boolean = false
 
 	export let isCollapsed: boolean = false
@@ -30,7 +30,7 @@
 		{:else}
 			<div class="py-1 w-full max-w-full">
 				{#each favoriteLinks ?? [] as favorite (favorite.href)}
-					<MenuItem href={favorite.href}>
+					<!-- <MenuItem href={favorite.href}>
 						<span class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover">
 							<span class="center-center">
 								{#if favorite.kind == 'script'}
@@ -45,7 +45,7 @@
 								{favorite.label}
 							</span>
 						</span>
-					</MenuItem>
+					</MenuItem> -->
 				{/each}
 			</div>
 		{/if}

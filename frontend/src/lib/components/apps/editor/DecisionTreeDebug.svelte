@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import type { DecisionTreeNode } from './component'
@@ -110,7 +110,7 @@
 			</svelte:fragment>
 			<svelte:fragment slot="items">
 				{#each nodes ?? [] as node, index}
-					<MenuItem
+					<!-- <MenuItem
 						on:click={() => {
 							$componentControl?.[id]?.setTab?.(index)
 
@@ -124,9 +124,9 @@
 						>
 							{`Debug node ${node.label}`}
 						</div>
-					</MenuItem>
+					</MenuItem> -->
 				{/each}
-				<MenuItem
+				<!-- <MenuItem
 					on:click={() => {
 						$componentControl?.[id]?.setTab?.(0)
 
@@ -142,7 +142,7 @@
 					>
 						{`Reset debug mode`}
 					</div>
-				</MenuItem>
+				</MenuItem> -->
 			</svelte:fragment>
 		</ButtonDropdown>
 	</button>

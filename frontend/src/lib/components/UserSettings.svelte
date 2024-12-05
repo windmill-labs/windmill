@@ -342,7 +342,8 @@
 									><td class="text-secondary italic text-xs"> There are no tokens yet</td></tr
 								>
 							{:else}
-								<tr> Loading...</tr>
+								<div>Loading...</div>
+								<!-- <tr> Loading...</tr> -->
 							{/if}
 						</tbody>
 					</TableCustom>

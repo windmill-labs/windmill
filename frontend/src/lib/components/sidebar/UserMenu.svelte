@@ -15,7 +15,7 @@
 	import { Crown, HardHat, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	let darkMode: boolean = false
 	export let isCollapsed: boolean = false
@@ -47,7 +47,7 @@
 		</div>
 
 		<div class="py-1" role="none">
-			<MenuItem
+			<!-- <MenuItem
 				href={USER_SETTINGS_HASH}
 				class={twMerge(
 					'flex flex-row gap-2 items-center px-4 py-2 ',
@@ -57,7 +57,7 @@
 			>
 				<Settings size={14} />
 				Account settings
-			</MenuItem>
+			</MenuItem> -->
 		</div>
 
 		<div class="py-1" role="none">

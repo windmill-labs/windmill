@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Popover, PopoverButton, PopoverPanel, Transition } from '@rgossiaux/svelte-headlessui'
+	// import { Popover, PopoverButton, PopoverPanel, Transition } from '@rgossiaux/svelte-headlessui'
 	import ConditionalPortal from '../drawer/ConditionalPortal.svelte'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 
@@ -18,16 +18,15 @@
 	export let noTransition = false
 	export let popupHover = false
 </script>
-
-<Popover on:close class="leading-none">
+<!--
+ <Popover on:close class="leading-none">
 	<PopoverButton let:open>
 		<div use:floatingRef>
 			<slot name="button" {open} />
 		</div>
 	</PopoverButton>
 	<ConditionalPortal condition={shouldUsePortal} {target}>
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+
 		<div
 			use:floatingContent
 			class={`z5000 ${floatingClasses}`}
@@ -63,4 +62,5 @@
 			{/if}
 		</div>
 	</ConditionalPortal>
-</Popover>
+</Popover> 
+-->

@@ -2,7 +2,7 @@
 	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import Popover from '$lib/components/Popover.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -67,7 +67,7 @@
 		</button>
 	</div>
 
-	<MenuItem disabled>
+	<!-- <MenuItem disabled>
 		<input type="number" bind:value={filter} on:keydown={onKeydown} />
 	</MenuItem>
 	{#each flowJobs ?? [] as id, idx (id)}
@@ -90,5 +90,5 @@
 				</button>
 			</MenuItem>
 		{/if}
-	{/each}
+	{/each} -->
 </Menu>

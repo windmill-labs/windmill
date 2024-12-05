@@ -16,7 +16,7 @@
 	import ThemeDrawer from './ThemeDrawer.svelte'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let previewThemePath: string | undefined = undefined
 
@@ -175,7 +175,7 @@
 			<button on:pointerdown|stopPropagation>
 				<ButtonDropdown hasPadding={false}>
 					<svelte:fragment slot="items">
-						<MenuItem on:click={() => themeDrawer?.openDrawer()}>
+						<!-- <MenuItem on:click={() => themeDrawer?.openDrawer()}>
 							<div
 								class={classNames(
 									'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
@@ -216,7 +216,7 @@
 									<Trash size={16} />
 									Delete
 								</div>
-							</MenuItem>
+							</MenuItem> -->
 						{/if}
 					</svelte:fragment>
 				</ButtonDropdown>

@@ -8,7 +8,7 @@
 <script lang="ts">
 	import { createEventDispatcher, setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { TabGroup, TabList } from '@rgossiaux/svelte-headlessui'
+	// import { TabGroup, TabList } from '@rgossiaux/svelte-headlessui'
 	import { twMerge } from 'tailwind-merge'
 
 	export let id: string | null | undefined = undefined
@@ -38,7 +38,7 @@
 	})
 </script>
 
-<TabGroup
+<!-- <TabGroup
 	{id}
 	class={twMerge(
 		`h-8 flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
@@ -50,4 +50,4 @@
 	>
 		<slot />
 	</TabList>
-</TabGroup>
+</TabGroup> -->

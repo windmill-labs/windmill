@@ -49,7 +49,8 @@
 					</tr>
 				{/each}
 			{:else}
-				<tr>Loading...</tr>
+				<div>Loading...</div>
+				<!-- <tr>Loading...</tr> -->
 			{/if}
 		</tbody>
 	</DataTable>

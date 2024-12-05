@@ -38,7 +38,7 @@
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	// import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import { WorkspaceService } from '$lib/gen'
@@ -321,7 +321,7 @@
 							<Plus size={14} />
 						</div>
 						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-							<MenuItem>
+							<!-- <MenuItem>
 								<div class="py-1" role="none">
 									<a
 										href={subItem.disabled ? '' : subItem.href}
@@ -341,7 +341,7 @@
 										</div>
 									</a>
 								</div>
-							</MenuItem>
+							</MenuItem> -->
 						{/each}
 					</Menu>
 				{/if}
@@ -359,7 +359,7 @@
 							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {notificationsCount} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem>
+							<!-- <MenuItem>
 								<div class="py-1" role="none">
 									{#if subItem?.['action']}
 										<button
@@ -402,7 +402,7 @@
 										</a>
 									{/if}
 								</div>
-							</MenuItem>
+							</MenuItem> -->
 						{/each}
 					</Menu>
 				{:else}
@@ -437,7 +437,7 @@
 							</div>
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem>
+							<!-- <MenuItem>
 								<div class="py-1" role="none">
 									<a
 										href={subItem.href}
@@ -455,13 +455,13 @@
 										</div>
 									</a>
 								</div>
-							</MenuItem>
+							</MenuItem> -->
 						{/each}
 						{#if recentChangelogs.length > 0}
 							<div class="w-full h-1 border-t" />
 							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
 							{#each recentChangelogs as changelog}
-								<MenuItem>
+								<!-- <MenuItem>
 									<div class="py-1" role="none">
 										<a
 											href={changelog.href}
@@ -475,7 +475,7 @@
 											</div>
 										</a>
 									</div>
-								</MenuItem>
+								</MenuItem> -->
 							{/each}
 						{/if}
 					</Menu>
