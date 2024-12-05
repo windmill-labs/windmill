@@ -20,9 +20,9 @@
 
 	export let open: boolean = false
 	export let numUnacknowledgedCriticalAlerts: number = 0
-	export let muteSettings;
+	export let muteSettings
 	let workspaceContext = false
-	let childRef;
+	let childRef
 
 	$: {
 		setupApiFunctions(workspaceContext)
@@ -275,6 +275,7 @@
 	</svelte:fragment>
 
 	<CriticalAlertModalInner
+		bind:workspaceContext
 		{numUnacknowledgedCriticalAlerts}
 		{updateHasUnacknowledgedCriticalAlerts}
 		{getCriticalAlerts}
