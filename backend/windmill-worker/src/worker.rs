@@ -9,6 +9,7 @@
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
+    utils::WarnAfterExt,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
         ROOT_CACHE_DIR, TMP_DIR,
@@ -159,6 +160,7 @@ pub async fn create_token_for_owner_in_bg(
                 &email,
                 &job_id,
             )
+            .warn_after_seconds(5)
             .await
             .expect("could not create job token");
             *locked = token;
@@ -366,6 +368,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
 
     pub static ref TZ_ENV: String = std::env::var("TZ").unwrap_or_else(|_| String::new());
@@ -419,12 +422,12 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-
 }
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
 }
 
 //only matter if CLOUD_HOSTED
@@ -1823,7 +1826,9 @@ async fn handle_queued_job(
     if job.parent_job.is_none() && job.created_by.starts_with("email-") {
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
-        ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
+        ).fetch_optional(db)
+        .warn_after_seconds(5)
+        .await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
 
         if let Some(count) = daily_count {
             if count >= 100 {
@@ -1836,6 +1841,7 @@ async fn handle_queued_job(
                     serde_json::json!(count + 1)
                 )
                 .execute(db)
+                .warn_after_seconds(5)
                 .await?;
             }
         } else {
@@ -1843,6 +1849,7 @@ async fn handle_queued_job(
                 "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
             )
             .execute(db)
+            .warn_after_seconds(5)
             .await?;
         }
     }
@@ -1855,6 +1862,7 @@ async fn handle_queued_job(
                 .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
             job.id,
         )
+        .warn_after_seconds(5)
         .await?;
 
         Some(r)
@@ -1867,6 +1875,7 @@ async fn handle_queued_job(
                 &job.workspace_id
             )
             .execute(db)
+            .warn_after_seconds(5)
             .await {
                 tracing::error!("Could not update parent job started_at flow_status: {}", e);
             }
@@ -1883,6 +1892,7 @@ async fn handle_queued_job(
             job.workspace_id
         )
         .fetch_one(db)
+        .warn_after_seconds(5)
         .await
         .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
         .unwrap_or_default(),
@@ -1923,6 +1933,7 @@ async fn handle_queued_job(
                 &job.parent_job.unwrap()
             )
             .fetch_one(db)
+            .warn_after_seconds(5)
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
@@ -1957,6 +1968,7 @@ async fn handle_queued_job(
             &job.workspace_id,
             &cached_res_path,
         )
+        .warn_after_seconds(5)
         .await;
         if let Some(cached_resource_value) = cached_resource_value_maybe {
             {
@@ -1995,6 +2007,7 @@ async fn handle_queued_job(
             worker_dir,
             job_completed_tx.0.clone(),
         )
+        .warn_after_seconds(10)
         .await?;
         Ok(true)
     } else {
@@ -2285,9 +2298,11 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = cache::flow::fetch_script(db, FlowNodeId(
-                job.script_hash.unwrap_or(ScriptHash(0)).0
-            )).await?;
+            let (lockfile, content) = cache::flow::fetch_script(
+                db,
+                FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            )
+            .await?;
             ContentReqLangEnvs {
                 content,
                 lockfile,

@@ -41,6 +41,7 @@ use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
     RawCode, ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     error::{self, to_anyhow, Error},
@@ -1109,6 +1110,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_dir,
                 job_completed_tx,
         )
+        .warn_after_seconds(10)
         .await
         {
             Err(err) => {
@@ -1510,7 +1512,7 @@ pub async fn handle_flow(
         let schedule_path = flow_job.schedule_path.as_ref().unwrap();
 
         let schedule =
-            get_schedule_opt(&mut tx, &flow_job.workspace_id, schedule_path).await?;
+            get_schedule_opt(&mut tx, &flow_job.workspace_id, schedule_path).warn_after_seconds(5).await?;
 
         tx.commit().await?;
 
@@ -1522,6 +1524,7 @@ pub async fn handle_flow(
                 flow_job.script_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
             )
+            .warn_after_seconds(5)
             .await
             {
                 match err {
@@ -1549,6 +1552,7 @@ pub async fn handle_flow(
         worker_dir,
         job_completed_tx,
     )
+    .warn_after_seconds(10)
     .await?;
     Ok(())
 }
@@ -2133,6 +2137,7 @@ async fn push_next_flow_job(
                 .bind(status.step)
                 .bind(json!(status.retry.failed_jobs))
                 .execute(db)
+                .warn_after_seconds(2)
                 .await
                 .context("update flow retry")?;
 
@@ -2558,6 +2563,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
         )
+        .warn_after_seconds(2)
         .await?;
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
@@ -2770,7 +2776,7 @@ async fn push_next_flow_job(
     .execute(&mut *tx)
     .await?;
 
-    tx.commit().await?;
+    tx.commit().warn_after_seconds(3).await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
 
     if continue_on_same_worker {

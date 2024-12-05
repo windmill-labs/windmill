@@ -36,6 +36,8 @@
 		>
 			<FlowGraphV2
 				{triggerNode}
+				earlyStop={flow.value.skip_expr !== undefined}
+				cache={flow.value.cache_ttl !== undefined}
 				path={flow?.path}
 				{download}
 				minHeight={400}

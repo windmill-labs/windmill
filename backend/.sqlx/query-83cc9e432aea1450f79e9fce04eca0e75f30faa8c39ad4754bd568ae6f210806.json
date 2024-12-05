@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO flow_node (path, workspace_id, hash_v2, lock, code, flow)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        ON CONFLICT (hash_v2) DO UPDATE SET path = EXCLUDED.path -- trivial update to return the id\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bpchar",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "83cc9e432aea1450f79e9fce04eca0e75f30faa8c39ad4754bd568ae6f210806"
+}

@@ -133,8 +133,9 @@
 				</div>
 			{/if}
 			<button
-				class="border bg-surface absolute top-0.5 right-2 p-0.5"
-				on:click={() => (fullscreen = true)}><Maximize2 size={12} /></button
+				title="Open in drawer"
+				class="border bg-surface absolute hover:text-primary top-0 right-2 p-0.5 text-secondary"
+				on:click={() => (fullscreen = true)}><Maximize2 size={10} /></button
 			>
 			{#if focus}
 				<div class="relative w-full">

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.434.1
+  version: 1.435.2
   title: Windmill API
 
   contact:
@@ -872,9 +872,20 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CriticalAlert'
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CriticalAlert'
+                  total_rows:
+                    type: integer
+                    description: Total number of rows matching the query.
+                    example: 100
+                  total_pages:
+                    type: integer
+                    description: Total number of pages based on the page size.
+                    example: 10
 
   /settings/critical_alerts/{id}/acknowledge:
     post:
@@ -2757,9 +2768,20 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CriticalAlert'
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CriticalAlert'
+                  total_rows:
+                    type: integer
+                    description: Total number of rows matching the query.
+                    example: 100
+                  total_pages:
+                    type: integer
+                    description: Total number of pages based on the page size.
+                    example: 10
 
   /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
     post:
@@ -3732,6 +3754,27 @@ paths:
                       - value
                 required:
                   - app
+
+  /apps_u/public_app_by_custom_path/{custom_path}:
+    get:
+      summary: get public app by custom path
+      operationId: getPublicAppByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: app details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AppWithLastVersion"
+                  - type: object
+                    properties:
+                      workspace_id:
+                        type: string
 
   /scripts/hub/get/{path}:
     get:
@@ -5371,6 +5414,8 @@ paths:
                   type: boolean
                 deployment_message:
                   type: string
+                custom_path:
+                  type: string
               required:
                 - path
                 - value
@@ -5696,6 +5741,8 @@ paths:
                   $ref: "#/components/schemas/Policy"
                 deployment_message:
                   type: string
+                custom_path:
+                  type: string
       responses:
         "200":
           description: app updated
@@ -5703,6 +5750,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/apps/custom_path_exists/{custom_path}:
+    get:
+      summary: check if custom path exists
+      operationId: customPathExists
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: custom path exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/apps_u/execute_component/{path}:
     post:
@@ -10222,6 +10286,12 @@ components:
       required: true
       schema:
         type: string
+    CustomPath:
+      name: custom_path
+      in: path
+      required: true
+      schema:
+        type: string
     PathId:
       name: id
       in: path
@@ -12860,6 +12930,8 @@ components:
             draft_only:
               type: boolean
             draft: {}
+            custom_path:
+              type: string
 
     AppHistory:
       type: object
