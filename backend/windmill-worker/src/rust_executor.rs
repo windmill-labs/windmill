@@ -209,6 +209,7 @@ pub async fn build_rust_crate(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
+        build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
     }
 
     let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
@@ -403,6 +404,7 @@ pub async fn handle_rust_job(
 
         #[cfg(windows)]
         run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
+        run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
 
         start_child_process(run_rust, compiled_executable_name).await?
     };

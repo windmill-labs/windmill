@@ -433,6 +433,10 @@ fi
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        ansible_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+
         start_child_process(ansible_cmd, ANSIBLE_PLAYBOOK_PATH.as_str()).await?
     };
 
@@ -565,13 +569,9 @@ async fn create_file_resources(
             get_resource_or_variable_content(client, &file_res.resource_path, job_id.to_string())
                 .await?;
         let path = file_res.target_path.clone();
-        let validated_path = write_file_at_user_defined_location(
-            job_dir,
-            path.as_str(),
-            &r,
-            file_res.mode,
-        )
-        .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
+        let validated_path =
+            write_file_at_user_defined_location(job_dir, path.as_str(), &r, file_res.mode)
+                .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
 
         nsjail_mounts.push(
             define_nsjail_mount(job_dir, &validated_path)

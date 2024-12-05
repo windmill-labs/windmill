@@ -84,6 +84,15 @@ async fn get_common_deno_proc_envs(
     if DENO_TLS_CA_STORE.len() > 0 {
         deno_envs.insert(String::from("DENO_TLS_CA_STORE"), DENO_TLS_CA_STORE.clone());
     }
+
+    #[cfg(windows)]
+    {
+        deno_envs.insert("SystemRoot".to_string(), crate::SYSTEM_ROOT.to_string());
+        deno_envs.insert(
+            "USERPROFILE".to_string(),
+            crate::USERPROFILE_ENV.to_string(),
+        );
+    }
     return deno_envs;
 }
 

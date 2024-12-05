@@ -522,7 +522,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                     std::env::var("PATHEXT").unwrap_or_else(|_| {
                         String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
                     }),
-                );
+                )
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
         cmd.spawn()?

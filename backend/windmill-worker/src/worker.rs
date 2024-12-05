@@ -368,6 +368,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
 
     pub static ref TZ_ENV: String = std::env::var("TZ").unwrap_or_else(|_| String::new());
@@ -421,12 +422,16 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
+    pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
+
+
 
 }
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
 }
 
 //only matter if CLOUD_HOSTED
