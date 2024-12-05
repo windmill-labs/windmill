@@ -606,9 +606,8 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
     )
     .await?;
-    let new_flow_value = sqlx::types::Json(
-        serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?
-    );
+    let new_flow_value =
+        sqlx::types::Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancelation to ensure we don't accidentially override a flow.
     if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
@@ -648,11 +647,20 @@ pub async fn handle_flow_dependency_job(
 
         // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
         let mut value_lite = flow.clone();
-        tx = reduce(tx, &mut value_lite.modules, &job_path, &job.workspace_id, flow.failure_module.as_ref(), flow.same_worker).await?;
+        tx = reduce(
+            tx,
+            &mut value_lite.modules,
+            &job_path,
+            &job.workspace_id,
+            flow.failure_module.as_ref(),
+            flow.same_worker,
+        )
+        .await?;
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
-            version, sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
+            version,
+            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
         )
         .execute(db)
         .await?;
@@ -829,8 +837,12 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
-                    e.value =
-                        FlowModuleValue::WhileloopFlow { modules: nmodules, modules_node, skip_failures }.into()
+                    e.value = FlowModuleValue::WhileloopFlow {
+                        modules: nmodules,
+                        modules_node,
+                        skip_failures,
+                    }
+                    .into()
                 }
                 FlowModuleValue::BranchOne { branches, default, default_node } => {
                     let mut nbranches = vec![];
@@ -878,8 +890,12 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
-                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default: ndefault, default_node }
-                        .into();
+                    e.value = FlowModuleValue::BranchOne {
+                        branches: nbranches,
+                        default: ndefault,
+                        default_node,
+                    }
+                    .into();
                 }
                 _ => (),
             };
@@ -1009,8 +1025,8 @@ async fn insert_flow_node<'c>(
     flow: Option<&Json<Box<RawValue>>>,
 ) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
     let hash = {
-        use std::hash::{DefaultHasher, Hasher, Hash};
-    
+        use std::hash::{DefaultHasher, Hash, Hasher};
+
         let mut hasher = DefaultHasher::new();
         code.hash(&mut hasher);
         lock.hash(&mut hasher);
@@ -1039,7 +1055,12 @@ async fn insert_flow_node<'c>(
         UNION ALL
         SELECT id FROM inserted
         "#,
-        hash, path, workspace_id, code, lock, flow as Option<&Json<Box<RawValue>>>
+        hash,
+        path,
+        workspace_id,
+        code,
+        lock,
+        flow as Option<&Json<Box<RawValue>>>
     )
     .fetch_one(&mut *tx)
     .await?
@@ -1056,7 +1077,15 @@ async fn insert_flow_modules<'c>(
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
-    tx = Box::pin(reduce(tx, modules, path, workspace_id, failure_module, same_worker)).await?;
+    tx = Box::pin(reduce(
+        tx,
+        modules,
+        path,
+        workspace_id,
+        failure_module,
+        same_worker,
+    ))
+    .await?;
     add_virtual_items_if_necessary(modules);
     if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
         return Ok(tx);
@@ -1073,7 +1102,7 @@ async fn insert_flow_modules<'c>(
             failure_module: failure_module.cloned(),
             same_worker,
             ..Default::default()
-        })))
+        }))),
     )
     .await?;
     *modules_node = Some(id);
@@ -1090,8 +1119,13 @@ async fn reduce<'c>(
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     use FlowModuleValue::*;
     for module in &mut *modules {
-        let mut val = serde_json::from_str::<FlowModuleValue>(module.value.get())
-            .map_err(|err| Error::InternalErr(format!("reduce: Failed to parse flow module value: {}", err)))?;
+        let mut val =
+            serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "reduce: Failed to parse flow module value: {}",
+                    err
+                ))
+            })?;
         match &mut val {
             RawScript { .. } => {
                 // In order to avoid an unnecessary `.clone()` of `val`, take ownership of it's content
@@ -1107,9 +1141,14 @@ async fn reduce<'c>(
                     concurrency_time_window_s,
                     is_trigger,
                     ..
-                } = std::mem::replace(&mut val, Identity) else { unreachable!() };
+                } = std::mem::replace(&mut val, Identity)
+                else {
+                    unreachable!()
+                };
                 let id;
-                (tx, id) = insert_flow_node(tx, path, workspace_id, Some(&content), lock.as_ref(), None).await?;
+                (tx, id) =
+                    insert_flow_node(tx, path, workspace_id, Some(&content), lock.as_ref(), None)
+                        .await?;
                 val = FlowScript {
                     input_transforms,
                     id,
@@ -1120,32 +1159,56 @@ async fn reduce<'c>(
                     concurrency_time_window_s,
                     is_trigger,
                 };
-            },
+            }
             ForloopFlow { modules, modules_node, .. }
-            | WhileloopFlow { modules, modules_node, .. }  => {
+            | WhileloopFlow { modules, modules_node, .. } => {
                 tx = insert_flow_modules(
-                    tx, path, workspace_id, failure_module, same_worker,
-                    modules, modules_node
-                ).await?;
+                    tx,
+                    path,
+                    workspace_id,
+                    failure_module,
+                    same_worker,
+                    modules,
+                    modules_node,
+                )
+                .await?;
             }
             BranchOne { branches, default, default_node, .. } => {
                 for branch in branches.iter_mut() {
                     tx = insert_flow_modules(
-                        tx, path, workspace_id, failure_module, same_worker,
-                        &mut branch.modules, &mut branch.modules_node
-                    ).await?;
+                        tx,
+                        path,
+                        workspace_id,
+                        failure_module,
+                        same_worker,
+                        &mut branch.modules,
+                        &mut branch.modules_node,
+                    )
+                    .await?;
                 }
                 tx = insert_flow_modules(
-                    tx, path, workspace_id, failure_module, same_worker, 
-                    default, default_node
-                ).await?;
+                    tx,
+                    path,
+                    workspace_id,
+                    failure_module,
+                    same_worker,
+                    default,
+                    default_node,
+                )
+                .await?;
             }
             BranchAll { branches, .. } => {
                 for branch in branches.iter_mut() {
                     tx = insert_flow_modules(
-                        tx, path, workspace_id, failure_module, same_worker,
-                        &mut branch.modules, &mut branch.modules_node
-                    ).await?;
+                        tx,
+                        path,
+                        workspace_id,
+                        failure_module,
+                        same_worker,
+                        &mut branch.modules,
+                        &mut branch.modules_node,
+                    )
+                    .await?;
                 }
             }
             _ => {}
