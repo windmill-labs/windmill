@@ -422,10 +422,6 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-    pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
-
-
-
 }
 
 #[cfg(windows)]
