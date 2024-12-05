@@ -52,6 +52,7 @@
 				flowJobs: string[]
 				flowJobsSuccess: (boolean | undefined)[]
 				length: number
+				branchall?: boolean
 		  }
 		| undefined = undefined
 
@@ -466,9 +467,7 @@
 				let modId = flowJobIds?.moduleId ?? ''
 
 				let common = {
-					iteration_from:
-						// $localDurationStatuses?.[modId]?.iteration_from ??
-						Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
 					iteration_total: $localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
 				}
 				$localDurationStatuses[modId] = {
@@ -1141,7 +1140,8 @@
 													moduleId: mod.id,
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success,
-													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length
+													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
+													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 											  }
 											: undefined}
 										on:jobsLoaded={(e) => {
