@@ -7,8 +7,8 @@ export type Changelog = {
 const changelogs: Changelog[] = [
 	{
 		label: 'Full text search on jobs and logs',
-		href: 'https://www.windmill.dev/changelog/full-text-search-on-jobs-and-logs',
-		date: '2024-11-29'
+		href: 'https://www.windmill.dev/changelog/instant-full-text-search-on-jobs-and-logs',
+		date: '2024-12-05'
 	},
 	{
 		label: 'Kafka triggers',
