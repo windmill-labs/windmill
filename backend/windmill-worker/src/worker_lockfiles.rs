@@ -1764,6 +1764,42 @@ async fn capture_dependency_job(
             .await?;
             Ok(lockfile)
         }
+        ScriptLang::CSharp => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for C#".to_string(),
+                ));
+            }
+            Ok("".to_string())
+
+            // let lockfile = generate_cargo_lockfile(
+            //     job_id,
+            //     job_raw_code,
+            //     mem_peak,
+            //     canceled_by,
+            //     job_dir,
+            //     db,
+            //     worker_name,
+            //     w_id,
+            //     occupancy_metrics,
+            // )
+            // .await?;
+            //
+            // build_rust_crate(
+            //     job_id,
+            //     mem_peak,
+            //     canceled_by,
+            //     job_dir,
+            //     db,
+            //     worker_name,
+            //     w_id,
+            //     base_internal_url,
+            //     &compute_rust_hash(&job_raw_code, Some(&lockfile)),
+            //     occupancy_metrics,
+            // )
+            // .await?;
+            // Ok(lockfile)
+        }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),

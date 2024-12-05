@@ -94,6 +94,7 @@ use crate::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
+    csharp_executor::handle_csharp_job,
     deno_executor::handle_deno_job,
     go_executor::handle_go_job,
     graphql_executor::do_graphql,
@@ -263,6 +264,7 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
+pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
@@ -365,6 +367,7 @@ lazy_static::lazy_static! {
     pub static ref POWERSHELL_PATH: String = std::env::var("POWERSHELL_PATH").unwrap_or_else(|_| "/usr/bin/pwsh".to_string());
     pub static ref PHP_PATH: String = std::env::var("PHP_PATH").unwrap_or_else(|_| "/usr/bin/php".to_string());
     pub static ref COMPOSER_PATH: String = std::env::var("COMPOSER_PATH").unwrap_or_else(|_| "/usr/bin/composer".to_string());
+    pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| "/usr/bin/dotnet".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -2662,6 +2665,24 @@ mount {{
                 &inner_content,
                 &shared_mount,
                 base_internal_url,
+                envs,
+                occupancy_metrics,
+            )
+            .await
+        }
+        Some(ScriptLang::CSharp) => {
+            handle_csharp_job(
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                &inner_content,
+                job_dir,
+                requirements_o,
+                &shared_mount,
+                base_internal_url,
+                worker_name,
                 envs,
                 occupancy_metrics,
             )

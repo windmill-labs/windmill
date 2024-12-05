@@ -9693,6 +9693,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0203df02a3b6dd63575cc1d6e609edc2181c9a11867a271b25cfd2abff3ec5ca"
+dependencies = [
+ "cc",
+ "regex",
+ "regex-syntax 0.8.5",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-c-sharp"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04c0f6d2209a3cd6d0bb9d2934715da15a15710d3c09c7c1ecd4c9804c3ecd10"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8ddffe35a0e5eeeadf13ff7350af564c6e73993a24db62caee1822b185c2600"
+
+[[package]]
 name = "triomphe"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10738,6 +10766,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-csharp"
+version = "1.435.1"
+dependencies = [
+ "anyhow",
+ "tree-sitter",
+ "tree-sitter-c-sharp",
+ "wasm-bindgen",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-go"
 version = "1.435.1"
 dependencies = [
@@ -10859,6 +10898,7 @@ dependencies = [
  "wasm-bindgen-test",
  "windmill-parser",
  "windmill-parser-bash",
+ "windmill-parser-csharp",
  "windmill-parser-go",
  "windmill-parser-graphql",
  "windmill-parser-php",
@@ -10986,6 +11026,7 @@ dependencies = [
  "windmill-git-sync",
  "windmill-parser",
  "windmill-parser-bash",
+ "windmill-parser-csharp",
  "windmill-parser-go",
  "windmill-parser-graphql",
  "windmill-parser-php",

@@ -80,6 +80,8 @@ export function langToExt(lang: string): string {
 			return 'css'
 		case 'ansible':
 			return 'yml'
+		case 'csharp':
+			return 'cs'
 		default:
 			return 'unknown'
 	}

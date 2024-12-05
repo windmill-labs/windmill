@@ -91,7 +91,8 @@
 		'bunnative',
 		'nativets',
 		'php',
-		'rust'
+		'rust',
+		'csharp'
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -103,7 +104,8 @@
 		'bunnative',
 		'nativets',
 		'php',
-		'rust'
+		'rust',
+		'csharp'
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -115,7 +117,8 @@
 		'bunnative',
 		'nativets',
 		'php',
-		'rust'
+		'rust',
+		'csharp'
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||

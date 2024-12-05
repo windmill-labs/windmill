@@ -15,8 +15,7 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, read_result,
-        start_child_process, OccupancyMetrics,
+        check_executor_binary_exists, create_args_and_out_file, get_main_override, get_reserved_variables, read_result, start_child_process, OccupancyMetrics
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
@@ -73,7 +72,7 @@ pub async fn composer_install(
     lock: Option<String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<String> {
-    check_php_exists()?;
+    check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
     write_file(job_dir, "composer.json", &requirements)?;
 
@@ -131,24 +130,6 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
     )
 }
 
-#[cfg(not(feature = "enterprise"))]
-fn check_php_exists() -> error::Result<()> {
-    if !Path::new(PHP_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run php jobs.", PHP_PATH.as_str());
-        return Err(error::Error::NotFound(msg));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-fn check_php_exists() -> error::Result<()> {
-    if !Path::new(PHP_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run php jobs.", PHP_PATH.as_str());
-        return Err(error::Error::NotFound(msg));
-    }
-    Ok(())
-}
-
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
     requirements_o: Option<String>,
@@ -165,7 +146,7 @@ pub async fn handle_php_job(
     shared_mount: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    check_php_exists()?;
+    check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
     let (composer_json, composer_lock) = match requirements_o {
         Some(reqs_and_lock) if !reqs_and_lock.is_empty() => {

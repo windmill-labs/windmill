@@ -21,6 +21,7 @@ members = [
     "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
+    "./parsers/windmill-parser-csharp",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -128,6 +129,7 @@ windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
+windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -299,3 +301,5 @@ quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
+tree-sitter = {version = "0.23.0", features = []}
+tree-sitter-c-sharp = "0.23.0"

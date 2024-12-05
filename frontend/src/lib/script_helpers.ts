@@ -348,6 +348,21 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 }
 `
 
+const CSHARP_INIT_CODE = `
+using System;
+
+class LilProgram
+{
+
+    public static string Main(string myString = "World", int myInt)
+    {
+        Console.Writeline("Hello!!");
+        return "yeah";
+    }
+
+}
+`
+
 const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -767,6 +782,9 @@ export const INITIAL_CODE = {
 	ansible: {
 		script: ANSIBLE_PLAYBOOK_INIT_CODE
 	},
+	csharp: {
+		script: CSHARP_INIT_CODE
+	},
 	docker: {
 		script: DOCKER_INIT_CODE
 	},
@@ -871,6 +889,8 @@ export function initialCode(
 		return INITIAL_CODE.rust.script
 	} else if (language == 'ansible') {
 		return INITIAL_CODE.ansible.script
+	} else if (language == 'csharp') {
+		return INITIAL_CODE.csharp.script
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

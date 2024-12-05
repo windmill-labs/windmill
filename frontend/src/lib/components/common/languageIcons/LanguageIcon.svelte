@@ -18,6 +18,7 @@
 	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
 	import RustIcon from '$lib/components/icons/RustIcon.svelte'
 	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
+	import CSharpIcon from '$lib/components/icons/CSharpIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -50,7 +51,8 @@
 		bun: 'TypeScript',
 		php: 'PHP',
 		rust: 'Rust',
-		ansible: 'Ansible Playbook'
+		ansible: 'Ansible Playbook',
+		csharp: 'C sharpo'
 	}
 
 	const langToComponent: Record<
@@ -78,7 +80,8 @@
 		graphql: GraphqlIcon,
 		php: PHPIcon,
 		rust: RustIcon,
-		ansible: AnsibleIcon
+		ansible: AnsibleIcon,
+		csharp: CSharpIcon
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

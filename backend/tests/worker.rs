@@ -1795,6 +1795,47 @@ fn main(world: String) -> Result<String, String> {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_csharp_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+using System;
+
+class Script
+{
+    public static string moin(string world)
+    {
+        Console.WriteLine($"Hello {world}");
+        return $"Hello {world}";
+    }
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::CSharp,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("world", json!("Arakis"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("Hello Arakis"));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;

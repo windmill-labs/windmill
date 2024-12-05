@@ -26,6 +26,7 @@ php-parser = [ "dep:windmill-parser-php"]
 rust-parser = [ "dep:windmill-parser-rust"]
 graphql-parser = [ "dep:windmill-parser-graphql"]
 ansible-parser = [ "dep:windmill-parser-yaml"]
+csharp-parser = [ "dep:windmill-parser-csharp"]
 
 [dependencies]
 anyhow.workspace = true
@@ -39,6 +40,7 @@ windmill-parser-php = { workspace = true, optional = true }
 windmill-parser-graphql = { workspace = true, optional = true }
 windmill-parser-rust = { workspace = true, optional = true }
 windmill-parser-yaml = { workspace = true, optional = true }
+windmill-parser-csharp = { workspace = true, optional = true }
 wasm-bindgen.workspace = true
 serde_json.workspace = true
 getrandom = { workspace = true, features = ["js"] }
