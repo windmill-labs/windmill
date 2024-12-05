@@ -11,9 +11,9 @@ const changelogs: Changelog[] = [
 		date: '2024-12-05'
 	},
 	{
-		label: 'Kafka triggers',
-		href: 'https://www.windmill.dev/changelog/kafka-triggers',
-		date: '2024-11-18'
+		label: 'Force dark/light theme in apps',
+		href: 'https://www.windmill.dev/changelog/force-dark-light-theme',
+		date: '2024-11-28'
 	},
 	{
 		label: 'Kafka triggers',
