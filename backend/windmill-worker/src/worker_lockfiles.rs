@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use async_recursion::async_recursion;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
+use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
 use windmill_common::error::Error;
@@ -1025,46 +1026,32 @@ async fn insert_flow_node<'c>(
     flow: Option<&Json<Box<RawValue>>>,
 ) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
     let hash = {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        code.hash(&mut hasher);
-        lock.hash(&mut hasher);
-        flow.inspect(|flow| flow.get().hash(&mut hasher));
-        hasher.finish() as i64
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(path);
+        hasher.update(workspace_id);
+        hasher.update(code.unwrap_or(&Default::default()));
+        hasher.update(lock.unwrap_or(&Default::default()));
+        hasher.update(flow.unwrap_or(&Default::default()).get());
+        format!("{:x}", hasher.finalize())
     };
 
     // Insert the flow node if it doesn't exist.
     let id = sqlx::query_scalar!(
         r#"
-        WITH existing AS (
-            SELECT id FROM flow_node
-            WHERE hash = $1 AND path = $2 AND workspace_id = $3
-                AND (code IS NOT DISTINCT FROM $4)
-                AND (lock IS NOT DISTINCT FROM $5)
-                AND (flow IS NOT DISTINCT FROM $6)
-            LIMIT 1
-        ),
-        inserted AS (
-            INSERT INTO flow_node (hash, path, workspace_id, code, lock, flow)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT DO NOTHING
-            RETURNING id
-        )
-        SELECT id FROM existing
-        UNION ALL
-        SELECT id FROM inserted
+        INSERT INTO flow_node (path, workspace_id, hash_v2, lock, code, flow)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (hash_v2) DO UPDATE SET path = EXCLUDED.path -- trivial update to return the id
+        RETURNING id
         "#,
-        hash,
         path,
         workspace_id,
-        code,
+        hash,
         lock,
+        code,
         flow as Option<&Json<Box<RawValue>>>
     )
     .fetch_one(&mut *tx)
-    .await?
-    .ok_or(error::Error::InternalErr("Failed to cache".to_string()))?;
+    .await?;
     Ok((tx, FlowNodeId(id)))
 }
 
