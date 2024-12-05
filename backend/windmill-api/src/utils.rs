@@ -10,6 +10,7 @@ use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     auth::{is_devops_email, is_super_admin_email},
     error::{self, Error},
@@ -206,11 +207,55 @@ pub async fn get_critical_alerts(
     db: DB,
     params: AlertQueryParams,
     workspace_id: Option<String>,
-) -> JsonResult<Vec<CriticalAlert>> {
+) -> JsonResult<serde_json::Value> {
+    // Returning total rows and total pages
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(10).min(100) as i64;
     let offset = ((page - 1) * page_size as i32) as i64;
 
+    // Count total rows
+    let total_rows = if let Some(workspace_id) = &workspace_id {
+        if params.acknowledged.is_none() {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*)
+                 FROM alerts
+                 WHERE workspace_id = $1",
+                workspace_id
+            )
+            .fetch_one(&db)
+            .await?
+        } else {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*)
+                 FROM alerts
+                 WHERE workspace_id = $1 AND COALESCE(acknowledged_workspace, false) = $2",
+                workspace_id,
+                params.acknowledged
+            )
+            .fetch_one(&db)
+            .await?
+        }
+    } else {
+        if params.acknowledged.is_none() {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*)
+                 FROM alerts"
+            )
+            .fetch_one(&db)
+            .await?
+        } else {
+            sqlx::query_scalar!(
+                "SELECT COUNT(*)
+                 FROM alerts
+                 WHERE COALESCE(acknowledged, false) = $1",
+                params.acknowledged
+            )
+            .fetch_one(&db)
+            .await?
+        }
+    };
+
+    // Fetch paginated rows
     let alerts = if let Some(workspace_id) = workspace_id {
         // `workspace_id` is provided => workspace admin
         if params.acknowledged.is_none() {
@@ -278,7 +323,14 @@ pub async fn get_critical_alerts(
         }
     };
 
-    Ok(Json(alerts))
+    let total_rows = total_rows.unwrap_or(0);
+    let total_pages = ((total_rows as f64) / (page_size as f64)).ceil() as i64;
+
+    Ok(Json(serde_json::json!({
+        "alerts": alerts,
+        "total_rows": total_rows,
+        "total_pages": total_pages
+    })))
 }
 
 #[cfg(feature = "enterprise")]
@@ -292,12 +344,17 @@ pub async fn acknowledge_critical_alert(
          SET
            acknowledged = true,
            acknowledged_workspace = CASE
-             WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true
-             ELSE acknowledged_workspace
+             WHEN $3 THEN
+               CASE
+                 WHEN $2::text IS NOT NULL AND workspace_id = $2 THEN true
+                 ELSE acknowledged_workspace
+               END
+             ELSE true
            END
          WHERE id = $1",
         id,
-        workspace_id
+        workspace_id,
+        *CLOUD_HOSTED
     )
     .execute(&db)
     .await?;
@@ -320,12 +377,17 @@ pub async fn acknowledge_all_critical_alerts(
          SET
            acknowledged = true,
            acknowledged_workspace = CASE
-             WHEN $1::text IS NOT NULL THEN true
-             ELSE acknowledged_workspace
+             WHEN $2 THEN
+               CASE
+                 WHEN $1::text IS NOT NULL THEN true
+                 ELSE acknowledged_workspace
+               END
+             ELSE true
            END
          WHERE ($1::text IS NOT NULL AND workspace_id = $1)
             OR ($1::text IS NULL)",
-        workspace_id
+        workspace_id,
+        *CLOUD_HOSTED
     )
     .execute(&db)
     .await?;

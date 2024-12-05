@@ -31,7 +31,7 @@
 
 <label
 	for={id}
-	class="{$$props.class || ''} z-auto inline-flex items-center duration-50 {disabled
+	class="{$$props.class || ''} z-auto flex flex-row items-center duration-50 {disabled
 		? 'grayscale opacity-50'
 		: 'cursor-pointer'}"
 >

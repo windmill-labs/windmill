@@ -17,6 +17,7 @@
 	export let target: string | HTMLElement | undefined = undefined
 	export let noTransition = false
 	export let popupHover = false
+	export let preventPopupClosingOnClickInside = false
 </script>
 
 <Popover on:close class="leading-none">
@@ -28,6 +29,7 @@
 	<ConditionalPortal condition={shouldUsePortal} {target}>
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
 			use:floatingContent
 			class={`z5000 ${floatingClasses}`}
@@ -37,6 +39,7 @@
 			on:mouseleave={() => {
 				popupHover = false
 			}}
+			on:click={(e) => preventPopupClosingOnClickInside && e.stopPropagation()}
 		>
 			{#if !noTransition}
 				<Transition
