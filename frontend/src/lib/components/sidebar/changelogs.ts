@@ -22,7 +22,7 @@ const changelogs: Changelog[] = [
 	},
 	{
 		label: 'Critical alert channels',
-		href: 'https://www.windmill.dev/changelog/critical-alert-channels',
+		href: 'https://www.windmill.dev/changelog/critical-alerts',
 		date: '2024-09-01'
 	},
 	{
