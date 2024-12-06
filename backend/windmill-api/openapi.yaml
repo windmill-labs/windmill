@@ -10983,6 +10983,8 @@ components:
               "deploymentcallback",
               "singlescriptflow",
               "flowscript",
+              "flownode",
+              "appscript",
             ]
         schedule_path:
           type: string
@@ -11103,6 +11105,8 @@ components:
               "deploymentcallback",
               "singlescriptflow",
               "flowscript",
+              "flownode",
+              "appscript",
             ]
         schedule_path:
           type: string

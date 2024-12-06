@@ -8709,6 +8709,9 @@ paths:
                         - identity
                         - deploymentcallback
                         - singlescriptflow
+                        - flowscript
+                        - flownode
+                        - appscript
                     schedule_path:
                       type: string
                     permissioned_as:
@@ -9267,6 +9270,9 @@ paths:
                         - identity
                         - deploymentcallback
                         - singlescriptflow
+                        - flowscript
+                        - flownode
+                        - appscript
                     schedule_path:
                       type: string
                     permissioned_as:
