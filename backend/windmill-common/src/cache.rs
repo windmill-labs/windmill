@@ -104,6 +104,20 @@ pub mod future {
     pub trait FutureCachedExt<Val: Clone + fs::Bundle>:
         Future<Output = error::Result<Val>> + Sized
     {
+        /// Get or insert the future result in the cache.
+        ///
+        /// # Example
+        /// ```rust
+        /// use windmill_common::cache::{self, future::FutureCachedExt};
+        ///
+        /// async {
+        ///     let result = std::future::ready(Ok(42))
+        ///         .cached(cache::anon!({ u64 => u64 } in "test" <= 1), &42)
+        ///         .await;
+        ///
+        ///     assert_eq!(result.unwrap(), 42);
+        /// };
+        /// ```
         fn cached<Key: Eq + Hash, Q>(
             self,
             cache: &FsBackedCache<Key, Val>,
