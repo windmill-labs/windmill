@@ -778,7 +778,7 @@ async fn create_app(
         app.summary,
         json!(app.policy),
         app.draft_only,
-        app.custom_path,
+        app.custom_path.map(|s| if s.is_empty() { None } else { Some(s) }).flatten()
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1022,23 +1022,27 @@ async fn update_app(
 
             require_admin(authed.is_admin, &authed.username)?;
 
-            let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
-                ncustom_path,
-                if *CLOUD_HOSTED { Some(&w_id) } else { None },
-                path,
-                w_id
-            )
-            .fetch_one(&mut *tx)
-            .await?.unwrap_or(false);
-
-            if exists {
-                return Err(Error::BadRequest(format!(
-                    "App with custom path {} already exists",
-                    ncustom_path
-                )));
+            if ncustom_path.is_empty() {
+                sqlb.set("custom_path", "NULL");
+            } else {
+                let exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                    ncustom_path,
+                    if *CLOUD_HOSTED { Some(&w_id) } else { None },
+                    path,
+                    w_id
+                )
+                .fetch_one(&mut *tx)
+                .await?.unwrap_or(false);
+    
+                if exists {
+                    return Err(Error::BadRequest(format!(
+                        "App with custom path {} already exists",
+                        ncustom_path
+                    )));
+                }
+                sqlb.set_str("custom_path", ncustom_path);
             }
-            sqlb.set_str("custom_path", ncustom_path);
         }
 
         if let Some(mut npolicy) = ns.policy {
