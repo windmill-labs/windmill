@@ -172,5 +172,13 @@
       "user-library-read"
     ]
   },
+  "xero": {
+    "auth_url": "https://login.xero.com/identity/connect/authorize",
+    "token_url": "https://identity.xero.com/connect/token",
+    "scopes": [
+      "offline_access",
+      "accounting.transactions"
+    ]
+  },
   "snowflake_oauth": {}
 }

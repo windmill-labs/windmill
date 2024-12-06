@@ -93,7 +93,7 @@ import JumpCloudIcon from './JumpCloudIcon.svelte'
 import KeycloakIcon from './KeycloakIcon.svelte'
 import ZitadelIcon from './ZitadelIcon.svelte'
 import SpotifyIcon from './SpotifyIcon.svelte'
-
+import XeroIcon from './XeroIcon.svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
@@ -191,7 +191,8 @@ export const APP_TO_ICON_COMPONENT = {
 	jumpcloud: JumpCloudIcon,
 	keycloak: KeycloakIcon,
 	zitadel: ZitadelIcon,
-	spotify: SpotifyIcon
+	spotify: SpotifyIcon,
+	xero: XeroIcon
 } as const
 
 export {
@@ -283,5 +284,6 @@ export {
 	VismaIcon,
 	JumpCloudIcon,
 	KeycloakIcon,
-	ZitadelIcon
+	ZitadelIcon,
+	XeroIcon
 }
