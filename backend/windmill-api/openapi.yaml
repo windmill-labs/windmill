@@ -5467,6 +5467,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
+  /w/{workspace}/apps/get/lite/{path}:
+    get:
+      summary: get app lite by path
+      operationId: getAppLiteByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app lite details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppWithLastVersion"
+
   /w/{workspace}/apps/get/draft/{path}:
     get:
       summary: get app by path with draft
@@ -5791,6 +5808,8 @@ paths:
                 #flow: flow/<path>
                 path:
                   type: string
+                version:
+                  type: integer
                 args: {}
                 raw_code:
                   type: object
@@ -5808,6 +5827,8 @@ paths:
                   required:
                     - content
                     - language
+                id:
+                  type: integer
                 force_viewer_static_fields:
                   type: object
                 force_viewer_one_of_fields:

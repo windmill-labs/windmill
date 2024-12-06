@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 /*
  * Author: Ruben Fiszel
@@ -31,6 +31,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use futures::future::{FutureExt, TryFutureExt};
 use hyper::StatusCode;
 #[cfg(feature = "parquet")]
 use itertools::Itertools;
@@ -50,7 +51,8 @@ use windmill_audit::ActionKind;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
-    apps::ListAppQuery,
+    apps::{AppScriptId, ListAppQuery},
+    cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
@@ -71,6 +73,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
         .route("/get/p/*path", get(get_app))
+        .route("/get/lite/*path", get(get_app_lite))
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
         .route("/get/v/*id", get(get_app_by_id))
@@ -191,15 +194,16 @@ pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
 pub type AllowUserResources = Vec<String>;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
+    #[default]
     Anonymous,
     Publisher,
     Viewer,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PolicyTriggerableInputs {
     static_inputs: StaticFields,
     one_of_inputs: OneOfFields,
@@ -215,7 +219,7 @@ pub struct S3Input {
     file_key_regex: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
     pub on_behalf_of_email: Option<String>,
@@ -410,6 +414,33 @@ async fn get_app(
     Ok(Json(app))
 }
 
+async fn get_app_lite(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<AppWithLastVersion> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let app_o = sqlx::query_as::<_, AppWithLastVersion>(
+        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
+        app_version.created_at, app_version.created_by, NULL as starred
+        FROM app, app_version
+        LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
+        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+    )
+    .bind(path.to_owned())
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let app = not_found_if_none(app_o, "App", path)?;
+    Ok(Json(app))
+}
+
 async fn get_app_w_draft(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -583,8 +614,9 @@ async fn get_public_app_by_secret(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        null as extra_perms, app_version.value, 
+        null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
         app_version.created_at, app_version.created_by from app, app_version 
+        LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
         .bind(&w_id)
@@ -1144,6 +1176,10 @@ async fn update_app(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
+    /// The app version to execute. Fallback to `path` if not provided.
+    pub version: Option<i64>,
+    /// The app script id (from the `app_script` table) to execute.
+    pub id: Option<i64>,
     pub args: HashMap<String, Box<RawValue>>,
     // - script: script/<path>
     // - flow: flow/<path>
@@ -1206,6 +1242,22 @@ async fn get_on_behalf_details_from_policy_and_authed(
     Ok((username, permissioned_as, email))
 }
 
+/// Convert the triggerables from the old format to the new format.
+fn empty_triggerables(mut policy: Policy) -> Policy {
+    use std::mem::take;
+    if let Some(triggerables) = take(&mut policy.triggerables) {
+        let mut triggerables_v2 = take(&mut policy.triggerables_v2).unwrap_or_default();
+        for (k, static_inputs) in triggerables.into_iter() {
+            triggerables_v2.insert(
+                k,
+                PolicyTriggerableInputs { static_inputs, ..Default::default() },
+            );
+        }
+        policy.triggerables_v2 = Some(triggerables_v2);
+    }
+    policy
+}
+
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -1228,99 +1280,136 @@ async fn execute_component(
     };
 
     let path = path.to_path();
+    let (arc_policy, policy): (Arc<Policy>, Policy);
+    let policy_triggerables_default = Default::default();
 
-    let policy = match payload.clone() {
+    // Two cases here:
+    // 1. The component is executed from the editor (i.e. in "preview" mode), then:
+    //    - The policy is set to default (in `Viewer` execution mode).
+    //    - The policy triggerables are built by the frontend and retrieved from the request
+    //      payload.
+    //    - In case of inline script, the `RawCode` from the request is pushed as is to the
+    //      job queue.
+    // 2. Otherwise (i.e. "run" mode):
+    //    - The policy and triggerables are fetched from the database.
+    //    - In case of inline script, if an entry exists in the `app_script` table, push
+    //      an `AppScript` job payload, as in (.1) otherwise.
+    let (policy, policy_triggerables) = match payload {
+        // 1. "preview" mode.
         ExecuteApp {
-            force_viewer_static_fields: Some(static_fields),
-            force_viewer_one_of_fields: Some(one_of_fields),
+            force_viewer_static_fields: Some(static_inputs),
+            force_viewer_one_of_fields: Some(one_of_inputs),
             force_viewer_allow_user_resources: Some(allow_user_resources),
             ..
-        } => {
-            let mut hm = HashMap::new();
-
-            if let Some(path) = payload.path.clone() {
-                hm.insert(
-                    format!("{}:{path}", payload.component),
-                    PolicyTriggerableInputs {
-                        static_inputs: static_fields,
-                        one_of_inputs: one_of_fields,
-                        allow_user_resources,
-                    },
-                );
-            } else {
-                hm.insert(
-                    format!(
-                        "{}:{}",
-                        payload.component,
-                        digest(payload.raw_code.clone().unwrap().content.as_str())
-                    ),
-                    PolicyTriggerableInputs {
-                        static_inputs: static_fields,
-                        one_of_inputs: one_of_fields,
-                        allow_user_resources,
-                    },
-                );
-            }
-            Policy {
+        } => (
+            &Policy {
                 execution_mode: ExecutionMode::Viewer,
-                triggerables: None,
-                triggerables_v2: Some(hm),
-                on_behalf_of: None,
-                on_behalf_of_email: None,
-                s3_inputs: None,
-            }
-        }
+                ..Default::default()
+            },
+            &PolicyTriggerableInputs {
+                static_inputs,
+                one_of_inputs,
+                allow_user_resources,
+            },
+        ),
+        // 2. "run" mode.
         _ => {
-            let policy_o = sqlx::query_scalar!(
-                "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            // Policy is fetched from the database on app `path` and `workspace_id`.
+            let policy_fut = sqlx::query_scalar!(
+                "SELECT policy as \"policy: sqlx::types::Json<Box<RawValue>>\"
+                FROM app WHERE app.path = $1 AND app.workspace_id = $2 LIMIT 1",
                 path,
-                &w_id
+                &w_id,
             )
             .fetch_optional(&db)
-            .await?;
+            .map_err(Into::<Error>::into)
+            .map(|policy_o| Result::Ok(not_found_if_none(policy_o?, "App", path)?))
+            .map(|policy| Result::Ok(serde_json::from_str(policy?.get())?))
+            .map_ok(empty_triggerables);
 
-            let policy = not_found_if_none(policy_o, "App", path)?;
+            // 1. The app `version` is provided: cache the fetched policy.
+            // 2. Otherwise, always fetch the policy from the database.
+            let policy = if let Some(id) = payload.version {
+                let cache = cache::anon!({ u64 => Arc<Policy> } in "policy" <= 1000);
+                arc_policy = policy_fut
+                    .map_ok(Arc::new)
+                    .cached(cache, &(id as u64))
+                    .await?;
+                &*arc_policy
+            } else {
+                policy = policy_fut.await?;
+                &policy
+            };
 
-            serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?
+            // Compute the path for the triggerables map:
+            // - flow: `flow/<payload.path>`
+            // - script: `script/<payload.path>`
+            // - inline script: `rawscript/<sha256(raw_code.content)>`
+            let path = match &payload {
+                // flow or script: just use the `payload.path`.
+                ExecuteApp { path: Some(path), .. } => path,
+                // inline script: without entry in the `app_script` table.
+                ExecuteApp { raw_code: Some(raw_code), id: None, .. } => &digest(&raw_code.content),
+                // inline script: with an entry in the `app_script` table.
+                ExecuteApp { raw_code: Some(_), id: Some(id), .. } => {
+                    let cache = cache::anon!({ u64 => Arc<String> } in "appscriptpath" <= 10000);
+                    // `id` is unique, cache the result.
+                    &*sqlx::query_scalar!(
+                        "SELECT format('rawscript/%s', code_sha256) as \"path!: String\"
+                        FROM app_script WHERE id = $1 LIMIT 1",
+                        id
+                    )
+                    .fetch_one(&db)
+                    .map_err(Into::<Error>::into)
+                    .map_ok(Arc::new)
+                    .cached(cache, &(*id as u64))
+                    .await?
+                }
+                _ => unreachable!(),
+            };
+
+            // Retrieve the triggerables from the policy on `path` or `<component>:<path>`.
+            let triggerables_v2 = policy
+                .triggerables_v2
+                .as_ref()
+                .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
+            let policy_triggerables = triggerables_v2
+                .get(path) // start with `path` in case we can avoid the next` format!`.
+                .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
+                .or(match policy.execution_mode {
+                    ExecutionMode::Viewer => Some(&policy_triggerables_default),
+                    _ => None,
+                })
+                .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
+
+            (policy, policy_triggerables)
         }
     };
 
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-    let (job_payload, (args, job_id), tag) = match payload {
-        ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
-            let content = &raw_code.content;
-            let payload = JobPayload::Code(raw_code.clone());
-            let path = digest(content);
-            let args = build_args(
-                policy,
-                &component,
-                path,
-                args,
-                opt_authed.as_ref(),
-                &user_db,
-                &db,
-                &w_id,
-            )
-            .await?;
-            (payload, args, None)
-        }
-        ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) = get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?;
-            let args = build_args(
-                policy,
-                &component,
-                path.to_string(),
-                args,
-                opt_authed.as_ref(),
-                &user_db,
-                &db,
-                &w_id,
-            )
-            .await?;
-            (payload, args, tag)
-        }
+    let (args, job_id) = build_args(
+        policy,
+        policy_triggerables,
+        payload.args,
+        opt_authed.as_ref(),
+        &user_db,
+        &db,
+        &w_id,
+    )
+    .await?;
+
+    let (job_payload, tag) = match (payload.path, payload.raw_code, payload.id) {
+        // flow or script:
+        (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
+        // inline script: in "preview" mode or without entry in the `app_script` table.
+        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None),
+        // inline script: in "run" mode and with an entry in the `app_script` table.
+        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
+            JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            None,
+        ),
         _ => unreachable!(),
     };
     let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone());
@@ -1655,9 +1744,12 @@ async fn exists_app(
 }
 
 async fn build_args(
-    policy: Policy,
-    component: &str,
-    path: String,
+    policy: &Policy,
+    PolicyTriggerableInputs {
+        static_inputs,
+        one_of_inputs,
+        allow_user_resources,
+    }: &PolicyTriggerableInputs,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
     user_db: &UserDB,
@@ -1665,54 +1757,6 @@ async fn build_args(
     w_id: &str,
 ) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
-    let key = format!("{}:{}", component, &path);
-    let (static_inputs, one_of_inputs, allow_user_resources) = match policy {
-        Policy { triggerables_v2: Some(t), .. } => {
-            let PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources } = t
-                .get(&key)
-                .or_else(|| t.get(&path))
-                .map(|x| x.clone())
-                .or_else(|| {
-                    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                        Some(PolicyTriggerableInputs {
-                            static_inputs: HashMap::new(),
-                            one_of_inputs: HashMap::new(),
-                            allow_user_resources: Vec::new(),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    Error::BadRequest(format!("path {} is not allowed in the app policy", path))
-                })?;
-
-            (static_inputs, one_of_inputs, allow_user_resources)
-        }
-        Policy { triggerables: Some(t), .. } => {
-            let static_inputs = t
-                .get(&key)
-                .or_else(|| t.get(&path))
-                .map(|x| x.clone())
-                .or_else(|| {
-                    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                        Some(HashMap::new())
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    Error::BadRequest(format!("path {} is not allowed in the app policy", path))
-                })?;
-
-            (static_inputs, HashMap::new(), Vec::new())
-        }
-        _ => Err(Error::BadRequest(format!(
-            "Policy is missing triggerables for {}",
-            key
-        )))?,
-    };
-
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
 
     // tracing::error!("{:?}", allow_user_resources);
@@ -1761,16 +1805,16 @@ async fn build_args(
     }
 
     for (k, v) in one_of_inputs {
-        if safe_args.contains_key(&k) {
+        if safe_args.contains_key(k) {
             continue;
         }
-        if let Some(arg_val) = args.get(&k) {
+        if let Some(arg_val) = args.get(k) {
             let arg_str = arg_val.get();
 
             let options_str_vec = v.iter().map(|x| x.get()).collect::<Vec<&str>>();
             if options_str_vec.contains(&arg_str) {
                 safe_args.insert(k.to_string(), arg_val.clone());
-                args.remove(&k);
+                args.remove(k);
                 continue;
             }
 
@@ -1781,7 +1825,7 @@ async fn build_args(
                     .all(|x| options_str_vec.contains(&x.get()))
                 {
                     safe_args.insert(k.to_string(), arg_val.clone());
-                    args.remove(&k);
+                    args.remove(k);
                     continue;
                 }
             }
