@@ -1886,17 +1886,79 @@ async fn handle_queued_job(
 
     let started = Instant::now();
     let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
-        (None, None, None) => sqlx::query!(
-            "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-            FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &job.id,
-            job.workspace_id
-        )
-        .fetch_one(db)
-        .warn_after_seconds(5)
-        .await
-        .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
-        .unwrap_or_default(),
+        (None, None, None) => {
+            let missing_hash = || {
+                Err(error::Error::InternalErr(format!(
+                    "Missing hash for job kind: {:?}",
+                    job.job_kind
+                )))
+            };
+
+            match (job.job_kind, job.script_hash) {
+                (JobKind::Script, None) => missing_hash(),
+                (JobKind::Script, Some(hash)) => cache::script::fetch(db, hash, &job.workspace_id)
+                    .await
+                    .map(|val| (Some(val.code), val.lock, None)),
+                (JobKind::Flow | JobKind::FlowPreview, None) => {
+                    sqlx::query!(
+                        "SELECT raw_flow::text AS \"flow!: Box<str>\" FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+                        &job.id,
+                        &job.workspace_id,
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map_err(Into::<Error>::into)
+                    .and_then(|r| Ok((None, None, serde_json::from_str(&r.flow)?)))
+                }
+                (JobKind::Flow, Some(ScriptHash(id))) => {
+                    // Always prefer the lite version if available.
+                    if let Ok(flow) = cache::flow::fetch_version_lite(db, id).await {
+                        Ok((None, None, Some((*flow).clone())))
+                    } else {
+                        cache::flow::fetch_version(db, id)
+                            .await
+                            .map(|flow| (None, None, Some((*flow).clone())))
+                    }
+                }
+                (JobKind::FlowDependencies, None) => missing_hash(),
+                (JobKind::FlowDependencies, Some(ScriptHash(id))) => {
+                    cache::flow::fetch_version(db, id)
+                        .await
+                        .map(|flow| (None, None, Some((*flow).clone())))
+                }
+                (JobKind::FlowScript, None) => missing_hash(),
+                (JobKind::FlowScript, Some(ScriptHash(id))) => {
+                    cache::flow::fetch_script(db, FlowNodeId(id))
+                        .await
+                        .map(|(lock, code)| (lock, Some(code), None))
+                }
+                (JobKind::FlowNode, None) => missing_hash(),
+                (JobKind::FlowNode, Some(ScriptHash(id))) => {
+                    cache::flow::fetch_flow(db, FlowNodeId(id))
+                        .await
+                        .map(|flow| (None, None, Some(flow)))
+                }
+                (JobKind::AppScript, None) => missing_hash(),
+                (JobKind::AppScript, Some(ScriptHash(id))) => {
+                    cache::app::fetch_script(db, AppScriptId(id))
+                        .await
+                        .map(|(lock, code)| (lock, Some(code), None))
+                }
+                (JobKind::Preview, _) => {
+                    sqlx::query!(
+                        "SELECT raw_code, raw_lock
+                        FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+                        &job.id,
+                        &job.workspace_id,
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map_err(Into::<Error>::into)
+                    .map(|r| (r.raw_code, r.raw_lock, None))
+                }
+                _ => Ok((None, None, None)),
+            }?
+        }
         (raw_code, raw_lock, raw_flow) => (raw_code, raw_lock, raw_flow),
     };
 

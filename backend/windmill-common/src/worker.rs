@@ -94,6 +94,7 @@ lazy_static::lazy_static! {
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_436: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
@@ -577,8 +578,10 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(executor: E) -> bool {
-    use crate::utils::{GIT_VERSION, GIT_SEM_VERSION};
+pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+) -> bool {
+    use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
 
     // fetch all pings with a different version than self from the last 5 minutes.
     let pings = sqlx::query_scalar!(
@@ -600,6 +603,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
 
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
+    *MIN_VERSION_IS_AT_LEAST_1_436.write().await = min_version >= Version::new(1, 436, 0);
 
     *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version

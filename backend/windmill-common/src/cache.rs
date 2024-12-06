@@ -3,6 +3,7 @@ use crate::error;
 use std::future::Future;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use quick_cache::Equivalent;
 use serde::{Deserialize, Serialize};
@@ -142,13 +143,17 @@ pub mod flow {
 
     make_static! {
         /// Flow node cache.
-        /// FIXME: Use `Arc<Val>` for cheap cloning.
-        static ref CACHE: { FlowNodeId => Val } in "flow" <= 1000;
+        /// FIXME: Use `Arc<Node>` for cheap cloning.
+        static ref NODES: { FlowNodeId => Node } in "flow" <= 1000;
+        /// Flow version value cache (version id => value).
+        static ref FLOWS: { u64 => Arc<FlowValue> } in "flows" <= 1000;
+        /// Flow version lite value cache (version id => value).
+        static ref FLOWS_LITE: { u64 => Arc<FlowValue> } in "flowslite" <= 1000;
     }
 
     /// Flow node cache value.
     #[derive(Debug, Clone, Default)]
-    struct Val {
+    struct Node {
         lock: Option<String>,
         code: Option<String>,
         flow: Option<FlowValue>,
@@ -162,17 +167,19 @@ pub mod flow {
         e: impl PgExecutor<'_>,
         node: FlowNodeId,
     ) -> error::Result<(Option<String>, String)> {
-        fetch(e, node).await.and_then(|Val { lock, code, .. }| {
-            Ok((
-                lock,
-                code.ok_or_else(|| {
-                    error::Error::InternalErr(format!(
-                        "Flow node ({:x}) isn't a script node.",
-                        node.0
-                    ))
-                })?,
-            ))
-        })
+        fetch_node(e, node)
+            .await
+            .and_then(|Node { lock, code, .. }| {
+                Ok((
+                    lock,
+                    code.ok_or_else(|| {
+                        error::Error::InternalErr(format!(
+                            "Flow node ({:x}) isn't a script node.",
+                            node.0
+                        ))
+                    })?,
+                ))
+            })
     }
 
     /// Fetch the flow node flow value referenced by `node` from the cache.
@@ -180,7 +187,7 @@ pub mod flow {
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
     pub async fn fetch_flow(e: impl PgExecutor<'_>, node: FlowNodeId) -> error::Result<FlowValue> {
-        fetch(e, node).await.and_then(|Val { flow, .. }| {
+        fetch_node(e, node).await.and_then(|Node { flow, .. }| {
             flow.ok_or_else(|| {
                 error::Error::InternalErr(format!(
                     "Flow node ({:x}) isn't a flow value node.",
@@ -194,11 +201,11 @@ pub mod flow {
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    async fn fetch(e: impl PgExecutor<'_>, node: FlowNodeId) -> error::Result<Val> {
+    async fn fetch_node(e: impl PgExecutor<'_>, node: FlowNodeId) -> error::Result<Node> {
         // If not present, `get_or_insert_async` will lock the key until the future completes,
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
-        CACHE
+        NODES
             .get_or_insert_async(&node, async {
                 sqlx::query!(
                     "SELECT \
@@ -212,7 +219,7 @@ pub mod flow {
                 .await
                 .map_err(Into::into)
                 .and_then(|r| {
-                    Ok(Val {
+                    Ok(Node {
                         lock: r
                             .lock
                             .and_then(|x| if x.is_empty() { None } else { Some(x) }),
@@ -231,8 +238,53 @@ pub mod flow {
             .await
     }
 
+    pub async fn fetch_version(e: impl PgExecutor<'_>, id: i64) -> error::Result<Arc<FlowValue>> {
+        FLOWS
+            .get_or_insert_async(&(id as u64), async {
+                sqlx::query_scalar!(
+                    "SELECT value::text AS \"value!: Box<str>\"
+                    FROM flow_version WHERE id = $1 LIMIT 1",
+                    id,
+                )
+                .fetch_one(e)
+                .await
+                .map_err(Into::into)
+                .and_then(|json_str| {
+                    serde_json::from_str(&json_str).map_err(|err| {
+                        error::Error::InternalErr(format!("Unable to parse flow value: {err:?}"))
+                    })
+                })
+                .map(Arc::new)
+            })
+            .await
+    }
+
+    pub async fn fetch_version_lite(
+        e: impl PgExecutor<'_>,
+        id: i64,
+    ) -> error::Result<Arc<FlowValue>> {
+        FLOWS_LITE
+            .get_or_insert_async(&(id as u64), async {
+                sqlx::query_scalar!(
+                    "SELECT value::text AS \"value!: Box<str>\"
+                    FROM flow_version_lite WHERE id = $1 LIMIT 1",
+                    id,
+                )
+                .fetch_one(e)
+                .await
+                .map_err(Into::into)
+                .and_then(|json_str| {
+                    serde_json::from_str(&json_str).map_err(|err| {
+                        error::Error::InternalErr(format!("Unable to parse flow value: {err:?}"))
+                    })
+                })
+                .map(Arc::new)
+            })
+            .await
+    }
+
     // ----------------------------------------------------------------------------------------------
-    // impl `fs::Bundle` for `Val`.
+    // impl `fs::Bundle` for `Node`.
 
     #[derive(Copy, Clone)]
     enum Item {
@@ -251,7 +303,7 @@ pub mod flow {
         }
     }
 
-    impl fs::Bundle for Val {
+    impl fs::Bundle for Node {
         type Item = Item;
 
         fn items() -> &'static [Self::Item] {
@@ -483,6 +535,89 @@ pub mod app {
         }
     }
 }
+
+// pub mod job {
+//     use super::*;
+
+//     use sqlx::types::{Json, JsonRawValue};
+//     use uuid::Uuid;
+
+//     use crate::apps::AppScriptId;
+//     use crate::flows::{FlowNodeId, FlowValue};
+//     use crate::jobs::JobKind;
+//     use crate::scripts::ScriptHash;
+
+//     pub async fn fetch_raws(
+//         e: impl PgExecutor<'_>,
+//         workspace_id: &str,
+//         job: &Uuid,
+//         hash: Option<ScriptHash>,
+//         path: &str,
+//         kind: JobKind,
+//     ) -> error::Result<(Option<String>, Option<String>, Option<FlowValue>)> {
+//         let missing_hash = || {
+//             Err(error::Error::InternalErr(format!(
+//                 "Missing hash for job kind: {:?}",
+//                 kind
+//             )))
+//         };
+
+//         match (kind, hash) {
+//             (JobKind::Script, None) => missing_hash(),
+//             (JobKind::Script, Some(hash)) => script::fetch(e, hash, workspace_id)
+//                 .await
+//                 .map(|val| (Some(val.code), val.lock, None)),
+//             (JobKind::Flow | JobKind::FlowPreview, None) => {
+//                 sqlx::query!(
+//                     "SELECT raw_flow::text AS \"flow: Box<str>\" FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+//                     job,
+//                     workspace_id,
+//                 )
+//                 .fetch_one(e)
+//                 .await
+//                 .and_then(|r| Ok((None, None, serde_json::from_str(&r.flow)?)));
+//             }
+//             (JobKind::Flow, Some(ScriptHash(id))) => {
+//                 // Always prefer the lite version if available.
+//                 if let Ok(flow) = flow::fetch_version_lite(e, id).await {
+//                     Ok((None, None, Some((*flow).clone())));
+//                 } else {
+//                     flow::fetch_version(e, id)
+//                         .await
+//                         .map(|flow| (None, None, Some((*flow).clone())));
+//                 }
+//             }
+//             (JobKind::FlowDependencies, None) => missing_hash(),
+//             (JobKind::FlowDependencies, Some(ScriptHash(id))) => flow::fetch_version(e, id)
+//                 .await
+//                 .map(|flow| (None, None, Some(flow))),
+//             (JobKind::FlowScript, None) => missing_hash(),
+//             (JobKind::FlowScript, Some(ScriptHash(id))) => flow::fetch_script(e, FlowNodeId(id))
+//                 .await
+//                 .map(|(lock, code)| (lock, Some(code), None)),
+//             (JobKind::FlowNode, None) => missing_hash(),
+//             (JobKind::FlowNode, Some(ScriptHash(id))) => flow::fetch_flow(e, FlowNodeId(id))
+//                 .await
+//                 .map(|flow| (None, None, Some(flow))),
+//             (JobKind::AppScript, None) => missing_hash(),
+//             (JobKind::AppScript, Some(ScriptHash(id))) => app::fetch_script(e, AppScriptId(id))
+//                 .await
+//                 .map(|(lock, code)| (lock, Some(code), None)),
+//             (JobKind::Preview, _) => {
+//                 sqlx::query!(
+//                     "SELECT raw_code, raw_lock
+//                     FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+//                     job,
+//                     workspace_id,
+//                 )
+//                 .fetch_one(e)
+//                 .await
+//                 .map(|r| (r.raw_code, r.raw_lock, None));
+//             }
+//             _ => Ok((None, None, None)),
+//         }
+//     }
+// }
 
 mod fs {
     use super::*;
