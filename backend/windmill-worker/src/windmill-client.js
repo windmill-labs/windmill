@@ -558,6 +558,9 @@ var $QueuedJob = {
         "identity",
         "deploymentcallback",
         "singlescriptflow",
+        "flowscript",
+        "flownode",
+        "appscript",
       ],
     },
     schedule_path: {
@@ -697,6 +700,9 @@ var $CompletedJob = {
         "identity",
         "deploymentcallback",
         "singlescriptflow",
+        "flowscript",
+        "flownode",
+        "appscript",
       ],
     },
     schedule_path: {
