@@ -1027,8 +1027,6 @@ async fn insert_flow_node<'c>(
 ) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
     let hash = {
         let mut hasher = sha2::Sha256::new();
-        hasher.update(path);
-        hasher.update(workspace_id);
         hasher.update(code.unwrap_or(&Default::default()));
         hasher.update(lock.unwrap_or(&Default::default()));
         hasher.update(flow.unwrap_or(&Default::default()).get());
@@ -1040,7 +1038,7 @@ async fn insert_flow_node<'c>(
         r#"
         INSERT INTO flow_node (path, workspace_id, hash_v2, lock, code, flow)
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (hash_v2) DO UPDATE SET path = EXCLUDED.path -- trivial update to return the id
+        ON CONFLICT (path, workspace_id, hash_v2) DO UPDATE SET path = EXCLUDED.path -- trivial update to return the id
         RETURNING id
         "#,
         path,
