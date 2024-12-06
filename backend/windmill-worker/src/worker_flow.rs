@@ -1292,7 +1292,7 @@ async fn compute_skip_branchall_failure<'c>(
 //         )))
 // }
 
-fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
+fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u32, Duration)> {
     (status.fail_count <= MAX_RETRY_ATTEMPTS)
         .then(|| &retry)
         .and_then(|retry| retry.interval(status.fail_count, false))

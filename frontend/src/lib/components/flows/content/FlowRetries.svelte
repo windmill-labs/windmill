@@ -50,6 +50,8 @@
 
 	$: flowModuleRetry === undefined && resetDelayType()
 	$: !loaded && initialLoad()
+
+	const u32Max = 4294967295
 </script>
 
 <div class="h-full flex flex-col {$$props.class ?? ''}">
@@ -76,14 +78,34 @@
 			{#if delayType === 'constant'}
 				{#if flowModuleRetry?.constant}
 					<div class="text-xs font-bold !mt-2">Attempts</div>
-					<input bind:value={flowModuleRetry.constant.attempts} type="number" />
+					<div class="flex gap-1">
+						<input
+							max={u32Max.toString()}
+							bind:value={flowModuleRetry.constant.attempts}
+							type="number"
+						/>
+						<button
+							class="text-xs"
+							on:click={() =>
+								flowModuleRetry?.constant && (flowModuleRetry.constant.attempts = u32Max)}
+							>max</button
+						>
+					</div>
 					<div class="text-xs font-bold !mt-2">Delay</div>
 					<SecondsInput bind:seconds={flowModuleRetry.constant.seconds} />
 				{/if}
 			{:else if delayType === 'exponential'}
 				{#if flowModuleRetry?.exponential}
 					<div class="text-xs font-bold !mt-2">Attempts</div>
-					<input bind:value={flowModuleRetry.exponential.attempts} type="number" />
+					<div class="flex gap-1">
+						<input max="100" bind:value={flowModuleRetry.exponential.attempts} type="number" />
+						<button
+							class="text-xs"
+							on:click={() =>
+								flowModuleRetry?.exponential && (flowModuleRetry.exponential.attempts = 100)}
+							>max</button
+						>
+					</div>
 					<div class="text-xs font-bold !mt-2">Multiplier</div>
 					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
@@ -127,9 +149,9 @@
 					multiplier,
 					random_factor
 				} = flowModuleRetry?.exponential || {}}
-				{@const cArray = Array.from({ length: cAttempts || 0 }, () => cSeconds)}
+				{@const cArray = Array.from({ length: Math.min(cAttempts || 0, 100) }, () => cSeconds)}
 				{@const eArray = Array.from(
-					{ length: eAttempts || 0 },
+					{ length: Math.min(eAttempts || 0, 100) },
 					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
 				)}
 				{@const array = [...cArray, ...eArray]}
@@ -146,7 +168,7 @@
 										seconds){/if}</td
 								>
 							</tr>
-							{#each array.slice(1) as delay, i}
+							{#each array.slice(1, 100) as delay, i}
 								{@const index = i + 2}
 								<tr>
 									<td class="font-semibold pr-1 align-top">{index}:</td>
@@ -163,6 +185,12 @@
 									</td>
 								</tr>
 							{/each}
+							{#if (cAttempts ?? 0) > 100 || (eAttempts ?? 0) > 100}
+								<tr>
+									<td class="font-semibold pr-1 align-top">...</td>
+									<td class="pb-1">...</td>
+								</tr>
+							{/if}
 						</table>
 					{:else}
 						<div class="text-xs">No retries</div>
