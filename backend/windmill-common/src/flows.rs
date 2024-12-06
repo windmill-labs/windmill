@@ -407,6 +407,12 @@ pub enum InputTransform {
 #[serde(transparent)]
 pub struct FlowNodeId(pub i64);
 
+impl Into<u64> for FlowNodeId {
+    fn into(self) -> u64 {
+        self.0 as u64
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Branch {
     #[serde(skip_serializing_if = "Option::is_none")]
