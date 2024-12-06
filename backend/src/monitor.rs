@@ -85,12 +85,12 @@ lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
     .ok()
     .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "30".to_string());
+    .unwrap_or_else(|| "60".to_string());
 
     static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
     .ok()
     .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "30".to_string());
+    .unwrap_or_else(|| "60".to_string());
 
 
     pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")

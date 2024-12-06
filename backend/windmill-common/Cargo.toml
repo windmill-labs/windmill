@@ -62,6 +62,7 @@ windmill-macros.workspace = true
 semver.workspace = true
 croner = "2.0.6"
 quick_cache.workspace = true
+pin-project-lite.workspace = true
 
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry-otlp.workspace = true

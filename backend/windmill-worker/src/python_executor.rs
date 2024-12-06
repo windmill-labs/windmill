@@ -749,8 +749,10 @@ mount {{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        #[cfg(windows)]
-        python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        #[cfg(windows)] {
+            python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
 
         start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
     };
@@ -1277,6 +1279,7 @@ async fn spawn_uv_install(
                 .envs(envs)
                 .envs(PROXY_ENVS.clone())
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),

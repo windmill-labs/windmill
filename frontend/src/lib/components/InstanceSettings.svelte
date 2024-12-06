@@ -325,7 +325,7 @@
 						<div class="text-secondary pb-4 text-xs"
 							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
 							instance or sending critical alerts.
-							<a target="_blank" href="https://www.windmill.dev/docs/misc/setup_smtp">Learn more</a
+							<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#smtp">Learn more</a
 							></div
 						>
 					{:else if category == "Indexer/Search"}

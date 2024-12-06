@@ -513,6 +513,10 @@ pub struct Tokened {
     pub token: String,
 }
 
+pub struct OptTokened {
+    pub token: Option<String>,
+}
+
 struct BruteForceCounter {
     counter: AtomicU64,
     last_reset: AtomicI64,
@@ -566,6 +570,30 @@ where
                 BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
             }
+        }
+    }
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for OptTokened
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        if parts.method == http::Method::OPTIONS {
+            return Ok(OptTokened { token: None });
+        };
+        let already_tokened = parts.extensions.get::<Tokened>();
+        if let Some(tokened) = already_tokened {
+            Ok(OptTokened { token: Some(tokened.token.clone()) })
+        } else {
+            let token_o = extract_token(parts, state).await;
+            Ok(OptTokened { token: token_o })
         }
     }
 }

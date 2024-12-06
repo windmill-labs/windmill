@@ -17,7 +17,7 @@ use crate::flows::FlowValue;
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
 
-pub const MAX_RETRY_ATTEMPTS: u16 = 1000;
+pub const MAX_RETRY_ATTEMPTS: u32 = u32::MAX;
 pub const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
 
 pub fn is_retry_default(v: &RetryStatus) -> bool {
@@ -48,7 +48,7 @@ pub struct FlowStatus {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct RetryStatus {
-    pub fail_count: u16,
+    pub fail_count: u32,
     pub failed_jobs: Vec<Uuid>,
 }
 

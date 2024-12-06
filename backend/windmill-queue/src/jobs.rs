@@ -56,7 +56,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
-    utils::{not_found_if_none, report_critical_error, StripPath},
+    utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
         DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, NO_LOGS,
@@ -317,6 +317,7 @@ pub async fn append_logs(
         workspace.as_ref(),
     )
     .execute(db.borrow())
+    .warn_after_seconds(1)
     .await
     {
         tracing::error!(%job_id, %err, "error updating logs for large_log job {job_id}: {err}");
@@ -3844,6 +3845,7 @@ pub async fn push<'c, 'd>(
         tag,
     )
     .execute(&mut *tx)
+    .warn_after_seconds(1)
     .await?;
 
     let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_427.read().await {
@@ -3894,6 +3896,7 @@ pub async fn push<'c, 'd>(
         final_priority,
     )
     .fetch_one(&mut *tx)
+    .warn_after_seconds(1)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
 

@@ -31,7 +31,7 @@
 
 <label
 	for={id}
-	class="{$$props.class || ''} z-auto inline-flex items-center duration-50 {disabled
+	class="{$$props.class || ''} z-auto flex flex-row items-center duration-50 {disabled
 		? 'grayscale opacity-50'
 		: 'cursor-pointer'}"
 >
@@ -104,9 +104,7 @@
 	<slot name="right" />
 </label>
 {#if eeOnly && disabled}
-	<span
-		class="inline-flex text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
-	>
+	<span class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8">
 		<AlertTriangle size={16} />
 		EE only <Tooltip>Enterprise Edition only feature</Tooltip>
 	</span>

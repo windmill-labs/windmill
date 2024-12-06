@@ -85,7 +85,7 @@
 			/>
 
 			<div
-				class="w-full border p-2 flex flex-col {flowModule.stop_after_if
+				class="w-full mt-1 border p-2 flex flex-col {flowModule.stop_after_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -179,7 +179,7 @@
 			/>
 
 			<div
-				class="w-full border p-2 flex flex-col {flowModule.stop_after_all_iters_if
+				class="w-full border mt-1 p-2 flex flex-col {flowModule.stop_after_all_iters_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
