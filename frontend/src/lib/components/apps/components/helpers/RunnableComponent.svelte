@@ -377,17 +377,24 @@
 						: runnable
 
 					if (inlineScript) {
+						if (inlineScript.id !== undefined) {
+							requestBody['id'] = inlineScript.id
+						}
 						requestBody['raw_code'] = {
-							content: inlineScript.content,
+							content: inlineScript.id === undefined ? inlineScript.content : '',
 							language: inlineScript.language ?? '',
 							path: inlineScript.path,
-							lock: inlineScript.lock,
+							lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
 							cache_ttl: inlineScript.cache_ttl
 						}
 					}
 				} else if (runnable?.type === 'runnableByPath') {
 					const { path, runType } = runnable
 					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
+				}
+
+				if ($app.version !== undefined) {
+					requestBody['version'] = $app.version
 				}
 
 				const uuid = await AppService.executeComponent({

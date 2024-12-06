@@ -15,6 +15,7 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
 use windmill_common::{
+    apps::AppScriptId,
     error::{self, to_anyhow},
     flows::{add_virtual_items_if_necessary, FlowValue},
     jobs::QueuedJob,
@@ -648,7 +649,7 @@ pub async fn handle_flow_dependency_job(
 
         // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
         let mut value_lite = flow.clone();
-        tx = reduce(
+        tx = reduce_flow(
             tx,
             &mut value_lite.modules,
             &job_path,
@@ -1053,6 +1054,41 @@ async fn insert_flow_node<'c>(
     Ok((tx, FlowNodeId(id)))
 }
 
+async fn insert_app_script(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    app: i64,
+    code: String,
+    lock: Option<String>,
+) -> Result<AppScriptId> {
+    let code_sha256 = format!("{:x}", sha2::Sha256::digest(&code));
+    let hash = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(app.to_le_bytes());
+        hasher.update(&code_sha256);
+        hasher.update(lock.as_ref().unwrap_or(&Default::default()));
+        format!("{:x}", hasher.finalize())
+    };
+
+    // Insert the app script if it doesn't exist.
+    sqlx::query_scalar!(
+        r#"
+        INSERT INTO app_script (app, hash, lock, code, code_sha256)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (hash) DO UPDATE SET app = EXCLUDED.app -- trivial update to return the id
+        RETURNING id
+        "#,
+        app,
+        hash,
+        lock,
+        code,
+        code_sha256
+    )
+    .fetch_one(db)
+    .await
+    .map(AppScriptId)
+    .map_err(Into::into)
+}
+
 async fn insert_flow_modules<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     path: &str,
@@ -1062,7 +1098,7 @@ async fn insert_flow_modules<'c>(
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
-    tx = Box::pin(reduce(
+    tx = Box::pin(reduce_flow(
         tx,
         modules,
         path,
@@ -1094,7 +1130,7 @@ async fn insert_flow_modules<'c>(
     Ok(tx)
 }
 
-async fn reduce<'c>(
+async fn reduce_flow<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     modules: &mut Vec<FlowModule>,
     path: &str,
@@ -1107,7 +1143,7 @@ async fn reduce<'c>(
         let mut val =
             serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
                 Error::InternalErr(format!(
-                    "reduce: Failed to parse flow module value: {}",
+                    "reduce_flow: Failed to parse flow module value: {}",
                     err
                 ))
             })?;
@@ -1201,6 +1237,41 @@ async fn reduce<'c>(
         module.value = to_raw_value(&val);
     }
     Ok(tx)
+}
+
+async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64) -> Result<()> {
+    match value {
+        Value::Object(object) => {
+            if let Some(Value::Object(script)) = object.get_mut("inlineScript") {
+                // replace `content` with an empty string:
+                let Some(Value::String(code)) = script.get_mut("content").map(std::mem::take)
+                else {
+                    return Err(error::Error::InternalErr(
+                        "Missing `content` in inlineScript".to_string(),
+                    ));
+                };
+                // remove `lock`:
+                let lock = script.remove("lock").and_then(|x| match x {
+                    Value::String(s) => Some(s),
+                    _ => None,
+                });
+                let id = insert_app_script(db, app, code, lock).await?;
+                // insert the `id` into the `script` object:
+                script.insert("id".to_string(), json!(id.0));
+            } else {
+                for (_, value) in object {
+                    Box::pin(reduce_app(db, value, app)).await?;
+                }
+            }
+        }
+        Value::Array(array) => {
+            for value in array {
+                Box::pin(reduce_app(db, value, app)).await?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
@@ -1388,11 +1459,12 @@ pub async fn handle_app_dependency_job(
         .clone()
         .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
         .0;
-    let value = sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
+    let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
-        .await?;
+        .await?
+        .map(|record| (record.app_id, record.value));
 
-    if let Some(value) = value {
+    if let Some((app_id, value)) = record {
         let value = lock_modules_app(
             value,
             job,
@@ -1407,6 +1479,21 @@ pub async fn handle_app_dependency_job(
             token,
             occupancy_metrics,
         )
+        .await?;
+
+        // Compute a lite version of the app value (w/ `inlineScript.{lock,code}`).
+        let mut value_lite = value.clone();
+        reduce_app(db, &mut value_lite, app_id).await?;
+        if let Value::Object(object) = &mut value_lite {
+            object.insert("version".to_string(), json!(id));
+        }
+        sqlx::query!(
+            "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)
+             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+            id,
+            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
+        )
+        .execute(db)
         .await?;
 
         // Re-check cancelation to ensure we don't accidentially override an app.

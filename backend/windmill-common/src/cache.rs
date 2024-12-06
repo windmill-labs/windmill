@@ -394,6 +394,96 @@ pub mod script {
     }
 }
 
+pub mod app {
+    use super::*;
+    use crate::apps::AppScriptId;
+
+    make_static! {
+        /// App scripts cache.
+        /// FIXME: Use `Arc<Val>` for cheap cloning.
+        static ref CACHE: { AppScriptId => Val } in "app" <= 1000;
+    }
+
+    /// App app script cache value.
+    #[derive(Debug, Clone, Default)]
+    pub struct Val {
+        pub lock: Option<String>,
+        pub code: String,
+    }
+
+    /// Fetch the app script referenced by `id` from the cache.
+    /// If not present, import from the file-system cache or fetch it from the database and write
+    /// it to the file system and cache.
+    /// This should be preferred over fetching the database directly.
+    pub async fn fetch_script(
+        e: impl PgExecutor<'_>,
+        id: AppScriptId,
+    ) -> error::Result<(Option<String>, String)> {
+        // If not present, `get_or_insert_async` will lock the key until the future completes,
+        // so only one thread will be able to fetch the data from the database and write it to
+        // the file system and cache, hence no race on the file system.
+        CACHE
+            .get_or_insert_async(&id, async {
+                sqlx::query!(
+                    "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+                    id.0,
+                )
+                .fetch_one(e)
+                .await
+                .map_err(Into::into)
+                .map(|r| Val {
+                    lock: r
+                        .lock
+                        .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+                    code: r.code,
+                })
+            })
+            .await
+            .map(|Val { lock, code }| (lock, code))
+    }
+
+    // ----------------------------------------------------------------------------------------------
+    // impl `fs::Bundle` for `Val`.
+
+    #[derive(Copy, Clone)]
+    pub enum Item {
+        Lock,
+        Code,
+    }
+
+    impl fs::Item for Item {
+        fn path(&self, root: &Path) -> PathBuf {
+            match self {
+                Item::Lock => root.join("lock.txt"),
+                Item::Code => root.join("code.txt"),
+            }
+        }
+    }
+
+    impl fs::Bundle for Val {
+        type Item = Item;
+
+        fn items() -> &'static [Self::Item] {
+            &[Item::Lock, Item::Code]
+        }
+
+        fn import(&mut self, item: Self::Item, data: Vec<u8>) -> error::Result<()> {
+            match item {
+                Item::Lock => self.lock = Some(String::from_utf8(data)?),
+                Item::Code => self.code = String::from_utf8(data)?,
+            }
+            Ok(())
+        }
+
+        fn export(&self, item: Self::Item) -> error::Result<Option<Vec<u8>>> {
+            match item {
+                Item::Lock => Ok(self.lock.as_ref().map(|s| s.as_bytes().to_vec())),
+                Item::Code => Ok(Some(self.code.as_bytes().to_vec())),
+            }
+        }
+    }
+}
+
 mod fs {
     use super::*;
 
