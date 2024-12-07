@@ -44,3 +44,4 @@ axum.workspace = true
 serde_urlencoded.workspace = true
 regex.workspace = true
 backon.workspace = true
+opentelemetry.workspace = true

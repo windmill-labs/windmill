@@ -87,7 +87,7 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 /// - update the `last_line` and `logs` strings with the program output
 /// - update "queue"."last_ping" every five seconds
 /// - kill process if we exceed timeout or "queue"."canceled" is set
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(name="run_subprocess", level = "info", skip_all, fields(otel.name = %child_name))]
 pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
@@ -435,8 +435,6 @@ pub async fn handle_child(
     }
 }
 
-
-
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -692,7 +690,10 @@ fn child_joined_output_stream(
 
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
-    stream::select(lines_to_stream(stderr, true), lines_to_stream(stdout, false))
+    stream::select(
+        lines_to_stream(stderr, true),
+        lines_to_stream(stdout, false),
+    )
 }
 
 pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
@@ -702,13 +703,9 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
-            .map(|result| {
-                process_streaming_log_lines(result, stderr)
-             })
+            .map(|result| process_streaming_log_lines(result, stderr))
     })
 }
-
-
 
 pub fn process_status(status: ExitStatus) -> error::Result<()> {
     if status.success() {

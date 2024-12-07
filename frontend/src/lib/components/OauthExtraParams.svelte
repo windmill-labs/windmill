@@ -32,7 +32,7 @@
 <div class="flex items-center mt-1">
 	<Button
 		variant="border"
-		color="blue"
+		color="light"
 		hover="yo"
 		size="sm"
 		endIcon={{ icon: Plus }}

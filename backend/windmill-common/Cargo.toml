@@ -13,6 +13,7 @@ flamegraph = ["dep:tracing-flame"]
 loki = ["dep:tracing-loki"]
 benchmark = []
 parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts"]
+otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing"]
 
 [lib]
 name = "windmill_common"
@@ -63,6 +64,13 @@ semver.workspace = true
 croner = "2.0.6"
 quick_cache.workspace = true
 pin-project-lite.workspace = true
+
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+opentelemetry-appender-tracing = { workspace = true, optional = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

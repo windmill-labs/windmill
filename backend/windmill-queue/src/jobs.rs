@@ -32,7 +32,6 @@ use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
 use tokio::{sync::RwLock, time::sleep};
-use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
@@ -454,7 +453,6 @@ where
     }
 }
 
-#[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
@@ -510,7 +508,6 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
 }
 
-#[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
@@ -643,9 +640,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
-        // tracing::error!("2 {:?}", start.elapsed());
 
-        // add_time!(bench, "add_completed_job query END");
 
         if !queued_job.is_flow_step {
             if _duration > 500
@@ -1259,7 +1254,6 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     Ok(())
 }
 
-#[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c>(
     db: &Pool<Postgres>,
     job: &QueuedJob,
@@ -2429,7 +2423,6 @@ async fn extract_result_from_job_result(
     }
 }
 
-#[instrument(level = "trace", skip_all)]
 pub async fn delete_job<'c>(
     mut tx: Transaction<'c, Postgres>,
     w_id: &str,
@@ -4039,7 +4032,6 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
-        .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
 

@@ -29,11 +29,19 @@ impl<B> OnResponse<B> for MyOnResponse {
         _span: &tracing::Span,
     ) {
         if *LOG_REQUESTS {
-            tracing::info!(
-                latency = latency.as_millis(),
-                status = response.status().as_u16(),
-                "response"
-            )
+            if response.status().is_success() {
+                tracing::info!(
+                    latency = latency.as_millis(),
+                    status = response.status().as_u16(),
+                    "response"
+                )
+            } else {
+                tracing::error!(
+                    latency = latency.as_millis(),
+                    status = response.status().as_u16(),
+                    "response"
+                )
+            }
         }
     }
 }
