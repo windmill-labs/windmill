@@ -8,7 +8,7 @@
 
 use anyhow::Context;
 use monitor::{
-    reload_delete_logs_periodically_setting, reload_indexer_config,
+    load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store,
 };
@@ -227,22 +227,22 @@ async fn windmill_main() -> anyhow::Result<()> {
         .map(|x| x.to_lowercase())
         .map(|x| {
             if &x == "server" {
-                tracing::info!("Binary is in 'server' mode");
+                println!("Binary is in 'server' mode");
                 Mode::Server
             } else if &x == "worker" {
                 tracing::info!("Binary is in 'worker' mode");
                 #[cfg(windows)]
                 {
-                    tracing::warn!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
+                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
                 }
                 Mode::Worker
             } else if &x == "agent" {
-                tracing::info!("Binary is in 'agent' mode");
+                println!("Binary is in 'agent' mode");
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
                 if std::env::var("JOB_TOKEN").is_err() {
-                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
+                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
@@ -255,21 +255,21 @@ async fn windmill_main() -> anyhow::Result<()> {
                 tracing::info!("Binary is in 'indexer' mode");
                 #[cfg(not(feature = "tantivy"))]
                 {
-                    tracing::error!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
                     panic!("Indexer mode requires compiling with the tantivy feature flag.");
                 }
                 #[cfg(feature = "tantivy")]
                 Mode::Indexer
             } else if &x == "standalone+search"{
                     enable_standalone_indexer = true;
-                    tracing::info!("Binary is in 'standalone' mode with search enabled");
+                    println!("Binary is in 'standalone' mode with search enabled");
                     Mode::Standalone
             }
             else {
                 if &x != "standalone" {
-                    tracing::error!("mode not recognized, defaulting to standalone: {x}");
+                    eprintln!("mode not recognized, defaulting to standalone: {x}");
                 } else {
-                    tracing::info!("Binary is in 'standalone' mode");
+                    println!("Binary is in 'standalone' mode");
                 }
                 Mode::Standalone
             }
@@ -279,11 +279,8 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    #[cfg(not(feature = "flamegraph"))]
-    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode);
-
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
-    tracing::info!("jemalloc enabled");
+    println!("jemalloc enabled");
 
     #[cfg(feature = "flamegraph")]
     let _guard = windmill_common::tracing_init::setup_flamegraph();
@@ -294,13 +291,13 @@ async fn windmill_main() -> anyhow::Result<()> {
         "cache" => {
             #[cfg(feature = "embedding")]
             {
-                tracing::info!("Caching embedding model...");
+                println!("Caching embedding model...");
                 windmill_api::embeddings::ModelInstance::load_model_files().await?;
-                tracing::info!("Cached embedding model");
+                println!("Cached embedding model");
             }
             #[cfg(not(feature = "embedding"))]
             {
-                tracing::warn!("Embeddings are not enabled, ignoring...");
+                println!("Embeddings are not enabled, ignoring...");
             }
 
             cache_hub_scripts(std::env::args().nth(2)).await?;
@@ -325,7 +322,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     if num_workers > 1 {
-        tracing::warn!(
+        println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
         );
     }
@@ -347,9 +344,14 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
-    tracing::info!("Connecting to database...");
+    println!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
+
+    load_otel(&db).await;
     tracing::info!("Database connected");
+
+    #[cfg(not(feature = "flamegraph"))]
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode);
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 

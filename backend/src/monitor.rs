@@ -131,8 +131,6 @@ pub async fn initial_load(
         tracing::error!("Error loading expose metrics: {e:#}");
     }
 
-    load_otel(db).await;
-
     if let Err(e) = load_metrics_debug_enabled(db).await {
         tracing::error!("Error loading expose debug metrics: {e:#}");
     }
