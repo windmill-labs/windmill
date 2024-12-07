@@ -3221,7 +3221,27 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
             )
-        }
+        },
+        JobPayload::AppScript {
+            id, // app_script(id).
+            path,
+            language,
+            cache_ttl,
+        } => (
+            Some(id.0),
+            path,
+            None,
+            JobKind::AppScript,
+            None,
+            None,
+            Some(language),
+            None,
+            None,
+            None,
+            cache_ttl,
+            None,
+            None,
+        ),
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -3982,6 +4002,7 @@ pub async fn push<'c, 'd>(
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
             JobKind::FlowScript => "jobs.run.flow_script",
             JobKind::FlowNode => "jobs.run.flow_node",
+            JobKind::AppScript => "jobs.run.app_script",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {

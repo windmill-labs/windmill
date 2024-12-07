@@ -11,6 +11,7 @@
 
 
 use windmill_common::{
+    apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
@@ -2358,6 +2359,20 @@ async fn handle_code_execution_job(
             let (lockfile, content) = cache::flow::fetch_script(
                 db,
                 FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            )
+            .await?;
+            ContentReqLangEnvs {
+                content,
+                lockfile,
+                language: job.language.to_owned(),
+                envs: None,
+                codebase: None,
+            }
+        }
+        JobKind::AppScript => {
+            let (lockfile, content) = cache::app::fetch_script(
+                db,
+                AppScriptId(job.script_hash.unwrap_or(ScriptHash(0)).0),
             )
             .await?;
             ContentReqLangEnvs {
