@@ -5,6 +5,7 @@
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	type S3Config = {
 		type: 'S3'
@@ -53,6 +54,7 @@
 
 <div class="my-0.5">
 	<Toggle
+		disabled={!$enterpriseLicense}
 		options={{ right: bucket_config ? '' : 'set object store' }}
 		checked={Boolean(bucket_config)}
 		on:change={(e) => {

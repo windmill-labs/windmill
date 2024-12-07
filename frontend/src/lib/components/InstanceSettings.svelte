@@ -289,7 +289,7 @@
 						</AuthSettings>
 					{/if}
 					<div>
-						<div class="flex-col flex gap-2 pb-4">
+						<div class="flex-col flex gap-4 pb-4">
 							{#each settings[category] as setting}
 								<InstanceSetting
 									on:closeDrawer={() => closeDrawer?.()}

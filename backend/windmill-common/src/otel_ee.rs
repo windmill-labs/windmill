@@ -30,6 +30,11 @@ pub(crate) fn init_logs_bridge(_mode: &Mode) -> Option<EnvFilter> {
     None
 }
 
+#[cfg(all(feature = "otel", feature = "enterprise"))]
+pub(crate) fn init_otlp_tracer(_mode: &Mode) -> Option<EnvFilter> {
+    None
+}
+
 #[cfg(not(all(feature = "otel", feature = "enterprise")))]
 pub(crate) fn init_meter_provider(_mode: &Mode) -> OtelProvider {}
 

@@ -14,7 +14,7 @@
 	import CustomOauth from './CustomOauth.svelte'
 	import { capitalize } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
-	import { Plus } from 'lucide-svelte'
+	import { ExternalLink, Plus } from 'lucide-svelte'
 
 	export let snowflakeAccountIdentifier = ''
 	export let oauths: Record<string, any> = {}
@@ -198,11 +198,11 @@
 							{/if}
 							{#if k == 'snowflake_oauth'}
 								<label class="block pb-2">
-									<span class="text-primary font-semibold text-sm"
+									<span class="text-primary font-semibold text-sm flex gap-2 items-center"
 										><a
 											href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
 											target="_blank">Snowflake Account Identifier</a
-										></span
+										><ExternalLink size={12} /></span
 									>
 									<input
 										type="text"

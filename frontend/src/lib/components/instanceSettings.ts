@@ -105,6 +105,13 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
+			label: 'Keep job directories for debug',
+			key: 'keep_job_dir',
+			fieldType: 'boolean',
+			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
+			storage: 'setting'
+		},
+		{
 			label: 'Max timeout for sync endpoints',
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
@@ -129,7 +136,8 @@ export const settings: Record<string, Setting[]> = {
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
 			key: 'dev_instance',
 			fieldType: 'boolean',
-			storage: 'setting'
+			storage: 'setting',
+			ee_only: ''
 		},
 		{
 			label: 'Retention period in secs',
@@ -161,13 +169,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-		{
-			label: 'Keep job directories for debug',
-			key: 'keep_job_dir',
-			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
-			storage: 'setting'
-		},
+
 		{
 			label: 'Azure OpenAI base path',
 			description:

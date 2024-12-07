@@ -56,7 +56,9 @@
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
-	reloadKeyrenewalAttemptInfo()
+	if (setting.key == 'license_key') {
+		reloadKeyrenewalAttemptInfo()
+	}
 
 	export async function renewLicenseKey() {
 		renewing = true
@@ -157,10 +159,16 @@
 					</div>
 				{/if}
 			{:else if setting.fieldType == 'textarea'}
-				<textarea rows="2" placeholder={setting.placeholder} bind:value={$values[setting.key]} />
+				<textarea
+					disabled={!$enterpriseLicense}
+					rows="2"
+					placeholder={setting.placeholder}
+					bind:value={$values[setting.key]}
+				/>
 				{#if setting.key == 'saml_metadata'}
 					<div class="flex mt-2">
 						<Button
+							disabled={!$enterpriseLicense}
 							on:click={async (e) => {
 								const res = await SettingService.testMetadata({
 									requestBody: $values[setting.key]
@@ -397,6 +405,7 @@
 					</Button>
 					<div class="flex mt-1">
 						<Button
+							disabled={!$enterpriseLicense}
 							variant="border"
 							color="light"
 							size="md"
@@ -456,6 +465,7 @@
 								</Tooltip>
 							</label>
 							<input
+								disabled={!$enterpriseLicense}
 								type="number"
 								id="writer_memory_budget"
 								placeholder="300"
@@ -482,6 +492,7 @@
 								</Tooltip>
 							</label>
 							<input
+								disabled={!$enterpriseLicense}
 								type="number"
 								id="commit_job_max_batch_size"
 								placeholder="100000"
@@ -496,6 +507,7 @@
 								</Tooltip></label
 							>
 							<input
+								disabled={!$enterpriseLicense}
 								type="number"
 								id="refresh_index_period"
 								placeholder="300"
@@ -510,6 +522,7 @@
 								</Tooltip>
 							</label>
 							<input
+								disabled={!$enterpriseLicense}
 								type="number"
 								id="max_indexed_job_log_size"
 								placeholder="1024"
@@ -536,6 +549,7 @@
 								</Tooltip>
 							</label>
 							<input
+								disabled={!$enterpriseLicense}
 								type="number"
 								id="commit_log_max_batch_size"
 								placeholder="10000"
@@ -550,6 +564,7 @@
 								</Tooltip></label
 							>
 							<input
+								disabled={!$enterpriseLicense}
 								type="number"
 								id="refresh_log_index_period"
 								placeholder="300"
@@ -626,7 +641,7 @@
 						</div>
 						<div>
 							<Toggle
-								disabled={$values[setting.key].smtp_disable_tls}
+								disabled={$values[setting.key].smtp_disable_tls == true || !$enterpriseLicense}
 								id="smtp_tls_implicit"
 								bind:checked={$values[setting.key].smtp_tls_implicit}
 								options={{ right: 'Implicit TLS' }}
@@ -636,6 +651,7 @@
 						<div>
 							<Toggle
 								id="smtp_disable_tls"
+								disabled={!$enterpriseLicense}
 								bind:checked={$values[setting.key].smtp_disable_tls}
 								on:change={() => {
 									if ($values[setting.key].smtp_disable_tls) {
@@ -653,12 +669,14 @@
 					{#if $values[setting.key]}
 						<div class="flex gap-8">
 							<Toggle
+								disabled={!$enterpriseLicense}
 								id="tracing_enabled"
 								bind:checked={$values[setting.key].tracing_enabled}
 								options={{ right: 'Tracing' }}
 								label="Tracing"
 							/>
 							<Toggle
+								disabled={!$enterpriseLicense}
 								id="logs_enabled"
 								bind:checked={$values[setting.key].logs_enabled}
 								options={{ right: 'Logs' }}
@@ -678,6 +696,7 @@
 								>Endpoint</label
 							>
 							<input
+								disabled={!$enterpriseLicense}
 								type="text"
 								id="OTEL_EXPORTER_OTLP_ENDPOINT"
 								placeholder="http://otel-collector.example.com:4317"
@@ -689,6 +708,7 @@
 								>Headers</label
 							>
 							<input
+								disabled={!$enterpriseLicense}
 								type="text"
 								id="OTEL_EXPORTER_OTLP_HEADERS"
 								placeholder="Authorization=Bearer my-secret-token,Env=production"
@@ -735,7 +755,10 @@
 				/>
 			{:else if setting.fieldType == 'boolean'}
 				<div class="mt-0.5">
-					<Toggle bind:checked={$values[setting.key]} />
+					<Toggle
+						disabled={setting.ee_only != undefined && !$enterpriseLicense}
+						bind:checked={$values[setting.key]}
+					/>
 				</div>
 			{:else if setting.fieldType == 'seconds'}
 				<div>
