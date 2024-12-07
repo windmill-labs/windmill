@@ -63,6 +63,7 @@ tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
+otel = ["windmill-common/otel", "windmill-worker/otel"]
 
 [dependencies]
 anyhow.workspace = true
@@ -280,11 +281,9 @@ async-stream = "^0"
 
 opentelemetry = "0.27.0"
 tracing-opentelemetry = "0.28.0"
-opentelemetry-stdout = { version = "0.27.0", features = ["trace"] }
 opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
 opentelemetry-otlp = "0.27.0"
 opentelemetry-appender-tracing = "0.27.0"
-
 opentelemetry-semantic-conventions = "*"
 
 tikv-jemallocator = { version = "0.5" }

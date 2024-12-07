@@ -7,22 +7,22 @@
  */
 
 use const_format::concatcp;
-use opentelemetry::{global, trace::TracerProvider as _};
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_sdk::{
-    logs::LoggerProvider,
-    metrics::{PeriodicReader, SdkMeterProvider},
-    runtime,
-    trace::{self, Tracer},
-    Resource,
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
 };
+use tracing::Event;
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
+use tracing_subscriber::layer::Context;
 use tracing_subscriber::{
     filter::Targets,
     fmt::{format, Layer},
     prelude::*,
     EnvFilter,
 };
+
+use crate::utils::Mode;
 
 fn json_layer<S>() -> Layer<S, format::JsonFields, format::Format<format::Json>> {
     tracing_subscriber::fmt::layer()
@@ -38,71 +38,16 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
 
 lazy_static::lazy_static! {
     pub static ref JSON_FMT: bool = std::env::var("JSON_FMT").map(|x| x == "true").unwrap_or(false);
-    pub static ref TRACER: Arc<RwLock<Option<Tracer>>> = Arc::new(RwLock::new(None));
 }
 
 pub const LOGS_SERVICE: &str = "logs/services/";
 
 pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
 
-fn otlp_service_resource(mode: &Mode) -> Resource {
-    Resource::new(vec![
-        opentelemetry::KeyValue::new(
-            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-            format!("windmill-{}", mode.to_string().to_lowercase()),
-        ),
-        opentelemetry::KeyValue::new(
-            opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-            GIT_VERSION,
-        ),
-    ])
-}
-
-fn init_logs_provider(mode: &Mode) -> LoggerProvider {
-    // Setup LoggerProvider with a stdout exporter
-    let exporter = opentelemetry_otlp::LogExporter::builder()
-        .with_tonic()
-        .build()
-        .unwrap();
-    LoggerProvider::builder()
-        .with_resource(otlp_service_resource(mode))
-        .with_batch_exporter(exporter, runtime::Tokio)
-        .build()
-}
-
-fn init_meter_provider(mode: &Mode) -> opentelemetry_sdk::metrics::SdkMeterProvider {
-    let exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_tonic()
-        .build()
-        .unwrap();
-
-    let reader = PeriodicReader::builder(exporter, runtime::Tokio).build();
-    let provider = SdkMeterProvider::builder()
-        .with_reader(reader)
-        .with_resource(otlp_service_resource(mode))
-        .build();
-    global::set_meter_provider(provider.clone());
-    provider
-}
-
-fn init_otlp_tracer(mode: &Mode) -> Tracer {
-    // let exporter: opentelemetry_stdout::SpanExporter = opentelemetry_stdout::SpanExporter::default();
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .unwrap();
-    // Then pass it into provider builder
-    let tracer = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_config(trace::Config::default().with_resource(otlp_service_resource(mode)))
-        .build()
-        .tracer("windmill");
-
-    *TRACER.write().unwrap() = Some(tracer.clone());
-    tracer
-}
-
-pub fn initialize_tracing(hostname: &str, mode: &Mode) -> (WorkerGuard, SdkMeterProvider) {
+pub fn initialize_tracing(
+    hostname: &str,
+    mode: &Mode,
+) -> (WorkerGuard, crate::otel_ee::OtelProvider) {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
     if std::env::var("RUST_LOG").is_ok_and(|x| x == "debug" || x == "info") {
@@ -112,9 +57,16 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> (WorkerGuard, SdkMeter
         )
     }
 
-    let meter_provider = init_meter_provider(mode);
-    let opentelemetry = tracing_opentelemetry::layer().with_tracer(init_otlp_tracer(mode));
-    let logs_layer = OpenTelemetryTracingBridge::new(&init_logs_provider(&mode));
+    let meter_provider = crate::otel_ee::init_meter_provider(mode);
+
+    #[cfg(all(feature = "otel", feature = "enterprise"))]
+    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode)
+        .map(|x| tracing_opentelemetry::layer().with_tracer(x));
+
+    #[cfg(not(all(feature = "otel", feature = "enterprise")))]
+    let opentelemetry: Option<EnvFilter> = None;
+
+    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode);
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
@@ -143,7 +95,7 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> (WorkerGuard, SdkMeter
 
     match *JSON_FMT {
         true => ts_base
-            .with(logs_layer)
+            .with(logs_bridge)
             .with(opentelemetry)
             // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
@@ -162,7 +114,7 @@ pub fn initialize_tracing(hostname: &str, mode: &Mode) -> (WorkerGuard, SdkMeter
             .with(CountingLayer::new())
             .init(),
         false => ts_base
-            .with(logs_layer)
+            .with(logs_bridge)
             .with(opentelemetry)
             // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
@@ -202,15 +154,6 @@ pub fn setup_flamegraph() -> impl Drop {
         .init();
     _guard
 }
-
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
-use tracing::Event;
-use tracing_subscriber::layer::Context;
-
-use crate::utils::{Mode, GIT_VERSION};
 
 lazy_static::lazy_static! {
     pub static ref LOG_COUNTING_BY_MIN: Arc<RwLock<HashMap<String, LogCounter>>> = Arc::new(RwLock::new(HashMap::new()));

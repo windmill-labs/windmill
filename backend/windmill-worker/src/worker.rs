@@ -6,8 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use opentelemetry::{global, trace::TraceContextExt, KeyValue};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+// #[cfg(feature = "otel")]
+// use opentelemetry::{global,  KeyValue};
+
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
@@ -93,7 +94,7 @@ use crate::{
     ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, job_logger_ee::span_cx_from_job_id, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{process_result, start_background_processor}, rust_executor::handle_rust_job, worker_flow::{handle_flow, update_flow_status_in_progress, Step}, worker_lockfiles::{
+    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{process_result, start_background_processor}, rust_executor::handle_rust_job, worker_flow::{handle_flow, update_flow_status_in_progress, Step}, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     }
 };
@@ -704,6 +705,10 @@ fn add_outstanding_wait_time(
     }.in_current_span());
 }
 
+// struct WorkerMtrics {
+//     job_
+// }
+
 pub async fn run_worker(
     db: &Pool<Postgres>,
     hostname: &str,
@@ -946,16 +951,13 @@ pub async fn run_worker(
         };
 
 
-    let worker_resource = &[
-        KeyValue::new("hostname", hostname.to_string()),
-        KeyValue::new("worker", worker_name.to_string()),
-    ];
-    // Create a meter from the above MeterProvider.
-    let meter = global::meter("windmill");
-
-    // Create a Counter Instrument.
-    let counter = meter.u64_counter("jobs.execution").build();
-
+    // let worker_resource = &[
+    //     KeyValue::new("hostname", hostname.to_string()),
+    //     KeyValue::new("worker", worker_name.to_string()),
+    // ];
+    // // Create a meter from the above MeterProvider.
+    // let meter = global::meter("windmill");
+    // let counter = meter.u64_counter("jobs.execution").build();
 
 
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
@@ -1431,10 +1433,10 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    counter.add(
-                        1,
-                        worker_resource
-                    );
+                    // counter.add(
+                    //     1,
+                    //     worker_resource
+                    // );
 
                     #[cfg(feature = "prometheus")]
                     let _timer = register_metric(
@@ -1554,7 +1556,7 @@ pub async fn run_worker(
                         span.record("root_job", root_job.to_string().as_str());
                     }
 
-                    span.set_parent(opentelemetry::Context::new().with_remote_span_context(span_cx_from_job_id(&rj)));
+                    windmill_common::otel_ee::set_span_parent(&span, &rj);
                     // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
 
                     match handle_queued_job(
@@ -1722,6 +1724,8 @@ pub async fn run_worker(
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
+
+
 
 async fn queue_init_bash_maybe<'c>(
     db: &Pool<Postgres>,

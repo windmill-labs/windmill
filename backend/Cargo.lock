@@ -5714,23 +5714,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc1b6902ff63b32ef6c489e8048c5e253e2e4a803ea3ea7e783914536eb15c52"
 
 [[package]]
-name = "opentelemetry-stdout"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc8a298402aa5c260be90d10dc54b5a7d4e1025c354848f8e2c976d761351049"
-dependencies = [
- "async-trait",
- "chrono",
- "futures-util",
- "opentelemetry",
- "opentelemetry_sdk",
- "ordered-float 4.5.0",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "opentelemetry_sdk"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5763,15 +5746,6 @@ name = "ordered-float"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "ordered-float"
-version = "4.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c65ee1f9701bf938026630b455d5315f490640234259037edb259798b3bcf85e"
 dependencies = [
  "num-traits",
 ]
@@ -7620,7 +7594,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
- "ordered-float 2.10.1",
+ "ordered-float",
  "serde",
 ]
 
@@ -9196,7 +9170,7 @@ checksum = "7e54bc85fc7faa8bc175c4bab5b92ba8d9a3ce893d0e9f42cc455c8ab16a9e09"
 dependencies = [
  "byteorder",
  "integer-encoding",
- "ordered-float 2.10.1",
+ "ordered-float",
 ]
 
 [[package]]
@@ -10848,7 +10822,6 @@ dependencies = [
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
- "opentelemetry-stdout",
  "opentelemetry_sdk",
  "pin-project-lite",
  "prometheus",
@@ -11188,7 +11161,6 @@ dependencies = [
  "tokio-postgres",
  "tokio-util",
  "tracing",
- "tracing-opentelemetry",
  "urlencoding",
  "uuid 1.11.0",
  "windmill-audit",

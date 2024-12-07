@@ -50,9 +50,10 @@
 	}
 </script>
 
-<div class="flex flex-col gap-1">
+<div class="flex flex-col">
 	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="text-sm flex gap-4 items-center font-medium text-primary"
+	<label
+		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded py-2' : ''}"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -65,7 +66,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-2 rounded border">
+		<div class="p-2 rounded border mb-4">
 			{#if name != 'slack'}
 				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Custom Name</span>

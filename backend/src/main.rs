@@ -37,7 +37,7 @@ use windmill_common::{
         EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -774,6 +774,15 @@ Windmill Community Edition {GIT_VERSION}
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
                                                     if let Err(e) = load_metrics_debug_enabled(&db).await {
                                                         tracing::error!(error = %e, "Could not reload debug metrics setting");
+                                                    }
+                                                },
+                                                OTEL_SETTING => {
+                                                    tracing::info!("OTEL setting changed, restarting");
+                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill");
                                                     }
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {

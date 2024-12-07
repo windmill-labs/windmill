@@ -1,7 +1,6 @@
-use opentelemetry::{
-    global::ObjectSafeSpan,
-    trace::{FutureExt, TraceContextExt},
-};
+#[cfg(feature = "otel")]
+use opentelemetry::trace::FutureExt;
+
 use serde::Serialize;
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
@@ -12,7 +11,8 @@ use std::{
     },
 };
 use tracing::{field, Instrument};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+#[cfg(not(feature = "otel"))]
+use windmill_common::otel_ee::FutureExt;
 
 use uuid::Uuid;
 
@@ -48,7 +48,6 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{read_result, save_in_cache},
-    job_logger_ee::span_cx_from_job_id,
     worker_flow::update_flow_status_after_job_completion,
     AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
@@ -110,10 +109,8 @@ pub fn start_background_processor(
                     } else {
                         jc.job.id
                     };
-                    span.set_parent(
-                        opentelemetry::Context::new()
-                            .with_remote_span_context(span_cx_from_job_id(&rj)),
-                    );
+                    windmill_common::otel_ee::set_span_parent(&span, &rj);
+
                     if let Some(lg) = jc.job.language.as_ref() {
                         span.record("language", lg.as_str());
                     }
@@ -151,7 +148,7 @@ pub fn start_background_processor(
                     .await;
 
                     if let Some(root_job) = root_job {
-                        add_root_flow_job_to_otlp(&root_job, success);
+                        windmill_common::otel_ee::add_root_flow_job_to_otlp(&root_job, success);
                         tracing::error!(job_id = %root_job.id, parent_job = ?root_job.parent_job, "ADDDED root job completed");
                     }
 
@@ -235,53 +232,6 @@ pub fn start_background_processor(
     })
 }
 
-pub fn add_root_flow_job_to_otlp(queued_job: &QueuedJob, success: bool) {
-    if queued_job.parent_job.is_none() {
-        if let Ok(tracer) = windmill_common::tracing_init::TRACER.read() {
-            if let Some(tracer) = tracer.as_ref() {
-                use opentelemetry::trace::Tracer;
-                let trace_id = opentelemetry::trace::TraceId::from_bytes(
-                    queued_job.id.as_u128().to_be_bytes(),
-                );
-                let span_id = opentelemetry::trace::SpanId::from_bytes(
-                    queued_job.id.as_u64_pair().1.to_be_bytes(),
-                );
-                let started_at = queued_job.started_at.unwrap_or(chrono::Utc::now());
-
-                let mut span = tracer
-                    .span_builder("full_job")
-                    .with_start_time(started_at)
-                    .with_trace_id(trace_id)
-                    .with_span_id(span_id)
-                    .with_attributes(vec![
-                        opentelemetry::KeyValue::new("job_id", queued_job.id.to_string()),
-                        opentelemetry::KeyValue::new(
-                            "workspace_id",
-                            queued_job.workspace_id.clone(),
-                        ),
-                        opentelemetry::KeyValue::new(
-                            "script_path",
-                            queued_job
-                                .script_path
-                                .clone()
-                                .unwrap_or_else(|| "".to_string()),
-                        ),
-                    ])
-                    .start(tracer);
-                if success {
-                    span.set_status(opentelemetry::trace::Status::Ok);
-                } else {
-                    span.set_status(opentelemetry::trace::Status::Error {
-                        description: "Job failed".into(),
-                    });
-                }
-                // span.add_event_with_timestamp("Job completed".into(), SystemTime::now(), vec![]);
-                span.end();
-            }
-        }
-    }
-}
-
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
     job: Arc<QueuedJob>,
@@ -305,7 +255,7 @@ async fn send_job_completed(
     };
     job_completed_tx
         .send(jc)
-        .with_context(opentelemetry::Context::current())
+        .with_context(windmill_common::otel_ee::otel_ctx())
         .await
         .expect("send job completed")
 }
@@ -379,7 +329,7 @@ pub async fn process_result(
                 token,
                 duration,
             )
-            .with_context(opentelemetry::Context::current())
+            .with_context(windmill_common::otel_ee::otel_ctx())
             .await;
             Ok(true)
         }
@@ -424,7 +374,7 @@ pub async fn process_result(
                 token,
                 duration,
             )
-            .with_context(opentelemetry::Context::current())
+            .with_context(windmill_common::otel_ee::otel_ctx())
             .await;
             Ok(false)
         }

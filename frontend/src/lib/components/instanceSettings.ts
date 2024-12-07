@@ -7,20 +7,21 @@ export interface Setting {
 	tooltip?: string
 	key: string
 	fieldType:
-	| 'text'
-	| 'number'
-	| 'boolean'
-	| 'password'
-	| 'select'
-	| 'textarea'
-	| 'seconds'
-	| 'email'
-	| 'license_key'
-	| 'object_store_config'
-	| 'critical_error_channels'
-	| 'slack_connect'
-	| 'smtp_connect'
-	| 'indexer_rates'
+		| 'text'
+		| 'number'
+		| 'boolean'
+		| 'password'
+		| 'select'
+		| 'textarea'
+		| 'seconds'
+		| 'email'
+		| 'license_key'
+		| 'object_store_config'
+		| 'critical_error_channels'
+		| 'slack_connect'
+		| 'smtp_connect'
+		| 'indexer_rates'
+		| 'otel'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -36,6 +37,27 @@ export interface Setting {
 
 export type SettingStorage = 'setting'
 
+export const scimSamlSetting: Setting[] = [
+	{
+		label: 'SCIM token',
+		description: 'Token used to authenticate requests from the IdP',
+		key: 'scim_token',
+		fieldType: 'text',
+		placeholder: 'mytoken',
+		storage: 'setting',
+		ee_only: ''
+	},
+	{
+		label: 'SAML metadata',
+		description: 'XML metadata url OR content for the SAML IdP',
+		key: 'saml_metadata',
+		fieldType: 'textarea',
+		placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
+		storage: 'setting',
+		ee_only: ''
+	}
+]
+
 export const settings: Record<string, Setting[]> = {
 	Core: [
 		{
@@ -50,9 +72,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					value.includes('://') &&
-					!value?.endsWith('/') &&
-					!value?.endsWith(' ')
+					  value.includes('://') &&
+					  !value?.endsWith('/') &&
+					  !value?.endsWith(' ')
 					: false
 		},
 		{
@@ -122,21 +144,14 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Delete logs from s3 periodically',
-			description: 'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+			description:
+				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
 			key: 'monitor_logs_on_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
 		},
-		{
-			label: 'Expose metrics',
-			description:
-				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
-			key: 'expose_metrics',
-			fieldType: 'boolean',
-			storage: 'setting',
-			ee_only: ''
-		},
+
 		{
 			label: 'Instance object storage',
 			description:
@@ -147,22 +162,11 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Critical alert channels',
-			description:
-				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
-			key: 'critical_error_channels',
-			fieldType: 'critical_error_channels',
-			storage: 'setting',
-			ee_only: 'Channels other than tracing are only available in the EE version'
-		},
-		{
-			label: 'Mute critical alerts in UI',
-			description: 'Enable to mute critical alerts in the UI',
-			key: 'critical_alert_mute_ui',
+			label: 'Keep job directories for debug',
+			key: 'keep_job_dir',
 			fieldType: 'boolean',
-			storage: 'setting',
-			requiresReloadOnChange: true,
-			ee_only: 'Critical alerts in UI are only available in the EE version'
+			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
+			storage: 'setting'
 		},
 		{
 			label: 'Azure OpenAI base path',
@@ -209,7 +213,7 @@ export const settings: Record<string, Setting[]> = {
 			requiresReloadOnChange: true
 		}
 	],
-	'SSO/OAuth': [],
+	'Auth/OAuth': [],
 	Registries: [
 		{
 			label: 'Pip Index Url',
@@ -249,7 +253,32 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
-	SMTP: [
+	Alerts: [
+		{
+			label: 'Critical alert channels',
+			description:
+				'Channels to send critical alerts to. SMTP and Slack must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
+			key: 'critical_error_channels',
+			fieldType: 'critical_error_channels',
+			storage: 'setting',
+			ee_only: 'Channels other than tracing are only available in the EE version'
+		},
+		{
+			label: 'Mute critical alerts in UI',
+			description: 'Enable to mute critical alerts in the UI',
+			key: 'critical_alert_mute_ui',
+			fieldType: 'boolean',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			ee_only: 'Critical alerts in UI are only available in the EE version'
+		},
+		{
+			label: 'Slack',
+			key: 'slack',
+			fieldType: 'slack_connect',
+			storage: 'setting',
+			ee_only: ''
+		},
 		{
 			label: 'SMTP',
 			key: 'smtp_settings',
@@ -258,7 +287,26 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
-	'Indexer/Search': [
+	'OTEL/Prom': [
+		{
+			label: 'OpenTelemetry',
+			key: 'otel',
+			fieldType: 'otel',
+			storage: 'setting',
+			ee_only: ''
+		},
+
+		{
+			label: 'Prometheus',
+			description:
+				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
+			key: 'expose_metrics',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
+	Indexer: [
 		{
 			label: '',
 			key: 'indexer_settings',
@@ -267,51 +315,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'Full text search across jobs and service logs is an EE feature'
 		}
 	],
-	Slack: [
-		{
-			label: 'Slack',
-			key: 'slack',
-			fieldType: 'slack_connect',
-			storage: 'setting',
-			ee_only: ''
-		}
-	],
-	'SCIM/SAML': [
-		{
-			label: 'SCIM token',
-			description: 'Token used to authenticate requests from the IdP',
-			key: 'scim_token',
-			fieldType: 'text',
-			placeholder: 'mytoken',
-			storage: 'setting',
-			ee_only: ''
-		},
-		{
-			label: 'SAML metadata',
-			description: 'XML metadata url OR content for the SAML IdP',
-			key: 'saml_metadata',
-			fieldType: 'textarea',
-			placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
-			storage: 'setting',
-			ee_only: ''
-		}
-	],
-	Debug: [
-		{
-			label: 'Keep job directories',
-			key: 'keep_job_dir',
-			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
-			storage: 'setting'
-		},
-		{
-			label: 'Expose debug metrics',
-			key: 'expose_debug_metrics',
-			fieldType: 'boolean',
-			description: 'Expose additional metrics (require metrics to be enabled)',
-			storage: 'setting'
-		}
-	],
+
 	Telemetry: [
 		{
 			label: 'Disable telemetry',
