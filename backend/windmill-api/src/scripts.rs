@@ -1424,6 +1424,7 @@ async fn delete_script_by_path(
             "Cannot delete the global setup app".to_string(),
         ));
     }
+    let mut tx = user_db.begin(&authed).await?;
 
     let draft_only = sqlx::query_scalar!(
         "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
@@ -1434,7 +1435,9 @@ async fn delete_script_by_path(
     .await?
     .unwrap_or(false);
 
-    let mut tx = user_db.begin(&authed).await?;
+    if !draft_only {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
 
     let script = if !draft_only {
         require_admin(authed.is_admin, &authed.username)?;
