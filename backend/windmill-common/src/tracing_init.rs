@@ -7,12 +7,22 @@
  */
 
 use const_format::concatcp;
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
+use tracing::Event;
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
+use tracing_subscriber::layer::Context;
 use tracing_subscriber::{
+    filter::Targets,
     fmt::{format, Layer},
     prelude::*,
     EnvFilter,
 };
+
+use crate::utils::Mode;
 
 fn json_layer<S>() -> Layer<S, format::JsonFields, format::Format<format::Json>> {
     tracing_subscriber::fmt::layer()
@@ -34,7 +44,10 @@ pub const LOGS_SERVICE: &str = "logs/services/";
 
 pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
 
-pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
+pub fn initialize_tracing(
+    hostname: &str,
+    mode: &Mode,
+) -> (WorkerGuard, crate::otel_ee::OtelProvider) {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
     if std::env::var("RUST_LOG").is_ok_and(|x| x == "debug" || x == "info") {
@@ -44,7 +57,17 @@ pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
         )
     }
 
-    let env_filter = EnvFilter::from_default_env();
+    let meter_provider = crate::otel_ee::init_meter_provider(mode);
+
+    #[cfg(all(feature = "otel", feature = "enterprise"))]
+    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode)
+        .map(|x| tracing_opentelemetry::layer().with_tracer(x));
+
+    #[cfg(not(all(feature = "otel", feature = "enterprise")))]
+    let opentelemetry: Option<EnvFilter> = None;
+
+    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode);
+
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
     let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
@@ -61,39 +84,59 @@ pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
         .finish(file_appender);
     let stdout_and_log_file_writer = std::io::stdout.and(log_file_writer);
 
-    let ts_base = tracing_subscriber::registry().with(env_filter);
+    // let job_logs_filter = tracing_subscriber::filter::Targets::new()
+    //     .with_target("windmill:job_log", tracing::Level::TRACE);
 
-    #[cfg(feature = "loki")]
-    let ts_base = {
-        let (layer, task) = tracing_loki::builder()
-            .build_url(reqwest::Url::parse("http://127.0.0.1:3100").unwrap())
-            .expect("build loki url");
-        tokio::spawn(task);
-        ts_base.with(layer)
-    };
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(tracing::level_filters::LevelFilter::ERROR.into())
+        .from_env_lossy();
+
+    let ts_base = tracing_subscriber::registry().with(env_filter);
 
     match *JSON_FMT {
         true => ts_base
+            .with(logs_bridge)
+            .with(opentelemetry)
+            // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
                 json_layer()
                     .with_writer(stdout_and_log_file_writer)
-                    .flatten_event(true),
+                    .flatten_event(true)
+                    .with_filter(
+                        Targets::new()
+                            .with_target(
+                                "windmill:job_log",
+                                tracing::level_filters::LevelFilter::OFF,
+                            )
+                            .with_default(tracing::level_filters::LevelFilter::INFO),
+                    ),
             )
             .with(CountingLayer::new())
             .init(),
         false => ts_base
+            .with(logs_bridge)
+            .with(opentelemetry)
+            // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
             .with(
                 compact_layer()
                     .with_writer(stdout_and_log_file_writer)
                     .with_ansi(style.to_lowercase() != "never")
                     .with_file(true)
                     .with_line_number(true)
-                    .with_target(false),
+                    .with_target(false)
+                    .with_filter(
+                        Targets::new()
+                            .with_target(
+                                "windmill:job_log",
+                                tracing::level_filters::LevelFilter::OFF,
+                            )
+                            .with_default(tracing::level_filters::LevelFilter::INFO),
+                    ),
             )
             .with(CountingLayer::new())
             .init(),
     }
-    _guard
+    (_guard, meter_provider)
 }
 
 #[cfg(feature = "flamegraph")]
@@ -111,13 +154,6 @@ pub fn setup_flamegraph() -> impl Drop {
         .init();
     _guard
 }
-
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
-use tracing::Event;
-use tracing_subscriber::layer::Context;
 
 lazy_static::lazy_static! {
     pub static ref LOG_COUNTING_BY_MIN: Arc<RwLock<HashMap<String, LogCounter>>> = Arc::new(RwLock::new(HashMap::new()));
@@ -143,22 +179,6 @@ impl CountingLayer {
         CountingLayer {}
     }
 }
-
-// impl CountingLayer {
-//     pub fn new() -> Self {
-//         CountingLayer { counter: Arc::new(Mutex::new(LogCounter::new())) }
-//     }
-
-//     pub fn get_counts(&self) -> (usize, usize) {
-//         let counter = self.counter.lock().unwrap();
-//         (counter.non_error_count, counter.error_count)
-//     }
-
-//     pub fn reset_counts(&self) {
-//         let mut counter = self.counter.lock().unwrap();
-//         counter.reset();
-//     }
-// }
 
 pub const LOG_TIMESTAMP_FMT: &str = "%Y-%m-%d-%H-%M";
 

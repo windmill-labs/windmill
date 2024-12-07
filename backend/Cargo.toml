@@ -63,6 +63,7 @@ tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
+otel = ["windmill-common/otel", "windmill-worker/otel"]
 
 [dependencies]
 anyhow.workspace = true
@@ -94,7 +95,6 @@ serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 quote.workspace = true
-
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -278,6 +278,13 @@ crc = "^3"
 tar = "^0"
 http = "^1"
 async-stream = "^0"
+
+opentelemetry = "0.27.0"
+tracing-opentelemetry = "0.28.0"
+opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.27.0"
+opentelemetry-appender-tracing = "0.27.0"
+opentelemetry-semantic-conventions = "*"
 
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }

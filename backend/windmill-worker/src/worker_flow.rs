@@ -77,45 +77,34 @@ pub async fn update_flow_status_after_job_completion(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> error::Result<()> {
+) -> error::Result<Option<Arc<QueuedJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
-    // todo!();
     potentially_crash_for_testing();
 
-    let mut rec = update_flow_status_after_job_completion_internal(
-        db,
-        client,
+    let mut rec = RecUpdateFlowStatusAfterJobCompletion {
         flow,
-        job_id_for_status,
-        w_id,
+        job_id_for_status: job_id_for_status.clone(),
         success,
         result,
-        unrecoverable,
-        same_worker_tx.clone(),
-        worker_dir,
         stop_early_override,
-        false,
-        worker_name,
-        job_completed_tx.clone(),
-        #[cfg(feature = "benchmark")]
-        bench,
-    )
-    .await?;
-    while let Some(nrec) = rec {
+        skip_error_handler: false,
+    };
+    let mut unrecoverable = unrecoverable;
+    loop {
         potentially_crash_for_testing();
-        rec = match update_flow_status_after_job_completion_internal(
+        let nrec = match update_flow_status_after_job_completion_internal(
             db,
             client,
-            nrec.flow,
-            &nrec.job_id_for_status,
+            rec.flow,
+            &rec.job_id_for_status,
             w_id,
-            nrec.success,
-            nrec.result,
-            false,
+            rec.success,
+            rec.result,
+            unrecoverable,
             same_worker_tx.clone(),
             worker_dir,
-            nrec.stop_early_override,
-            nrec.skip_error_handler,
+            rec.stop_early_override,
+            rec.skip_error_handler,
             worker_name,
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
@@ -125,12 +114,12 @@ pub async fn update_flow_status_after_job_completion(
         {
             Ok(j) => j,
             Err(e) => {
-                tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e:#}", nrec.flow,&nrec.job_id_for_status);
+                tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e:#}", rec.flow, &rec.job_id_for_status);
                 update_flow_status_after_job_completion_internal(
                     db,
                     client,
-                    nrec.flow,
-                    &nrec.job_id_for_status,
+                    rec.flow,
+                    &rec.job_id_for_status,
                     w_id,
                     false,
                     Arc::new(to_raw_value(&Json(&WrappedError {
@@ -139,8 +128,8 @@ pub async fn update_flow_status_after_job_completion(
                     true,
                     same_worker_tx.clone(),
                     worker_dir,
-                    nrec.stop_early_override,
-                    nrec.skip_error_handler,
+                    rec.stop_early_override,
+                    rec.skip_error_handler,
                     worker_name,
                     job_completed_tx.clone(),
                     #[cfg(feature = "benchmark")]
@@ -148,9 +137,33 @@ pub async fn update_flow_status_after_job_completion(
                 )
                 .await?
             }
+        };
+        unrecoverable = false;
+        match nrec {
+            UpdateFlowStatusAfterJobCompletion::Done(job) => {
+                add_time!(bench, "update flow status internal END");
+                return Ok(Some(job));
+            }
+            UpdateFlowStatusAfterJobCompletion::Rec(nrec) => {
+                rec = nrec;
+            },
+            UpdateFlowStatusAfterJobCompletion::NonLastParallelBranch => {
+                add_time!(bench, "update flow status internal END");
+                return Ok(None);
+            },
+            UpdateFlowStatusAfterJobCompletion::NotDone => {
+                add_time!(bench, "update flow status internal END");
+                return Ok(None);
+            }
         }
     }
-    Ok(())
+}
+
+pub enum UpdateFlowStatusAfterJobCompletion {
+    Rec(RecUpdateFlowStatusAfterJobCompletion),
+    Done(Arc<QueuedJob>),
+    NotDone,
+    NonLastParallelBranch,
 }
 pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
@@ -188,7 +201,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
+) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
     add_time!(bench, "update flow status internal START");
     let (
         should_continue_flow,
@@ -603,7 +616,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         );
                     }
                     add_time!(bench, "non final parallel flow finished");
-                    return Ok(None);
+                    return Ok(UpdateFlowStatusAfterJobCompletion::NonLastParallelBranch);
                 }
             }
             FlowStatusModule::InProgress {
@@ -1148,7 +1161,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             if let Some(parent_job) = flow_job.parent_job {
                 tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
 
-                return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
+                return Ok(UpdateFlowStatusAfterJobCompletion::Rec(RecUpdateFlowStatusAfterJobCompletion {
                     flow: parent_job,
                     job_id_for_status: flow,
                     success: success && !is_failure_step,
@@ -1162,9 +1175,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }));
             }
         }
-        Ok(None)
+        Ok(UpdateFlowStatusAfterJobCompletion::Done(flow_job))
     } else {
-        Ok(None)
+        Ok(UpdateFlowStatusAfterJobCompletion::NotDone)
     }
 }
 
