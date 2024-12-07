@@ -149,7 +149,6 @@ pub fn start_background_processor(
 
                     if let Some(root_job) = root_job {
                         windmill_common::otel_ee::add_root_flow_job_to_otlp(&root_job, success);
-                        tracing::error!(job_id = %root_job.id, parent_job = ?root_job.parent_job, "ADDDED root job completed");
                     }
 
                     if is_init_script_and_failure {
