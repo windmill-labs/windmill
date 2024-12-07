@@ -286,6 +286,8 @@ opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
 opentelemetry-semantic-conventions = "*"
 
+tonic = { version = "^0", features = ["tls-native-roots"] }
+
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
