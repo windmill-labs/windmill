@@ -31,8 +31,8 @@ pub(crate) fn init_logs_bridge(_mode: &Mode) -> Option<EnvFilter> {
 }
 
 #[cfg(all(feature = "otel", feature = "enterprise"))]
-pub(crate) fn init_otlp_tracer(_mode: &Mode) -> Option<EnvFilter> {
-    None
+pub(crate) fn init_otlp_tracer(_mode: &Mode) {
+    todo!()
 }
 
 #[cfg(not(all(feature = "otel", feature = "enterprise")))]
