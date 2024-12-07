@@ -12,7 +12,10 @@ use uuid::Uuid;
 pub fn set_span_parent(_span: &tracing::Span, _rj: &Uuid) {}
 
 #[cfg(not(all(feature = "otel", feature = "enterprise")))]
-pub(crate) type OtelProvider = ();
+pub(crate) type OtelProvider = Option<()>;
+
+#[cfg(all(feature = "otel", feature = "enterprise"))]
+pub(crate) type OtelProvider = Option<opentelemetry_sdk::metrics::SdkMeterProvider>;
 
 pub fn otel_ctx() -> () {}
 
@@ -31,11 +34,12 @@ pub(crate) fn init_logs_bridge(_mode: &Mode) -> Option<EnvFilter> {
 }
 
 #[cfg(all(feature = "otel", feature = "enterprise"))]
-pub(crate) fn init_otlp_tracer(_mode: &Mode) {
-    todo!()
+pub(crate) fn init_otlp_tracer(_mode: &Mode) -> Option<opentelemetry_sdk::trace::Tracer> {
+    None
 }
 
-#[cfg(not(all(feature = "otel", feature = "enterprise")))]
-pub(crate) fn init_meter_provider(_mode: &Mode) -> OtelProvider {}
+pub(crate) fn init_meter_provider(_mode: &Mode) -> OtelProvider {
+    None
+}
 
 pub fn add_root_flow_job_to_otlp(_queued_job: &QueuedJob, _success: bool) {}
