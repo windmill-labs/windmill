@@ -10,13 +10,12 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, Plus, Save, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import { fade } from 'svelte/transition'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -29,13 +28,15 @@
 	let path: string = ''
 	let pathError = ''
 	let enabled = false
-	let tableToTrack: TableToTrack[] | undefined
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
 	let database_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
+	let tableToTrack: TableToTrack[] = []
+	let transactionType: TransactionType[] = ['Insert', 'Update', 'Delete']
+	let transactionValue: TransactionType[] = []
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -70,6 +71,8 @@
 			initialPath = ''
 			tableToTrack = []
 			dirtyPath = false
+			replication_slot_name = ''
+			publication_name = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -87,7 +90,10 @@
 		path = s.path
 		enabled = s.enabled
 		database_resource_path = s.database_resource_path
-		tableToTrack = s.table_to_track
+		tableToTrack = s.table_to_track as TableToTrack[]
+		transactionValue = s.transaction_to_track
+		publication_name = s.publication_name
+		replication_slot_name = s.replication_slot_name
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
@@ -102,12 +108,7 @@
 					is_flow,
 					database_resource_path,
 					enabled,
-					table_to_track: tables.map((table) => {
-						return {
-							table_name: table,
-							columns_name: []
-						}
-					})
+					table_to_track: tableToTrack
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -115,7 +116,7 @@
 			await DatabaseTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					transaction_type: selected,
+					transaction_to_track: transactionValue,
 					path,
 					script_path,
 					is_flow,
@@ -123,25 +124,18 @@
 					database_resource_path,
 					replication_slot_name,
 					publication_name,
-					table_to_track: tables.map((table) => {
-						return {
-							table_name: table,
-							columns_name: []
-						}
-					})
+					table_to_track: tableToTrack
 				}
 			})
 			sendUserToast(`Route ${path} created`)
 		}
+
 		if (!$usedTriggerKinds.includes('database')) {
 			$usedTriggerKinds = [...$usedTriggerKinds, 'database']
 		}
 		dispatch('update')
 		drawer.closeDrawer()
 	}
-
-	let selected: TransactionType = 'Insert'
-	let tables: string[] = []
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -246,7 +240,7 @@
 					<input type="text" bind:value={publication_name} placeholder={'Publication Name'} />
 				</Section>
 
-				<Section label="Publication">
+				<Section label="Slot Name">
 					<p class="text-xs mb-1 text-tertiary">
 						Choose a slot name<Required required={true} />
 					</p>
@@ -259,37 +253,81 @@
 
 				<Section label="Transactions">
 					<p class="text-xs mb-1 text-tertiary">
-						Choose what kind of database transaction you want to track<Required required={true} />
+						Choose what kind of database transaction you want to track allowed operations are
+						<strong>Inser</strong>t, <strong>Update</strong>, <strong>Delete</strong><Required
+							required={true}
+						/>
 					</p>
-					<ToggleButtonGroup bind:selected>
-						<ToggleButton value="Insert" label="Insert" />
-						<ToggleButton value="Update" label="Update" />
-						<ToggleButton value="Delete" label="Delete" />
-					</ToggleButtonGroup>
+
+					<MultiSelect
+						options={transactionType}
+						bind:selected={transactionValue}
+						duplicates={false}
+					/>
 				</Section>
+
 				<Section label="Tables">
 					<p class="text-xs mb-3 text-tertiary">
 						Tables will limit the execution of the trigger to only the specified tables.<br />
 						If no tables are selected, this will trigger for all tables.<br />
-						<strong
-							>If no fully qualified table names (e.g., <code>schema_name.table_name</code>) are
-							provided, the system will use the default table names from your current database
-							schema for the search.</strong
-						><br />
-						<strong>Example:</strong> If your schema is <code>public</code> and you select a table
-						called <code>users</code>, the system will look for <code>public.users</code> by
-						default. If you wish to specify a different schema, you can provide a fully qualified
-						name like <code>my_schema.users</code>.
 					</p>
-					<MultiSelect
-						options={tables}
-						allowUserOptions="append"
-						bind:selected={tables}
-						noMatchingOptionsMsg=""
-						createOptionMsg={null}
-						duplicates={false}
-					/>
-				</Section>
+
+					<div class="flex flex-col gap-4 mt-1">
+						{#each tableToTrack as v, i}
+							<div class="flex w-full gap-2 items-center">
+								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
+									<label class="flex flex-col w-full">
+										<div class="text-secondary text-sm mb-2">Table Name</div>
+										<input type="text" bind:value={v.table_name} />
+									</label>
+									<!-- svelte-ignore a11y-label-has-associated-control -->
+									<label class="flex flex-col w-full">
+										<div class="text-secondary text-sm mb-2">Columns</div>
+										<MultiSelect
+											options={v.columns_name}
+											allowUserOptions="append"
+											bind:selected={v.columns_name}
+											noMatchingOptionsMsg=""
+											createOptionMsg={null}
+											duplicates={false}
+										/>
+									</label>
+								</div>
+								<button
+									transition:fade|local={{ duration: 100 }}
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+									aria-label="Clear"
+									on:click={() => {
+										tableToTrack = tableToTrack.filter((_, index) => index !== i)
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+
+						<div class="flex items-baseline">
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								btnClasses="mt-1"
+								on:click={() => {
+									if (tableToTrack == undefined || !Array.isArray(tableToTrack)) {
+										tableToTrack = []
+									}
+									tableToTrack = tableToTrack.concat({
+										table_name: '',
+										columns_name: []
+									})
+								}}
+								startIcon={{ icon: Plus }}
+							>
+								Add item
+							</Button>
+						</div>
+					</div></Section
+				>
 			</div>
 		{/if}
 	</DrawerContent>

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, io, str::Utf8Error, string::FromUtf8Error};
 
 use crate::{
     db::DB,
@@ -24,31 +24,6 @@ mod trigger;
 
 pub type SqlxJson<T> = sqlx::types::Json<T>;
 pub use trigger::start_database;
-pub enum Error {
-    Sqlx(sqlx::Error),
-    MissingTables(Vec<String>),
-    Postgres(rust_postgres::Error),
-    Wal(&'static str),
-    CommonError(windmill_common::error::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MissingTables(not_found_tables) => {
-                write!(
-                    f,
-                    "The following tables do not exist in your database: {}",
-                    not_found_tables.join(",")
-                )
-            }
-            Self::Postgres(e) => write!(f, "{}", e),
-            Self::Sqlx(e) => write!(f, "{}", e),
-            Self::Wal(e) => write!(f, "{}", e),
-            Self::CommonError(e) => write!(f, "{}", e),
-        }
-    }
-}
 
 pub fn workspaced_service() -> Router {
     Router::new()

@@ -32,7 +32,7 @@
 			).map((x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
-			$triggersCount = { ...($triggersCount ?? {}), websocket_count: databaseTriggers?.length }
+			$triggersCount = { ...($triggersCount ?? {}), database_count: databaseTriggers?.length }
 		} catch (e) {
 			console.error('impossible to load Database triggers', e)
 		}

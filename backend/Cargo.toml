@@ -94,6 +94,7 @@ serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 quote.workspace = true
+memchr.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -134,6 +135,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart", "macros"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }

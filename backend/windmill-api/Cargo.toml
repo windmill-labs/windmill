@@ -103,3 +103,5 @@ async-stream.workspace = true
 ulid.workspace = true
 pg_escape.workspace = true
 byteorder.workspace = true
+memchr.workspace = true
+thiserror.workspace = true

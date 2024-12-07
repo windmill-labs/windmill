@@ -55,7 +55,7 @@ pub struct EditDatabaseTrigger {
 pub struct NewDatabaseTrigger {
     path: String,
     #[serde(deserialize_with = "check_if_valid_transaction_type")]
-    transaction_type: TransactionType,
+    transaction_to_track: Vec<TransactionType>,
     script_path: String,
     is_flow: bool,
     enabled: bool,
@@ -67,20 +67,37 @@ pub struct NewDatabaseTrigger {
 
 fn check_if_valid_transaction_type<'de, D>(
     transaction_type: D,
-) -> std::result::Result<TransactionType, D::Error>
+) -> std::result::Result<Vec<TransactionType>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let transaction_type = String::deserialize(transaction_type)?;
-    match transaction_type.as_str() {
-        "Insert" => Ok(TransactionType::Insert),
-        "Update" => Ok(TransactionType::Update),
-        "Delete" => Ok(TransactionType::Delete),
-        _ => Err(serde::de::Error::custom(
-            "Only the following transaction types are allowed: Insert, Update and Delete"
+    let mut transaction_type: Vec<String> = Vec::deserialize(transaction_type)?;
+    if transaction_type.len() > 3 {
+        return Err(serde::de::Error::custom(
+            "Only the 3 transaction types are at most allowed: Insert, Update and Delete"
                 .to_string(),
-        )),
+        ));
     }
+    transaction_type.sort_unstable();
+    transaction_type.dedup();
+
+    let mut result = Vec::with_capacity(transaction_type.len());
+
+    for transaction in transaction_type {
+        match transaction.as_str() {
+            "Insert" => result.push(TransactionType::Insert),
+            "Update" => result.push(TransactionType::Update),
+            "Delete" => result.push(TransactionType::Delete),
+            _ => {
+                return Err(serde::de::Error::custom(
+                    "Only the following transaction types are allowed: Insert, Update and Delete"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
@@ -94,7 +111,7 @@ pub struct DatabaseTrigger {
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: Option<serde_json::Value>,
     pub database_resource_path: String,
-    pub transaction_type: TransactionType,
+    pub transaction_to_track: Option<Vec<TransactionType>>,
     pub table_to_track: Option<SqlxJson<Vec<TableToTrack>>>,
     pub error: Option<String>,
     pub server_id: Option<String>,
@@ -124,7 +141,6 @@ pub async fn create_database_trigger(
     Path(w_id): Path<String>,
     Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
-    println!("{:#?}", &new_database_trigger);
     let NewDatabaseTrigger {
         database_resource_path,
         table_to_track,
@@ -132,7 +148,7 @@ pub async fn create_database_trigger(
         script_path,
         enabled,
         is_flow,
-        transaction_type,
+        transaction_to_track,
         publication_name,
         replication_slot_name,
     } = new_database_trigger;
@@ -142,9 +158,10 @@ pub async fn create_database_trigger(
         ));
     }
 
+    let mut tx = user_db.begin(&authed).await?;
+
     let table_to_track = serde_json::to_value(table_to_track).unwrap();
 
-    let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         r#"
         INSERT INTO database_trigger (
@@ -153,7 +170,7 @@ pub async fn create_database_trigger(
             workspace_id, 
             path, 
             script_path, 
-            transaction_type, 
+            transaction_to_track, 
             is_flow, 
             email, 
             enabled, 
@@ -182,7 +199,7 @@ pub async fn create_database_trigger(
         &w_id,
         &path,
         script_path,
-        transaction_type as TransactionType,
+        transaction_to_track as Vec<TransactionType>,
         is_flow,
         &authed.email,
         enabled,
@@ -220,7 +237,7 @@ pub async fn list_database_triggers(
     let mut sqlb = SqlBuilder::select_from("database_trigger")
         .fields(&[
             "workspace_id",
-            "transaction_type",
+            "transaction_to_track",
             "path",
             "script_path",
             "is_flow",
@@ -281,7 +298,7 @@ pub async fn get_database_trigger(
         r#"
         SELECT
             workspace_id,
-            transaction_type AS "transaction_type: TransactionType",
+            transaction_to_track AS "transaction_to_track: Vec<TransactionType>",
             path,
             script_path,
             is_flow,

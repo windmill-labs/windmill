@@ -1,0 +1,5 @@
+Error opening file "/home/dieri/windmill/backend/windmill-api/TransactionType" 
+ENOENT: no such file or directory, open '/home/dieri/windmill/backend/windmill-api/TransactionType'
+JSONParserError: Error opening file "/home/dieri/windmill/backend/windmill-api/TransactionType" 
+ENOENT: no such file or directory, open '/home/dieri/windmill/backend/windmill-api/TransactionType'
+    at Object.read (/home/dieri/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/resolvers/file.js:61:19)

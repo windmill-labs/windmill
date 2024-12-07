@@ -120,8 +120,14 @@ pub fn workspaced_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
-        .route("/critical_alerts/:id/acknowledge", post(acknowledge_critical_alert))
-        .route("/critical_alerts/acknowledge_all", post(acknowledge_all_critical_alerts))
+        .route(
+            "/critical_alerts/:id/acknowledge",
+            post(acknowledge_critical_alert),
+        )
+        .route(
+            "/critical_alerts/acknowledge_all",
+            post(acknowledge_all_critical_alerts),
+        )
         .route("/critical_alerts/mute", post(mute_critical_alerts));
 
     #[cfg(feature = "stripe")]
@@ -1295,6 +1301,7 @@ async fn set_encryption_key(
 struct UsedTriggers {
     pub websocket_used: bool,
     pub http_routes_used: bool,
+    pub database_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1305,8 +1312,13 @@ async fn get_used_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let websocket_used = sqlx::query_as!(
         UsedTriggers,
-        r#"SELECT EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!""#,
-        w_id,
+        r#"
+        SELECT 
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!",
+            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
+            EXISTS(SELECT 1 FROM database_trigger WHERE workspace_id = $1) AS "database_used!"
+        "#,
+        w_id
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -3104,7 +3116,7 @@ pub async fn acknowledge_critical_alert(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await 
+    crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -3126,7 +3138,6 @@ pub async fn acknowledge_all_critical_alerts(
 pub async fn acknowledge_all_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
 }
-
 
 #[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
@@ -3162,7 +3173,10 @@ async fn mute_critical_alerts(
     .execute(&db)
     .await?;
 
-    Ok(format!("Updated mute criticital alert ui settings for workspace: {}", &w_id))
+    Ok(format!(
+        "Updated mute criticital alert ui settings for workspace: {}",
+        &w_id
+    ))
 }
 
 #[cfg(not(feature = "enterprise"))]

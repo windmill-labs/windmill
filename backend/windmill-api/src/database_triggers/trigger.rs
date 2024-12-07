@@ -22,8 +22,34 @@ use windmill_common::{resource::get_resource, variables::get_variable_or_self, I
 use super::{
     handler::{Database, DatabaseTrigger, TableToTrack, TransactionType},
     replication_message::PrimaryKeepAliveBody,
-    Error, SqlxJson,
+    SqlxJson,
 };
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Error from database: {0}")]
+    Sqlx(sqlx::Error),
+    #[error("The following tables do not exist in your database: {0}")]
+    MissingTables(String),
+    #[error("Error from database: {0}")]
+    Postgres(rust_postgres::Error),
+    #[error("{0}")]
+    CommonError(windmill_common::error::Error),
+    #[error("Slot name already exist, choose another name")]
+    SlotAlreadyExist,
+    #[error("Publication name already exist, choose another anme")]
+    PublicationAlreadyExist,
+}
+pub struct LogicalReplicationSettings {
+    pub streaming: bool,
+    pub binary: bool,
+}
+
+impl LogicalReplicationSettings {
+    pub fn new(binary: bool, streaming: bool) -> Self {
+        Self { binary, streaming }
+    }
+}
 
 trait RowExist {
     fn row_exist(&self) -> bool;
@@ -111,7 +137,7 @@ impl PostgresClient {
             .simple_query(&query)
             .await
             .map_err(Error::Postgres)?;
-        tracing::info!("{:#?}", rows);
+
         if !rows.row_exist() {
             return Ok(());
         }
@@ -124,7 +150,8 @@ impl PostgresClient {
                     }
                     None
                 })
-                .collect_vec(),
+                .collect_vec()
+                .join(", "),
         ))
     }
 
@@ -132,11 +159,18 @@ impl PostgresClient {
         &self,
         publication_name: &str,
         logical_replication_slot_name: &str,
-    ) -> Result<CopyBothDuplex<Bytes>, Error> {
-        let options = format!(
-            r#"("proto_version" '2', "publication_names" {}, "binary")"#,
-            quote_literal(publication_name)
-        );
+    ) -> Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings), Error> {
+        let binary_format = true;
+        let options = match binary_format {
+            true => format!(
+                r#"("proto_version" '2', "publication_names" {}, "binary")"#,
+                quote_literal(publication_name),
+            ),
+            false => format!(
+                r#"("proto_version" '2', "publication_names" {})"#,
+                quote_literal(publication_name),
+            ),
+        };
 
         let query = format!(
             r#"START_REPLICATION SLOT {} LOGICAL 0/0 {}"#,
@@ -144,10 +178,13 @@ impl PostgresClient {
             options
         );
 
-        self.client
-            .copy_both_simple::<bytes::Bytes>(query.as_str())
-            .await
-            .map_err(Error::Postgres)
+        Ok((
+            self.client
+                .copy_both_simple::<bytes::Bytes>(query.as_str())
+                .await
+                .map_err(Error::Postgres)?,
+            LogicalReplicationSettings::new(binary_format, false),
+        ))
     }
 
     pub async fn send_status_update(
@@ -163,9 +200,9 @@ impl PostgresClient {
             .unwrap_or(0);
 
         buf.put_u8(b'r');
-        buf.put_u64(primary_keep_alive.wal_end());
-        buf.put_u64(primary_keep_alive.wal_end());
-        buf.put_u64(primary_keep_alive.wal_end());
+        buf.put_u64(primary_keep_alive.wal_end);
+        buf.put_u64(primary_keep_alive.wal_end);
+        buf.put_u64(primary_keep_alive.wal_end);
         buf.put_i64(ts);
         buf.put_u8(0);
         copy_both_stream.send(buf.freeze()).await.unwrap();
@@ -234,23 +271,46 @@ impl PostgresClient {
         &self,
         publication_name: &str,
         tables: Option<Vec<&str>>,
+        transaction_to_track: Option<&[TransactionType]>,
     ) -> Result<(), Error> {
         let mut query = String::new();
         let quoted_publication_name = quote_identifier(publication_name);
         query.push_str("CREATE PUBLICATION ");
         query.push_str(&quoted_publication_name);
-        query.push_str(" FOR TABLE ONLY ");
 
-        if let Some(tables) = tables {
-            for (i, table) in tables.iter().enumerate() {
-                let quoted_table = quote_identifier(table);
-                query.push_str(&quoted_table);
+        match tables {
+            Some(table_to_track) if !table_to_track.is_empty() => {
+                query.push_str(" FOR TABLE ONLY ");
+                for (i, table) in table_to_track.iter().enumerate() {
+                    let quoted_table = quote_identifier(table);
+                    query.push_str(&quoted_table);
 
-                if i < tables.len() - 1 {
-                    query.push(',')
+                    if i < table_to_track.len() - 1 {
+                        query.push(',')
+                    }
                 }
             }
+            _ => query.push_str(" FOR ALL TABLES "),
+        };
+
+        if let Some(transaction_to_track) = transaction_to_track {
+            if !transaction_to_track.is_empty() {
+                let transactions = || {
+                    transaction_to_track
+                        .iter()
+                        .map(|transaction| match transaction {
+                            TransactionType::Insert => "insert",
+                            TransactionType::Update => "update",
+                            TransactionType::Delete => "delete",
+                        })
+                        .join(",")
+                };
+                let with_parameter = format!(" WITH (publish = '{}'); ", transactions());
+                query.push_str(&with_parameter);
+            }
         }
+
+        println!("{}", &query);
 
         self.client
             .simple_query(&query)
@@ -264,13 +324,15 @@ impl PostgresClient {
         &self,
         publication_name: &str,
         tables: Option<Vec<&str>>,
+        transaction_to_track: Option<&[TransactionType]>,
     ) -> Result<(), Error> {
         if self.check_if_publication_exists(publication_name).await? {
             tracing::info!("Publication {} already exists", publication_name);
             return Ok(());
         }
         tracing::info!("Publication {} do no exist", publication_name);
-        self.create_publication(publication_name, tables).await
+        self.create_publication(publication_name, tables, transaction_to_track)
+            .await
     }
 }
 
@@ -378,10 +440,14 @@ async fn listen_to_transactions(
         .await?;
 
     client
-        .create_publication_if_not_exist(&database_trigger.publication_name, table_to_track)
+        .create_publication_if_not_exist(
+            &database_trigger.publication_name,
+            table_to_track,
+            database_trigger.transaction_to_track.as_deref(),
+        )
         .await?;
 
-    let logical_replication_stream = client
+    let (logical_replication_stream, logicail_replication_settings) = client
         .get_logical_replication_stream(
             &database_trigger.publication_name,
             &database_trigger.replication_slot_name,
@@ -429,12 +495,12 @@ async fn listen_to_transactions(
 
                     match logical_message {
                         ReplicationMessage::PrimaryKeepAlive(primary_keep_alive) => {
-                            if primary_keep_alive.reply() {
+                            if primary_keep_alive.reply {
                                 client.send_status_update(primary_keep_alive, &mut logical_replication_stream).await;
                             }
                         }
                         ReplicationMessage::XLogData(x_log_data) => {
-                            let logical_replication_message = match x_log_data.parse() {
+                            let logical_replication_message = match x_log_data.parse(&logicail_replication_settings) {
                                 Ok(logical_replication_message) => logical_replication_message,
                                 Err(err) => {
                                     tracing::debug!("{}", err.to_string());
@@ -442,10 +508,24 @@ async fn listen_to_transactions(
                                     return;
                                 }
                             };
-
+                            println!("{:#?}", logical_replication_message);
                             match logical_replication_message {
-                                Begin | Commit(_) | Relation | Type => {},
-                                Insert | Update | Delete => {
+                                Relation(relation_body) => {
+                                    //println!("{:#?}", relation_body);
+                                }
+                                Begin(begin_body) => {
+                                    //println!("{:#?}", begin_body);
+                                }
+                                Commit(commit_body) => {
+                                    //println!("{:#?}", commit_body);
+                                },
+                                Type(type_body) => {
+                                    //println!("{:#?}", type_body)
+                                }
+                                Insert(insert) => {
+                                    //println!("{:#?}", insert)
+                                }
+                                 Update | Delete => {
                                     let _ = run_job(&db, rsmq.clone(), database_trigger).await;
                                 }
                             }
@@ -522,7 +602,7 @@ async fn listen_to_unlistened_database_events(
         r#"
             SELECT
                 workspace_id,
-                transaction_type AS "transaction_type: TransactionType",
+                transaction_to_track AS "transaction_to_track: Vec<TransactionType>",
                 path,
                 script_path,
                 replication_slot_name,

@@ -283,7 +283,7 @@ paths:
             text/plain:
               schema:
                 type: string
-                
+
   /users/set_password_of/{user}:
     post:
       summary: set password for a specific user (require super admin)
@@ -347,7 +347,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /users/create:
     post:
@@ -528,7 +527,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /users/export:
     get:
       summary: global export users (require super admin and EE)
@@ -872,7 +871,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CriticalAlert'
+                  $ref: "#/components/schemas/CriticalAlert"
 
   /settings/critical_alerts/{id}/acknowledge:
     post:
@@ -985,7 +984,6 @@ paths:
               schema:
                 type: string
 
-  
   /settings/latest_key_renewal_attempt:
     get:
       summary: get latest key renewal attempt
@@ -1071,7 +1069,6 @@ paths:
               schema:
                 type: string
 
-  
   /settings/list_global:
     get:
       summary: list global settings
@@ -2332,10 +2329,12 @@ paths:
                     type: boolean
                   websocket_used:
                     type: boolean
+                  database_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
-
+                  - database_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -2754,7 +2753,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CriticalAlert'
+                  $ref: "#/components/schemas/CriticalAlert"
 
   /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
     post:
@@ -2817,7 +2816,7 @@ paths:
                   description: Whether critical alerts should be muted.
                   example: true
       responses:
-        '200':
+        "200":
           description: Successfully updated mute critical alert settings.
           content:
             application/json:
@@ -2896,7 +2895,6 @@ paths:
               schema:
                 type: string
 
-  
   /oauth/connect_slack_callback:
     post:
       summary: connect slack callback instance
@@ -3113,7 +3111,7 @@ paths:
             type: string
       responses:
         "200":
-          description: get 
+          description: get
           content:
             application/json:
               schema:
@@ -3125,9 +3123,6 @@ paths:
                     type: array
                     items:
                       type: string
-
-
-
 
   /w/{workspace}/resources/create:
     post:
@@ -3418,7 +3413,6 @@ paths:
           content:
             application/json:
               schema: {}
-
 
   /w/{workspace}/resources/type/delete/{path}:
     delete:
@@ -4386,7 +4380,6 @@ paths:
           description: Script version/hash
           content:
             application/json:
-
               required: false
 
               schema:
@@ -4957,7 +4950,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/flows/get/{path}:
     get:
       summary: get flow by path
@@ -5014,7 +5006,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
-
 
   /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
     post:
@@ -5185,7 +5176,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/raw_apps/list:
     get:
@@ -6194,7 +6184,6 @@ paths:
               schema:
                 type: integer
 
-
   /w/{workspace}/jobs/queue/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
@@ -6505,7 +6494,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/jobs_u/get_args/{id}:
     get:
@@ -6985,7 +6973,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
@@ -7354,7 +7341,6 @@ paths:
         "201":
           description: default error handler set
 
-
   /w/{workspace}/http_triggers/create:
     post:
       summary: create http trigger
@@ -7407,7 +7393,7 @@ paths:
       summary: delete http trigger
       operationId: deleteHttpTrigger
       tags:
-        -  http_trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -7436,7 +7422,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/HttpTrigger"
 
-  
   /w/{workspace}/http_triggers/list:
     get:
       summary: list http triggers
@@ -7471,7 +7456,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/HttpTrigger"
 
-  
   /w/{workspace}/http_triggers/exists/{path}:
     get:
       summary: does http trigger exists
@@ -7574,7 +7558,7 @@ paths:
       summary: delete websocket trigger
       operationId: deleteWebsocketTrigger
       tags:
-        -  websocket_trigger
+        - websocket_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -7603,7 +7587,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebsocketTrigger"
 
-  
   /w/{workspace}/websocket_triggers/list:
     get:
       summary: list websocket triggers
@@ -7638,7 +7621,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/WebsocketTrigger"
 
-  
   /w/{workspace}/websocket_triggers/exists/{path}:
     get:
       summary: does websocket trigger exists
@@ -7737,7 +7719,7 @@ paths:
       summary: delete database trigger
       operationId: deleteDatabaseTrigger
       tags:
-        -  database_trigger
+        - database_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8541,7 +8523,7 @@ paths:
                   properties:
                     id:
                       type: string
-                    values: 
+                    values:
                       type: array
                       items:
                         type: object
@@ -8568,12 +8550,11 @@ paths:
           description: queue counts
           content:
             application/json:
-              schema: 
+              schema:
                 type: object
                 additionalProperties:
                   type: integer
 
-              
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -8686,7 +8667,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
-
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -8701,8 +8681,7 @@ paths:
           required: true
           schema:
             type: string
-            enum:
-              [
+            enum: [
                 script,
                 group_,
                 resource,
@@ -8715,7 +8694,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 database_trigger
-                database_trigger
+                database_trigger,
               ]
       responses:
         "200":
@@ -8754,7 +8733,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
-                database_trigger
+                database_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8804,7 +8783,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
-                database_trigger
+                database_trigger,
               ]
       requestBody:
         description: acl to add
@@ -9852,7 +9831,7 @@ paths:
       tags:
         - service_logs
       parameters:
-        - $ref: "#/components/parameters/Path"            
+        - $ref: "#/components/parameters/Path"
       responses:
         "200":
           description: log stream
@@ -10636,7 +10615,6 @@ components:
         - starred
         - no_main_func
         - has_preprocessor
-
 
     NewScript:
       type: object
@@ -11941,10 +11919,10 @@ components:
         workspace_id:
           type: string
         edited_by:
-            type: string
+          type: string
         edited_at:
-            type: string
-            format: date-time
+          type: string
+          format: date-time
       required:
         - email
         - extra_perms
@@ -11954,7 +11932,7 @@ components:
 
     HttpTrigger:
       allOf:
-        - $ref: '#/components/schemas/TriggerExtraProperty'
+        - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
         path:
@@ -11988,7 +11966,7 @@ components:
           type: boolean
         requires_auth:
           type: boolean
-        
+
       required:
         - path
         - edited_by
@@ -12037,7 +12015,7 @@ components:
           type: boolean
         requires_auth:
           type: boolean
-        
+
       required:
         - path
         - script_path
@@ -12113,7 +12091,7 @@ components:
 
     WebsocketTrigger:
       allOf:
-        - $ref: '#/components/schemas/TriggerExtraProperty'
+        - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
         path:
@@ -12150,7 +12128,7 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
-        
+
       required:
         - path
         - edited_by
@@ -12196,7 +12174,7 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
-        
+
       required:
         - path
         - script_path
@@ -12234,7 +12212,7 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
-              
+
       required:
         - path
         - script_path
@@ -12248,7 +12226,7 @@ components:
       anyOf:
         - type: object
           properties:
-            raw_message: 
+            raw_message:
               type: string
           required:
             - raw_message
@@ -12257,7 +12235,7 @@ components:
             runnable_result:
               type: object
               properties:
-                path: 
+                path:
                   type: string
                 args:
                   $ref: "#/components/schemas/ScriptArgs"
@@ -12267,7 +12245,7 @@ components:
                 - path
                 - args
                 - is_flow
-          required: 
+          required:
             - runnable_result
 
     TableToTrack:
@@ -12281,10 +12259,11 @@ components:
             type: string
       required:
         - table_name
+        - columns_name
 
     DatabaseTrigger:
       allOf:
-        - $ref: '#/components/schemas/TriggerExtraProperty'
+        - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
         path:
@@ -12301,6 +12280,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TableToTrack"
+        transaction_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionType"
+        publication_name:
+          type: string
+        replication_slot_name:
+          type: string
         error:
           type: string
       required:
@@ -12309,7 +12296,9 @@ components:
         - is_flow
         - enabled
         - database_resource_path
-
+        - transaction_to_track
+        - replication_slot_name
+        - publication_name
     TransactionType:
       type: string
       enum:
@@ -12338,15 +12327,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TableToTrack"
-        transaction_type:
-          $ref: "#/components/schemas/TransactionType"
+        transaction_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionType"
       required:
         - path
         - script_path
         - is_flow
         - enabled
         - database_resource_path
-        - transaction_type
+        - transaction_to_track
         - replication_slot_name
         - publication_name
     EditDatabaseTrigger:
@@ -12372,7 +12363,7 @@ components:
         - is_flow
         - enabled
         - database_resource_path
-        - transaction_type
+        - transaction_to_track
 
     Group:
       type: object
@@ -13200,14 +13191,14 @@ components:
         obscured_jobs:
           type: array
           items:
-            $ref : "#/components/schemas/ObscuredJob"
+            $ref: "#/components/schemas/ObscuredJob"
         omitted_obscured_jobs:
           description: "Obscured jobs omitted for security because of too specific filtering"
           type: boolean
       required:
         - jobs
         - obscured_jobs
-    
+
     ExportedUser:
       type: object
       properties:
@@ -13253,7 +13244,7 @@ components:
           type: object
       required:
         - name
-    
+
     ExportedInstanceGroup:
       type: object
       properties:
