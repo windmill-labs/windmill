@@ -17,10 +17,19 @@ pub(crate) type OtelProvider = Option<()>;
 #[cfg(all(feature = "otel", feature = "enterprise"))]
 pub(crate) type OtelProvider = Option<opentelemetry_sdk::metrics::SdkMeterProvider>;
 
+#[cfg(not(feature = "otel"))]
 pub fn otel_ctx() -> () {}
 
+#[cfg(feature = "otel")]
+#[inline(always)]
+pub fn otel_ctx() -> opentelemetry::Context {
+    opentelemetry::Context::current()
+}
+
+#[cfg(not(feature = "otel"))]
 impl<T: Sized> FutureExt for T {}
 
+#[cfg(not(feature = "otel"))]
 pub trait FutureExt: Sized {
     fn with_context(self, _otel_cx: ()) -> Self {
         self
