@@ -180,22 +180,6 @@ impl CountingLayer {
     }
 }
 
-// impl CountingLayer {
-//     pub fn new() -> Self {
-//         CountingLayer { counter: Arc::new(Mutex::new(LogCounter::new())) }
-//     }
-
-//     pub fn get_counts(&self) -> (usize, usize) {
-//         let counter = self.counter.lock().unwrap();
-//         (counter.non_error_count, counter.error_count)
-//     }
-
-//     pub fn reset_counts(&self) {
-//         let mut counter = self.counter.lock().unwrap();
-//         counter.reset();
-//     }
-// }
-
 pub const LOG_TIMESTAMP_FMT: &str = "%Y-%m-%d-%H-%M";
 
 impl<S> tracing_subscriber::Layer<S> for CountingLayer
