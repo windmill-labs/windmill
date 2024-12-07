@@ -248,7 +248,7 @@ pub async fn load_otel(db: &DB) {
                 if let Some(compression) = o.otel_exporter_otlp_compression {
                     std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                 }
-                tracing::info!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
+                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 o.otel_exporter_otlp_endpoint, o.otel_exporter_otlp_headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");
