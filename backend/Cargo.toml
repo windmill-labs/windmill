@@ -64,6 +64,7 @@ sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
+dind = ["windmill-worker/dind"]
 
 [dependencies]
 anyhow.workspace = true
@@ -137,7 +138,7 @@ windmill-api-client = { path = "./windmill-api-client" }
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
-tokio = { version = "^1", features = ["full", "tracing"] }
+tokio = { version = "^1.42.0", features = ["full", "tracing"] }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
@@ -182,15 +183,16 @@ itertools = "^0"
 regex = "^1"
 semver = "^1"
 
-deno_fetch = "0.195.0"
-deno_tls = "0.158.0"
-deno_console = "0.171.0"
-deno_url = "0.171.0"
-deno_webidl = "0.171.0"
-deno_web = "0.202.0"
-deno_net = "0.163.0"
-deno_core = "0.311.0"
-deno_ast = { version = "=0.42.2", features = ["transpiling"] }
+deno_fetch = "0.203.0"
+deno_tls = "0.166.0"
+deno_console = "0.179.0"
+deno_url = "0.179.0"
+deno_webidl = "0.179.0"
+deno_web = "0.210.0"
+deno_net = "0.171.0"
+deno_core = "0.321.0"
+deno_ast = { version = "=0.43.3", features = ["transpiling"] }
+deno_permissions = "0.39.0"
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"
@@ -285,6 +287,8 @@ opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
 opentelemetry-semantic-conventions = { version = "*", features = ["semconv_experimental"] }
+
+bollard = "0.18.1"
 
 tonic = { version = "^0", features = ["tls-native-roots"] }
 
