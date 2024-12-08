@@ -25,7 +25,7 @@ impl FetchPermissions for PermissionsContainer {
         &mut self,
         _url: &deno_core::url::Url,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 
@@ -34,7 +34,7 @@ impl FetchPermissions for PermissionsContainer {
         &mut self,
         _p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<Cow<'a, Path>, deno_core::error::AnyError> {
+    ) -> Result<Cow<'a, Path>, deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 }
@@ -53,7 +53,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         _p: &'a str,
         _api_name: &str,
-    ) -> Result<PathBuf, deno_core::error::AnyError> {
+    ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 
@@ -61,7 +61,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         _p: &'a str,
         _api_name: &str,
-    ) -> Result<PathBuf, deno_core::error::AnyError> {
+    ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 
@@ -69,7 +69,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         _host: &(T, Option<u16>),
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 
@@ -77,7 +77,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         _: &'a Path,
         _: &str,
-    ) -> Result<Cow<'a, Path>, deno_core::anyhow::Error> {
+    ) -> Result<Cow<'a, Path>, deno_permissions::PermissionCheckError> {
         todo!()
     }
 }
@@ -91,10 +91,13 @@ deno_core::extension!(
 
 #[cfg(feature = "deno_core")]
 fn main() {
+    use std::rc::Rc;
+
     println!("cargo:rustc-env=TARGET={}", env::var("TARGET").unwrap());
     println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
 
     let exts = vec![
+        deno_telemetry::deno_telemetry::init_ops_and_esm(),
         deno_webidl::deno_webidl::init_ops_and_esm(),
         deno_url::deno_url::init_ops_and_esm(),
         deno_console::deno_console::init_ops_and_esm(),
@@ -116,10 +119,12 @@ fn main() {
         deno_core::snapshot::CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             startup_snapshot: None,
+            extension_transpiler: Some(Rc::new(|specifier, source| {
+                deno_runtime::maybe_transpil1e_source(specifier, source)
+            })),
             extensions: exts,
             with_runtime_cb: None,
             skip_op_registration: false,
-            extension_transpiler: None,
         },
         None,
     )
