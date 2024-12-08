@@ -8,11 +8,16 @@ use std::{
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
 use memchr::memchr;
+use rust_postgres::types::{Kind, Oid, Type};
 use thiserror::Error;
 
 use super::trigger::LogicalReplicationSettings;
 const PRIMARY_KEEPALIVE_BYTE: u8 = b'k';
 const X_LOG_DATA_BYTE: u8 = b'w';
+
+pub trait IntoTupleData {
+    fn into_tuple_data(self) -> (Oid, Vec<TupleData>);
+}
 
 #[derive(Debug)]
 pub struct PrimaryKeepAliveBody {
@@ -35,7 +40,6 @@ const TYPE_BYTE: u8 = b'Y';
 const INSERT_BYTE: u8 = b'I';
 const UPDATE_BYTE: u8 = b'U';
 const DELETE_BYTE: u8 = b'D';
-const TRUNCATE_BYTE: u8 = b'T';
 const TUPLE_NEW_BYTE: u8 = b'N';
 const TUPLE_KEY_BYTE: u8 = b'K';
 const TUPLE_OLD_BYTE: u8 = b'O';
@@ -88,78 +92,111 @@ pub enum ReplicaIdentity {
 pub struct Column {
     pub flags: i8,
     pub name: String,
-    pub type_id: i32,
+    pub type_o_id: Option<Type>,
     pub type_modifier: i32,
 }
 
 impl Column {
-    pub fn new(flags: i8, name: String, type_id: i32, type_modifier: i32) -> Self {
-        Self { flags, name, type_id, type_modifier }
+    pub fn new(flags: i8, name: String, type_o_id: Option<Type>, type_modifier: i32) -> Self {
+        Self { flags, name, type_o_id, type_modifier }
     }
 }
+
+pub type Columns = Vec<Column>;
 
 #[derive(Debug)]
 pub struct RelationBody {
     pub transaction_id: Option<i32>,
-    pub relation_id: i32,
+    pub o_id: Oid,
     pub namespace: String,
     pub name: String,
     pub replica_identity: ReplicaIdentity,
-    pub columns: Vec<Column>,
+    pub columns: Columns,
 }
 
 impl RelationBody {
     pub fn new(
         transaction_id: Option<i32>,
-        relation_id: i32,
+        o_id: Oid,
         namespace: String,
         name: String,
         replica_identity: ReplicaIdentity,
-        columns: Vec<Column>,
+        columns: Columns,
     ) -> Self {
-        Self { transaction_id, relation_id, namespace, name, replica_identity, columns }
+        Self { transaction_id, o_id, namespace, name, replica_identity, columns }
     }
 }
 
 #[derive(Debug)]
 pub struct TypeBody {
-    oid: i32,
+    o_id: Oid,
     namespace: String,
     name: String,
 }
 
 impl TypeBody {
-    pub fn new(oid: i32, namespace: String, name: String) -> TypeBody {
-        TypeBody { oid, namespace, name }
+    pub fn new(o_id: Oid, namespace: String, name: String) -> TypeBody {
+        TypeBody { o_id, namespace, name }
     }
 }
 
 #[derive(Debug)]
 pub struct InsertBody {
     pub transaction_id: Option<i32>,
-    pub o_id: i32,
+    pub o_id: Oid,
     pub tuple: Vec<TupleData>,
 }
 
 impl InsertBody {
-    pub fn new(transaction_id: Option<i32>, o_id: i32, tuple: Vec<TupleData>) -> Self {
+    pub fn new(transaction_id: Option<i32>, o_id: Oid, tuple: Vec<TupleData>) -> Self {
         Self { transaction_id, o_id, tuple }
+    }
+}
+
+impl IntoTupleData for InsertBody {
+    fn into_tuple_data(self) -> (Oid, Vec<TupleData>) {
+        (self.o_id, self.tuple)
     }
 }
 
 #[derive(Debug)]
 pub struct UpdateBody {
-    rel_id: u32,
-    old_tuple: Option<Vec<TupleData>>,
-    key_tuple: Option<Vec<TupleData>>,
-    new_tuple: Vec<TupleData>,
+    transaction_id: Option<i32>,
+    pub o_id: Oid,
+    pub old_tuple: Option<Vec<TupleData>>,
+    pub key_tuple: Option<Vec<TupleData>>,
+    pub new_tuple: Vec<TupleData>,
+}
+
+impl UpdateBody {
+    pub fn new(
+        transaction_id: Option<i32>,
+        o_id: Oid,
+        old_tuple: Option<Vec<TupleData>>,
+        key_tuple: Option<Vec<TupleData>>,
+        new_tuple: Vec<TupleData>,
+    ) -> Self {
+        Self { transaction_id, o_id, old_tuple, key_tuple, new_tuple }
+    }
 }
 
 #[derive(Debug)]
 pub struct DeleteBody {
-    rel_id: u32,
+    transaction_id: Option<i32>,
+    pub o_id: Oid,
     old_tuple: Option<Vec<TupleData>>,
     key_tuple: Option<Vec<TupleData>>,
+}
+
+impl DeleteBody {
+    pub fn new(
+        transaction_id: Option<i32>,
+        o_id: Oid,
+        old_tuple: Option<Vec<TupleData>>,
+        key_tuple: Option<Vec<TupleData>>,
+    ) -> Self {
+        Self { transaction_id, o_id, old_tuple, key_tuple }
+    }
 }
 
 #[derive(Debug)]
@@ -171,21 +208,21 @@ pub enum TupleData {
 }
 
 impl TupleData {
-    fn parse(mut buf: Buffer) -> Result<Vec<TupleData>, ConversionError> {
-        let number_of_columns = buf.read_i16::<BigEndian>().map_err(ConversionError::Io)?;
+    fn parse(buf: &mut Buffer) -> Result<Vec<TupleData>, ConversionError> {
+        let number_of_columns = buf.read_i16::<BigEndian>()?;
         let mut tuples = Vec::with_capacity(number_of_columns as usize);
         for _ in 0..number_of_columns {
-            let byte = buf.read_u8().map_err(ConversionError::Io)?;
+            let byte = buf.read_u8()?;
             let tuple_data = match byte {
                 TUPLE_DATA_NULL_BYTE => TupleData::Null,
                 TUPLE_DATA_TOAST_BYTE => TupleData::UnchangedToast,
                 TUPLE_DATA_TEXT_BYTE => {
-                    let len = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
+                    let len = buf.read_i32::<BigEndian>()?;
                     let bytes = buf.read_n_byte(len as usize);
                     TupleData::Text(bytes)
                 }
                 TUPLE_DATA_BINARY_BYTE => {
-                    let len = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
+                    let len = buf.read_i32::<BigEndian>()?;
                     let bytes = buf.read_n_byte(len as usize);
                     TupleData::Text(bytes)
                 }
@@ -204,6 +241,13 @@ impl TupleData {
     }
 }
 
+#[derive(Debug)]
+pub enum TransactionBody {
+    Insert(InsertBody),
+    Update(UpdateBody),
+    Delete(DeleteBody),
+}
+
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum LogicalReplicationMessage {
@@ -212,8 +256,8 @@ pub enum LogicalReplicationMessage {
     Relation(RelationBody),
     Type(TypeBody),
     Insert(InsertBody),
-    Update,
-    Delete,
+    Update(UpdateBody),
+    Delete(DeleteBody),
 }
 
 #[derive(Debug)]
@@ -227,9 +271,9 @@ pub struct XLogDataBody {
 #[derive(Error, Debug)]
 pub enum ConversionError {
     #[error("Error: {0}")]
-    Io(io::Error),
+    Io(#[from] io::Error),
     #[error("Utf8Error conversion: {0}")]
-    Utf8(Utf8Error),
+    Utf8(#[from] Utf8Error),
 }
 
 struct Buffer {
@@ -251,9 +295,7 @@ impl Buffer {
             Some(pos) => {
                 let start = self.idx;
                 let end = start + pos;
-                let cstr = str::from_utf8(&self.bytes[start..end])
-                    .map_err(ConversionError::Utf8)?
-                    .to_owned();
+                let cstr = str::from_utf8(&self.bytes[start..end])?.to_owned();
                 self.idx = end + 1;
                 Ok(cstr)
             }
@@ -295,13 +337,13 @@ impl XLogDataBody {
         logical_replication_settings: &LogicalReplicationSettings,
     ) -> Result<LogicalReplicationMessage, ConversionError> {
         let mut buf = Buffer::new(self.data.clone(), 0);
-        let byte = buf.read_u8().map_err(ConversionError::Io)?;
+        let byte = buf.read_u8()?;
 
         let logical_replication_message = match byte {
             BEGIN_BYTE => {
-                let last_lsn = buf.read_i64::<BigEndian>().map_err(ConversionError::Io)?;
-                let timestamp = buf.read_i64::<BigEndian>().map_err(ConversionError::Io)?;
-                let transaction_id = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
+                let last_lsn = buf.read_i64::<BigEndian>()?;
+                let timestamp = buf.read_i64::<BigEndian>()?;
+                let transaction_id = buf.read_i32::<BigEndian>()?;
 
                 LogicalReplicationMessage::Begin(BeginBody::new(
                     last_lsn,
@@ -310,24 +352,24 @@ impl XLogDataBody {
                 ))
             }
             COMMIT_BYTE => {
-                let flags = buf.read_i8().map_err(ConversionError::Io)?;
-                let commit_lsn = buf.read_u64::<BigEndian>().map_err(ConversionError::Io)?;
-                let end_lsn = buf.read_u64::<BigEndian>().map_err(ConversionError::Io)?;
-                let timestamp = buf.read_i64::<BigEndian>().map_err(ConversionError::Io)?;
+                let flags = buf.read_i8()?;
+                let commit_lsn = buf.read_u64::<BigEndian>()?;
+                let end_lsn = buf.read_u64::<BigEndian>()?;
+                let timestamp = buf.read_i64::<BigEndian>()?;
                 LogicalReplicationMessage::Commit(CommitBody::new(
                     flags, commit_lsn, end_lsn, timestamp,
                 ))
             }
             RELATION_BYTE => {
                 let transaction_id = match logical_replication_settings.streaming {
-                    true => Some(buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?),
+                    true => Some(buf.read_i32::<BigEndian>()?),
                     false => None,
                 };
 
-                let relation_id = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
+                let o_id = buf.read_u32::<BigEndian>()?;
                 let namespace = buf.read_cstr()?;
                 let name = buf.read_cstr()?;
-                let replica_identity = match buf.read_i8().map_err(ConversionError::Io)? {
+                let replica_identity = match buf.read_i8()? {
                     REPLICA_IDENTITY_DEFAULT_BYTE => ReplicaIdentity::Default,
                     REPLICA_IDENTITY_NOTHING_BYTE => ReplicaIdentity::Nothing,
                     REPLICA_IDENTITY_FULL_BYTE => ReplicaIdentity::Full,
@@ -340,22 +382,23 @@ impl XLogDataBody {
                     }
                 };
 
-                let num_of_column = buf.read_i16::<BigEndian>().map_err(ConversionError::Io)?;
+                let num_of_column = buf.read_i16::<BigEndian>()?;
 
                 let mut columns = Vec::with_capacity(num_of_column as usize);
                 for _ in 0..num_of_column {
-                    let flags = buf.read_i8().map_err(ConversionError::Io)?;
+                    let flags = buf.read_i8()?;
                     let name = buf.read_cstr()?;
-                    let type_id = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
-                    let type_modifier = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
-                    let column = Column::new(flags, name, type_id, type_modifier);
+                    let o_id = buf.read_u32::<BigEndian>()?;
+                    let type_modifier = buf.read_i32::<BigEndian>()?;
+                    let type_o_id = Type::from_oid(o_id);
+                    let column = Column::new(flags, name, type_o_id, type_modifier);
 
                     columns.push(column);
                 }
 
                 LogicalReplicationMessage::Relation(RelationBody::new(
                     transaction_id,
-                    relation_id,
+                    o_id,
                     namespace,
                     name,
                     replica_identity,
@@ -363,22 +406,22 @@ impl XLogDataBody {
                 ))
             }
             TYPE_BYTE => {
-                let oid = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
+                let o_id = buf.read_u32::<BigEndian>()?;
                 let namespace = buf.read_cstr()?;
                 let name = buf.read_cstr()?;
 
-                LogicalReplicationMessage::Type(TypeBody::new(oid, namespace, name))
+                LogicalReplicationMessage::Type(TypeBody::new(o_id, namespace, name))
             }
             INSERT_BYTE => {
                 let transaction_id = match logical_replication_settings.streaming {
-                    true => Some(buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?),
+                    true => Some(buf.read_i32::<BigEndian>()?),
                     false => None,
                 };
-                let o_id = buf.read_i32::<BigEndian>().map_err(ConversionError::Io)?;
-                let byte = buf.read_u8().map_err(ConversionError::Io)?;
+                let o_id = buf.read_u32::<BigEndian>()?;
+                let byte = buf.read_u8()?;
 
                 let tuple = match byte {
-                    TUPLE_NEW_BYTE => TupleData::parse(buf)?,
+                    TUPLE_NEW_BYTE => TupleData::parse(&mut buf)?,
                     byte => {
                         return Err(ConversionError::Io(io::Error::new(
                             io::ErrorKind::InvalidInput,
@@ -390,60 +433,78 @@ impl XLogDataBody {
                 LogicalReplicationMessage::Insert(InsertBody::new(transaction_id, o_id, tuple))
             }
             UPDATE_BYTE => {
-                /*let rel_id = buf.read_u32::<BigEndian>()?;
-                let tag = buf.read_u8()?;
+                let transaction_id = match logical_replication_settings.streaming {
+                    true => Some(buf.read_i32::<BigEndian>()?),
+                    false => None,
+                };
+                let o_id = buf.read_u32::<BigEndian>()?;
+                let byte = buf.read_u8()?;
 
                 let mut key_tuple = None;
                 let mut old_tuple = None;
 
-                let new_tuple = match tag {
-                    TUPLE_NEW_BYTE => Tuple::parse(&mut buf)?,
+                let new_tuple = match byte {
+                    TUPLE_NEW_BYTE => TupleData::parse(&mut buf)?,
                     TUPLE_OLD_BYTE | TUPLE_KEY_BYTE => {
-                        if tag == TUPLE_OLD_BYTE {
-                            old_tuple = Some(Tuple::parse(&mut buf)?);
+                        if byte == TUPLE_OLD_BYTE {
+                            old_tuple = Some(TupleData::parse(&mut buf)?);
                         } else {
-                            key_tuple = Some(Tuple::parse(&mut buf)?);
+                            key_tuple = Some(TupleData::parse(&mut buf)?);
                         }
-
                         match buf.read_u8()? {
-                            TUPLE_NEW_BYTE => Tuple::parse(&mut buf)?,
-                            tag => {
-                                return Err(io::Error::new(
+                            TUPLE_NEW_BYTE => TupleData::parse(&mut buf)?,
+                            byte => {
+                                return Err(ConversionError::Io(io::Error::new(
                                     io::ErrorKind::InvalidInput,
-                                    format!("unexpected tuple tag `{}`", tag),
-                                ));
+                                    format!("unexpected tuple byte `{}`", byte),
+                                )));
                             }
                         }
                     }
                     byte => {
-                        return Err(io::Error::new(
+                        return Err(ConversionError::Io(io::Error::new(
                             io::ErrorKind::InvalidInput,
-                            format!("unknown tuple tag `{}`", tag),
-                        ));
+                            format!("unknown tuple byte `{}`", byte),
+                        )));
                     }
-                };*/
+                };
 
-                LogicalReplicationMessage::Update
+                LogicalReplicationMessage::Update(UpdateBody::new(
+                    transaction_id,
+                    o_id,
+                    old_tuple,
+                    key_tuple,
+                    new_tuple,
+                ))
             }
             DELETE_BYTE => {
-                /*let rel_id = buf.read_u32::<BigEndian>()?;
+                let transaction_id = match logical_replication_settings.streaming {
+                    true => Some(buf.read_i32::<BigEndian>()?),
+                    false => None,
+                };
+                let o_id = buf.read_u32::<BigEndian>()?;
                 let tag = buf.read_u8()?;
 
                 let mut key_tuple = None;
                 let mut old_tuple = None;
 
                 match tag {
-                    TUPLE_OLD_BYTE => old_tuple = Some(Tuple::parse(&mut buf)?),
-                    TUPLE_KEY_BYTE => key_tuple = Some(Tuple::parse(&mut buf)?),
+                    TUPLE_OLD_BYTE => old_tuple = Some(TupleData::parse(&mut buf)?),
+                    TUPLE_KEY_BYTE => key_tuple = Some(TupleData::parse(&mut buf)?),
                     tag => {
-                        return Err(io::Error::new(
+                        return Err(ConversionError::Io(io::Error::new(
                             io::ErrorKind::InvalidInput,
                             format!("unknown tuple tag `{}`", tag),
-                        ));
+                        )));
                     }
-                }*/
+                }
 
-                LogicalReplicationMessage::Delete
+                LogicalReplicationMessage::Delete(DeleteBody::new(
+                    transaction_id,
+                    o_id,
+                    old_tuple,
+                    key_tuple,
+                ))
             }
             byte => {
                 return Err(ConversionError::Io(io::Error::new(

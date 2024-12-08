@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt, io, str::Utf8Error, string::FromUtf8Error};
+use serde_json::value::RawValue;
+use std::collections::HashMap;
 
 use crate::{
     db::DB,
@@ -19,8 +20,10 @@ use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
 
 mod handler;
+mod relation;
 mod replication_message;
 mod trigger;
+mod converter;
 
 pub type SqlxJson<T> = sqlx::types::Json<T>;
 pub use trigger::start_database;
@@ -37,12 +40,13 @@ pub fn workspaced_service() -> Router {
 }
 
 async fn run_job(
+    args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     trigger: &DatabaseTrigger,
 ) -> anyhow::Result<()> {
-    let args = PushArgsOwned { args: HashMap::new(), extra: None };
-
+    let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
+    println!("Args: {:#?}", args);
     let label_prefix = Some(format!("db-{}-", trigger.path));
 
     let authed = fetch_api_authed(

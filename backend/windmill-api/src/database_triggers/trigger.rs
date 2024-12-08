@@ -1,7 +1,9 @@
+use serde_json::value::RawValue;
 use std::pin::Pin;
 
 use crate::{
     database_triggers::{
+        relation::RelationConverter,
         replication_message::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
             ReplicationMessage,
@@ -465,6 +467,7 @@ async fn listen_to_transactions(
             Ok(())
         }
         _ = async {
+                let mut relations = RelationConverter::new();
                 tracing::info!("Start to listen for database transaction");
                 loop {
                     let message = logical_replication_stream.next().await;
@@ -509,26 +512,33 @@ async fn listen_to_transactions(
                                 }
                             };
                             println!("{:#?}", logical_replication_message);
-                            match logical_replication_message {
+                            let json = match logical_replication_message {
                                 Relation(relation_body) => {
-                                    //println!("{:#?}", relation_body);
+                                    relations.add_column(relation_body.o_id, relation_body.columns);
+                                    None
                                 }
-                                Begin(begin_body) => {
+                                Begin(_) | Commit(_) | Type(_) => {
                                     //println!("{:#?}", begin_body);
-                                }
-                                Commit(commit_body) => {
-                                    //println!("{:#?}", commit_body);
-                                },
-                                Type(type_body) => {
-                                    //println!("{:#?}", type_body)
+                                    None
                                 }
                                 Insert(insert) => {
-                                    //println!("{:#?}", insert)
+                                    Some(relations.body_to_json((insert.o_id, insert.tuple)))
                                 }
-                                 Update | Delete => {
-                                    let _ = run_job(&db, rsmq.clone(), database_trigger).await;
+                                Update(update) => {
+                                    Some(relations.body_to_json((update.o_id, update.new_tuple)))
+
                                 }
+                                Delete(delete) => {
+                                    None
+                                }
+                            };
+
+                            if let Some(Ok(json)) = json {
+
+                                let _ = run_job(Some(json), &db, rsmq.clone(), database_trigger).await;
+                                continue;
                             }
+
                         }
                     }
                 }
