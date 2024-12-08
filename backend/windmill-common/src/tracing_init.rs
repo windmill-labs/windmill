@@ -57,16 +57,16 @@ pub fn initialize_tracing(
         )
     }
 
-    let meter_provider = crate::otel_ee::init_meter_provider(mode);
+    let meter_provider = crate::otel_ee::init_meter_provider(mode, hostname);
 
     #[cfg(all(feature = "otel", feature = "enterprise"))]
-    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode)
+    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode, hostname)
         .map(|x| tracing_opentelemetry::layer().with_tracer(x));
 
     #[cfg(not(all(feature = "otel", feature = "enterprise")))]
     let opentelemetry: Option<EnvFilter> = None;
 
-    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode);
+    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode, hostname);
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 

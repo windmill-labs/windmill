@@ -38,16 +38,19 @@ pub trait FutureExt: Sized {
 
 use tracing_subscriber::EnvFilter;
 
-pub(crate) fn init_logs_bridge(_mode: &Mode) -> Option<EnvFilter> {
+pub(crate) fn init_logs_bridge(_mode: &Mode, _hostname: &str) -> Option<EnvFilter> {
     None
 }
 
 #[cfg(all(feature = "otel", feature = "enterprise"))]
-pub(crate) fn init_otlp_tracer(_mode: &Mode) -> Option<opentelemetry_sdk::trace::Tracer> {
+pub(crate) fn init_otlp_tracer(
+    _mode: &Mode,
+    _hostname: &str,
+) -> Option<opentelemetry_sdk::trace::Tracer> {
     None
 }
 
-pub(crate) fn init_meter_provider(_mode: &Mode) -> OtelProvider {
+pub(crate) fn init_meter_provider(_mode: &Mode, _hostname: &str) -> OtelProvider {
     None
 }
 
