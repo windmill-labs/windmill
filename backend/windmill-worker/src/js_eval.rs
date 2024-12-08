@@ -108,7 +108,7 @@ impl FetchPermissions for PermissionsContainer {
         &mut self,
         _url: &deno_core::url::Url,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         Ok(())
     }
 
@@ -117,7 +117,7 @@ impl FetchPermissions for PermissionsContainer {
         &mut self,
         p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, anyhow::Error> {
+    ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
         Ok(Cow::Borrowed(p))
     }
 }
@@ -136,7 +136,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         p: &'a str,
         _api_name: &str,
-    ) -> Result<PathBuf, deno_core::error::AnyError> {
+    ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
     }
 
@@ -144,7 +144,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         p: &'a str,
         _api_name: &str,
-    ) -> Result<PathBuf, deno_core::error::AnyError> {
+    ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
     }
 
@@ -152,7 +152,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         _host: &(T, Option<u16>),
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         Ok(())
     }
 
@@ -160,7 +160,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<std::borrow::Cow<'a, std::path::Path>, AnyError> {
+    ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
         Ok(Cow::Borrowed(p))
     }
 }
@@ -669,9 +669,12 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
         text: deno_core::ModuleCodeString::from(expr).into(),
     })?;
     Ok(parsed
-        .transpile(&Default::default(), &Default::default())?
+        .transpile(
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        )?
         .into_source()
-        .into_string()?
         .text)
 }
 
@@ -814,13 +817,7 @@ pub async fn eval_fetch_timeout(
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
         let fetch_options = deno_fetch::Options {
-            root_cert_store_provider: if let Some(cert_path) = env::var("DENO_CERT").ok() {
-                let mut cert_store_provider = ContainerRootCertStoreProvider::new();
-                cert_store_provider.add_certificate(cert_path)?;
-                Some(Arc::new(cert_store_provider))
-            } else {
-                None
-            },
+            root_cert_store_provider: None,
             user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
             proxy: ann.proxy.map(|x| deno_tls::Proxy {
                 url: x.0,

@@ -18,8 +18,10 @@ parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
 sqlx = []
-deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core", "dep:deno_ast", "dep:deno_tls"]
+deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
+    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions"]
 otel = ["windmill-common/otel", "dep:opentelemetry"]
+dind = ["dep:bollard"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -69,6 +71,8 @@ deno_url = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
+deno_permissions = { workspace = true, optional = true }
+
 postgres-native-tls.workspace = true
 native-tls.workspace = true
 mysql_async.workspace = true
@@ -94,7 +98,7 @@ swc_ecma_parser.workspace = true
 backon.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
-
+bollard = { workspace = true, optional = true }
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }
@@ -106,4 +110,6 @@ deno_url = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
+deno_permissions = { workspace = true, optional = true }
+
 zstd.workspace = true
