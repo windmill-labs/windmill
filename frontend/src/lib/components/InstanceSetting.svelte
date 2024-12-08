@@ -715,6 +715,12 @@
 								bind:value={$values[setting.key].otel_exporter_otlp_headers}
 							/>
 						</div>
+						<div>
+							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
+								>Protocol</label
+							>
+							gRPC
+						</div>
 						<!-- <div>
 							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
 								>Protocol<span class="text-2xs text-tertiary ml-4"

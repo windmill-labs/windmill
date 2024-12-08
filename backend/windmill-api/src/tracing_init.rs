@@ -69,7 +69,7 @@ impl<B> MakeSpan<B> for MyMakeSpan {
             uri = %request.uri(),
             username = field::Empty,
             workspace_id = field::Empty,
-            trace_id = tracing_id,
+            traceId = tracing_id,
             email = field::Empty,
         )
     }
