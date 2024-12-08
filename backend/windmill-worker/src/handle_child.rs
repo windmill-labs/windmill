@@ -126,7 +126,7 @@ pub async fn handle_child(
     let (tx, rx) = broadcast::channel::<()>(3);
     let mut rx2 = tx.subscribe();
 
-    let output = child_joined_output_stream(&mut child);
+    let output = child_joined_output_stream(&mut child, job_id.clone());
 
     let job_id = job_id.clone();
 
@@ -677,6 +677,7 @@ where
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
     child: &mut Child,
+    job_id: Uuid,
 ) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
         .stderr
@@ -691,19 +692,20 @@ fn child_joined_output_stream(
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
     stream::select(
-        lines_to_stream(stderr, true),
-        lines_to_stream(stdout, false),
+        lines_to_stream(stderr, true, job_id.clone()),
+        lines_to_stream(stdout, false, job_id),
     )
 }
 
 pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
     stderr: bool,
+    job_id: Uuid,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
-            .map(|result| process_streaming_log_lines(result, stderr))
+            .map(|result| process_streaming_log_lines(result, stderr, &job_id))
     })
 }
 

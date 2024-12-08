@@ -47,6 +47,7 @@ pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SER
 pub fn initialize_tracing(
     hostname: &str,
     mode: &Mode,
+    environment: &str,
 ) -> (WorkerGuard, crate::otel_ee::OtelProvider) {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
@@ -57,16 +58,16 @@ pub fn initialize_tracing(
         )
     }
 
-    let meter_provider = crate::otel_ee::init_meter_provider(mode, hostname);
+    let meter_provider = crate::otel_ee::init_meter_provider(mode, hostname, environment);
 
     #[cfg(all(feature = "otel", feature = "enterprise"))]
-    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode, hostname)
+    let opentelemetry = crate::otel_ee::init_otlp_tracer(mode, hostname, environment)
         .map(|x| tracing_opentelemetry::layer().with_tracer(x));
 
     #[cfg(not(all(feature = "otel", feature = "enterprise")))]
     let opentelemetry: Option<EnvFilter> = None;
 
-    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode, hostname);
+    let logs_bridge = crate::otel_ee::init_logs_bridge(&mode, hostname, environment);
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 

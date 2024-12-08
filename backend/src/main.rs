@@ -8,7 +8,7 @@
 
 use anyhow::Context;
 use monitor::{
-    load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
+    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store,
 };
@@ -348,10 +348,21 @@ async fn windmill_main() -> anyhow::Result<()> {
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
 
     load_otel(&db).await;
+
     tracing::info!("Database connected");
 
+    let environment = load_base_url(&db)
+        .await
+        .unwrap_or_else(|_| "local".to_string())
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split(".")
+        .next()
+        .unwrap_or_else(|| "local")
+        .to_string();
+
     #[cfg(not(feature = "flamegraph"))]
-    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode);
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
