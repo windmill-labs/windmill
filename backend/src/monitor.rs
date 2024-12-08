@@ -1397,7 +1397,7 @@ pub async fn reload_worker_config(
     }
 }
 
-pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+pub async fn load_base_url(db: &DB) -> error::Result<String> {
     let q_base_url = load_value_from_global_settings(db, BASE_URL_SETTING).await?;
 
     let std_base_url = std::env::var("BASE_URL")
@@ -1421,6 +1421,14 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         std_base_url
     };
 
+    {
+        let mut l = BASE_URL.write().await;
+        *l = base_url.clone();
+    }
+    Ok(base_url)
+}
+
+pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
     let oauths = if let Some(q) = q_oauth {
@@ -1434,6 +1442,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         None
     };
 
+    let base_url = load_base_url(db).await?;
     let is_secure = base_url.starts_with("https://");
 
     {
@@ -1441,11 +1450,6 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         *l = build_oauth_clients(&base_url, oauths)
         .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
-    }
-
-    {
-        let mut l = BASE_URL.write().await;
-        *l = base_url
     }
 
     {
