@@ -284,7 +284,7 @@ tracing-opentelemetry = "0.28.0"
 opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
-opentelemetry-semantic-conventions = "*"
+opentelemetry-semantic-conventions = { version = "*", features = ["semconv_experimental"] }
 
 tonic = { version = "^0", features = ["tls-native-roots"] }
 
