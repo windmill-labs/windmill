@@ -419,6 +419,7 @@ pub async fn do_snowflake(
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
     *mem_peak = (r.get().len() / 1000) as i32;

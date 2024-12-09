@@ -137,7 +137,9 @@ pub async fn handle_child(
         db,
         mem_peak,
         canceled_by_ref,
-        || get_mem_peak(pid, nsjail),
+        Box::pin(stream::unfold((), move |_| async move {
+            Some((get_mem_peak(pid, nsjail).await, ()))
+        })),
         worker,
         w_id,
         rx,
@@ -486,7 +488,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     }
 }
 
-pub async fn run_future_with_polling_update_job_poller<Fut, T>(
+pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,
     db: &DB,
@@ -496,9 +498,11 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    get_mem: S,
 ) -> error::Result<T>
 where
     Fut: Future<Output = anyhow::Result<T>>,
+    S: stream::Stream<Item = i32> + Unpin,
 {
     let (tx, rx) = broadcast::channel::<()>(3);
 
@@ -507,7 +511,7 @@ where
         db,
         mem_peak,
         canceled_by_ref,
-        || async { 0 },
+        get_mem,
         worker_name,
         w_id,
         rx,
@@ -548,20 +552,19 @@ pub enum UpdateJobPollingExit {
     AlreadyCompleted,
 }
 
-pub async fn update_job_poller<F, Fut>(
+pub async fn update_job_poller<S>(
     job_id: Uuid,
     db: &DB,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
-    get_mem: F,
+    mut get_mem: S,
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> UpdateJobPollingExit
 where
-    F: Fn() -> Fut,
-    Fut: Future<Output = i32>,
+    S: stream::Stream<Item = i32> + Unpin,
 {
     let update_job_interval = Duration::from_millis(500);
 
@@ -606,7 +609,7 @@ where
                         .expect("update worker ping");
                     }
                 }
-                let current_mem = get_mem().await;
+                let current_mem = get_mem.next().await.unwrap_or(0);
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }

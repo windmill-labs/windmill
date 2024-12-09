@@ -1081,6 +1081,7 @@ pub async fn run_worker(
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
+    let mut killpill_rx2 = killpill_rx.resubscribe();
     loop {
         #[cfg(feature = "enterprise")]
         {
@@ -1575,6 +1576,7 @@ pub async fn run_worker(
                         base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
+                        &mut killpill_rx2,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -1867,6 +1869,7 @@ async fn handle_queued_job(
     base_internal_url: &str,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
@@ -2177,6 +2180,7 @@ async fn handle_queued_job(
                     &mut column_order,
                     &mut new_args,
                     occupancy_metrics,
+                    killpill_rx,
                 )
                 .await;
                 occupancy_metrics.total_duration_of_running_jobs +=
@@ -2321,6 +2325,8 @@ async fn handle_code_execution_job(
     column_order: &mut Option<Vec<String>>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+
 ) -> error::Result<Box<RawValue>> {
     let ContentReqLangEnvs {
         content: inner_content,
@@ -2664,6 +2670,7 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
+                killpill_rx,
             )
             .await
         }
