@@ -16,8 +16,7 @@ use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
-    cache,
-    error,
+    cache, error,
     flows::{FlowModule, FlowModuleValue},
     jobs::QueuedJob,
     scripts::{ScriptHash, ScriptLang},
@@ -394,39 +393,41 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = cache::flow::fetch_script(db, *id)
-                        .await
-                        .map(|(lock, content)| SpawnWorker::RawScript {
-                            path: "".to_string(),
-                            content,
-                            lock,
-                            lang: language.clone(),
-                        });
-                    match spawn {
-                        Ok(spawn) => {
-                            if let Some(dedi_w) = spawn_dedicated_worker(
-                                spawn,
-                                w_id,
-                                killpill_tx.clone(),
-                                killpill_rx,
-                                db,
-                                worker_dir,
-                                base_internal_url,
-                                worker_name,
-                                job_completed_tx,
-                                Some(module.id.clone()),
-                            )
-                              .await
-                            {
-                                workers.push(dedi_w);
-                            }
-                        },
-                        Err(err) => tracing::error!(
-                            "failed to get script for module: {:?}, err: {:?}",
-                            module, err
-                        )
-                    }
-                },
+                    todo!()
+                    // let spawn = cache::flow::fetch_script(db, *id)
+                    //     .await
+                    //     .map(|(lock, content)| SpawnWorker::RawScript {
+                    //         path: "".to_string(),
+                    //         content,
+                    //         lock,
+                    //         lang: language.clone(),
+                    //     });
+                    // match spawn {
+                    //     Ok(spawn) => {
+                    //         if let Some(dedi_w) = spawn_dedicated_worker(
+                    //             spawn,
+                    //             w_id,
+                    //             killpill_tx.clone(),
+                    //             killpill_rx,
+                    //             db,
+                    //             worker_dir,
+                    //             base_internal_url,
+                    //             worker_name,
+                    //             job_completed_tx,
+                    //             Some(module.id.clone()),
+                    //         )
+                    //         .await
+                    //         {
+                    //             workers.push(dedi_w);
+                    //         }
+                    //     }
+                    //     Err(err) => tracing::error!(
+                    //         "failed to get script for module: {:?}, err: {:?}",
+                    //         module,
+                    //         err
+                    //     ),
+                    // }
+                }
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }

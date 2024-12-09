@@ -784,7 +784,9 @@ pub async fn resolve_module(
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
             } else {
-                cache::flow::fetch_script(e, id).await?
+                cache::flow::fetch_script(e, id)
+                    .await
+                    .map(|raw_script| (raw_script.lock.clone(), raw_script.code.clone()))?
             };
             val = RawScript {
                 input_transforms,
@@ -844,7 +846,7 @@ pub async fn resolve_modules(
     if let Some(id) = modules_node {
         *modules = cache::flow::fetch_flow(e, id)
             .await
-            .map(|flow| flow.modules)?;
+            .and_then(|raw_flow| Ok(raw_flow.value()?.modules.clone()))?;
     }
     for module in modules.iter_mut() {
         Box::pin(resolve_module(

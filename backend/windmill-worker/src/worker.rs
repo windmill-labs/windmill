@@ -1885,82 +1885,18 @@ async fn handle_queued_job(
     };
 
     let started = Instant::now();
-    let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
-        (None, None, None) => {
-            let missing_hash = || {
-                Err(error::Error::InternalErr(format!(
-                    "Missing hash for job kind: {:?}",
-                    job.job_kind
-                )))
-            };
-
-            match (job.job_kind, job.script_hash) {
-                (JobKind::Script, None) => missing_hash(),
-                (JobKind::Script, Some(hash)) => cache::script::fetch(db, hash, &job.workspace_id)
-                    .await
-                    .map(|val| (Some(val.code), val.lock, None)),
-                (JobKind::Flow | JobKind::FlowPreview, None) => {
-                    sqlx::query!(
-                        "SELECT raw_flow::text AS \"flow!: Box<str>\" FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-                        &job.id,
-                        &job.workspace_id,
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map_err(Into::<Error>::into)
-                    .and_then(|r| Ok((None, None, serde_json::from_str(&r.flow)?)))
-                }
-                (JobKind::Flow, Some(ScriptHash(id))) => {
-                    // Always prefer the lite version if available.
-                    if let Ok(flow) = cache::flow::fetch_version_lite(db, id).await {
-                        Ok((None, None, Some((*flow).clone())))
-                    } else {
-                        cache::flow::fetch_version(db, id)
-                            .await
-                            .map(|flow| (None, None, Some((*flow).clone())))
-                    }
-                }
-                (JobKind::FlowDependencies, None) => missing_hash(),
-                (JobKind::FlowDependencies, Some(ScriptHash(id))) => {
-                    cache::flow::fetch_version(db, id)
-                        .await
-                        .map(|flow| (None, None, Some((*flow).clone())))
-                }
-                (JobKind::FlowScript, None) => missing_hash(),
-                (JobKind::FlowScript, Some(ScriptHash(id))) => {
-                    cache::flow::fetch_script(db, FlowNodeId(id))
-                        .await
-                        .map(|(lock, code)| (lock, Some(code), None))
-                }
-                (JobKind::FlowNode, None) => missing_hash(),
-                (JobKind::FlowNode, Some(ScriptHash(id))) => {
-                    cache::flow::fetch_flow(db, FlowNodeId(id))
-                        .await
-                        .map(|flow| (None, None, Some(flow)))
-                }
-                (JobKind::AppScript, None) => missing_hash(),
-                (JobKind::AppScript, Some(ScriptHash(id))) => {
-                    cache::app::fetch_script(db, AppScriptId(id))
-                        .await
-                        .map(|(lock, code)| (lock, Some(code), None))
-                }
-                (JobKind::Preview, _) => {
-                    sqlx::query!(
-                        "SELECT raw_code, raw_lock
-                        FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-                        &job.id,
-                        &job.workspace_id,
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map_err(Into::<Error>::into)
-                    .map(|r| (r.raw_code, r.raw_lock, None))
-                }
-                _ => Ok((None, None, None)),
-            }?
-        }
-        (raw_code, raw_lock, raw_flow) => (raw_code, raw_lock, raw_flow),
-    };
+    let raw_data = cache::job::fetch_raw(
+        db,
+        &job.id,
+        job.job_kind,
+        job.script_hash,
+        // original raw values from `queue` table:
+        // kept for backward compatibility.
+        raw_lock,
+        raw_code,
+        raw_flow,
+    )
+    .await?;
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
@@ -2296,18 +2232,19 @@ pub async fn get_script_content_by_hash(
     w_id: &str,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let script = cache::script::fetch(db, *script_hash, w_id).await?;
-    Ok(ContentReqLangEnvs {
-        content: script.code,
-        lockfile: script.lock,
-        language: script.language,
-        envs: script.envs,
-        codebase: match script.codebase {
-            None => None,
-            Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
-            Some(_) => Some(script_hash.to_string()),
-        },
-    })
+    let script = cache::script::fetch(db, *script_hash).await?;
+    // Ok(ContentReqLangEnvs {
+    //     content: script.code,
+    //     lockfile: script.lock,
+    //     language: script.language,
+    //     envs: script.envs,
+    //     codebase: match script.codebase {
+    //         None => None,
+    //         Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
+    //         Some(_) => Some(script_hash.to_string()),
+    //     },
+    // })
+    todo!()
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2361,28 +2298,29 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = cache::flow::fetch_script(
-                db,
-                FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
-            )
-            .await?;
-            ContentReqLangEnvs {
-                content,
-                lockfile,
-                language: job.language.to_owned(),
-                envs: None,
-                codebase: None,
-            }
+            // let (lockfile, content) = cache::flow::fetch_script(
+            //     db,
+            //     FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            // )
+            // .await?;
+            // ContentReqLangEnvs {
+            //     content,
+            //     lockfile,
+            //     language: job.language.to_owned(),
+            //     envs: None,
+            //     codebase: None,
+            // }
+            todo!()
         }
         JobKind::AppScript => {
-            let (lockfile, content) = cache::app::fetch_script(
+            let raw_script = cache::app::fetch_script(
                 db,
                 AppScriptId(job.script_hash.unwrap_or(ScriptHash(0)).0),
             )
             .await?;
             ContentReqLangEnvs {
-                content,
-                lockfile,
+                content: raw_script.code.clone(),
+                lockfile: raw_script.lock.clone(),
                 language: job.language.to_owned(),
                 envs: None,
                 codebase: None,

@@ -3211,8 +3211,8 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::FlowNode { id, path } => {
-            let value = cache::flow::fetch_flow(_db, id).await?;
-            let status = Some(FlowStatus::new(&value));
+            let raw_flow = cache::flow::fetch_flow(_db, id).await?;
+            let status = Some(FlowStatus::new(raw_flow.value()?));
             (
                 Some(id.0),
                 Some(path),
@@ -3228,7 +3228,7 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
             )
-        },
+        }
         JobPayload::AppScript {
             id, // app_script(id).
             path,
@@ -3337,7 +3337,7 @@ pub async fn push<'c, 'd>(
             Some(path),
             None,
             JobKind::FlowDependencies,
-            Some(flow_value.clone()),
+            Some(flow_value),
             None,
             None,
             None,
@@ -3515,7 +3515,7 @@ pub async fn push<'c, 'd>(
                 None,
                 Some(path),
                 None,
-                JobKind::Flow,
+                JobKind::FlowPreview,
                 Some(flow_value),
                 Some(flow_status),
                 None,
@@ -3655,7 +3655,7 @@ pub async fn push<'c, 'd>(
                 None,
                 flow_path,
                 None,
-                JobKind::Flow,
+                JobKind::FlowPreview,
                 Some(raw_flow.clone()),
                 Some(restarted_flow_status),
                 None,
