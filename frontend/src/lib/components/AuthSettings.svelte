@@ -36,7 +36,8 @@
 		'quickbooks',
 		'visma',
 		'spotify',
-		'snowflake_oauth'
+		'snowflake_oauth',
+		'xero'
 	]
 
 	let oauth_name = undefined
