@@ -38,8 +38,8 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
 use windmill_common::jobs::{
-    script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
-    RawCode, ENTRYPOINT_OVERRIDE,
+    script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobKind, JobPayload,
+    QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -1508,11 +1508,34 @@ pub async fn handle_flow(
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
-    let flow = flow_value
+    let mut flow = flow_value
         .with_context(|| "Unable to parse flow definition")?;
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
+
+    // Update value.
+    if matches!(flow_job.job_kind, JobKind::Flow) {
+        add_virtual_items_if_necessary(&mut flow.modules);
+        if flow_job.same_worker {
+            flow.same_worker = true;
+        }
+        let apply_preprocessor = flow_job.args.as_ref().map_or(false, |x| x.get("extra").map_or(false, |x| {
+            #[derive(serde::Deserialize)]
+            struct Extra<'a> {
+                #[serde(borrow)]
+                #[allow(unused)]
+                wm_trigger: &'a RawValue,
+            }
+
+            // Check if the `wm_trigger` field is present in the `extra` object.
+            serde_json::from_str::<Extra<'_>>(x.get()).is_ok()
+        }));
+        if !apply_preprocessor {
+            flow.preprocessor_module = None;
+        }
+    }
+    
 
     if !flow_job.is_flow_step
         && status.retry.fail_count == 0

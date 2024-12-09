@@ -1944,20 +1944,18 @@ async fn handle_queued_job(
     };
 
     let started = Instant::now();
-    let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
-        (None, None, None) => sqlx::query!(
-            "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-            FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &job.id,
-            job.workspace_id
-        )
-        .fetch_one(db)
-        .warn_after_seconds(5)
-        .await
-        .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
-        .unwrap_or_default(),
-        (raw_code, raw_lock, raw_flow) => (raw_code, raw_lock, raw_flow),
-    };
+    let raw_data = cache::job::fetch_raw(
+        db,
+        &job.id,
+        job.job_kind,
+        job.script_hash,
+        // original raw values from `queue` table:
+        // kept for backward compatibility.
+        raw_lock,
+        raw_code,
+        raw_flow,
+    )
+    .await?;
 
     let cached_res_path = if job.cache_ttl.is_some() {
         let version_hash = if let Some(h) = job.script_hash {
@@ -2295,18 +2293,19 @@ pub async fn get_script_content_by_hash(
     w_id: &str,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let script = cache::script::fetch(db, *script_hash, w_id).await?;
-    Ok(ContentReqLangEnvs {
-        content: script.code,
-        lockfile: script.lock,
-        language: script.language,
-        envs: script.envs,
-        codebase: match script.codebase {
-            None => None,
-            Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
-            Some(_) => Some(script_hash.to_string()),
-        },
-    })
+    let script = cache::script::fetch(db, *script_hash).await?;
+    // Ok(ContentReqLangEnvs {
+    //     content: script.code,
+    //     lockfile: script.lock,
+    //     language: script.language,
+    //     envs: script.envs,
+    //     codebase: match script.codebase {
+    //         None => None,
+    //         Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
+    //         Some(_) => Some(script_hash.to_string()),
+    //     },
+    // })
+    todo!()
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2362,28 +2361,29 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = cache::flow::fetch_script(
-                db,
-                FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
-            )
-            .await?;
-            ContentReqLangEnvs {
-                content,
-                lockfile,
-                language: job.language.to_owned(),
-                envs: None,
-                codebase: None,
-            }
+            // let (lockfile, content) = cache::flow::fetch_script(
+            //     db,
+            //     FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            // )
+            // .await?;
+            // ContentReqLangEnvs {
+            //     content,
+            //     lockfile,
+            //     language: job.language.to_owned(),
+            //     envs: None,
+            //     codebase: None,
+            // }
+            todo!()
         }
         JobKind::AppScript => {
-            let (lockfile, content) = cache::app::fetch_script(
+            let raw_script = cache::app::fetch_script(
                 db,
                 AppScriptId(job.script_hash.unwrap_or(ScriptHash(0)).0),
             )
             .await?;
             ContentReqLangEnvs {
-                content,
-                lockfile,
+                content: raw_script.code.clone(),
+                lockfile: raw_script.lock.clone(),
                 language: job.language.to_owned(),
                 envs: None,
                 codebase: None,
