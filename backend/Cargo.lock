@@ -4861,7 +4861,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -5848,16 +5848,15 @@ checksum = "bc1b6902ff63b32ef6c489e8048c5e253e2e4a803ea3ea7e783914536eb15c52"
 
 [[package]]
 name = "opentelemetry_sdk"
-version = "0.27.0"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27b742c1cae4693792cc564e58d75a2a0ba29421a34a85b50da92efa89ecb2bc"
+checksum = "231e9d6ceef9b0b2546ddf52335785ce41252bc7474ee8ba05bfad277be13ab8"
 dependencies = [
  "async-trait",
  "futures-channel",
  "futures-executor",
  "futures-util",
  "glob",
- "once_cell",
  "opentelemetry",
  "percent-encoding",
  "rand 0.8.5",
@@ -10060,7 +10059,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 
@@ -10749,7 +10748,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "quote",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest 0.12.9",
  "serde",
  "serde_json",
@@ -10817,7 +10816,7 @@ dependencies = [
  "pin-project",
  "prometheus",
  "quick_cache",
- "rand 0.8.5",
+ "rand 0.7.3",
  "rdkafka",
  "regex",
  "reqwest 0.12.9",
@@ -10868,7 +10867,7 @@ dependencies = [
  "prettyplease 0.1.25",
  "progenitor",
  "progenitor-client",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -10939,7 +10938,7 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "quick_cache",
- "rand 0.8.5",
+ "rand 0.7.3",
  "regex",
  "reqwest 0.12.9",
  "semver 1.0.23",
@@ -11262,7 +11261,7 @@ dependencies = [
  "pem 3.0.4",
  "postgres-native-tls",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.7.3",
  "regex",
  "reqwest 0.12.9",
  "rust_decimal",
