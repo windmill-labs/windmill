@@ -1085,9 +1085,9 @@ dependencies = [
 
 [[package]]
 name = "bigdecimal"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f850665a0385e070b64c38d2354e6c104c8479c59868d1e48a0c13ee2c7a1c1"
+checksum = "7f31f3af01c5c65a07985c804d3366560e6fa7883d640a122819b14ec327482c"
 dependencies = [
  "autocfg",
  "libm",
@@ -10060,7 +10060,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 
@@ -10749,7 +10749,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "quote",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest 0.12.9",
  "serde",
  "serde_json",
@@ -10817,7 +10817,7 @@ dependencies = [
  "pin-project",
  "prometheus",
  "quick_cache",
- "rand 0.8.5",
+ "rand 0.7.3",
  "rdkafka",
  "regex",
  "reqwest 0.12.9",
@@ -10868,7 +10868,7 @@ dependencies = [
  "prettyplease 0.1.25",
  "progenitor",
  "progenitor-client",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -10939,7 +10939,7 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "quick_cache",
- "rand 0.8.5",
+ "rand 0.7.3",
  "regex",
  "reqwest 0.12.9",
  "semver 1.0.23",
@@ -11262,7 +11262,7 @@ dependencies = [
  "pem 3.0.4",
  "postgres-native-tls",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.7.3",
  "regex",
  "reqwest 0.12.9",
  "rust_decimal",
