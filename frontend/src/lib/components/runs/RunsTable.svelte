@@ -8,7 +8,7 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
-	import { isJobCancelable } from '$lib/utils'
+	import { isJobCancelable, isJobRerunnable } from '$lib/utils'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
@@ -16,6 +16,7 @@
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
 	export let isSelectingJobsToCancel: boolean = false
+	export let isSelectingJobsToRerun: boolean = false
 	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
@@ -148,12 +149,19 @@
 			selectedIds = []
 		} else {
 			allSelected = true
-			selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
+			selectedIds =
+				(isSelectingJobsToCancel
+					? jobs?.filter(isJobCancelable).map((j) => j.id)
+					: jobs?.filter(isJobRerunnable).map((j) => j.id)) ?? []
 		}
 	}
 	let cancelableJobCount: number = 0
 	$: isSelectingJobsToCancel && (allSelected = selectedIds.length === cancelableJobCount)
 	$: isSelectingJobsToCancel && (cancelableJobCount = jobs?.filter(isJobCancelable).length ?? 0)
+
+	let rerunableJobCount: number = 0
+	$: isSelectingJobsToRerun && (allSelected = selectedIds.length === rerunableJobCount)
+	$: isSelectingJobsToRerun && (rerunableJobCount = jobs?.filter(isJobRerunnable).length ?? 0)
 
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
@@ -195,7 +203,7 @@
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={header}>
-		{#if isSelectingJobsToCancel && cancelableJobCount != 0}
+		{#if (isSelectingJobsToCancel && cancelableJobCount != 0) || (isSelectingJobsToRerun && rerunableJobCount != 0)}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
@@ -279,9 +287,10 @@
 									job={jobOrDate.job}
 									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 									{isSelectingJobsToCancel}
+									{isSelectingJobsToRerun}
 									on:select={() => {
 										const jobId = jobOrDate.job.id
-										if (isSelectingJobsToCancel) {
+										if (isSelectingJobsToCancel || isSelectingJobsToRerun) {
 											if (selectedIds.includes(jobOrDate.job.id)) {
 												selectedIds = selectedIds.filter((id) => id != jobId)
 											} else {

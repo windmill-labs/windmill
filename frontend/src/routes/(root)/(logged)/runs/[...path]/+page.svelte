@@ -7,7 +7,8 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ExtendedJobs
+		type ExtendedJobs,
+		type ScriptArgs
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -38,7 +39,8 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
-	import { isJobCancelable } from '$lib/utils'
+	import { isJobCancelable, isJobRerunnable } from '$lib/utils'
+	import BatchRerunPanel from '$lib/components/runs/BatchRerunPanel.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -156,6 +158,8 @@
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
+	let isRerunningVisibleJobs = false
+	let isRerunningFilteredJobs = false
 	let lookback: number = 1
 
 	let innerWidth = window.innerWidth
@@ -326,6 +330,8 @@
 		selectedIds = []
 		jobIdsToCancel = []
 		isSelectingJobsToCancel = false
+		jobIdsToRerun = []
+		isSelectingJobsToRerun = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -437,10 +443,15 @@
 
 	let jobIdsToCancel: string[] = []
 	let isSelectingJobsToCancel = false
+	let jobIdsToRerun: string[] = []
+	let isSelectingJobsToRerun = false
+	let changedRerunArgs: { [jobId: string]: ScriptArgs }[] = []
 	let fetchingFilteredJobs = false
 	let selectedFiltersString: string | undefined = undefined
 
 	async function cancelVisibleJobs() {
+		isSelectingJobsToRerun = false
+		selectedIds = []
 		isSelectingJobsToCancel = true
 		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
 		if (selectedIds.length === 0) {
@@ -448,6 +459,8 @@
 		}
 	}
 	async function cancelFilteredJobs() {
+		isSelectingJobsToRerun = false
+		selectedIds = []
 		isCancelingFilteredJobs = true
 		fetchingFilteredJobs = true
 		const selectedFilters = {
@@ -497,6 +510,66 @@
 		isCancelingVisibleJobs = true
 	}
 
+	async function rerunSelectedJobs() {
+		jobIdsToRerun = selectedIds
+		isRerunningVisibleJobs = true
+	}
+
+	async function rerunVisibleJobs() {
+		isSelectingJobsToCancel = false
+		selectedIds = []
+		isSelectingJobsToRerun = true
+		selectedIds = jobs?.filter(isJobRerunnable).map((j) => j.id) ?? []
+		if (selectedIds.length === 0) {
+			sendUserToast('There are no visible jobs that can be re-ran', true)
+		}
+	}
+	async function rerunFilteredJobs() {
+		isSelectingJobsToCancel = false
+		selectedIds = []
+		isRerunningFilteredJobs = true
+		fetchingFilteredJobs = true
+		const selectedFilters = {
+			workspace: $workspaceStore ?? '',
+			startedBefore: maxTs,
+			startedAfter: minTs,
+			schedulePath,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			jobKinds,
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			running:
+				success == 'running' || success == 'suspended'
+					? true
+					: success == 'waiting'
+					? false
+					: undefined,
+			isSkipped: isSkipped ? undefined : false,
+			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			hasNullParent:
+				path != undefined || path != undefined || jobKindsCat != 'all' ? true : undefined,
+			label: label === null || label === '' ? undefined : label,
+			tag: tag === null || tag === '' ? undefined : tag,
+			isNotSchedule: showSchedules == false ? true : undefined,
+			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
+			scheduledForBeforeNow:
+				showFutureJobs == false || success == 'waiting' || success == 'suspended'
+					? true
+					: undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined,
+			allWorkspaces: allWorkspaces ? true : undefined
+		}
+
+		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
+		jobIdsToRerun = await JobService.listFilteredUuids(selectedFilters) // TODO
+		fetchingFilteredJobs = false
+	}
 	function jobCountString(count: number) {
 		return `${count} ${count == 1 ? 'job' : 'jobs'}`
 	}
@@ -614,6 +687,49 @@
 	}}
 	on:canceled={() => {
 		isCancelingVisibleJobs = false
+	}}
+/>
+
+<ConfirmationModal
+	title={`Confirm re-running the selected jobs`}
+	confirmationText={`Re-run ${jobIdsToRerun.length} jobs`}
+	open={isRerunningVisibleJobs}
+	on:confirmed={async () => {
+		isRerunningVisibleJobs = false
+		let jobArgsPromises = jobIdsToRerun.map(
+			(jobId) =>
+				changedRerunArgs[jobId] ??
+				JobService.getJobArgs({
+					workspace: $workspaceStore ?? '',
+					id: jobId
+				})
+		)
+
+		const jobArgs = await Promise.all(jobArgsPromises)
+		const selectedJobs = jobIdsToRerun.map((jobId) => jobs?.find((job) => job.id === jobId))
+
+		const jobsToRerun = selectedJobs.map((job, i) =>
+			job?.job_kind === 'script'
+				? JobService.runScriptByHash({
+						workspace: $workspaceStore ?? '',
+						hash: job?.script_hash,
+						requestBody: jobArgs[i]
+				  })
+				: JobService.runFlowByPath({
+						workspace: $workspaceStore ?? '',
+						path: job?.script_path,
+						requestBody: jobArgs[i]
+				  })
+		)
+		await Promise.all(jobsToRerun)
+		jobIdsToRerun = []
+		selectedIds = []
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Re-ran ${jobArgs.length} jobs`)
+		isSelectingJobsToRerun = false
+	}}
+	on:canceled={() => {
+		isRerunningVisibleJobs = false
 	}}
 />
 
@@ -856,6 +972,70 @@
 						</DropdownV2>
 					{/if}
 				</div>
+
+				<div class="flex flex-row">
+					{#if isSelectingJobsToRerun}
+						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+							<Button
+								startIcon={{ icon: X }}
+								size="xs"
+								color="gray"
+								variant="contained"
+								on:click={() => {
+									isSelectingJobsToRerun = false
+									selectedIds = []
+								}}
+							/>
+							<Button
+								disabled={selectedIds.length == 0}
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="blue"
+								variant="contained"
+								on:click={rerunSelectedJobs}
+							>
+								Re-run {jobCountString(selectedIds.length)}
+							</Button>
+						</div>
+					{:else if !$userStore?.is_admin && !$superadmin}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to re-run',
+									action: rerunVisibleJobs
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Batch re-run jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{:else}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to re-run',
+									action: rerunVisibleJobs
+								},
+								{ displayName: 'Re-run all jobs matching filters', action: rerunFilteredJobs }
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Batch Re-run jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
+				</div>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40">
 				<Toggle
@@ -979,6 +1159,7 @@
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
 							{isSelectingJobsToCancel}
+							{isSelectingJobsToRerun}
 							bind:selectedIds
 							bind:selectedWorkspace
 							bind:lastFetchWentToEnd
@@ -1001,7 +1182,14 @@
 					{/if}
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t">
-					{#if selectedIds.length === 1}
+					{#if isSelectingJobsToRerun}
+						<BatchRerunPanel
+							{selectedIds}
+							{jobs}
+							workspace={selectedWorkspace}
+							bind:args={changedRerunArgs}
+						/>
+					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
@@ -1224,6 +1412,70 @@
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
 									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
+				</div>
+
+				<div class="flex flex-row">
+					{#if isSelectingJobsToRerun}
+						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+							<Button
+								startIcon={{ icon: X }}
+								size="xs"
+								color="gray"
+								variant="contained"
+								on:click={() => {
+									isSelectingJobsToRerun = false
+									selectedIds = []
+								}}
+							/>
+							<Button
+								disabled={selectedIds.length == 0}
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={rerunSelectedJobs}
+							>
+								Re-run {jobCountString(selectedIds.length)}
+							</Button>
+						</div>
+					{:else if !$userStore?.is_admin && !$superadmin}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to re-run',
+									action: rerunVisibleJobs
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Batch Re-run jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{:else}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to re-run',
+									action: rerunVisibleJobs
+								},
+								{ displayName: 'Re-run all jobs matching filters', action: rerunFilteredJobs }
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Batch Re-run Jobs</span>
 									<ChevronDown class="w-5 h-5" />
 								</div>
 							</svelte:fragment>
