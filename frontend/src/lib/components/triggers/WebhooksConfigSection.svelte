@@ -30,7 +30,7 @@
 	export let args: any
 	export let triggerTokens: TriggerTokens | undefined = undefined
 	export let scopes: string[] = []
-	export let captureMode: boolean = false
+	export let showCapture: boolean = false
 
 	let webhooks: {
 		async: {
@@ -184,7 +184,7 @@ function waitForJobCompletion(UUID) {
 	}
 
 	function curlCode() {
-		if (captureMode) {
+		if (showCapture) {
 			return `curl \\
 -X POST ${url} \\
 -H 'Content-Type: application/json' \\
@@ -220,9 +220,9 @@ done`
 	function updateUrl(
 		webhookType: 'async' | 'sync',
 		requestType: 'hash' | 'path' | 'get_path',
-		captureMode
+		showCapture
 	) {
-		if (captureMode) {
+		if (showCapture) {
 			url = `${$page.url.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
 				isFlow ? 'flow' : 'script'
 			}/${path}`
@@ -243,11 +243,11 @@ done`
 		}
 	}
 
-	$: updateUrl(webhookType, requestType, captureMode)
+	$: updateUrl(webhookType, requestType, showCapture)
 
 	let prevSelectedTab = selectedTab
-	function updateSelectedTab(captureMode: boolean) {
-		if (captureMode) {
+	function updateSelectedTab(showCapture: boolean) {
+		if (showCapture) {
 			prevSelectedTab = selectedTab
 			selectedTab = 'curl'
 		} else {
@@ -256,8 +256,8 @@ done`
 	}
 
 	let prevWebhookType = webhookType
-	function updateWebhookType(captureMode: boolean) {
-		if (captureMode) {
+	function updateWebhookType(showCapture: boolean) {
+		if (showCapture) {
 			prevWebhookType = webhookType
 			webhookType = 'async'
 		} else {
@@ -266,8 +266,8 @@ done`
 	}
 
 	let prevRequestType: 'hash' | 'path' | 'get_path'
-	function updateRequestType(captureMode: boolean) {
-		if (captureMode) {
+	function updateRequestType(showCapture: boolean) {
+		if (showCapture) {
 			prevRequestType = requestType
 			requestType = 'path'
 		} else {
@@ -275,9 +275,9 @@ done`
 		}
 	}
 
-	$: updateSelectedTab(captureMode)
-	$: updateWebhookType(captureMode)
-	$: updateRequestType(captureMode)
+	$: updateSelectedTab(showCapture)
+	$: updateWebhookType(showCapture)
+	$: updateRequestType(showCapture)
 </script>
 
 <UserSettings
@@ -293,7 +293,7 @@ done`
 
 <div class="flex flex-col gap-8">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-		<Label label="Token" disabled={captureMode}>
+		<Label label="Token" disabled={showCapture}>
 			<div class="flex flex-row justify-between gap-2">
 				<input
 					bind:value={token}
@@ -314,7 +314,7 @@ done`
 	<div class="flex flex-col gap-2">
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} disabled={captureMode}>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} disabled={showCapture}>
 				<ToggleButton
 					label="Async"
 					value="async"
@@ -329,7 +329,7 @@ done`
 		</div>
 		<div class="flex flex-row justify-between">
 			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} disabled={captureMode}>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} disabled={showCapture}>
 				<ToggleButton
 					label="POST by path"
 					value="path"
@@ -357,7 +357,7 @@ done`
 		<div
 			class={twMerge(
 				'flex flex-row justify-between',
-				captureMode ? 'opacity-60 pointer-events-none' : ''
+				showCapture ? 'opacity-60 pointer-events-none' : ''
 			)}
 		>
 			<div class="text-sm font-normal text-secondary flex flex-row items-center"
@@ -373,11 +373,11 @@ done`
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div>
 		<Tabs bind:selected={selectedTab}>
-			<Tab value="rest" size="xs" disabled={captureMode}>REST</Tab>
+			<Tab value="rest" size="xs" disabled={showCapture}>REST</Tab>
 			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 				<Tab value="curl" size="xs">Curl</Tab>
 			{/if}
-			<Tab value="fetch" size="xs" disabled={captureMode}>Fetch</Tab>
+			<Tab value="fetch" size="xs" disabled={showCapture}>Fetch</Tab>
 
 			<svelte:fragment slot="content">
 				{#key token}
@@ -407,7 +407,7 @@ done`
 								{#key requestType}
 									{#key webhookType}
 										{#key tokenType}
-											{#key captureMode}
+											{#key showCapture}
 												<div
 													class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
 													on:click={(e) => {
@@ -448,7 +448,7 @@ done`
 			</svelte:fragment>
 		</Tabs>
 	</div>
-	{#if !captureMode}
+	{#if !showCapture}
 		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
 	{/if}
 </div>

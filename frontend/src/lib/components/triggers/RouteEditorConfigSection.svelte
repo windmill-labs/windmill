@@ -20,7 +20,7 @@
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
-	export let captureMode = false
+	export let showCapture = false
 	export let initialRoutePath: string = ''
 	export let isFlow = true
 	export let path: string = ''
@@ -69,9 +69,9 @@
 
 	$: validateRoute(route_path, http_method)
 
-	$: fullRoute = getHttpRoute(route_path, captureMode)
+	$: fullRoute = getHttpRoute(route_path, showCapture)
 
-	$: captureMode && (http_method = 'post')
+	$: showCapture && (http_method = 'post')
 
 	export let route_path = ''
 
@@ -119,7 +119,7 @@
 			disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
 				!can_write ||
 				!!static_asset_config ||
-				captureMode}
+				showCapture}
 		>
 			<ToggleButton label="GET" value="get" />
 			<ToggleButton label="POST" value="post" />
@@ -151,7 +151,7 @@
 				>{dirtyRoutePath ? routeError : ''}</div
 			>
 		</div>
-		{#if captureMode}
+		{#if showCapture}
 			<Label label="cUrl">
 				<CopyableCodeBlock
 					code={`curl \\

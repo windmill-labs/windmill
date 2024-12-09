@@ -8,10 +8,11 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
-	import Toggle from '../Toggle.svelte'
 	import ConnectionIndicator from '$lib/components/common/alert/ConnectionIndicator.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { onDestroy } from 'svelte'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+
 	export let cloudDisabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let isFlow: boolean = false
@@ -30,7 +31,7 @@
 
 	let args: Record<string, any> = {}
 
-	let active = false
+	let captureActive = false
 	let connectionInfo:
 		| {
 				status: 'connected' | 'disconnected' | 'error'
@@ -50,59 +51,59 @@
 	onDestroy(() => {
 		$captureOn = false
 	})
+
+	$: $captureOn && handleCapture?.()
 </script>
 
-<Section label={`${captureTypeLabels[captureType]} Configuration`}>
+<Section label={`${captureTypeLabels[captureType]} Prototype`}>
 	<svelte:fragment slot="action">
-		<div class=" flex flex-row grow w-min-0 gap-2 px-2 items-center justify-between">
-			<Toggle bind:checked={$captureOn} options={{ left: 'Capture' }} size="xs" />
-			<div class="flex flex-row gap-2">
-				<ConnectionIndicator {connectionInfo} />
+		<div class="flex flex-row grow w-min-0 gap-2 px-2 items-center justify-end">
+			<ConnectionIndicator {connectionInfo} />
 
-				{#if $captureOn}
+			<AnimatedButton animate={captureActive} baseRadius="6px">
+				<Button
+					size="xs2"
+					on:click={() => {
+						handleCapture?.()
+					}}
+					variant="border"
+					disabled={false}
+					color="light"
+					startIcon={{ icon: captureActive ? CircleStop : Play }}
+					btnClasses={captureActive ? 'text-blue-500 hover:text-blue-500' : ''}
+				>
+					Capture
+				</Button>
+			</AnimatedButton>
+
+			{#if !noSave}
+				{@const disabled = newItem || cloudDisabled}
+				<Popover notClickable>
 					<Button
 						size="xs2"
-						on:click={() => handleCapture?.()}
-						disabled={false}
-						color={active ? 'red' : 'dark'}
-						startIcon={{ icon: active ? CircleStop : Play }}
+						{disabled}
+						startIcon={{ icon: Save }}
+						on:click={() => {
+							dispatch('saveTrigger', {
+								config: args
+							})
+						}}
 					>
-						Capture
+						New {captureTypeLabels[captureType]}
 					</Button>
-				{/if}
-
-				{#if !noSave}
-					{#if newItem || cloudDisabled}
-						<Popover notClickable>
-							<Button
-								size="xs2"
-								disabled
-								startIcon={{ icon: Save }}
-								iconOnly
-								wrapperClasses="h-full"
-							/>
-							<svelte:fragment slot="text">
-								{#if newItem}
-									Deploy the runnable to enable trigger creation
-								{:else if cloudDisabled}
-									{capitalize(captureType)} triggers are disabled in the multi-tenant cloud
-								{/if}
-							</svelte:fragment>
-						</Popover>
-					{:else}
-						<Button
-							size="xs2"
-							on:click={() => {
-								dispatch('saveTrigger', {
-									config: args
-								})
-							}}
-							startIcon={{ icon: Save }}
-							iconOnly
-						/>
-					{/if}
-				{/if}
-			</div>
+					<svelte:fragment slot="text">
+						{#if disabled}
+							{#if newItem}
+								Deploy the runnable to enable trigger creation
+							{:else if cloudDisabled}
+								{capitalize(captureType)} triggers are disabled in the multi-tenant cloud
+							{/if}
+						{:else}
+							Create new {captureTypeLabels[captureType]} trigger from prototype
+						{/if}
+					</svelte:fragment>
+				</Popover>
+			{/if}
 		</div>
 	</svelte:fragment>
 
@@ -126,9 +127,8 @@
 			}
 		}}
 		bind:args
-		captureMode={$captureOn}
 		bind:handleCapture
-		bind:active
+		bind:captureActive
 		{data}
 		bind:connectionInfo
 	/>

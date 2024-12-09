@@ -14,7 +14,7 @@
 	export let urlRunnableSchema: Record<string, unknown> = {}
 	export let can_write: boolean = false
 	export let headless: boolean = false
-	export let captureMode: boolean = false
+	export let showCapture: boolean = false
 
 	function updateArgs(url: string) {
 		args && (args.url = url)
@@ -31,10 +31,10 @@
 				url = ev.detail === 'runnable' ? '$script:' : ''
 				url_runnable_args = {}
 			}}
-			disabled={captureMode}
+			disabled={showCapture}
 		>
 			<ToggleButton value="static" label="Static URL" />
-			<ToggleButton value="runnable" label="Runnable result as URL" />
+			<ToggleButton value="runnable" label="Runnable result as URL" disabled={showCapture} />
 		</ToggleButtonGroup>
 	</div>
 	{#if url.startsWith('$')}

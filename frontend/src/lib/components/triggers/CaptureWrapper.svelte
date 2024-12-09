@@ -23,8 +23,7 @@
 	export let hasPreprocessor: boolean
 	export let canHavePreprocessor: boolean
 	export let captureType: CaptureTriggerKind = 'webhook'
-	export let captureMode = false
-	export let active = false
+	export let captureActive = false
 	export let data: any = {}
 	export let connectionInfo:
 		| {
@@ -217,13 +216,14 @@
 			return acc
 		}, {})
 
-		if ((captureType === 'websocket' || captureType === 'kafka') && active) {
+		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
 			const config = captureConfigs[captureType]
+			console.log('dbg config', config)
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
 				if (!serverEnabled) {
 					sendUserToast('Capture was stopped because of error: ' + config.error, true)
-					active = false
+					captureActive = false
 				}
 			}
 		}
@@ -233,10 +233,9 @@
 	let refreshCaptures: () => Promise<void>
 
 	async function capture() {
-		console.log('dbg capture')
 		let i = 0
-		active = true
-		while (active) {
+		captureActive = true
+		while (captureActive) {
 			if (i % 3 === 0) {
 				await CaptureService.pingCaptureConfig({
 					workspace: $workspaceStore!,
@@ -253,7 +252,7 @@
 	}
 
 	function stopAndSetDefaultArgs() {
-		active = false
+		captureActive = false
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
@@ -270,7 +269,7 @@
 	$: captureType && stopAndSetDefaultArgs()
 
 	onDestroy(() => {
-		active = false
+		captureActive = false
 	})
 
 	function getServerEnabled(config: CaptureConfig) {
@@ -281,11 +280,11 @@
 	}
 
 	export async function handleCapture() {
-		if (!active) {
+		if (!captureActive) {
 			await setConfig()
 			capture()
 		} else {
-			active = false
+			captureActive = false
 		}
 	}
 
@@ -297,9 +296,9 @@
 	function updateConnectionInfo(
 		captureType: CaptureTriggerKind,
 		config: CaptureConfig | undefined,
-		active: boolean
+		captureActive: boolean
 	) {
-		if ((captureType === 'websocket' || captureType === 'kafka') && config && active) {
+		if ((captureType === 'websocket' || captureType === 'kafka') && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const message = serverEnabled
 				? 'Websocket is connected'
@@ -312,7 +311,7 @@
 			connectionInfo = undefined
 		}
 	}
-	$: updateConnectionInfo(captureType, config, active)
+	$: updateConnectionInfo(captureType, config, captureActive)
 </script>
 
 <div class="flex flex-col gap-4 w-full">
@@ -328,7 +327,13 @@
 		{/if}
 
 		{#if captureType === 'websocket'}
-			<WebsocketEditorConfigSection url={''} can_write={true} headless={true} bind:args />
+			<WebsocketEditorConfigSection
+				url={''}
+				can_write={true}
+				headless={true}
+				bind:args
+				showCapture={captureActive}
+			/>
 		{:else if captureType === 'webhook'}
 			<WebhooksConfigSection
 				{isFlow}
@@ -337,25 +342,30 @@
 				token={data?.token}
 				{args}
 				scopes={data?.scopes}
-				{captureMode}
+				showCapture={captureActive}
 			/>
 		{:else if captureType === 'http'}
-			<RouteEditorConfigSection {path} {captureMode} can_write={true} bind:args headless />
+			<RouteEditorConfigSection
+				{path}
+				showCapture={captureActive}
+				can_write={true}
+				bind:args
+				headless
+			/>
 		{:else if captureType === 'email'}
 			<Label label="Email">
 				<ClipboardPanel content={emailAddress} />
 			</Label>
 		{/if}
 
-		{#if captureMode}
-			<CaptureTable
-				{captureType}
-				{hasPreprocessor}
-				{canHavePreprocessor}
-				{isFlow}
-				{path}
-				bind:refreshCaptures
-			/>
-		{/if}
+		<CaptureTable
+			{captureType}
+			{hasPreprocessor}
+			{canHavePreprocessor}
+			{isFlow}
+			{path}
+			bind:refreshCaptures
+			hideCapturesWhenEmpty={true}
+		/>
 	{/if}
 </div>
