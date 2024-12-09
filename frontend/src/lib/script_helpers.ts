@@ -630,8 +630,11 @@ def preprocessor(
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
-# Bash script that calls docker as a client to the host daemon
-# See documentation: https://www.windmill.dev/docs/advanced/docker
+# docker
+# The annotation "docker" above is important, it tells windmill that after 
+# the end of the bash script, it should manage the container at id $WM_JOB_ID:
+# pipe logs, monitor memory usage, kill container if job is cancelled.
+
 msg="\${1:-world}"
 
 IMAGE="alpine:latest"
@@ -639,7 +642,9 @@ COMMAND="/bin/echo Hello $msg"
 
 # ensure that the image is up-to-date
 docker pull $IMAGE
-docker run --rm $IMAGE $COMMAND
+
+# if using the 'docker' mode, name it with $WM_JOB_ID for windmill to monitor it
+docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
 `
 
 const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)

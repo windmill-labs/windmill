@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.435.2
+  version: 1.436.0
   title: Windmill API
 
   contact:
@@ -11216,6 +11216,8 @@ components:
           type: string
         is_admin:
           type: boolean
+        name:
+          type: string
         is_super_admin:
           type: boolean
         created_at:
