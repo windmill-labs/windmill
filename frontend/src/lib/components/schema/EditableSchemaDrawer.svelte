@@ -6,7 +6,7 @@
 	import AddProperty from './AddProperty.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
-	import { emptyString, generateRandomString } from '$lib/utils'
+	import { emptyString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Label from '../Label.svelte'
@@ -25,7 +25,7 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
 	$: items = ((schema?.order ?? Object.keys(schema.properties ?? {}))?.map((item, index) => {
-		return { value: item, id: generateRandomString() }
+		return { value: item, id: item }
 	}) ?? []) as Array<{
 		value: string
 		id: string
