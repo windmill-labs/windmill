@@ -125,6 +125,7 @@
 		email: $userStore?.email,
 		groups: $userStore?.groups,
 		username: $userStore?.username,
+		name: $userStore?.name,
 		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,

@@ -847,6 +847,7 @@ pub struct UserInfo {
     pub folders_read: Vec<String>,
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
+    pub name: Option<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -1218,6 +1219,7 @@ async fn whoami(
             workspace_id: w_id,
             email: email.clone(),
             username: email,
+            name: None,
             is_admin,
             is_super_admin: is_admin,
             created_at: chrono::Utc::now(),
@@ -1306,22 +1308,30 @@ async fn get_usage(
     Ok(usage.to_string())
 }
 
+#[derive(FromRow, Serialize)]
+pub struct User2 {
+    pub workspace_id: String,
+    pub email: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub operator: bool,
+    pub disabled: bool,
+    pub role: Option<String>,
+    pub super_admin: bool,
+    pub name: Option<String>,
+}
+
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
-        User,
-        "SELECT * FROM usr where username = $1 AND workspace_id = $2",
+        User2,
+        "SELECT usr.*, password.super_admin, password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        ",
         username,
         w_id
     )
     .fetch_optional(db)
     .await?;
-    let is_super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        user.as_ref().map(|x| &x.email)
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
     let groups = get_groups_for_user(
         &w_id,
         username,
@@ -1339,8 +1349,9 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         workspace_id: usr.workspace_id,
         email: usr.email,
         username: usr.username,
+        name: usr.name,
         is_admin: usr.is_admin,
-        is_super_admin,
+        is_super_admin: usr.super_admin,
         created_at: usr.created_at,
         operator: usr.operator,
         disabled: usr.disabled,

@@ -17,7 +17,10 @@
 	let can_write = false
 
 	async function loadApp() {
-		app = await AppService.getAppLiteByPath({ workspace: $workspaceStore!, path: $page.params.path })
+		app = await AppService.getAppLiteByPath({
+			workspace: $workspaceStore!,
+			path: $page.params.path
+		})
 		can_write = canWrite(app?.path, app?.extra_perms!, $userStore)
 	}
 
@@ -48,6 +51,7 @@
 			<AppPreview
 				context={{
 					email: $userStore?.email,
+					name: $userStore?.name,
 					username: $userStore?.username,
 					groups: $userStore?.groups,
 					query: Object.fromEntries($page.url.searchParams.entries()),

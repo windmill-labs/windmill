@@ -6,6 +6,7 @@ import { getLocalSetting } from './utils'
 
 export interface UserExt {
 	email: string
+	name: string
 	username: string
 	is_admin: boolean
 	is_super_admin: boolean
