@@ -1138,6 +1138,8 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
+ "log",
+ "prettyplease 0.2.25",
  "proc-macro2",
  "quote",
  "regex",
@@ -1253,6 +1255,50 @@ name = "block-padding"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
+
+[[package]]
+name = "bollard"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97ccca1260af6a459d75994ad5acc1651bcabcbdbc41467cc9786519ab854c30"
+dependencies = [
+ "base64 0.22.1",
+ "bollard-stubs",
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "hex",
+ "http 1.2.0",
+ "http-body-util",
+ "hyper 1.5.1",
+ "hyper-named-pipe",
+ "hyper-util",
+ "hyperlocal",
+ "log",
+ "pin-project-lite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_repr",
+ "serde_urlencoded",
+ "thiserror 2.0.4",
+ "tokio",
+ "tokio-util",
+ "tower-service",
+ "url",
+ "winapi",
+]
+
+[[package]]
+name = "bollard-stubs"
+version = "1.47.1-rc.27.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f179cfbddb6e77a5472703d4b30436bff32929c0aa8a9008ecf23d1d3cdd0da"
+dependencies = [
+ "serde",
+ "serde_repr",
+ "serde_with",
+]
 
 [[package]]
 name = "borsh"
@@ -2440,9 +2486,9 @@ dependencies = [
 
 [[package]]
 name = "deno_ast"
-version = "0.42.2"
+version = "0.43.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2b9d03b1bbeeecdac54367f075d572131736d06c5be3bc49037855bc5ab1bbb"
+checksum = "48d00b724e06d2081a141ec1155756a0b465d413d8e2a7515221f61d482eb2ee"
 dependencies = [
  "base64 0.21.7",
  "deno_media_type",
@@ -2481,18 +2527,18 @@ dependencies = [
 
 [[package]]
 name = "deno_console"
-version = "0.171.0"
+version = "0.179.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "144108c8bb93b1df2cda4583d9beb8cd4e18798d3e030af8b07d2c55c1e3259b"
+checksum = "2e09f2bbb2d842329b602da25dbab5cd4a342f9a8adcb7c02509fc322f796e79"
 dependencies = [
  "deno_core",
 ]
 
 [[package]]
 name = "deno_core"
-version = "0.311.0"
+version = "0.321.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e09bd55da542fa1fde753aff617c355b5d782e763ab2a19e4371a56d7844cac"
+checksum = "cd2a54cda74cdc187d5fc2d23370a45cf09f912caf566dd1cd24a50157d809c7"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2504,6 +2550,7 @@ dependencies = [
  "deno_ops",
  "deno_unsync",
  "futures",
+ "indexmap 2.7.0",
  "libc",
  "memoffset",
  "parking_lot",
@@ -2518,19 +2565,20 @@ dependencies = [
  "tokio",
  "url",
  "v8",
+ "wasm_dep_analyzer",
 ]
 
 [[package]]
 name = "deno_core_icudata"
-version = "0.0.73"
+version = "0.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13951ea98c0a4c372f162d669193b4c9d991512de9f2381dd161027f34b26b1"
+checksum = "fe4dccb6147bb3f3ba0c7a48e993bfeb999d2c2e47a81badee80e2b370c8d695"
 
 [[package]]
 name = "deno_fetch"
-version = "0.195.0"
+version = "0.203.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a91340a1d60cebe1392e4b6e1614709ab5fdcfc1f55842561e498d7ef9b2cb9"
+checksum = "a18e66bd3bf786e24a8b8bdc97049fa82957b095a5fd1e142545c5a7cdd2272a"
 dependencies = [
  "base64 0.21.7",
  "bytes",
@@ -2540,6 +2588,7 @@ dependencies = [
  "deno_tls",
  "dyn-clone",
  "error_reporter",
+ "hickory-resolver",
  "http 1.2.0",
  "http-body-util",
  "hyper 1.5.1",
@@ -2550,6 +2599,7 @@ dependencies = [
  "rustls-webpki 0.102.8",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-rustls 0.26.0",
  "tokio-socks",
@@ -2561,9 +2611,9 @@ dependencies = [
 
 [[package]]
 name = "deno_media_type"
-version = "0.1.4"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8978229b82552bf8457a0125aa20863f023619cfc21ebb007b1e571d68fd85b"
+checksum = "eaa135b8a9febc9a51c16258e294e268a1276750780d69e46edb31cced2826e4"
 dependencies = [
  "data-url",
  "serde",
@@ -2585,31 +2635,33 @@ dependencies = [
 
 [[package]]
 name = "deno_net"
-version = "0.163.0"
+version = "0.171.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b769fd37232a38bf15a3834c9da8cc99409b52d0cf4a936f3117744369f8063"
+checksum = "f7b3a51f7b4d5d64d17a7bc6f7495498f20d809930979d21a059d75e850cdea6"
 dependencies = [
  "deno_core",
  "deno_permissions",
  "deno_tls",
+ "hickory-proto",
+ "hickory-resolver",
  "pin-project",
  "rustls-tokio-stream",
  "serde",
  "socket2",
+ "thiserror 1.0.69",
  "tokio",
- "trust-dns-proto",
- "trust-dns-resolver",
 ]
 
 [[package]]
 name = "deno_ops"
-version = "0.187.0"
+version = "0.197.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e040fd4def8a67538fe38c9955fd970efc9f44284bd69d44f8992a456afd665d"
+checksum = "37a8825d92301cf445727c43f17fee2a20fcdf4370004339965156ae7c56c97e"
 dependencies = [
  "proc-macro-rules",
  "proc-macro2",
  "quote",
+ "stringcase",
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "syn 2.0.90",
@@ -2618,9 +2670,9 @@ dependencies = [
 
 [[package]]
 name = "deno_path_util"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4889646c1ce8437a6fde3acb057fd7e2d039e62c61f5063fc125ed1ede114dc6"
+checksum = "ff25f6e08e7a0214bbacdd6f7195c7f1ebcd850c87a624e4ff06326b68b42d99"
 dependencies = [
  "percent-encoding",
  "thiserror 1.0.69",
@@ -2629,9 +2681,9 @@ dependencies = [
 
 [[package]]
 name = "deno_permissions"
-version = "0.31.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1328c2d1d26cd066ba9d7d5fb3451081219e373342423f78d7a1b73bfac9849"
+checksum = "14e822f98185ab3ddf06104b2407681e0008af52361af32f1cd171b7eda5aa59"
 dependencies = [
  "deno_core",
  "deno_path_util",
@@ -2642,6 +2694,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "serde",
+ "thiserror 1.0.69",
  "which 4.4.2",
  "winapi",
 ]
@@ -2668,9 +2721,9 @@ dependencies = [
 
 [[package]]
 name = "deno_tls"
-version = "0.158.0"
+version = "0.166.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22a1abc6bd8af41aa2496ceceef94f4277092c781a9495c437327a17659553a2"
+checksum = "688175eed35e7b3053ec114227894ef24786855405d8844058a48bffa997d85a"
 dependencies = [
  "deno_core",
  "deno_native_certs",
@@ -2679,6 +2732,7 @@ dependencies = [
  "rustls-tokio-stream",
  "rustls-webpki 0.102.8",
  "serde",
+ "thiserror 1.0.69",
  "tokio",
  "webpki-roots 0.26.7",
 ]
@@ -2696,19 +2750,20 @@ dependencies = [
 
 [[package]]
 name = "deno_url"
-version = "0.171.0"
+version = "0.179.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68eb6834d66ff13c19633b0e1b621292461b744858130b0a1c51f34a57ba1a03"
+checksum = "ad9a108794e505f2b07665e19ff336c1bcba6adcf7182c90c1d3a6c741d7fcd0"
 dependencies = [
  "deno_core",
+ "thiserror 1.0.69",
  "urlpattern",
 ]
 
 [[package]]
 name = "deno_web"
-version = "0.202.0"
+version = "0.210.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0862246372f5b559b788aa07ca1b9385909d59630251156a54c4d2c5342d1eb"
+checksum = "7679087bcc41f7ae3385f8c12d43bc81cfc54cb9b1ef73983d20f5e39fa4e0da"
 dependencies = [
  "async-trait",
  "base64-simd 0.8.0",
@@ -2719,15 +2774,16 @@ dependencies = [
  "flate2",
  "futures",
  "serde",
+ "thiserror 1.0.69",
  "tokio",
  "uuid 1.11.0",
 ]
 
 [[package]]
 name = "deno_webidl"
-version = "0.171.0"
+version = "0.179.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e969b61b740479379eaf303a6900d11f162f9de610640398f89f0aa58abb7c4"
+checksum = "5b55d845e3d64f8de7eff67aaa4b6fe1b23bbc2efe967c984f8c64c8dd85fad4"
 dependencies = [
  "deno_core",
 ]
@@ -3942,6 +3998,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "hickory-proto"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07698b8420e2f0d6447a436ba999ec85d8fbf2a398bbd737b82cac4a2e96e512"
+dependencies = [
+ "async-trait",
+ "cfg-if",
+ "data-encoding",
+ "enum-as-inner",
+ "futures-channel",
+ "futures-io",
+ "futures-util",
+ "idna 0.4.0",
+ "ipnet",
+ "once_cell",
+ "rand 0.8.5",
+ "serde",
+ "thiserror 1.0.69",
+ "tinyvec",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "hickory-resolver"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28757f23aa75c98f254cf0405e6d8c25b831b32921b050a66692427679b1f243"
+dependencies = [
+ "cfg-if",
+ "futures-util",
+ "hickory-proto",
+ "ipconfig",
+ "lru-cache",
+ "once_cell",
+ "parking_lot",
+ "rand 0.8.5",
+ "resolv-conf",
+ "serde",
+ "smallvec",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4140,6 +4243,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-named-pipe"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73b7d8abf35697b81a825e386fc151e0d503e8cb5fcb93cc8669c376dfd6f278"
+dependencies = [
+ "hex",
+ "hyper 1.5.1",
+ "hyper-util",
+ "pin-project-lite",
+ "tokio",
+ "tower-service",
+ "winapi",
+]
+
+[[package]]
 name = "hyper-rustls"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4170,6 +4288,19 @@ dependencies = [
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.0",
+ "tower-service",
+]
+
+[[package]]
+name = "hyper-timeout"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3203a961e5c83b6f5498933e78b6b263e208c197b63e9c6c53cc82ffd3f63793"
+dependencies = [
+ "hyper 1.5.1",
+ "hyper-util",
+ "pin-project-lite",
+ "tokio",
  "tower-service",
 ]
 
@@ -4220,6 +4351,21 @@ dependencies = [
  "tower 0.4.13",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "hyperlocal"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "986c5ce3b994526b3cd75578e62554abd09f0899d6206de48b3e96ab34ccc8c7"
+dependencies = [
+ "hex",
+ "http-body-util",
+ "hyper 1.5.1",
+ "hyper-util",
+ "pin-project-lite",
+ "tokio",
+ "tower-service",
 ]
 
 [[package]]
@@ -4809,7 +4955,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "674883a98273598ac3aad4301724c56734bea90574c5033af067e8f9fb5eb399"
 dependencies = [
- "prost",
+ "prost 0.12.6",
  "prost-types",
 ]
 
@@ -5109,13 +5255,13 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.8.11"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4a650543ca06a924e8b371db273b2756685faae30f8487da1b56505a8f78b0c"
+checksum = "2886843bf800fba2e3377cff24abf6379b4c4d5c6681eaf9ea5b0d15090450bd"
 dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "windows-sys 0.48.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5635,6 +5781,91 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "opentelemetry"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f3cebff57f7dbd1255b44d8bddc2cebeb0ea677dbaa2e25a3070a91b318f660"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "once_cell",
+ "pin-project-lite",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "opentelemetry-appender-tracing"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab5feffc321035ad94088a7e5333abb4d84a8726e54a802e736ce9dd7237e85b"
+dependencies = [
+ "opentelemetry",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "opentelemetry-otlp"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91cf61a1868dacc576bf2b2a1c3e9ab150af7272909e80085c3173384fe11f76"
+dependencies = [
+ "async-trait",
+ "futures-core",
+ "http 1.2.0",
+ "opentelemetry",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
+ "prost 0.13.3",
+ "thiserror 1.0.69",
+ "tokio",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
+name = "opentelemetry-proto"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6e05acbfada5ec79023c85368af14abd0b307c015e9064d249b2a950ef459a6"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "prost 0.13.3",
+ "tonic",
+]
+
+[[package]]
+name = "opentelemetry-semantic-conventions"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc1b6902ff63b32ef6c489e8048c5e253e2e4a803ea3ea7e783914536eb15c52"
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b742c1cae4693792cc564e58d75a2a0ba29421a34a85b50da92efa89ecb2bc"
+dependencies = [
+ "async-trait",
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "glob",
+ "once_cell",
+ "opentelemetry",
+ "percent-encoding",
+ "rand 0.8.5",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]
@@ -6264,7 +6495,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
 dependencies = [
  "bytes",
- "prost-derive",
+ "prost-derive 0.12.6",
+]
+
+[[package]]
+name = "prost"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b0487d90e047de87f984913713b85c601c05609aad5b0df4b4573fbf69aa13f"
+dependencies = [
+ "bytes",
+ "prost-derive 0.13.3",
 ]
 
 [[package]]
@@ -6281,12 +6522,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-derive"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9552f850d5f0964a4e4d0bf306459ac29323ddfbae05e35a7c0d35cb0803cc5"
+dependencies = [
+ "anyhow",
+ "itertools 0.13.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "prost-types"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
 dependencies = [
- "prost",
+ "prost 0.12.6",
 ]
 
 [[package]]
@@ -7565,6 +7819,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_repr"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7599,9 +7864,9 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.220.0"
+version = "0.230.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e7a65d91d79acc82aa229aeb084f4a39bda269069bc1520df40f679495388e4"
+checksum = "b5a783242d2af51d6955cc04bf2b64adb643ab588b61e9573c908a69dabf8c2f"
 dependencies = [
  "num-bigint",
  "serde",
@@ -8247,6 +8512,12 @@ dependencies = [
  "swc_macros_common",
  "syn 2.0.90",
 ]
+
+[[package]]
+name = "stringcase"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04028eeb851ed08af6aba5caa29f2d59a13ed168cee4d6bd753aeefcf1d636b0"
 
 [[package]]
 name = "stringprep"
@@ -9237,29 +9508,28 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.36.0"
+version = "1.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61285f6515fa018fb2d1e46eb21223fff441ee8db5d0f1435e8ab4f5cdb80931"
+checksum = "5cec9b21b0450273377fc97bd4c33a8acffc8c996c987a7c5b319a0083707551"
 dependencies = [
  "backtrace",
  "bytes",
  "libc",
  "mio",
- "num_cpus",
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "tracing",
- "windows-sys 0.48.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
 name = "tokio-macros"
-version = "2.2.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b8a1e28f2deaa14e508979454cb3a223b10b938b45af148bc0986de36f1923b"
+checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9449,6 +9719,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "h2 0.4.7",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.5.1",
+ "hyper-timeout",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "prost 0.13.3",
+ "rustls-native-certs 0.8.1",
+ "rustls-pemfile 2.2.0",
+ "socket2",
+ "tokio",
+ "tokio-rustls 0.26.0",
+ "tokio-stream",
+ "tower 0.4.13",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "toolchain_find"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9469,11 +9772,16 @@ checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
 dependencies = [
  "futures-core",
  "futures-util",
+ "indexmap 1.9.3",
  "pin-project",
  "pin-project-lite",
+ "rand 0.8.5",
+ "slab",
  "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -9652,6 +9960,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-opentelemetry"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
+dependencies = [
+ "js-sys",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "smallvec",
+ "tracing",
+ "tracing-core",
+ "tracing-log 0.2.0",
+ "tracing-subscriber",
+ "web-time",
+]
+
+[[package]]
 name = "tracing-serde"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9700,54 +10026,6 @@ checksum = "ef8f7726da4807b58ea5c96fdc122f80702030edc33b35aff9190a51148ccc85"
 dependencies = [
  "serde",
  "stable_deref_trait",
-]
-
-[[package]]
-name = "trust-dns-proto"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3119112651c157f4488931a01e586aa459736e9d6046d3bd9105ffb69352d374"
-dependencies = [
- "async-trait",
- "cfg-if",
- "data-encoding",
- "enum-as-inner",
- "futures-channel",
- "futures-io",
- "futures-util",
- "idna 0.4.0",
- "ipnet",
- "once_cell",
- "rand 0.8.5",
- "serde",
- "smallvec",
- "thiserror 1.0.69",
- "tinyvec",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "trust-dns-resolver"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a3e6c3aff1718b3c73e395d1f35202ba2ffa847c6a62eea0db8fb4cfe30be6"
-dependencies = [
- "cfg-if",
- "futures-util",
- "ipconfig",
- "lru-cache",
- "once_cell",
- "parking_lot",
- "rand 0.8.5",
- "resolv-conf",
- "serde",
- "smallvec",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "trust-dns-proto",
 ]
 
 [[package]]
@@ -10142,11 +10420,11 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.106.0"
+version = "130.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a381badc47c6f15acb5fe0b5b40234162349ed9d4e4fd7c83a7f5547c0fc69c5"
+checksum = "2ee0be58935708fa4d7efb970c6cf9f2d9511d24ee24246481a65b6ee167348d"
 dependencies = [
- "bindgen 0.69.5",
+ "bindgen 0.70.1",
  "bitflags 2.6.0",
  "fslock",
  "gzip-header",
@@ -10329,6 +10607,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm_dep_analyzer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f270206a91783fd90625c8bb0d8fbd459d0b1d1bf209b656f713f01ae7c04b8"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "wav"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10446,7 +10733,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -10487,7 +10774,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10573,7 +10860,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -10591,7 +10878,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "chrono",
  "serde",
@@ -10604,7 +10891,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -10618,7 +10905,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -10644,6 +10931,12 @@ dependencies = [
  "magic-crypt",
  "mail-send",
  "object_store",
+ "opentelemetry",
+ "opentelemetry-appender-tracing",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "pin-project-lite",
  "prometheus",
  "quick_cache",
  "rand 0.8.5",
@@ -10657,10 +10950,12 @@ dependencies = [
  "thiserror 2.0.4",
  "tikv-jemalloc-ctl",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-appender",
  "tracing-flame",
  "tracing-loki",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid 1.11.0",
  "windmill-macros",
@@ -10668,7 +10963,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "regex",
  "serde",
@@ -10682,7 +10977,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -10705,7 +11000,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "itertools 0.13.0",
  "lazy_static",
@@ -10717,7 +11012,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -10726,7 +11021,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10738,7 +11033,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -10750,7 +11045,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10762,7 +11057,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10773,7 +11068,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10784,7 +11079,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10802,7 +11097,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10819,7 +11114,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10831,7 +11126,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10849,7 +11144,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10870,7 +11165,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -10880,7 +11175,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10896,6 +11191,7 @@ dependencies = [
  "hmac",
  "itertools 0.13.0",
  "lazy_static",
+ "opentelemetry",
  "prometheus",
  "regex",
  "reqwest 0.12.9",
@@ -10914,7 +11210,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -10924,13 +11220,14 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.434.2"
+version = "1.435.2"
 dependencies = [
  "anyhow",
  "async-recursion",
  "backon",
  "base64 0.22.1",
  "bit-vec",
+ "bollard",
  "bytes",
  "chrono",
  "const_format",
@@ -10940,6 +11237,7 @@ dependencies = [
  "deno_core",
  "deno_fetch",
  "deno_net",
+ "deno_permissions",
  "deno_tls",
  "deno_url",
  "deno_web",
@@ -10960,6 +11258,7 @@ dependencies = [
  "object_store",
  "once_cell",
  "openidconnect",
+ "opentelemetry",
  "pem 3.0.4",
  "postgres-native-tls",
  "prometheus",

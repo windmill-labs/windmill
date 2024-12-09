@@ -866,11 +866,11 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     #[cfg(windows)]
     let err_msg = "program not found";
 
-    if err
-        .to_string()
-        .contains(&err_msg)
-    {
-        return Error::InternalErr(format!("Executable {executable} not found on worker. PATH: {}", *PATH_ENV));
+    if err.to_string().contains(&err_msg) {
+        return Error::InternalErr(format!(
+            "Executable {executable} not found on worker. PATH: {}",
+            *PATH_ENV
+        ));
     }
     return err;
 }

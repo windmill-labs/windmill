@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.435.2](https://github.com/windmill-labs/windmill/compare/v1.435.1...v1.435.2) (2024-12-05)
+
+
+### Bug Fixes
+
+* job search toast on error ([#4851](https://github.com/windmill-labs/windmill/issues/4851)) ([a99e63f](https://github.com/windmill-labs/windmill/commit/a99e63f5435725c42e38b46933ff3caa345002b5))
+
+## [1.435.1](https://github.com/windmill-labs/windmill/compare/v1.435.0...v1.435.1) (2024-12-05)
+
+
+### Bug Fixes
+
+* improve critical alerts filters ([548cfcf](https://github.com/windmill-labs/windmill/commit/548cfcfbde23ac7ae129e10f6e92d57516e61f20))
+
+## [1.435.0](https://github.com/windmill-labs/windmill/compare/v1.434.2...v1.435.0) (2024-12-05)
+
+
+### Features
+
+* app custom paths ([#4828](https://github.com/windmill-labs/windmill/issues/4828)) ([1ec6c6f](https://github.com/windmill-labs/windmill/commit/1ec6c6f765904361e641d89495890bc87e8544aa))
+
+
+### Bug Fixes
+
+* pass USERPROFILE on windows ([5404ec9](https://github.com/windmill-labs/windmill/commit/5404ec9b48e8d7a0cb27b2319d54f04c94ec6fd0))
+
 ## [1.434.2](https://github.com/windmill-labs/windmill/compare/v1.434.1...v1.434.2) (2024-12-04)
 
 

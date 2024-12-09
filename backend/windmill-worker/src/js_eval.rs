@@ -7,14 +7,7 @@
  */
 
 #[cfg(feature = "deno_core")]
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    env,
-    io::{self, BufReader},
-    path::PathBuf,
-    rc::Rc,
-};
+use std::{borrow::Cow, cell::RefCell, env, path::PathBuf, rc::Rc};
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -32,7 +25,7 @@ use deno_fetch::FetchPermissions;
 #[cfg(feature = "deno_core")]
 use deno_net::NetPermissions;
 #[cfg(feature = "deno_core")]
-use deno_tls::{rustls::RootCertStore, rustls_pemfile};
+use deno_tls::rustls::RootCertStore;
 #[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
 #[cfg(feature = "deno_core")]
@@ -68,35 +61,35 @@ pub struct IdContext {
     pub previous_id: String,
 }
 
-#[cfg(feature = "deno_core")]
-pub struct ContainerRootCertStoreProvider {
-    root_cert_store: RootCertStore,
-}
+// #[cfg(feature = "deno_core")]
+// pub struct ContainerRootCertStoreProvider {
+//     root_cert_store: RootCertStore,
+// }
 
-#[cfg(feature = "deno_core")]
-impl ContainerRootCertStoreProvider {
-    fn new() -> ContainerRootCertStoreProvider {
-        return ContainerRootCertStoreProvider {
-            root_cert_store: deno_tls::create_default_root_cert_store(),
-        };
-    }
+// #[cfg(feature = "deno_core")]
+// impl ContainerRootCertStoreProvider {
+//     fn new() -> ContainerRootCertStoreProvider {
+//         return ContainerRootCertStoreProvider {
+//             root_cert_store: deno_tls::create_default_root_cert_store(),
+//         };
+//     }
 
-    fn add_certificate(&mut self, cert_path: String) -> io::Result<()> {
-        let cert_file = std::fs::File::open(cert_path)?;
-        let mut reader = BufReader::new(cert_file);
-        let pem_file = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
+//     fn add_certificate(&mut self, cert_path: String) -> io::Result<()> {
+//         let cert_file = std::fs::File::open(cert_path)?;
+//         let mut reader = BufReader::new(cert_file);
+//         let pem_file = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
 
-        self.root_cert_store.add_parsable_certificates(pem_file);
-        Ok(())
-    }
-}
+//         self.root_cert_store.add_parsable_certificates(pem_file);
+//         Ok(())
+//     }
+// }
 
-#[cfg(feature = "deno_core")]
-impl deno_tls::RootCertStoreProvider for ContainerRootCertStoreProvider {
-    fn get_or_try_init(&self) -> Result<&RootCertStore, AnyError> {
-        Ok(&self.root_cert_store)
-    }
-}
+// #[cfg(feature = "deno_core")]
+// impl deno_tls::RootCertStoreProvider for ContainerRootCertStoreProvider {
+//     fn get_or_try_init(&self) -> Result<&RootCertStore, AnyError> {
+//         Ok(&self.root_cert_store)
+//     }
+// }
 
 #[cfg(feature = "deno_core")]
 pub struct PermissionsContainer;
@@ -108,7 +101,7 @@ impl FetchPermissions for PermissionsContainer {
         &mut self,
         _url: &deno_core::url::Url,
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         Ok(())
     }
 
@@ -117,7 +110,7 @@ impl FetchPermissions for PermissionsContainer {
         &mut self,
         p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, anyhow::Error> {
+    ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
         Ok(Cow::Borrowed(p))
     }
 }
@@ -136,7 +129,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         p: &'a str,
         _api_name: &str,
-    ) -> Result<PathBuf, deno_core::error::AnyError> {
+    ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
     }
 
@@ -144,7 +137,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         p: &'a str,
         _api_name: &str,
-    ) -> Result<PathBuf, deno_core::error::AnyError> {
+    ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
     }
 
@@ -152,7 +145,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         _host: &(T, Option<u16>),
         _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         Ok(())
     }
 
@@ -160,7 +153,7 @@ impl NetPermissions for PermissionsContainer {
         &mut self,
         p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<std::borrow::Cow<'a, std::path::Path>, AnyError> {
+    ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
         Ok(Cow::Borrowed(p))
     }
 }
@@ -669,9 +662,12 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
         text: deno_core::ModuleCodeString::from(expr).into(),
     })?;
     Ok(parsed
-        .transpile(&Default::default(), &Default::default())?
+        .transpile(
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        )?
         .into_source()
-        .into_string()?
         .text)
 }
 
@@ -814,13 +810,7 @@ pub async fn eval_fetch_timeout(
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
         let fetch_options = deno_fetch::Options {
-            root_cert_store_provider: if let Some(cert_path) = env::var("DENO_CERT").ok() {
-                let mut cert_store_provider = ContainerRootCertStoreProvider::new();
-                cert_store_provider.add_certificate(cert_path)?;
-                Some(Arc::new(cert_store_provider))
-            } else {
-                None
-            },
+            root_cert_store_provider: None,
             user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
             proxy: ann.proxy.map(|x| deno_tls::Proxy {
                 url: x.0,
@@ -930,6 +920,7 @@ pub async fn eval_fetch_timeout(
         worker_name,
         w_id,
         &mut Some(occupation_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
     )
     .await
     .map_err(|e| {

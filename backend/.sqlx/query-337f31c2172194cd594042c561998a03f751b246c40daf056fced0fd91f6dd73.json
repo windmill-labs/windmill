@@ -34,7 +34,8 @@
                 "deploymentcallback",
                 "singlescriptflow",
                 "flowscript",
-                "flownode"
+                "flownode",
+                "appscript"
               ]
             }
           }

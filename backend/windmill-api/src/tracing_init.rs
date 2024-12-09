@@ -29,11 +29,13 @@ impl<B> OnResponse<B> for MyOnResponse {
         _span: &tracing::Span,
     ) {
         if *LOG_REQUESTS {
-            tracing::info!(
-                latency = latency.as_millis(),
-                status = response.status().as_u16(),
-                "response"
-            )
+            let latency = latency.as_millis();
+            let status = response.status().as_u16();
+            if response.status().is_success() {
+                tracing::info!(latency = latency, status = status, "response")
+            } else {
+                tracing::error!(latency = latency, status = status, "response")
+            }
         }
     }
 }
@@ -67,7 +69,7 @@ impl<B> MakeSpan<B> for MyMakeSpan {
             uri = %request.uri(),
             username = field::Empty,
             workspace_id = field::Empty,
-            trace_id = tracing_id,
+            traceId = tracing_id,
             email = field::Empty,
         )
     }

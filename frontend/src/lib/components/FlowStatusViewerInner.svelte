@@ -52,6 +52,7 @@
 				flowJobs: string[]
 				flowJobsSuccess: (boolean | undefined)[]
 				length: number
+				branchall?: boolean
 		  }
 		| undefined = undefined
 
@@ -466,9 +467,7 @@
 				let modId = flowJobIds?.moduleId ?? ''
 
 				let common = {
-					iteration_from:
-						// $localDurationStatuses?.[modId]?.iteration_from ??
-						Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
 					iteration_total: $localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
 				}
 				$localDurationStatuses[modId] = {
@@ -818,6 +817,8 @@
 
 		return rec(ids, undefined)
 	}
+
+	let subflowsSize = 500
 </script>
 
 {#if notAnonynmous}
@@ -947,7 +948,12 @@
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
-						{#if render}
+						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
+							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
+								>Load 500 more...</Button
+							>
+						{/if}
+						{#if render && j + subflowsSize + 1 > (flowJobIds?.flowJobs.length ?? 0)}
 							<Button
 								variant={forloop_selected === loopJobId ? 'contained' : 'border'}
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
@@ -1141,7 +1147,8 @@
 													moduleId: mod.id,
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success,
-													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length
+													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
+													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 											  }
 											: undefined}
 										on:jobsLoaded={(e) => {
@@ -1244,6 +1251,8 @@
 									}
 								}
 							}}
+							earlyStop={job.raw_flow?.skip_expr !== undefined}
+							cache={job.raw_flow?.cache_ttl !== undefined}
 							modules={job.raw_flow?.modules ?? []}
 							failureModule={job.raw_flow?.failure_module}
 							preprocessorModule={job.raw_flow?.preprocessor_module}
