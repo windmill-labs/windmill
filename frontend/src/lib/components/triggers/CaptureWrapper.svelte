@@ -1,23 +1,16 @@
 <script lang="ts">
-	import { base32 } from 'rfc4648'
-	import SchemaForm from '../SchemaForm.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import {
-		CaptureService,
-		SettingService,
-		type CaptureConfig,
-		type CaptureTriggerKind
-	} from '$lib/gen'
+	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy } from 'svelte'
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
-	import Label from '../Label.svelte'
-	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
+	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
+
 	export let isFlow: boolean
 	export let path: string
 	export let hasPreprocessor: boolean
@@ -38,134 +31,6 @@
 
 	$: captureType && (isValid = true)
 
-	const schemas = {
-		http: {
-			$schema: 'http://json-schema.org/draft-07/schema#',
-			type: 'object',
-			properties: {
-				route_path: {
-					type: 'string',
-					description: "':myparam' for path params",
-					title: 'Custom route path',
-					pattern: '^[\\w-:]+(/[\\w-:]+)*$',
-					customErrorMessage: 'Invalid route path'
-				}
-			},
-			required: ['route_path']
-		},
-		websocket: {
-			$schema: 'http://json-schema.org/draft-07/schema#',
-			type: 'object',
-			properties: {
-				url: {
-					type: 'string',
-					title: 'URL',
-					pattern: '^(ws:|wss:)//[^\\s]+$',
-					customErrorMessage: 'Invalid websocket URL'
-				}
-			},
-			required: ['url']
-		},
-		kafka: {
-			$schema: 'http://json-schema.org/draft-07/schema#',
-			type: 'object',
-			properties: {
-				brokers: {
-					type: 'array',
-					items: {
-						type: 'string'
-					},
-					nullable: false,
-					title: 'Brokers'
-				},
-				security: {
-					type: 'object',
-					title: 'Security',
-					oneOf: [
-						{
-							type: 'object',
-							title: 'PLAINTEXT',
-							properties: {
-								label: {
-									enum: ['PLAINTEXT'],
-									type: 'string'
-								}
-							}
-						},
-						{
-							type: 'object',
-							order: ['mechanism', 'username', 'password'],
-							title: 'SASL_PLAINTEXT',
-							required: ['mechanism', 'username', 'password'],
-							properties: {
-								label: {
-									enum: ['SASL_PLAINTEXT'],
-									type: 'string'
-								},
-								password: {
-									type: 'string',
-									password: true
-								},
-								username: {
-									type: 'string'
-								},
-								mechanism: {
-									enum: ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'],
-									type: 'string',
-									disableCreate: true
-								}
-							}
-						},
-						{
-							type: 'object',
-							title: 'SSL',
-							properties: {
-								label: {
-									enum: ['SSL'],
-									type: 'string'
-								}
-							}
-						},
-						{
-							type: 'object',
-							order: ['mechanism', 'username', 'password'],
-							title: 'SASL_SSL',
-							required: ['mechanism', 'username', 'password'],
-							properties: {
-								label: {
-									enum: ['SASL_SSL'],
-									type: 'string'
-								},
-								password: {
-									type: 'string',
-									password: true
-								},
-								username: {
-									type: 'string'
-								},
-								mechanism: {
-									enum: ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'],
-									type: 'string',
-									disableCreate: true
-								}
-							}
-						}
-					]
-				},
-				topics: {
-					type: 'array',
-					items: {
-						type: 'string'
-					},
-					nullable: false,
-					title: 'Topics'
-				},
-				group_id: { type: 'string', title: 'Group ID' }
-			},
-			required: ['brokers', 'security', 'topics', 'group_id']
-		}
-	}
-
 	export async function setConfig() {
 		await CaptureService.setCaptureConfig({
 			requestBody: {
@@ -177,29 +42,6 @@
 			workspace: $workspaceStore!
 		})
 	}
-
-	let emailDomain: string | undefined = undefined
-
-	async function getEmailDomain() {
-		emailDomain =
-			((await SettingService.getGlobal({
-				key: 'email_domain'
-			})) as any) ?? undefined
-	}
-
-	getEmailDomain()
-
-	function getEmailAddress(emailDomain: string | undefined) {
-		const cleanedPath = path.replaceAll('/', '.')
-		const plainPrefix = `capture+${$workspaceStore}+${(isFlow ? 'flow.' : '') + cleanedPath}`
-		const encodedPrefix = base32
-			.stringify(new TextEncoder().encode(plainPrefix), {
-				pad: false
-			})
-			.toLowerCase()
-		return `${encodedPrefix}@${emailDomain}`
-	}
-	$: emailAddress = getEmailAddress(emailDomain)
 
 	let captureConfigs: {
 		[key: string]: CaptureConfig
@@ -319,12 +161,6 @@
 			{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
 		</Alert>
 	{:else}
-		{#if captureType in schemas && false}
-			{#key captureType}
-				<SchemaForm schema={schemas[captureType]} bind:args bind:isValid />
-			{/key}
-		{/if}
-
 		{#if captureType === 'websocket'}
 			<WebsocketEditorConfigSection
 				url={''}
@@ -352,9 +188,15 @@
 				headless
 			/>
 		{:else if captureType === 'email'}
-			<Label label="Email">
-				<ClipboardPanel content={emailAddress} />
-			</Label>
+			<EmailTriggerConfigSection
+				hash={data?.hash}
+				token={data?.token}
+				{path}
+				{isFlow}
+				userSettings={data?.userSettings}
+				emailDomain={data?.emailDomain}
+				{captureActive}
+			/>
 		{/if}
 
 		<CaptureTable
