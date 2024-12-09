@@ -15,7 +15,6 @@ use std::{collections::HashMap, sync::Arc};
 use deno_ast::ParseParams;
 #[cfg(feature = "deno_core")]
 use deno_core::{
-    error::AnyError,
     op2, serde_v8, url,
     v8::{self, IsolateHandle},
     Extension, JsRuntime, OpState, PollEventLoopOptions, RuntimeOptions,
@@ -24,8 +23,7 @@ use deno_core::{
 use deno_fetch::FetchPermissions;
 #[cfg(feature = "deno_core")]
 use deno_net::NetPermissions;
-#[cfg(feature = "deno_core")]
-use deno_tls::rustls::RootCertStore;
+
 #[cfg(feature = "deno_core")]
 use deno_web::{BlobStore, TimersPermission};
 #[cfg(feature = "deno_core")]
