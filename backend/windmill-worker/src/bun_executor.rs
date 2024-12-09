@@ -1522,6 +1522,15 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
     }
 
+    #[cfg(windows)]
+    {
+        bun_envs.insert("SystemRoot".to_string(), crate::SYSTEM_ROOT.to_string());
+        bun_envs.insert(
+            "USERPROFILE".to_string(),
+            crate::USERPROFILE_ENV.to_string(),
+        );
+    }
+
     return bun_envs;
 }
 

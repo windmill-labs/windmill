@@ -12,7 +12,7 @@ use std::{
 
 use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserializer};
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -40,7 +40,7 @@ use windmill_common::{
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -58,7 +58,8 @@ use windmill_common::{
     },
     BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
     HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, SERVICE_LOG_RETENTION_SECS,
+    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
+    SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -85,12 +86,12 @@ lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
     .ok()
     .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "30".to_string());
+    .unwrap_or_else(|| "60".to_string());
 
     static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
     .ok()
     .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "30".to_string());
+    .unwrap_or_else(|| "60".to_string());
 
 
     pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
@@ -197,6 +198,65 @@ pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
         _ => (),
     };
     Ok(())
+}
+
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
+}
+
+#[derive(serde::Deserialize)]
+struct OtelSetting {
+    metrics_enabled: Option<bool>,
+    logs_enabled: Option<bool>,
+    tracing_enabled: Option<bool>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    otel_exporter_otlp_endpoint: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    otel_exporter_otlp_headers: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    otel_exporter_otlp_protocol: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    otel_exporter_otlp_compression: Option<String>,
+}
+
+pub async fn load_otel(db: &DB) {
+    let otel = load_value_from_global_settings(db, OTEL_SETTING).await;
+    if let Ok(v) = otel {
+        if let Some(v) = v {
+            let deser = serde_json::from_value::<OtelSetting>(v);
+            if let Ok(o) = deser {
+                let metrics_enabled = o.metrics_enabled.unwrap_or(false);
+                let logs_enabled = o.logs_enabled.unwrap_or(false);
+                let tracing_enabled = o.tracing_enabled.unwrap_or(false);
+
+                OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
+                OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
+                OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
+                if let Some(endpoint) = o.otel_exporter_otlp_endpoint.as_ref() {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
+                }
+                if let Some(headers) = o.otel_exporter_otlp_headers.as_ref() {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers);
+                }
+                if let Some(protocol) = o.otel_exporter_otlp_protocol {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                }
+                if let Some(compression) = o.otel_exporter_otlp_compression {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                }
+                println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
+                o.otel_exporter_otlp_endpoint, o.otel_exporter_otlp_headers.is_some());
+            } else {
+                tracing::error!("Error deserializing otel settings");
+            }
+        }
+    } else {
+        tracing::error!("Error loading otel settings: {}", otel.unwrap_err());
+    }
 }
 
 pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
@@ -1337,7 +1397,7 @@ pub async fn reload_worker_config(
     }
 }
 
-pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+pub async fn load_base_url(db: &DB) -> error::Result<String> {
     let q_base_url = load_value_from_global_settings(db, BASE_URL_SETTING).await?;
 
     let std_base_url = std::env::var("BASE_URL")
@@ -1361,6 +1421,14 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         std_base_url
     };
 
+    {
+        let mut l = BASE_URL.write().await;
+        *l = base_url.clone();
+    }
+    Ok(base_url)
+}
+
+pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
     let oauths = if let Some(q) = q_oauth {
@@ -1374,6 +1442,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         None
     };
 
+    let base_url = load_base_url(db).await?;
     let is_secure = base_url.starts_with("https://");
 
     {
@@ -1381,11 +1450,6 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         *l = build_oauth_clients(&base_url, oauths)
         .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
-    }
-
-    {
-        let mut l = BASE_URL.write().await;
-        *l = base_url
     }
 
     {

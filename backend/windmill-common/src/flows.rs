@@ -147,7 +147,7 @@ impl Retry {
     /// Takes the number of previous retries and returns the interval until the next retry if any.
     ///
     /// May return [`Duration::ZERO`] to retry immediately.
-    pub fn interval(&self, previous_attempts: u16, silent: bool) -> Option<Duration> {
+    pub fn interval(&self, previous_attempts: u32, silent: bool) -> Option<Duration> {
         let Self { constant, exponential } = self;
 
         if previous_attempts < constant.attempts {
@@ -178,7 +178,7 @@ impl Retry {
         self.constant.attempts != 0 || self.exponential.attempts != 0
     }
 
-    pub fn max_attempts(&self) -> u16 {
+    pub fn max_attempts(&self) -> u32 {
         self.constant
             .attempts
             .saturating_add(self.exponential.attempts)
@@ -194,7 +194,7 @@ impl Retry {
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct ConstantDelay {
-    pub attempts: u16,
+    pub attempts: u32,
     pub seconds: u16,
 }
 
@@ -202,7 +202,7 @@ pub struct ConstantDelay {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(default)]
 pub struct ExponentialDelay {
-    pub attempts: u16,
+    pub attempts: u32,
     pub multiplier: u16,
     pub seconds: u16,
     pub random_factor: Option<i8>, // percentage, defaults to 0 for no jitter
@@ -406,6 +406,12 @@ pub enum InputTransform {
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 #[serde(transparent)]
 pub struct FlowNodeId(pub i64);
+
+impl Into<u64> for FlowNodeId {
+    fn into(self) -> u64 {
+        self.0 as u64
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Branch {
@@ -713,10 +719,14 @@ pub async fn resolve_maybe_value<T>(
     workspace_id: &str,
     with_code: bool,
     maybe: Option<T>,
-    value_mut: impl FnOnce(&mut T) -> Option<&mut Json<Box<JsonRawValue>>>
+    value_mut: impl FnOnce(&mut T) -> Option<&mut Json<Box<JsonRawValue>>>,
 ) -> Result<Option<T>, Error> {
-    let Some(mut container) = maybe else { return Ok(None); };
-    let Some(value) = value_mut(&mut container) else { return Ok(Some(container)); };
+    let Some(mut container) = maybe else {
+        return Ok(None);
+    };
+    let Some(value) = value_mut(&mut container) else {
+        return Ok(Some(container));
+    };
     resolve_value(e, workspace_id, &mut value.0, with_code).await?;
     Ok(Some(container))
 }
@@ -728,8 +738,9 @@ pub async fn resolve_value(
     value: &mut Box<JsonRawValue>,
     with_code: bool,
 ) -> Result<(), Error> {
-    let mut val = serde_json::from_str::<FlowValue>(value.get())
-        .map_err(|err| Error::InternalErr(format!("resolve: Failed to parse flow value: {}", err)))?;
+    let mut val = serde_json::from_str::<FlowValue>(value.get()).map_err(|err| {
+        Error::InternalErr(format!("resolve: Failed to parse flow value: {}", err))
+    })?;
     for module in &mut val.modules {
         resolve_module(e, workspace_id, &mut module.value, with_code).await?;
     }
@@ -746,16 +757,29 @@ pub async fn resolve_module(
 ) -> Result<(), Error> {
     use FlowModuleValue::*;
 
-    let mut val = serde_json::from_str::<FlowModuleValue>(value.get())
-        .map_err(|err| Error::InternalErr(format!("resolve: Failed to parse flow module value: {}", err)))?;
+    let mut val = serde_json::from_str::<FlowModuleValue>(value.get()).map_err(|err| {
+        Error::InternalErr(format!(
+            "resolve: Failed to parse flow module value: {}",
+            err
+        ))
+    })?;
     match &mut val {
         FlowScript { .. } => {
             // In order to avoid an unnecessary `.clone()` of `val`, take ownership of it's content
             // using `std::mem::replace`.
             let FlowScript {
-                input_transforms, id, tag, language,
-                custom_concurrency_key, concurrent_limit, concurrency_time_window_s, is_trigger
-            } = std::mem::replace(&mut val, Identity) else { unreachable!() };
+                input_transforms,
+                id,
+                tag,
+                language,
+                custom_concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                is_trigger,
+            } = std::mem::replace(&mut val, Identity)
+            else {
+                unreachable!()
+            };
             // Load script lock file and code content.
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
@@ -763,22 +787,44 @@ pub async fn resolve_module(
                 cache::flow::fetch_script(e, id).await?
             };
             val = RawScript {
-                input_transforms, content, lock, path: None, tag, language, custom_concurrency_key,
-                concurrent_limit, concurrency_time_window_s, is_trigger
+                input_transforms,
+                content,
+                lock,
+                path: None,
+                tag,
+                language,
+                custom_concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                is_trigger,
             };
-        },
-        ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. }  => {
+        }
+        ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {
             resolve_modules(e, workspace_id, modules, modules_node.take(), with_code).await?;
-        },
+        }
         BranchOne { branches, default, default_node } => {
             resolve_modules(e, workspace_id, default, default_node.take(), with_code).await?;
             for branch in branches {
-                resolve_modules(e, workspace_id, &mut branch.modules, branch.modules_node.take(), with_code).await?;
+                resolve_modules(
+                    e,
+                    workspace_id,
+                    &mut branch.modules,
+                    branch.modules_node.take(),
+                    with_code,
+                )
+                .await?;
             }
-        },
+        }
         BranchAll { branches, .. } => {
             for branch in branches {
-                resolve_modules(e, workspace_id, &mut branch.modules, branch.modules_node.take(), with_code).await?;
+                resolve_modules(
+                    e,
+                    workspace_id,
+                    &mut branch.modules,
+                    branch.modules_node.take(),
+                    with_code,
+                )
+                .await?;
             }
         }
         _ => {}
@@ -801,7 +847,13 @@ pub async fn resolve_modules(
             .map(|flow| flow.modules)?;
     }
     for module in modules.iter_mut() {
-        Box::pin(resolve_module(e, workspace_id, &mut module.value, with_code)).await?;
+        Box::pin(resolve_module(
+            e,
+            workspace_id,
+            &mut module.value,
+            with_code,
+        ))
+        .await?;
     }
     Ok(())
 }

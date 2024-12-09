@@ -6,9 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+// #[cfg(feature = "otel")]
+// use opentelemetry::{global,  KeyValue};
+
+
 use windmill_common::{
+    apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
+    utils::WarnAfterExt,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
         ROOT_CACHE_DIR, TMP_DIR,
@@ -23,7 +29,7 @@ use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 
-use tracing::Instrument;
+use tracing::{field, Instrument};
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
@@ -86,30 +92,12 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    ansible_executor::handle_ansible_job,
-    bash_executor::{handle_bash_job, handle_powershell_job},
-    bun_executor::handle_bun_job,
-    common::{
+    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    },
-    deno_executor::handle_deno_job,
-    go_executor::handle_go_job,
-    graphql_executor::do_graphql,
-    handle_child::SLOW_LOGS,
-    handle_job_error,
-    job_logger::NO_LOGS_AT_ALL,
-    js_eval::{eval_fetch_timeout, transpile_ts},
-    mysql_executor::do_mysql,
-    pg_executor::do_postgresql,
-    php_executor::handle_php_job,
-    python_executor::handle_python_job,
-    result_processor::{process_result, start_background_processor},
-    rust_executor::handle_rust_job,
-    worker_flow::{handle_flow, update_flow_status_in_progress, Step},
-    worker_lockfiles::{
+    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{process_result, start_background_processor}, rust_executor::handle_rust_job, worker_flow::{handle_flow, update_flow_status_in_progress, Step}, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    },
+    }
 };
 
 use backon::ConstantBuilder;
@@ -159,6 +147,7 @@ pub async fn create_token_for_owner_in_bg(
                 &email,
                 &job_id,
             )
+            .warn_after_seconds(5)
             .await
             .expect("could not create job token");
             *locked = token;
@@ -366,6 +355,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
 
     pub static ref TZ_ENV: String = std::env::var("TZ").unwrap_or_else(|_| String::new());
@@ -419,12 +409,12 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-
 }
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
 }
 
 //only matter if CLOUD_HOSTED
@@ -716,7 +706,10 @@ fn add_outstanding_wait_time(
     }.in_current_span());
 }
 
-#[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name, hostname = %hostname))]
+// struct WorkerMtrics {
+//     job_
+// }
+
 pub async fn run_worker(
     db: &Pool<Postgres>,
     hostname: &str,
@@ -732,6 +725,7 @@ pub async fn run_worker(
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
+            worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
         );
     }
@@ -739,10 +733,10 @@ pub async fn run_worker(
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
-    tracing::debug!(worker_dir = %worker_dir, "Creating worker dir");
+    tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
     if let Some(ref netrc) = *NETRC {
-        tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
+        tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
@@ -957,6 +951,16 @@ pub async fn run_worker(
             None
         };
 
+
+    // let worker_resource = &[
+    //     KeyValue::new("hostname", hostname.to_string()),
+    //     KeyValue::new("worker", worker_name.to_string()),
+    // ];
+    // // Create a meter from the above MeterProvider.
+    // let meter = global::meter("windmill");
+    // let counter = meter.u64_counter("jobs.execution").build();
+
+
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
 
@@ -1012,6 +1016,7 @@ pub async fn run_worker(
 
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(
+        worker = %worker_name, hostname = %hostname,
         "listening for jobs, WORKER_GROUP: {}, config: {:?}",
         *WORKER_GROUP,
         WORKER_CONFIG.read().await
@@ -1047,7 +1052,7 @@ pub async fn run_worker(
     if i_worker == 1 {
         if let Err(e) = queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send(()).unwrap_or_default();
-            tracing::error!("Error queuing init bash script for worker {worker_name}: {e:#}");
+            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
     }
@@ -1076,11 +1081,12 @@ pub async fn run_worker(
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
+    let mut killpill_rx2 = killpill_rx.resubscribe();
     loop {
         #[cfg(feature = "enterprise")]
         {
             if let Ok(_) = killpill_rx.try_recv() {
-                tracing::info!("killpill received on worker waiting for valid key");
+                tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received on worker waiting for valid key");
                 job_completed_tx
                     .0
                     .send(SendResult::Kill)
@@ -1092,6 +1098,7 @@ pub async fn run_worker(
 
             if !valid_key {
                 tracing::error!(
+                    worker = %worker_name, hostname = %hostname, 
                     "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
                 );
                 tokio::time::sleep(Duration::from_secs(10)).await;
@@ -1105,7 +1112,7 @@ pub async fn run_worker(
         #[cfg(feature = "prometheus")]
         if let Some(wk) = worker_busy.as_ref() {
             wk.set(0);
-            tracing::debug!("set worker busy to 0");
+            tracing::debug!(worker = %worker_name, hostname = %hostname, "set worker busy to 0");
         }
 
         occupancy_metrics.running_job_started_at = None;
@@ -1117,7 +1124,7 @@ pub async fn run_worker(
                     .try_into()
                     .unwrap(),
             );
-            tracing::debug!("set uptime metric");
+            tracing::debug!(worker = %worker_name, hostname = %hostname, "set uptime metric");
         }
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
@@ -1161,15 +1168,19 @@ pub async fn run_worker(
             )
             .notify(|err, dur| {
                 tracing::error!(
+                    worker = %worker_name, hostname = %hostname, 
                     "retrying updating worker ping in {dur:#?}, err: {err:#?}"
                 );
             })
             .sleep(tokio::time::sleep)
             .await {
-                tracing::error!("failed to update worker ping, exiting: {}", e);
+                tracing::error!(
+                    worker = %worker_name, hostname = %hostname, 
+                    "failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
             tracing::info!(
+                worker = %worker_name, hostname = %hostname, 
                 "ping update, memory: container={}MB, windmill={}MB",
                 memory_usage.unwrap_or_default() / (1024 * 1024),
                 wm_memory_usage.unwrap_or_default() / (1024 * 1024)
@@ -1181,16 +1192,18 @@ pub async fn run_worker(
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
             let current_span = tracing::Span::current();
+            let worker_name = worker_name.clone();
+            let hostname = hostname.to_string();
             tokio::task::spawn(
                 (async move {
-                    tracing::info!("vacuuming queue and completed_job");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
                     if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
                         .execute(&db2)
                         .await
                     {
-                        tracing::error!("failed to vacuum queue: {}", e);
+                        tracing::error!(worker = %worker_name, hostname = %hostname, "failed to vacuum queue: {}", e);
                     }
-                    tracing::info!("vacuumed queue and completed_job");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "vacuumed queue");
                 })
                 .instrument(current_span),
             );
@@ -1226,6 +1239,7 @@ pub async fn run_worker(
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                 same_worker_queue_size.fetch_sub(1, Ordering::SeqCst);
                 tracing::debug!(
+                    worker = %worker_name, hostname = %hostname, 
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
@@ -1238,6 +1252,7 @@ pub async fn run_worker(
                 .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
+                        worker = %worker_name, hostname = %hostname, 
                         "failed to fetch same_worker job on a non recoverable job, exiting"
                     );
                     job_completed_tx
@@ -1251,7 +1266,7 @@ pub async fn run_worker(
                 }
             } else if let Ok(_) = killpill_rx.try_recv() {
                 if !killed_but_draining_same_worker_jobs {
-                    tracing::info!("received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "received killpill for worker {}, jobs are not pulled anymore except same_worker jobs", i_worker);
                     killed_but_draining_same_worker_jobs = true;
                     job_completed_tx
                         .0
@@ -1262,10 +1277,10 @@ pub async fn run_worker(
                 continue;
             } else if killed_but_draining_same_worker_jobs {
                 if job_completed_processor_is_done.load(Ordering::SeqCst) {
-                    tracing::info!("all running jobs have completed and all completed jobs have been fully processed, exiting");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "all running jobs have completed and all completed jobs have been fully processed, exiting");
                     break;
                 } else {
-                    tracing::info!("there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
+                    tracing::info!(worker = %worker_name, hostname = %hostname, "there may be same_worker jobs to process later, waiting for job_completed_processor to finish progressing all remaining flows before exiting");
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
@@ -1290,7 +1305,7 @@ pub async fn run_worker(
 
                 if !agent_mode && duration_pull_s > 0.5 {
                     let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
-                    tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
+                    tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
                         if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
@@ -1301,7 +1316,7 @@ pub async fn run_worker(
                     }
                 } else if !agent_mode && duration_pull_s > 0.1 {
                     let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
-                    tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
+                    tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
                         if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
@@ -1355,7 +1370,7 @@ pub async fn run_worker(
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                tracing::debug!("started handling of job {}", job.id);
+                tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
                     if !dedicated_workers.is_empty() {
@@ -1419,6 +1434,11 @@ pub async fn run_worker(
                         |c| c.inc(),
                     )
                     .await;
+
+                    // counter.add(
+                    //     1,
+                    //     worker_resource
+                    // );
 
                     #[cfg(feature = "prometheus")]
                     let _timer = register_metric(
@@ -1507,6 +1527,40 @@ pub async fn run_worker(
                     let PulledJob { job, raw_code, raw_lock, raw_flow } = job;
                     let arc_job = Arc::new(job);
                     add_time!(bench, "handle_queued_job START");
+
+
+                    let span = tracing::span!(tracing::Level::INFO, "job",
+                            job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
+                            language = field::Empty,
+                            script_path = field::Empty, flow_step_id = field::Empty, parent_job = field::Empty,
+                            otel.name = field::Empty);
+                    let rj = if let Some(root_job) = arc_job.root_job {
+                        root_job
+                    } else {
+                        arc_job.id
+                    };
+                    if let Some(lg) = arc_job.language.as_ref() {
+                        span.record("language", lg.as_str());
+                    }
+                    if let Some(step_id) = arc_job.flow_step_id.as_ref() {
+                        span.record("otel.name", format!("job {}", step_id).as_str());
+                        span.record("flow_step_id", step_id.as_str());
+                    } else {
+                        span.record("otel.name", "job");
+                    }
+                    if let Some(parent_job) = arc_job.parent_job.as_ref() {
+                        span.record("parent_job", parent_job.to_string().as_str());
+                    }
+                    if let Some(script_path) = arc_job.script_path.as_ref() {
+                        span.record("script_path", script_path.as_str());
+                    }
+                    if let Some(root_job) = arc_job.root_job.as_ref() {
+                        span.record("root_job", root_job.to_string().as_str());
+                    }
+
+                    windmill_common::otel_ee::set_span_parent(&span, &rj);
+                    // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
+
                     match handle_queued_job(
                         arc_job.clone(),
                         raw_code,
@@ -1522,9 +1576,11 @@ pub async fn run_worker(
                         base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
+                        &mut killpill_rx2,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
+                    .instrument(span)
                     .await
                     {
                         Err(err) => {
@@ -1563,6 +1619,8 @@ pub async fn run_worker(
                         }
                         _ => {}
                     }
+
+
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -1603,7 +1661,7 @@ pub async fn run_worker(
                 if let Some(secs) = *EXIT_AFTER_NO_JOB_FOR_SECS {
                     if let Some(lj) = last_executed_job {
                         if lj.elapsed().as_secs() > secs {
-                            tracing::info!("no job for {} seconds, exiting", secs);
+                            tracing::info!(worker = %worker_name, hostname = %hostname, "no job for {} seconds, exiting", secs);
                             break;
                         }
                     } else {
@@ -1634,12 +1692,12 @@ pub async fn run_worker(
                 });
             }
             Err(err) => {
-                tracing::error!("Failed to pull jobs: {}", err);
+                tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
             }
         };
     }
 
-    tracing::info!("worker {} exiting", worker_name);
+    tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
 
     #[cfg(feature = "benchmark")]
     {
@@ -1654,21 +1712,23 @@ pub async fn run_worker(
     if has_dedicated_workers {
         for handle in dedicated_handles {
             if let Err(e) = handle.await {
-                tracing::error!("error in dedicated worker waiting for it to end: {:?}", e)
+                tracing::error!(worker = %worker_name, hostname = %hostname, "error in dedicated worker waiting for it to end: {:?}", e)
             }
         }
-        tracing::info!("all dedicated workers have exited");
+        tracing::info!(worker = %worker_name, hostname = %hostname, "all dedicated workers have exited");
     }
 
     drop(job_completed_tx);
 
-    tracing::info!("waiting for job_completed_processor to finish processing remaining jobs");
+    tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for job_completed_processor to finish processing remaining jobs");
     if let Err(e) = send_result.await {
         tracing::error!("error in awaiting send_result process: {e:?}")
     }
-    tracing::info!("worker {} exited", worker_name);
-    tracing::info!("number of jobs executed: {}", jobs_executed);
+    tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
+    tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
+
+
 
 async fn queue_init_bash_maybe<'c>(
     db: &Pool<Postgres>,
@@ -1794,7 +1854,6 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
-#[tracing::instrument(name = "job", level = "info", skip_all, fields(job_id = %job.id))]
 async fn handle_queued_job(
     job: Arc<QueuedJob>,
     raw_code: Option<String>,
@@ -1810,8 +1869,12 @@ async fn handle_queued_job(
     base_internal_url: &str,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
+    // Extract the active span from the context
+
+
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -1823,7 +1886,9 @@ async fn handle_queued_job(
     if job.parent_job.is_none() && job.created_by.starts_with("email-") {
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
-        ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
+        ).fetch_optional(db)
+        .warn_after_seconds(5)
+        .await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
 
         if let Some(count) = daily_count {
             if count >= 100 {
@@ -1836,6 +1901,7 @@ async fn handle_queued_job(
                     serde_json::json!(count + 1)
                 )
                 .execute(db)
+                .warn_after_seconds(5)
                 .await?;
             }
         } else {
@@ -1843,6 +1909,7 @@ async fn handle_queued_job(
                 "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
             )
             .execute(db)
+            .warn_after_seconds(5)
             .await?;
         }
     }
@@ -1855,6 +1922,7 @@ async fn handle_queued_job(
                 .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
             job.id,
         )
+        .warn_after_seconds(5)
         .await?;
 
         Some(r)
@@ -1867,6 +1935,7 @@ async fn handle_queued_job(
                 &job.workspace_id
             )
             .execute(db)
+            .warn_after_seconds(5)
             .await {
                 tracing::error!("Could not update parent job started_at flow_status: {}", e);
             }
@@ -1883,6 +1952,7 @@ async fn handle_queued_job(
             job.workspace_id
         )
         .fetch_one(db)
+        .warn_after_seconds(5)
         .await
         .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
         .unwrap_or_default(),
@@ -1923,6 +1993,7 @@ async fn handle_queued_job(
                 &job.parent_job.unwrap()
             )
             .fetch_one(db)
+            .warn_after_seconds(5)
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
@@ -1957,6 +2028,7 @@ async fn handle_queued_job(
             &job.workspace_id,
             &cached_res_path,
         )
+        .warn_after_seconds(5)
         .await;
         if let Some(cached_resource_value) = cached_resource_value_maybe {
             {
@@ -1995,6 +2067,7 @@ async fn handle_queued_job(
             worker_dir,
             job_completed_tx.0.clone(),
         )
+        .warn_after_seconds(10)
         .await?;
         Ok(true)
     } else {
@@ -2107,6 +2180,7 @@ async fn handle_queued_job(
                     &mut column_order,
                     &mut new_args,
                     occupancy_metrics,
+                    killpill_rx,
                 )
                 .await;
                 occupancy_metrics.total_duration_of_running_jobs +=
@@ -2144,6 +2218,7 @@ async fn handle_queued_job(
         .await
     }
 }
+
 
 pub fn build_envs(
     envs: Option<Vec<String>>,
@@ -2250,6 +2325,8 @@ async fn handle_code_execution_job(
     column_order: &mut Option<Vec<String>>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+
 ) -> error::Result<Box<RawValue>> {
     let ContentReqLangEnvs {
         content: inner_content,
@@ -2285,9 +2362,25 @@ async fn handle_code_execution_job(
             .await?
         }
         JobKind::FlowScript => {
-            let (lockfile, content) = cache::flow::fetch_script(db, FlowNodeId(
-                job.script_hash.unwrap_or(ScriptHash(0)).0
-            )).await?;
+            let (lockfile, content) = cache::flow::fetch_script(
+                db,
+                FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            )
+            .await?;
+            ContentReqLangEnvs {
+                content,
+                lockfile,
+                language: job.language.to_owned(),
+                envs: None,
+                codebase: None,
+            }
+        }
+        JobKind::AppScript => {
+            let (lockfile, content) = cache::app::fetch_script(
+                db,
+                AppScriptId(job.script_hash.unwrap_or(ScriptHash(0)).0),
+            )
+            .await?;
             ContentReqLangEnvs {
                 content,
                 lockfile,
@@ -2577,6 +2670,7 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
+                killpill_rx,
             )
             .await
         }

@@ -11,7 +11,7 @@
 	let queryParseErrors: string[] | undefined = undefined
 </script>
 
-<div class="w-full h-screen px-2">
+<div class="flex flex-col w-full h-screen max-h-screen max-w-screen px-2">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
 			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">

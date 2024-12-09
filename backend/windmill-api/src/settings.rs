@@ -448,7 +448,7 @@ pub async fn get_critical_alerts(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
-) -> JsonResult<Vec<crate::utils::CriticalAlert>> {
+) -> JsonResult<serde_json::Value> {
     require_devops_role(&db, &authed.email).await?;
 
     crate::utils::get_critical_alerts(db, params, None).await
