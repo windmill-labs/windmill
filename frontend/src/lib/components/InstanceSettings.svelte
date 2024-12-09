@@ -238,7 +238,8 @@
 		'quickbooks',
 		'visma',
 		'spotify',
-		'snowflake_oauth'
+		'snowflake_oauth',
+		'xero'
 	]
 
 	let oauth_name = undefined
@@ -325,17 +326,13 @@
 						<div class="text-secondary pb-4 text-xs"
 							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
 							instance or sending critical alerts.
-							<a
-								target="_blank"
-								href="https://www.windmill.dev/docs/advanced/instance_settings#smtp">Learn more</a
+							<a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#smtp">Learn more</a
 							></div
 						>
-					{:else if category == 'Indexer/Search'}
+					{:else if category == "Indexer/Search"}
 						<div class="text-secondary pb-4 text-xs"
-							>The indexer service unlocks full text search across jobs and service logs. It
-							requires spinning up its own separate container
-							<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup"
-								>Learn how to</a
+							>The indexer service unlocks full text search across jobs and service logs. It requires spinning up its own separate container
+							<a target="_blank" href="https://www.windmill.dev/docs/core_concepts/search_bar#setup">Learn how to</a
 							></div
 						>
 					{:else if category == 'Registries'}
@@ -1128,28 +1125,23 @@
 															/>
 														</div>
 														<h3>Reset Index</h3>
-														This buttons will clear the whole index, and the service will start reindexing
-														from scratch. Full text search might be down during this time.
-														<div>
-															<ConfirmButton
-																on:click={async () => {
-																	let r = await IndexSearchService.clearIndex({
-																		idxName: 'JobIndex'
-																	})
-																	console.log('asasd')
-																	sendUserToast(r)
-																}}>Clear <b>Jobs</b> Index</ConfirmButton
-															>
-															<ConfirmButton
-																on:click={async () => {
-																	let r = await IndexSearchService.clearIndex({
-																		idxName: 'ServiceLogIndex'
-																	})
-																	console.log('asasd')
-																	sendUserToast(r)
-																}}>Clear <b>Service Logs</b> Index</ConfirmButton
-															>
-														</div>
+															This buttons will clear the whole index, and the service will start reindexing from scratch. Full text search might be down during this time.
+															<div>
+																<ConfirmButton
+																	on:click={async () => {
+																		let r = await IndexSearchService.clearIndex({idxName: "JobIndex"})
+																		console.log("asasd")
+																		sendUserToast(r)
+																	}}>Clear <b>Jobs</b> Index</ConfirmButton
+																>
+																<ConfirmButton
+																	on:click={async () => {
+																		let r = await IndexSearchService.clearIndex({idxName: "ServiceLogIndex"})
+																		console.log("asasd")
+																		sendUserToast(r)
+																	}}>Clear <b>Service Logs</b> Index</ConfirmButton
+																>
+															</div>
 													{/if}
 												</div>
 											{:else if setting.fieldType == 'smtp_connect'}
