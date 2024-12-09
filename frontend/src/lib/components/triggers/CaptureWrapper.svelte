@@ -209,6 +209,7 @@
 			{path}
 			bind:refreshCaptures
 			hideCapturesWhenEmpty={true}
+			canEdit={true}
 		/>
 	{/if}
 </div>

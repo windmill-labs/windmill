@@ -25,6 +25,7 @@
 	export let headless = false
 	export let addButton = false
 	export let hideCapturesWhenEmpty = false
+	export let canEdit = false
 
 	let captures: Capture[] = []
 	let selectedCaptures: any[] = []
@@ -211,16 +212,18 @@
 							</Button>
 						{/if}
 
-						<Button
-							size="xs2"
-							color="red"
-							iconOnly
-							startIcon={{ icon: Trash2 }}
-							loading={deleteLoading === capture.id}
-							on:click={() => {
-								deleteCapture(capture.id)
-							}}
-						/>
+						{#if canEdit}
+							<Button
+								size="xs2"
+								color="red"
+								iconOnly
+								startIcon={{ icon: Trash2 }}
+								loading={deleteLoading === capture.id}
+								on:click={() => {
+									deleteCapture(capture.id)
+								}}
+							/>
+						{/if}
 					</div>
 				{/each}
 			{/if}
