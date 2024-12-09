@@ -279,7 +279,6 @@
 			const config = captureConfigs[selected]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
-				console.log('dbg serverEnabled', serverEnabled)
 				if (!serverEnabled) {
 					sendUserToast('Capture was stopped because of error: ' + config.error, true)
 					active = false

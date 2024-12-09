@@ -218,7 +218,6 @@
 
 		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
 			const config = captureConfigs[captureType]
-			console.log('dbg config', config)
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
 				if (!serverEnabled) {

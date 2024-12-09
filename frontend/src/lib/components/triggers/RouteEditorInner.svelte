@@ -56,7 +56,6 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>
 	) {
-		console.log('dbg openNew', defaultValues?.http_method)
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()

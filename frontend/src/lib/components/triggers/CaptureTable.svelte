@@ -65,7 +65,6 @@
 	}>()
 
 	export async function refreshCaptures() {
-		console.log('dbg refreshCaptures')
 		captures = await CaptureService.listCaptures({
 			workspace: $workspaceStore!,
 			runnableKind: isFlow ? 'flow' : 'script',
