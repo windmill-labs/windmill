@@ -51,11 +51,11 @@ lazy_static::lazy_static! {
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
 
-    static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
+    pub static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
     /// Use pip install
-    static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
+    pub static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
 

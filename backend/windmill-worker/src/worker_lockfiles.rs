@@ -26,7 +26,9 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
+};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -1516,6 +1518,22 @@ async fn capture_dependency_job(
 
             let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
                 PythonAnnotations::parse(job_raw_code);
+
+            if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                if let Err(e) = sqlx::query!(
+                    r#"
+                      INSERT INTO metrics (id, value) 
+                           VALUES ('no_uv_usage_py', $1)
+                    "#,
+                    serde_json::to_value("").map_err(to_anyhow)?
+                )
+                .execute(db)
+                .await
+                {
+                    tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
+                }
+            }
+
             python_dep(
                 reqs,
                 job_id,
@@ -1540,6 +1558,21 @@ async fn capture_dependency_job(
             }
             let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
             let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+
+            if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                if let Err(e) = sqlx::query!(
+                    r#"
+                      INSERT INTO metrics (id, value) 
+                           VALUES ('no_uv_usage_ansible', $1)
+                    "#,
+                    serde_json::to_value("").map_err(to_anyhow)?
+                )
+                .execute(db)
+                .await
+                {
+                    tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
+                };
+            }
 
             python_dep(
                 reqs,
