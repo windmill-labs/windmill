@@ -76,7 +76,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,deno_core
+            features=embedding,parquet,openidconnect,jemalloc,deno_core,dind
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -138,7 +138,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,otel
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,otel,dind
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -200,7 +200,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,otel
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,otel,dind
             PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
             ${{ steps.meta-ee-public-py312.outputs.tags }}

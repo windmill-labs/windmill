@@ -160,6 +160,7 @@ pub async fn do_mssql(
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
 
