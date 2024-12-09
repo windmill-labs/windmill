@@ -10,11 +10,10 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Plus } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { fade } from 'svelte/transition'
-	import ResourcePicker from '../ResourcePicker.svelte'
+	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -218,85 +217,14 @@
 					</Label>
 				</div>
 
-				<Section label="Kafka">
-					<div class="flex flex-col w-full gap-4">
-						<div class="block grow w-full">
-							<div class="text-secondary text-sm mb-1">
-								Resource
-								<Required required={true} />
-							</div>
-							<ResourcePicker
-								resourceType="kafka"
-								bind:value={kafka_resource_path}
-								{defaultValues}
-							/>
-						</div>
-						<label class="block grow w-full">
-							<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-								<div>
-									Topics
-									<Required required={true} />
-								</div>
-							</div>
-
-							<div class="flex flex-col gap-4 mt-1">
-								{#each topics as v, i}
-									<div class="flex w-full gap-2 items-center">
-										<input type="text" bind:value={v} />
-
-										<button
-											transition:fade|local={{ duration: 100 }}
-											class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-											aria-label="Clear"
-											on:click={() => {
-												topics = topics.filter((_, index) => index !== i)
-											}}
-											class:hidden={topics.length === 1}
-										>
-											<X size={14} />
-										</button>
-									</div>
-								{/each}
-
-								<div class="flex items-baseline">
-									<Button
-										variant="border"
-										color="light"
-										size="xs"
-										on:click={() => {
-											if (topics == undefined || !Array.isArray(topics)) {
-												topics = []
-											}
-											topics = topics.concat('')
-										}}
-										startIcon={{ icon: Plus }}
-									>
-										Add topic
-									</Button>
-								</div>
-							</div>
-							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-								{topicsError}
-							</div>
-						</label>
-
-						<label class="block grow w-full">
-							<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-								<div>
-									Group ID
-									<Required required={true} />
-								</div>
-							</div>
-							<div class="mt-1">
-								<input type="text" bind:value={group_id} on:focus={() => (dirtyGroupId = true)} />
-							</div>
-
-							<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-								{groupIdError}
-							</div>
-						</label>
-					</div>
-				</Section>
+				<KafkaTriggersConfigSection
+					{kafka_resource_path}
+					{topics}
+					{group_id}
+					{topicsError}
+					{groupIdError}
+					{defaultValues}
+				/>
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">

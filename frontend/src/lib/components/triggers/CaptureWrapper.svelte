@@ -10,6 +10,7 @@
 	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
+	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -24,7 +25,6 @@
 				message?: string
 		  }
 		| undefined = undefined
-
 	export let args: Record<string, any> = {}
 
 	let isValid = true
@@ -197,6 +197,8 @@
 				emailDomain={data?.emailDomain}
 				{captureActive}
 			/>
+		{:else if captureType === 'kafka'}
+			<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
 		{/if}
 
 		<CaptureTable

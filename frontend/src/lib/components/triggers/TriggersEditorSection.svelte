@@ -126,6 +126,7 @@
 				console.log('dbg redirect')
 			}
 		}}
+		on:saveTrigger
 		bind:args
 		bind:handleCapture
 		bind:captureActive
