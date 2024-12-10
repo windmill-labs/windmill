@@ -16,8 +16,7 @@ use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
-    cache,
-    error,
+    cache, error,
     flows::{FlowModule, FlowModuleValue},
     jobs::QueuedJob,
     scripts::{ScriptHash, ScriptLang},
@@ -394,14 +393,14 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = cache::flow::fetch_script(db, *id)
-                        .await
-                        .map(|(lock, content)| SpawnWorker::RawScript {
+                    let spawn = cache::flow::fetch_script(db, *id).await.map(|raw_script| {
+                        SpawnWorker::RawScript {
                             path: "".to_string(),
-                            content,
-                            lock,
+                            content: raw_script.code.clone(),
+                            lock: raw_script.lock.clone(),
                             lang: language.clone(),
-                        });
+                        }
+                    });
                     match spawn {
                         Ok(spawn) => {
                             if let Some(dedi_w) = spawn_dedicated_worker(
@@ -416,17 +415,18 @@ async fn spawn_dedicated_workers_for_flow(
                                 job_completed_tx,
                                 Some(module.id.clone()),
                             )
-                              .await
+                            .await
                             {
                                 workers.push(dedi_w);
                             }
-                        },
+                        }
                         Err(err) => tracing::error!(
                             "failed to get script for module: {:?}, err: {:?}",
-                            module, err
-                        )
+                            module,
+                            err
+                        ),
                     }
-                },
+                }
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }
@@ -675,12 +675,12 @@ async fn spawn_dedicated_worker(
                 token
             };
 
-            let worker_envs = build_envs(envs).expect("failed to build envs");
+            let worker_envs = build_envs(envs.as_ref()).expect("failed to build envs");
 
             if let Err(e) = match language {
                 Some(ScriptLang::Python3) => {
                     crate::python_executor::start_worker(
-                        lock,
+                        lock.as_ref(),
                         &db,
                         &content,
                         &base_internal_url,

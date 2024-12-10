@@ -206,7 +206,7 @@ pub fn extract_relative_imports(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
     job: &QueuedJob,
-    raw_code: Option<String>,
+    raw_script: &windmill_common::cache::ScriptData,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -217,18 +217,6 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let raw_code = match raw_code {
-        Some(code) => code,
-        None => sqlx::query_scalar!(
-            "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .unwrap_or_else(|| "No script found at this hash".to_string()),
-    };
-
     let script_path = job.script_path();
     let raw_deps = job
         .args
@@ -264,7 +252,7 @@ pub async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        &raw_code,
+        &raw_script.code,
         mem_peak,
         canceled_by,
         job_dir,
@@ -322,7 +310,8 @@ pub async fn handle_dependency_job(
                 tracing::error!(%e, "error handling deployment metadata");
             }
 
-            let relative_imports = extract_relative_imports(&raw_code, script_path, &job.language);
+            let relative_imports =
+                extract_relative_imports(&raw_script.code, script_path, &job.language);
             if let Some(relative_imports) = relative_imports {
                 update_script_dependency_map(
                     &job.id,
@@ -523,7 +512,7 @@ async fn trigger_dependents_to_recompute_dependencies(
 
 pub async fn handle_flow_dependency_job(
     job: &QueuedJob,
-    raw_flow: Option<Json<Box<RawValue>>>,
+    raw_flow: &windmill_common::cache::FlowData,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -566,11 +555,11 @@ pub async fn handle_flow_dependency_job(
         )
     };
 
-    let raw_flow = raw_flow.map(|v| Ok(v)).unwrap_or_else(|| {
-        Err(Error::InternalErr(
-            "Flow Dependency requires raw flow".to_owned(),
-        ))
-    })?;
+    // let raw_flow = raw_flow.map(|v| Ok(v)).unwrap_or_else(|| {
+    //     Err(Error::InternalErr(
+    //         "Flow Dependency requires raw flow".to_owned(),
+    //     ))
+    // })?;
     let (deployment_message, parent_path) =
         get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -584,13 +573,14 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
-    let mut flow = serde_json::from_str::<FlowValue>((*raw_flow.0).get()).map_err(to_anyhow)?;
+    let mut flow = raw_flow.value()?.clone();
 
     let mut tx = db.begin().await?;
 
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
     let modified_ids;
+    // TODO(uael): refactor lock_modules to take a &mut Vec<FlowModule> instead.
     (flow.modules, tx, modified_ids) = lock_modules(
         flow.modules,
         job,
@@ -1764,7 +1754,7 @@ async fn capture_dependency_job(
             if req.is_some() && !raw_deps {
                 crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
-                    req.clone(),
+                    req.as_ref(),
                     script_path,
                     job_id,
                     w_id,

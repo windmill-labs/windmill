@@ -59,8 +59,8 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-        DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, NO_LOGS,
-        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
+        MIN_VERSION_IS_AT_LEAST_1_436, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -3204,14 +3204,14 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::FlowNode { id, path } => {
-            let value = cache::flow::fetch_flow(_db, id).await?;
-            let status = Some(FlowStatus::new(&value));
+            let data = cache::flow::fetch_flow(_db, id).await?;
+            let status = Some(FlowStatus::new(data.value()?));
             (
                 Some(id.0),
                 Some(path),
                 None,
                 JobKind::FlowNode,
-                Some(value),
+                None,
                 status,
                 None,
                 None,
@@ -3221,7 +3221,7 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
             )
-        },
+        }
         JobPayload::AppScript {
             id, // app_script(id).
             path,
@@ -3330,7 +3330,7 @@ pub async fn push<'c, 'd>(
             Some(path),
             None,
             JobKind::FlowDependencies,
-            Some(flow_value.clone()),
+            Some(flow_value),
             None,
             None,
             None,
@@ -3341,22 +3341,20 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
-            let value_json = fetch_scalar_isolated!(
-                sqlx::query_scalar!("SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM flow_version WHERE id = $1 LIMIT 1", &version),
-                tx
-            )?
-            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value = serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
+            // Keep inserting `value` if not all workers are updated.
+            // Starting at `v1.436`, the value is fetched on pull from the version id.
+            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_436.read().await {
+                let data = cache::flow::fetch_version(_db, version).await?;
+                Some(data.value()?.clone())
+            } else {
+                None
+            };
             (
                 Some(version),
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
-                Some(value.clone()),
+                value_o,
                 None,
                 None,
                 None,
@@ -3426,20 +3424,25 @@ pub async fn push<'c, 'd>(
                     FlowStatus::new(&value)
                 } // this is a new flow being pushed, flow_status is set to flow_value
             };
+            let concurrency_key = value.concurrency_key.clone();
+            let concurrent_limit = value.concurrent_limit;
+            let concurrency_time_window_s = value.concurrency_time_window_s;
+            let cache_ttl = value.cache_ttl.map(|x| x as i32);
+            let priority = value.priority;
             (
                 None,
                 path,
                 None,
                 JobKind::FlowPreview,
-                Some(value.clone()),
+                Some(value),
                 Some(flow_status),
                 None,
-                value.concurrency_key.clone(),
-                value.concurrent_limit.clone(),
-                value.concurrency_time_window_s,
-                value.cache_ttl.map(|x| x as i32),
+                concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                cache_ttl,
                 None,
-                value.priority,
+                priority,
             )
         }
         JobPayload::SingleScriptFlow {
@@ -3495,13 +3498,15 @@ pub async fn push<'c, 'd>(
                 priority: priority,
                 preprocessor_module: None,
             };
+            // this is a new flow being pushed, flow_status is set to flow_value:
+            let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
                 None,
                 Some(path),
                 None,
-                JobKind::Flow,
-                Some(flow_value.clone()),
-                Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
+                JobKind::FlowPreview,
+                Some(flow_value),
+                Some(flow_status),
                 None,
                 custom_concurrency_key,
                 concurrent_limit,
@@ -3512,47 +3517,35 @@ pub async fn push<'c, 'd>(
             )
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
-            // Do not use the lite version unless all workers are updated.
-            let value_json = if *DISABLE_FLOW_SCRIPT || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await  && !*CLOUD_HOSTED) {
-                fetch_scalar_isolated!(
-                    sqlx::query_scalar!(
-                        "SELECT flow_version.value as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
-                        LEFT JOIN flow_version
-                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                        WHERE flow.path = $1 AND flow.workspace_id = $2",
-                        &path, &workspace_id
-                    ),
-                    tx
-                )
-            } else {
-                fetch_scalar_isolated!(
-                    sqlx::query_scalar!(
-                        "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\" FROM flow 
-                        LEFT JOIN flow_version
-                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-                        LEFT JOIN flow_version_lite 
-                            ON flow_version_lite.id = flow_version.id
-                        WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
-                        &path, &workspace_id
-                    ),
-                    tx
-                )
-            }?
+            let version = fetch_scalar_isolated!(
+                sqlx::query_scalar!(
+                    "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
+                    FROM flow WHERE path = $1 AND workspace_id = $2",
+                    &path,
+                    &workspace_id
+                ),
+                tx
+            )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let mut value = serde_json::from_str::<FlowValue>(value_json.get()).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
+
+            // Do not use the lite version unless all workers are updated.
+            let no_lite_version = *DISABLE_FLOW_SCRIPT
+                || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED);
+            let data = if no_lite_version {
+                cache::flow::fetch_version(_db, version).await
+            } else {
+                cache::flow::fetch_version_lite(_db, version).await
+            }?;
+            let mut value = data.value()?.clone();
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             if same_worker {
                 value.same_worker = true;
             }
-            let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
+            let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
-            let concurrency_time_window_s = value.concurrency_time_window_s.clone();
-            let concurrent_limit = value.concurrent_limit.clone();
+            let concurrency_time_window_s = value.concurrency_time_window_s;
+            let concurrent_limit = value.concurrent_limit;
 
             let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
@@ -3566,12 +3559,19 @@ pub async fn push<'c, 'd>(
                 });
             }
             let status = Some(FlowStatus::new(&value));
+            // Keep inserting `value` if not all workers are updated.
+            // Starting at `v1.436`, the value is fetched on pull from the version id.
+            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_436.read().await {
+                Some(value)
+            } else {
+                None
+            };
             (
-                None,
+                Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
                 Some(path),
                 None,
                 JobKind::Flow,
-                Some(value),
+                value_o,
                 status, // this is a new flow being pushed, flow_status is set to flow_value
                 None,
                 custom_concurrency_key,
@@ -3623,18 +3623,22 @@ pub async fn push<'c, 'd>(
                 user_states,
                 preprocessor_module: None,
             };
+            let concurrency_key = raw_flow.concurrency_key.clone();
+            let concurrent_limit = raw_flow.concurrent_limit;
+            let concurrency_time_window_s = raw_flow.concurrency_time_window_s;
+            let cache_ttl = raw_flow.cache_ttl.map(|x| x as i32);
             (
                 None,
                 flow_path,
                 None,
-                JobKind::Flow,
-                Some(raw_flow.clone()),
+                JobKind::FlowPreview,
+                Some(raw_flow),
                 Some(restarted_flow_status),
                 None,
-                raw_flow.concurrency_key,
-                raw_flow.concurrent_limit,
-                raw_flow.concurrency_time_window_s,
-                raw_flow.cache_ttl.map(|x| x as i32),
+                concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                cache_ttl,
                 None,
                 priority,
             )
