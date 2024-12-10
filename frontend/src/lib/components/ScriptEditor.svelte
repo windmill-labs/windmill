@@ -378,7 +378,6 @@
 								<Tab value="preprocessor">Preprocessor</Tab>
 							</div>
 						{/if}
-						<Tab value="capture">Capture</Tab>
 					</Tabs>
 				</div>
 				{#if selectedTab === 'capture'}
