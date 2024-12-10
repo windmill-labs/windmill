@@ -118,7 +118,7 @@
 			{path}
 			{isFlow}
 			captureType={triggerType}
-			hasPreprocessor={!!$flowStore.value.preprocessor_module}
+			hasPreprocessor={isFlow && !!$flowStore.value.preprocessor_module}
 			canHavePreprocessor
 			on:applyArgs
 			on:addPreprocessor={async () => {
