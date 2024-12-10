@@ -471,7 +471,7 @@
 								</div>
 							</div>
 						</Pane>
-						<Pane size={67}>
+						<Pane size={67} class="relative">
 							<LogPanel
 								{lang}
 								previewJob={testJob}
@@ -480,6 +480,7 @@
 								{editor}
 								{diffEditor}
 								{args}
+								{path}
 							>
 								{#if scriptProgress}
 									<!-- Put to the slot in logpanel -->

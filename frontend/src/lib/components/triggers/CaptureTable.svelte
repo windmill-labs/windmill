@@ -21,7 +21,7 @@
 	export let hasPreprocessor = false
 	export let canHavePreprocessor = false
 	export let isFlow = false
-	export let captureType: CaptureTriggerKind = 'webhook'
+	export let captureType: CaptureTriggerKind | 'all' = 'all'
 	export let headless = false
 	export let addButton = false
 	export let hideCapturesWhenEmpty = false
@@ -33,7 +33,13 @@
 
 	$: hasPreprocessor && (testKind = 'preprocessor')
 
-	$: selectedCaptures = captures.filter((c) => c.trigger_kind === captureType)
+	function filterCaptures(captures: Capture[], captureType: CaptureTriggerKind | 'all') {
+		if (captureType === 'all') {
+			return captures
+		}
+		return captures.filter((c) => c.trigger_kind === captureType)
+	}
+	$: selectedCaptures = filterCaptures(captures, captureType)
 
 	let deleteLoading: number | null = null
 	async function deleteCapture(id: number) {
@@ -76,9 +82,9 @@
 </script>
 
 {#if selectedCaptures.length > 0 || !hideCapturesWhenEmpty}
-	<Label label="Captures" {headless}>
+	<Label label="Captures" {headless} class="flex flex-col h-full">
 		<svelte:fragment slot="header">
-			{#if addButton}
+			{#if addButton && captureType !== 'all'}
 				<Button
 					size="xs2"
 					color="light"
@@ -108,7 +114,7 @@
 				</div>
 			{/if}
 		</svelte:fragment>
-		<div class="flex flex-col gap-1 mt-2">
+		<div class="flex flex-col gap-1 pt-2 grow overflow-y-auto">
 			{#if selectedCaptures.length === 0}
 				<div class="text-xs text-secondary">No {captureType} captures yet</div>
 			{:else}
