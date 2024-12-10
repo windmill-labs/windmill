@@ -424,7 +424,7 @@ async fn postinstall(
                     .ok_or(anyhow::anyhow!("Cannot convert OsString to String"))?
                     .to_owned();
 
-                if name == "bin" || name.contains("dist-info") {
+                if name == "bin" || name == "__pycache__" || name.contains("dist-info") {
                     continue;
                 }
 
@@ -487,7 +487,7 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() {
+        if src_path.is_dir() && !src_path.is_symlink() {
             copy_dir_recursively(&src_path, &dst_path)?;
         } else {
             fs::copy(&src_path, &dst_path)?;
