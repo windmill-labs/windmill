@@ -14,6 +14,7 @@
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
+	export let isEditor: boolean = false
 
 	let wsTriggerEditor: WebsocketTriggerEditor
 
@@ -70,8 +71,10 @@
 				wsTriggerEditor?.openNew(isFlow, path)
 			}}
 			cloudDisabled={false}
-			captureType="websocket"
+			triggerType="websocket"
 			{isFlow}
+			{path}
+			{isEditor}
 		/>
 
 		<Section label="Websockets">

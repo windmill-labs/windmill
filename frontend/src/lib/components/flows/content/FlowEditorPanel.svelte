@@ -66,7 +66,6 @@
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
-			console.log('dbg openTriggers', ev.detail)
 			$selectedId = 'triggers'
 			selectedTrigger.set(ev.detail.kind)
 			defaultValues.set(ev.detail.config)

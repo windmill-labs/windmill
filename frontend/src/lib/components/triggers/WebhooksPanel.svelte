@@ -10,13 +10,13 @@
 	export let hash: string | undefined = undefined
 	export let path: string
 	export let newItem: boolean = false
+	export let isEditor: boolean = false
 
 	let data: any = {
 		hash,
 		token,
 		scopes,
-		args,
-		path
+		args
 	}
 </script>
 
@@ -31,5 +31,13 @@
 		</Alert>
 	{/if}
 
-	<TriggersEditorSection cloudDisabled={false} captureType="webhook" {isFlow} {data} noSave />
+	<TriggersEditorSection
+		cloudDisabled={false}
+		triggerType="webhook"
+		{isFlow}
+		{data}
+		noSave
+		{path}
+		{isEditor}
+	/>
 </div>

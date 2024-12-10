@@ -16,6 +16,7 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+	export let isEditor: boolean = false
 
 	let emailDomain: string | null = null
 	let triggerTokens: TriggerTokens | undefined = undefined
@@ -52,10 +53,12 @@
 		{#if emailDomain}
 			<TriggersEditorSection
 				cloudDisabled={false}
-				captureType="email"
+				triggerType="email"
 				{isFlow}
 				noSave
 				data={{ emailDomain, userSettings, token, hash, path }}
+				{isEditor}
+				{path}
 			/>
 		{:else}
 			<div>

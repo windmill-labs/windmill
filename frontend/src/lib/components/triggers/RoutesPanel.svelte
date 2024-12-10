@@ -13,6 +13,7 @@
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
+	export let isEditor: boolean = false
 
 	let routeEditor: RouteEditor
 
@@ -63,8 +64,10 @@
 			routeEditor?.openNew(isFlow, path, e.detail.config)
 		}}
 		cloudDisabled={false}
-		captureType="http"
+		triggerType="http"
 		{isFlow}
+		{path}
+		{isEditor}
 	/>
 	<Section label="Routes">
 		{#if !newItem}

@@ -50,6 +50,7 @@
 								args={{}}
 								token=""
 								{newItem}
+								isEditor={true}
 							/>
 						</div>
 					{/if}
@@ -61,25 +62,26 @@
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
 								{isFlow}
+								isEditor={true}
 							/>
 						</div>
 					{/if}
 
 					{#if $selectedTrigger === 'routes'}
 						<div class="p-4">
-							<RoutesPanel {newItem} path={currentPath} {isFlow} />
+							<RoutesPanel {newItem} path={currentPath} {isFlow} isEditor={true} />
 						</div>
 					{/if}
 
 					{#if $selectedTrigger === 'websockets'}
 						<div class="p-4">
-							<WebsocketTriggersPanel {newItem} path={currentPath} {isFlow} />
+							<WebsocketTriggersPanel {newItem} path={currentPath} {isFlow} isEditor={true} />
 						</div>
 					{/if}
 
 					{#if $selectedTrigger === 'kafka'}
 						<div class="p-4">
-							<KafkaTriggersPanel {newItem} path={currentPath} {isFlow} />
+							<KafkaTriggersPanel {newItem} path={currentPath} {isFlow} isEditor={true} />
 						</div>
 					{/if}
 

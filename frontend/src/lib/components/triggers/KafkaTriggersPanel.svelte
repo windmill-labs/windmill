@@ -14,6 +14,7 @@
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
+	export let isEditor: boolean = false
 
 	let kafkaTriggerEditor: KafkaTriggerEditor
 
@@ -83,9 +84,11 @@
 				saveTrigger(path, e.detail.config)
 			}}
 			cloudDisabled={false}
-			captureType="kafka"
+			triggerType="kafka"
 			{isFlow}
 			{data}
+			{path}
+			{isEditor}
 		/>
 
 		{#if newItem}

@@ -12,12 +12,15 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { onDestroy } from 'svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import TriggersWrapper from './TriggersWrapper.svelte'
 
 	export let cloudDisabled: boolean
-	export let captureType: CaptureTriggerKind
+	export let triggerType: CaptureTriggerKind
 	export let isFlow: boolean = false
 	export let data: any = {}
 	export let noSave = false
+	export let isEditor: boolean = false
+	export let path: string = ''
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
 		http: 'Route',
@@ -41,10 +44,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { flowStore, initialPath, pathStore, selectedId } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, initialPath, selectedId } =
+		getContext<FlowEditorContext>('FlowEditorContext') || {}
 
-	$: newItem = initialPath === ''
+	let newItem = false
+	$: initialPath && (newItem = initialPath === '')
 
 	let handleCapture: (() => Promise<void>) | undefined
 
@@ -55,26 +59,28 @@
 	$: $captureOn && handleCapture?.()
 </script>
 
-<Section label={`New ${captureTypeLabels[captureType]} Trigger`}>
+<Section label={`New ${captureTypeLabels[triggerType]} Trigger`}>
 	<svelte:fragment slot="action">
 		<div class="flex flex-row grow w-min-0 gap-2 px-2 items-center justify-end">
-			<ConnectionIndicator {connectionInfo} />
+			{#if isEditor}
+				<ConnectionIndicator {connectionInfo} />
 
-			<AnimatedButton animate={captureActive} baseRadius="6px">
-				<Button
-					size="xs2"
-					on:click={() => {
-						handleCapture?.()
-					}}
-					variant="border"
-					disabled={false}
-					color="light"
-					startIcon={{ icon: captureActive ? CircleStop : Play }}
-					btnClasses={captureActive ? 'text-blue-500 hover:text-blue-500' : ''}
-				>
-					Live test
-				</Button>
-			</AnimatedButton>
+				<AnimatedButton animate={captureActive} baseRadius="6px">
+					<Button
+						size="xs2"
+						on:click={() => {
+							handleCapture?.()
+						}}
+						variant="border"
+						disabled={false}
+						color="light"
+						startIcon={{ icon: captureActive ? CircleStop : Play }}
+						btnClasses={captureActive ? 'text-blue-500 hover:text-blue-500' : ''}
+					>
+						Live test
+					</Button>
+				</AnimatedButton>
+			{/if}
 
 			{#if !noSave}
 				{@const disabled = newItem || cloudDisabled}
@@ -96,10 +102,10 @@
 							{#if newItem}
 								Deploy the runnable to enable trigger creation
 							{:else if cloudDisabled}
-								{capitalize(captureType)} triggers are disabled in the multi-tenant cloud
+								{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud
 							{/if}
 						{:else}
-							Create new {captureTypeLabels[captureType]} trigger from prototype
+							Create new {captureTypeLabels[triggerType]} trigger from prototype
 						{/if}
 					</svelte:fragment>
 				</Popover>
@@ -107,30 +113,34 @@
 		</div>
 	</svelte:fragment>
 
-	<CaptureWrapper
-		path={$pathStore}
-		{isFlow}
-		{captureType}
-		hasPreprocessor={!!$flowStore.value.preprocessor_module}
-		canHavePreprocessor
-		on:applyArgs
-		on:addPreprocessor={async () => {
-			console.log('dbg add preprocessor')
-			$selectedId = 'preprocessor'
-		}}
-		on:updateSchema={(e) => {
-			const { schema, redirect } = e.detail
-			$flowStore.schema = schema
-			if (redirect) {
-				//tabSelected = 'input'
-				console.log('dbg redirect')
-			}
-		}}
-		on:saveTrigger
-		bind:args
-		bind:handleCapture
-		bind:captureActive
-		{data}
-		bind:connectionInfo
-	/>
+	{#if isEditor}
+		<CaptureWrapper
+			{path}
+			{isFlow}
+			captureType={triggerType}
+			hasPreprocessor={!!$flowStore.value.preprocessor_module}
+			canHavePreprocessor
+			on:applyArgs
+			on:addPreprocessor={async () => {
+				console.log('dbg add preprocessor')
+				$selectedId = 'preprocessor'
+			}}
+			on:updateSchema={(e) => {
+				const { schema, redirect } = e.detail
+				$flowStore.schema = schema
+				if (redirect) {
+					//tabSelected = 'input'
+					console.log('dbg redirect')
+				}
+			}}
+			on:saveTrigger
+			bind:args
+			bind:handleCapture
+			bind:captureActive
+			{data}
+			bind:connectionInfo
+		/>
+	{:else}
+		<TriggersWrapper {path} {isFlow} {triggerType} {cloudDisabled} {args} {data} />
+	{/if}
 </Section>
