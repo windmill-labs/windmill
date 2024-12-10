@@ -1,30 +1,25 @@
 <script>
-	import 'sandpack-lit/dist/presets/sandpack'
-	import 'sandpack-lit/dist/themes/odyssey.css'
+	import { loadSandpackClient } from '@codesandbox/sandpack-client'
+	import { onMount } from 'svelte'
+
+	onMount(async () => {
+		const client = await loadSandpackClient('#container', {
+			files: {
+				'/index.js': {
+					code: `console.log(require('uuid'))`
+				}
+			},
+			entry: '/index.js',
+			dependencies: {
+				uuid: 'latest'
+			}
+		})
+		// code here
+	})
 </script>
 
 <main>
-	<div class="container">
-		<!-- <sandpack-preset
-			options={{
-				closableTabs: false,
-				files: {
-					/** files go here */
-				},
-				customSetup: {
-					dependencies: {
-						lit: '2.6.1'
-					}
-				}
-			}}
-		/> -->
-		<sandpack-provider>
-			<sandpack-layout>
-				<sandpack-preview initMode="" />
-			</sandpack-layout>
-		</sandpack-provider>
-		<!-- <sandpack-preview options={{ template: 'vite', initMode: 'lazy' }} /> -->
-	</div>
+	<div id="container" />
 </main>
 
 <style>
