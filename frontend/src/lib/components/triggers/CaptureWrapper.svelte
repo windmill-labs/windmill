@@ -89,13 +89,14 @@
 	}
 
 	function stopAndSetDefaultArgs() {
-		console.log('dbg stopAndSetDefaultArgs', args)
 		captureActive = false
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else if (captureType === 'kafka') {
 			args = {
+				...args,
+				kafka_resource_path: '',
 				brokers: [''],
 				topics: [''],
 				group_id: `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`

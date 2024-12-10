@@ -138,10 +138,6 @@
 
 	$: topicsError = args.topics?.some((b) => /[^[a-zA-Z0-9-_.]/.test(b)) ? 'Invalid topics' : ''
 	$: groupIdError = /[^a-zA-Z0-9-_.]/.test(args.group_id) ? 'Invalid group ID' : ''
-	$: !dirtyGroupId &&
-		path &&
-		args.group_id == '' &&
-		(args.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`)
 
 	function useDefaultValues() {
 		if (args.kafka_resource_path && args.kafka_resource_path != '') {
@@ -150,7 +146,6 @@
 		if (!defaultValues) {
 			return false
 		}
-		console.log('dbg defaultValues', defaultValues)
 		return (
 			defaultValues.brokers &&
 			defaultValues.brokers.length > 0 &&

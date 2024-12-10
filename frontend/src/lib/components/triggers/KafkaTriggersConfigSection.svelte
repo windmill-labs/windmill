@@ -122,6 +122,21 @@
 		},
 		required: ['topics', 'group_id']
 	}
+
+	$: connectionArgs = {
+		get brokers() {
+			return args.brokers
+		},
+		set brokers(value) {
+			args.brokers = value
+		},
+		get security() {
+			return args.security
+		},
+		set security(value) {
+			args.security = value
+		}
+	}
 </script>
 
 <Section label="Kafka" {headless}>
@@ -144,7 +159,12 @@
 						{defaultValues}
 					/>
 				{:else}
-					<SchemaForm schema={connnectionSchema} bind:args bind:isValid lightHeader={true} />
+					<SchemaForm
+						schema={connnectionSchema}
+						bind:args={connectionArgs}
+						bind:isValid
+						lightHeader={true}
+					/>
 				{/if}
 			</Subsection>
 		</div>
