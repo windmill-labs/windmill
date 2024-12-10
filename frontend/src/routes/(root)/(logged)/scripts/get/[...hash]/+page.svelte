@@ -311,7 +311,7 @@
 
 		if (!$userStore?.operator) {
 			buttons.push({
-				label: 'Build App',
+				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
 						const app = createAppFromScript(script.path, script.schema)

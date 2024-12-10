@@ -779,7 +779,7 @@
 
 	let moreItems = [
 		{
-			displayName: 'Deployment History',
+			displayName: 'Deployment history',
 			icon: History,
 			action: () => {
 				historyBrowserDrawerOpen = true
@@ -809,14 +809,14 @@
 			}
 		},
 		{
-			displayName: 'App Inputs',
+			displayName: 'App inputs',
 			icon: FormInput,
 			action: () => {
 				inputsDrawerOpen = true
 			}
 		},
 		{
-			displayName: 'Schedule Reports',
+			displayName: 'Schedule reports',
 			icon: FileClock,
 			action: () => {
 				appReportingDrawerOpen = true

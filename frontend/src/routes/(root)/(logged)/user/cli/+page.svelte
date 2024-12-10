@@ -12,7 +12,7 @@
 	async function authorizeToken(): Promise<void> {
 		const newToken = await UserService.createToken({
 			requestBody: {
-				label: 'External Tool Token',
+				label: 'External tool token',
 				expiration: undefined
 			}
 		})

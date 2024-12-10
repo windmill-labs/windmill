@@ -56,7 +56,7 @@
 			href: `${base}/variables`
 		},
 		{
-			label: 'Audit Logs',
+			label: 'Audit logs',
 			href: `${base}/audit_logs`
 		},
 		{
@@ -155,7 +155,7 @@
 				tabindex="-1"
 			>
 				<Building size={14} />
-				All Workspaces
+				All workspaces
 			</a>
 
 			<MenuItem

@@ -112,7 +112,7 @@
 						tabindex="-1"
 					>
 						<Settings size={16} />
-						Workspace Settings
+						Workspace settings
 					</a>
 				</MenuItem>
 			</div>
