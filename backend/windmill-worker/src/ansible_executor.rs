@@ -116,8 +116,8 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
-            true,
-            true,
+            false,
+            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);

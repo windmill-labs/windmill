@@ -13,7 +13,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, PythonAnnotations};
 use windmill_common::{
     apps::AppScriptId,
     error::{self, to_anyhow},
@@ -28,7 +28,9 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
+};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_bun_lockfile,
@@ -1574,6 +1576,8 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    no_uv_compile: bool,
+    no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
     let req: std::result::Result<String, Error> = uv_pip_compile(
@@ -1586,7 +1590,7 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        false,
+        no_uv_compile,
         false,
     )
     .await;
@@ -1603,7 +1607,7 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            false,
+            no_uv_install,
             false,
         )
         .await;
@@ -1654,28 +1658,23 @@ async fn capture_dependency_job(
                 .join("\n")
             };
 
-            python_dep(
-                reqs,
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                worker_dir,
-                &mut Some(occupancy_metrics),
-            )
-            .await
-        }
-        ScriptLang::Ansible => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for ansible".to_string(),
-                ));
+            let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
+                PythonAnnotations::parse(job_raw_code);
+
+            if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                if let Err(e) = sqlx::query!(
+                    r#"
+                      INSERT INTO metrics (id, value) 
+                           VALUES ('no_uv_usage_py', $1)
+                    "#,
+                    serde_json::to_value("").map_err(to_anyhow)?
+                )
+                .execute(db)
+                .await
+                {
+                    tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
+                }
             }
-            let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
-            let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
 
             python_dep(
                 reqs,
@@ -1688,6 +1687,48 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                no_uv_compile | no_uv,
+                no_uv_install | no_uv,
+            )
+            .await
+        }
+        ScriptLang::Ansible => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for ansible".to_string(),
+                ));
+            }
+            let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
+            let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+
+            if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                if let Err(e) = sqlx::query!(
+                    r#"
+                      INSERT INTO metrics (id, value) 
+                           VALUES ('no_uv_usage_ansible', $1)
+                    "#,
+                    serde_json::to_value("").map_err(to_anyhow)?
+                )
+                .execute(db)
+                .await
+                {
+                    tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
+                };
+            }
+
+            python_dep(
+                reqs,
+                job_id,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                worker_dir,
+                &mut Some(occupancy_metrics),
+                false,
+                false,
             )
             .await
         }
