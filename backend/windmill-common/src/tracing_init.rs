@@ -12,7 +12,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use tracing::Event;
+use tracing::{level_filters::LevelFilter, Event};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::{
@@ -51,12 +51,21 @@ pub fn initialize_tracing(
 ) -> (WorkerGuard, crate::otel_ee::OtelProvider) {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
-    if std::env::var("RUST_LOG").is_ok_and(|x| x == "debug" || x == "info") {
+    let rust_log_env = std::env::var("RUST_LOG");
+    if rust_log_env
+        .as_ref()
+        .is_ok_and(|x| x == "debug" || x == "info")
+    {
         std::env::set_var(
             "RUST_LOG",
-            &format!("windmill={}", std::env::var("RUST_LOG").unwrap()),
+            &format!("windmill={}", rust_log_env.as_ref().unwrap()),
         )
     }
+    let default_env_filter = if rust_log_env.is_ok_and(|x| x == "debug") {
+        LevelFilter::DEBUG
+    } else {
+        LevelFilter::INFO
+    };
 
     let meter_provider = crate::otel_ee::init_meter_provider(mode, hostname, environment);
 
@@ -109,7 +118,7 @@ pub fn initialize_tracing(
                                 "windmill:job_log",
                                 tracing::level_filters::LevelFilter::OFF,
                             )
-                            .with_default(tracing::level_filters::LevelFilter::INFO),
+                            .with_default(default_env_filter),
                     ),
             )
             .with(CountingLayer::new())
@@ -131,7 +140,7 @@ pub fn initialize_tracing(
                                 "windmill:job_log",
                                 tracing::level_filters::LevelFilter::OFF,
                             )
-                            .with_default(tracing::level_filters::LevelFilter::INFO),
+                            .with_default(default_env_filter),
                     ),
             )
             .with(CountingLayer::new())
