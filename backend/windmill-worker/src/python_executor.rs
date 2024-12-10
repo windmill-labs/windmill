@@ -1499,11 +1499,11 @@ pub async fn handle_python_reqs(
                         let mut local_mem_peak = 0;
                         for pid_o in pids.lock().await.iter() {
                             if pid_o.is_some(){
-                                let mem = get_mem_peak(*pid_o, *DISABLE_NSJAIL).await;
+                                let mem = get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
                                 if mem < 0 {
                                     tracing::warn!(
                                         workspace_id = %w_id_2,
-                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}", 
+                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}, exit code: {mem}", 
                                         pid_o, 
                                         job_id_2
                                     );
@@ -1518,6 +1518,15 @@ pub async fn handle_python_reqs(
 
                             if local_mem_peak > *mem_peak_lock{
                                 *mem_peak_lock = local_mem_peak;
+                            } else {
+                                tracing::info!(
+                                    workspace_id = %w_id_2,
+                                    "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}", 
+                                    local_mem_peak / 1000,
+                                    *mem_peak_lock / 1000,
+                                    job_id_2
+                                );
+                                
                             }
                             // Get the copy of value and drop lock itself, to release it as fast as possible
                             *mem_peak_lock
@@ -1806,6 +1815,7 @@ pub async fn handle_python_reqs(
                 job_id
             );
 
+            pids.lock().await[i] = None;
             Ok(())
         }));
     }
