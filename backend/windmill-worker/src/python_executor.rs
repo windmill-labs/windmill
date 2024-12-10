@@ -318,7 +318,7 @@ pub async fn uv_pip_compile(
         if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
-        tracing::debug!("uv args: {:?}", args);
+        tracing::error!("uv args: {:?}", args);
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -329,7 +329,8 @@ pub async fn uv_pip_compile(
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .current_dir(job_dir)
-            .args(args)
+            .env("HOME", HOME_ENV.to_string())
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let child_process = start_child_process(child_cmd, uv_cmd).await?;
@@ -350,7 +351,7 @@ pub async fn uv_pip_compile(
             occupancy_metrics,
         )
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}", args.join(" "))))?;
     }
 
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -749,8 +750,10 @@ mount {{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        #[cfg(windows)]
-        python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        #[cfg(windows)] {
+            python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
 
         start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
     };
@@ -1277,6 +1280,7 @@ async fn spawn_uv_install(
                 .envs(envs)
                 .envs(PROXY_ENVS.clone())
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),

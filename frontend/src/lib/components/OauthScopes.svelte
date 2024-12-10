@@ -11,7 +11,7 @@
 			<input type="text" bind:value={v} />
 			<Button
 				variant="border"
-				color="red"
+				color="light"
 				size="xs"
 				btnClasses="mx-6"
 				on:click={() => {
@@ -27,7 +27,7 @@
 <div class="flex items-center mt-1">
 	<Button
 		variant="border"
-		color="blue"
+		color="light"
 		hover="yo"
 		size="sm"
 		endIcon={{ icon: Plus }}

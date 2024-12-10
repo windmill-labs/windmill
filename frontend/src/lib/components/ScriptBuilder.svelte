@@ -648,7 +648,7 @@
 				<Tab value="triggers">
 					Triggers
 					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/getting_started/trigger_scripts"
+						documentationLink="https://www.windmill.dev/docs/getting_started/triggers"
 					>
 						Configure how this script will be triggered.
 					</Tooltip>
