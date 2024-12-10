@@ -32,6 +32,7 @@
 	{/if}
 
 	<TriggersEditorSection
+		on:applyArgs
 		cloudDisabled={false}
 		triggerType="webhook"
 		{isFlow}

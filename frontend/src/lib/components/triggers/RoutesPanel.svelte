@@ -63,6 +63,7 @@
 		on:saveTrigger={(e) => {
 			routeEditor?.openNew(isFlow, path, e.detail.config)
 		}}
+		on:applyArgs
 		cloudDisabled={false}
 		triggerType="http"
 		{isFlow}

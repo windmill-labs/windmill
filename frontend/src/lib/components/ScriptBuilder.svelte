@@ -61,7 +61,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, setContext, tick } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
@@ -90,6 +90,8 @@
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
+	let args: Record<string, any> = initialArgs // Test args input
+	let selectedInputTab: 'main' | 'capture' = 'main'
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -1210,6 +1212,14 @@
 						</TabContent>
 						<TabContent value="triggers">
 							<TriggersEditor
+								on:applyArgs={async (e) => {
+									selectedInputTab = 'main'
+									metadataOpen = false
+									// TODO: that sucks, but don't know how to avoid it
+									await tick()
+									await tick()
+									args = e.detail.args ?? {}
+								}}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
@@ -1394,6 +1404,7 @@
 		</div>
 
 		<ScriptEditor
+			bind:selectedTab={selectedInputTab}
 			{customUi}
 			collabMode
 			edit={initialPath != ''}
@@ -1419,6 +1430,7 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			bind:args
 		/>
 	</div>
 {:else}

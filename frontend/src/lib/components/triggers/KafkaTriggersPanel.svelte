@@ -83,6 +83,7 @@
 			on:saveTrigger={(e) => {
 				saveTrigger(path, e.detail.config)
 			}}
+			on:applyArgs
 			cloudDisabled={false}
 			triggerType="kafka"
 			{isFlow}

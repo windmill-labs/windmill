@@ -67,6 +67,7 @@
 {:else}
 	<div class="flex flex-col gap-4">
 		<TriggersEditorSection
+			on:applyArgs
 			on:saveTrigger={(e) => {
 				wsTriggerEditor?.openNew(isFlow, path)
 			}}

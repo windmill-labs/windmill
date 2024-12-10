@@ -83,6 +83,7 @@
 	<FlowPreprocessorModule {noEditor} />
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor
+		on:applyArgs
 		currentPath={$pathStore}
 		{initialPath}
 		schema={$flowStore.schema}

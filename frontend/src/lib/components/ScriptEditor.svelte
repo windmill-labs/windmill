@@ -13,7 +13,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -54,6 +54,8 @@
 	export let saveToWorkspace = false
 	export let watchChanges = false
 	export let customUi: ScriptEditorWhitelabelCustomUi = {}
+	export let args: Record<string, any> = initialArgs
+	export let selectedTab: 'main' | 'preprocessor' | 'capture' = 'main'
 
 	let jobProgressReset: () => void
 
@@ -74,9 +76,6 @@
 	let width = 1200
 
 	let testJobLoader: TestJobLoader
-
-	// Test args input
-	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
 	let scriptProgress = undefined
@@ -244,7 +243,6 @@
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
-	let selectedTab: 'main' | 'preprocessor' | 'capture' = 'main'
 
 	$: selectedTab && inferSchema(code)
 
@@ -390,13 +388,7 @@
 						{hasPreprocessor}
 						isFlow={false}
 						on:openTriggers
-						on:applyArgs={async (e) => {
-							selectedTab = e.detail.kind
-							// TODO: that sucks, but don't know how to avoid it
-							await tick()
-							await tick()
-							args = e.detail.args ?? {}
-						}}
+						on:applyArgs
 						canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 						on:addPreprocessor={() => {
 							const code = editor?.getCode()

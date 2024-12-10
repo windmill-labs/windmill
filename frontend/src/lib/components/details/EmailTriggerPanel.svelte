@@ -59,6 +59,7 @@
 				data={{ emailDomain, userSettings, token, hash, path }}
 				{isEditor}
 				{path}
+				on:applyArgs
 			/>
 		{:else}
 			<div>

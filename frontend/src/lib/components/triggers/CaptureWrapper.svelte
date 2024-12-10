@@ -208,6 +208,7 @@
 			bind:refreshCaptures
 			hideCapturesWhenEmpty={true}
 			canEdit={true}
+			on:applyArgs
 		/>
 	{/if}
 </div>
