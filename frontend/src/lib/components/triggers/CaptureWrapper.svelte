@@ -27,10 +27,6 @@
 		| undefined = undefined
 	export let args: Record<string, any> = {}
 
-	let isValid = true
-
-	$: captureType && (isValid = true)
-
 	export async function setConfig() {
 		await CaptureService.setCaptureConfig({
 			requestBody: {
@@ -93,6 +89,7 @@
 	}
 
 	function stopAndSetDefaultArgs() {
+		console.log('dbg stopAndSetDefaultArgs', args)
 		captureActive = false
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
@@ -198,7 +195,7 @@
 				{captureActive}
 			/>
 		{:else if captureType === 'kafka'}
-			<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+			<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
 		{/if}
 
 		<CaptureTable

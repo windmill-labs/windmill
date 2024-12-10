@@ -6,21 +6,13 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
-	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 
 	let isValid: boolean = false
 
-	export let topics: string[] = []
-	export let topicsError: string = ''
-	export let group_id: string = ''
-	export let groupIdError: string = ''
-	export let kafka_resource_path: string = ''
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
-	export let args: Record<string, any> | undefined = undefined
+	export let args: Record<string, any> = {}
 	export let staticInputDisabled: boolean = true
-	export let path: string = ''
 
 	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
 
@@ -130,38 +122,6 @@
 		},
 		required: ['topics', 'group_id']
 	}
-
-	console.log(argsSchema)
-
-	async function getResourceValue(path: string) {
-		const value = await ResourceService.getResourceValueInterpolated({
-			workspace: $workspaceStore!,
-			path
-		})
-		return value as { brokers: string[]; security: any }
-	}
-
-	async function updateArgs(resourcePath: string) {
-		if (resourcePath != '' && resourcePath != undefined) {
-			const resourceValue = await getResourceValue(resourcePath)
-			if (!resourceValue) {
-				return
-			}
-			args = {
-				...args,
-				brokers: resourceValue.brokers,
-				security: resourceValue.security
-			}
-		}
-	}
-
-	$: path &&
-		args &&
-		(args.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`)
-
-	$: updateArgs(kafka_resource_path)
-	$: topics = args?.topics
-	$: group_id = args?.group_id
 </script>
 
 <Section label="Kafka" {headless}>
@@ -178,7 +138,11 @@
 				</svelte:fragment>
 
 				{#if selected === 'resource'}
-					<ResourcePicker resourceType="kafka" bind:value={kafka_resource_path} {defaultValues} />
+					<ResourcePicker
+						resourceType="kafka"
+						bind:value={args.kafka_resource_path}
+						{defaultValues}
+					/>
 				{:else}
 					<SchemaForm schema={connnectionSchema} bind:args bind:isValid lightHeader={true} />
 				{/if}

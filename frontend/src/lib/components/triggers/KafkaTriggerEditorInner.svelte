@@ -25,15 +25,13 @@
 	let fixedScriptPath = ''
 	let path: string = ''
 	let pathError = ''
-	let kafka_resource_path = ''
-	let group_id = ''
-	let topics: string[] = ['']
 	let dirtyGroupId = false
 	let enabled = false
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
 	let defaultValues: Record<string, any> | undefined = undefined
+	let args: Record<string, any> = {}
 
 	const dispatch = createEventDispatcher()
 
@@ -67,9 +65,9 @@
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			kafka_resource_path = ''
-			group_id = nDefaultValues?.group_id ?? ''
-			topics = nDefaultValues?.topics ?? ['']
+			args.kafka_resource_path = ''
+			args.group_id = nDefaultValues?.group_id ?? ''
+			args.topics = nDefaultValues?.topics ?? ['']
 			dirtyGroupId = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -93,9 +91,9 @@
 
 		is_flow = s.is_flow
 		path = s.path
-		kafka_resource_path = s.kafka_resource_path
-		group_id = s.group_id
-		topics = s.topics
+		args.kafka_resource_path = s.kafka_resource_path
+		args.group_id = s.group_id
+		args.topics = s.topics
 		enabled = s.enabled
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
@@ -110,9 +108,9 @@
 					path,
 					script_path,
 					is_flow,
-					kafka_resource_path,
-					group_id,
-					topics
+					kafka_resource_path: args.kafka_resource_path,
+					group_id: args.group_id,
+					topics: args.topics
 				}
 			})
 			sendUserToast(`Kafka trigger ${path} updated`)
@@ -124,9 +122,9 @@
 					script_path,
 					is_flow,
 					enabled: true,
-					kafka_resource_path,
-					group_id,
-					topics
+					kafka_resource_path: args.kafka_resource_path,
+					group_id: args.group_id,
+					topics: args.topics
 				}
 			})
 			sendUserToast(`Kafka trigger ${path} created`)
@@ -138,12 +136,12 @@
 		drawer.closeDrawer()
 	}
 
-	$: topicsError = topics.some((b) => /[^[a-zA-Z0-9-_.]/.test(b)) ? 'Invalid topics' : ''
-	$: groupIdError = /[^a-zA-Z0-9-_.]/.test(group_id) ? 'Invalid group ID' : ''
-
+	$: topicsError = args.topics?.some((b) => /[^[a-zA-Z0-9-_.]/.test(b)) ? 'Invalid topics' : ''
+	$: groupIdError = /[^a-zA-Z0-9-_.]/.test(args.group_id) ? 'Invalid group ID' : ''
 	$: !dirtyGroupId &&
 		path &&
-		(group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`)
+		args.group_id == '' &&
+		(args.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`)
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -178,11 +176,11 @@
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' ||
 						emptyString(script_path) ||
-						emptyString(kafka_resource_path) ||
-						topics.length < 1 ||
-						topics.some((t) => emptyString(t)) ||
+						emptyString(args.kafka_resource_path) ||
+						args.topics.length < 1 ||
+						args.topics.some((t) => emptyString(t)) ||
 						topicsError != '' ||
-						emptyString(group_id) ||
+						emptyString(args.group_id) ||
 						groupIdError != '' ||
 						!can_write}
 					on:click={updateTrigger}
@@ -217,14 +215,7 @@
 					</Label>
 				</div>
 
-				<KafkaTriggersConfigSection
-					{kafka_resource_path}
-					{topics}
-					{group_id}
-					{topicsError}
-					{groupIdError}
-					{defaultValues}
-				/>
+				<KafkaTriggersConfigSection bind:args {defaultValues} />
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">

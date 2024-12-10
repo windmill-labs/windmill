@@ -105,7 +105,10 @@
 									{kafkaTrigger.kafka_resource_path}
 								</div>
 								<div class="flex justify-end">
-									<button on:click={() => saveTrigger(kafkaTrigger.path)} class="px-2">
+									<button
+										on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
+										class="px-2"
+									>
 										{#if kafkaTrigger.canWrite}
 											Edit
 										{:else}
