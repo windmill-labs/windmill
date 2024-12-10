@@ -1,25 +1,28 @@
-<script>
+<script lang="ts">
 	import { loadSandpackClient } from '@codesandbox/sandpack-client'
 	import { onMount } from 'svelte'
 
+	let iframe: HTMLIFrameElement | undefined = undefined
 	onMount(async () => {
-		const client = await loadSandpackClient('#container', {
-			files: {
-				'/index.js': {
-					code: `console.log(require('uuid'))`
+		if (iframe) {
+			const client = await loadSandpackClient(iframe, {
+				files: {
+					'/index.js': {
+						code: `console.log(require('uuid'))`
+					}
+				},
+				entry: '/index.js',
+				dependencies: {
+					uuid: 'latest'
 				}
-			},
-			entry: '/index.js',
-			dependencies: {
-				uuid: 'latest'
-			}
-		})
+			})
+		}
 		// code here
 	})
 </script>
 
 <main>
-	<div id="container" />
+	<iframe bind:this={iframe} />
 </main>
 
 <style>
