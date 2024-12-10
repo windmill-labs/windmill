@@ -11216,6 +11216,8 @@ components:
           type: string
         is_admin:
           type: boolean
+        name:
+          type: string
         is_super_admin:
           type: boolean
         created_at:
