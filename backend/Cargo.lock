@@ -10935,6 +10935,7 @@ dependencies = [
  "crc",
  "cron",
  "croner",
+ "futures",
  "futures-core",
  "gethostname",
  "git-version",
@@ -11195,6 +11196,7 @@ version = "1.436.0"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-stream",
  "axum",
  "backon",
  "bigdecimal",

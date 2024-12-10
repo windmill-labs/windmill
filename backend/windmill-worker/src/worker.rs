@@ -13,6 +13,7 @@
 use windmill_common::{
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    cache::{ScriptData, ScriptMetadata},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
     worker::{
@@ -55,7 +56,6 @@ use windmill_common::{
     cache,
     error::{self, to_anyhow, Error},
     flows::FlowNodeId,
-    get_latest_deployed_hash_for_path,
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
     users::SUPERADMIN_SECRET_EMAIL,
@@ -1944,22 +1944,9 @@ async fn handle_queued_job(
     };
 
     let started = Instant::now();
-    let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
-        (None, None, None) => sqlx::query!(
-            "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-            FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            &job.id,
-            job.workspace_id
-        )
-        .fetch_one(db)
-        .warn_after_seconds(5)
-        .await
-        .map(|record| (record.raw_code, record.raw_lock, record.raw_flow))
-        .unwrap_or_default(),
-        (raw_code, raw_lock, raw_flow) => (raw_code, raw_lock, raw_flow),
-    };
 
     let cached_res_path = if job.cache_ttl.is_some() {
+        // TODO(uael)
         let version_hash = if let Some(h) = job.script_hash {
             if matches!(job.job_kind, JobKind::FlowScript) {
                 format!("flowscript_{}", h.to_string())
@@ -2054,12 +2041,16 @@ async fn handle_queued_job(
         }
     };
     if job.is_flow() {
-        let flow = raw_flow
-            .as_ref()
-            .and_then(|raw_flow| serde_json::from_str(raw_flow.get()).ok());
+        let raw_flow = cache::job::fetch_flow(
+            db,
+            &job.id,
+            job.job_kind,
+            job.script_hash,
+            raw_flow
+        ).await?;
         handle_flow(
             job,
-            flow,
+            &raw_flow,
             db,
             &client.get_authed().await,
             None,
@@ -2111,9 +2102,13 @@ async fn handle_queued_job(
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let result = match job.job_kind {
             JobKind::Dependencies => {
+                let raw_script = match job.script_hash {
+                    Some(hash) => cache::script::fetch(db, hash).await?.0,
+                    _ => cache::job::fetch_raw_script(db, &job.id, raw_lock, raw_code).await?,
+                };
                 handle_dependency_job(
                     &job,
-                    raw_code,
+                    &raw_script,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2127,9 +2122,13 @@ async fn handle_queued_job(
                 .await
             }
             JobKind::FlowDependencies => {
+                let raw_flow = match job.script_hash {
+                    Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
+                    _ => return Err(Error::InternalErr("expected script hash".into())),
+                };
                 handle_flow_dependency_job(
                     &job,
-                    raw_flow,
+                    &raw_flow,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2221,7 +2220,7 @@ async fn handle_queued_job(
 
 
 pub fn build_envs(
-    envs: Option<Vec<String>>,
+    envs: Option<&Vec<String>>,
 ) -> windmill_common::error::Result<HashMap<String, String>> {
     let mut envs = if *CLOUD_HOSTED || envs.is_none() {
         HashMap::new()
@@ -2255,7 +2254,7 @@ pub struct ContentReqLangEnvs {
 }
 
 pub async fn get_hub_script_content_and_requirements(
-    script_path: Option<String>,
+    script_path: Option<&String>,
     db: Option<&DB>,
 ) -> error::Result<ContentReqLangEnvs> {
     let script_path = script_path
@@ -2273,35 +2272,18 @@ pub async fn get_hub_script_content_and_requirements(
     })
 }
 
-async fn get_script_content_by_path(
-    script_path: Option<String>,
-    w_id: &str,
-    db: &DB,
-) -> error::Result<ContentReqLangEnvs> {
-    let script_path = script_path
-        .clone()
-        .ok_or_else(|| Error::InternalErr(format!("expected script path")))?;
-    return if script_path.starts_with("hub/") {
-        get_hub_script_content_and_requirements(Some(script_path), Some(db)).await
-    } else {
-        let (script_hash, ..) =
-            get_latest_deployed_hash_for_path(db, w_id, script_path.as_str()).await?;
-        get_script_content_by_hash(&script_hash, w_id, db).await
-    };
-}
-
 pub async fn get_script_content_by_hash(
     script_hash: &ScriptHash,
-    w_id: &str,
+    _w_id: &str,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let script = cache::script::fetch(db, *script_hash, w_id).await?;
+    let (raw_script, metadata) = cache::script::fetch(db, *script_hash).await?;
     Ok(ContentReqLangEnvs {
-        content: script.code,
-        lockfile: script.lock,
-        language: script.language,
-        envs: script.envs,
-        codebase: match script.codebase {
+        content: raw_script.code.clone(),
+        lockfile: raw_script.lock.clone(),
+        language: metadata.language,
+        envs: metadata.envs.clone(),
+        codebase: match metadata.codebase.as_ref() {
             None => None,
             Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
             Some(_) => Some(script_hash.to_string()),
@@ -2328,13 +2310,15 @@ async fn handle_code_execution_job(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 
 ) -> error::Result<Box<RawValue>> {
-    let ContentReqLangEnvs {
-        content: inner_content,
-        lockfile: requirements_o,
+    let (arc_script, arc_metadata, raw_script, raw_metadata): (Arc<ScriptData>, Arc<ScriptMetadata>, ScriptData, ScriptMetadata);
+    let (&ScriptData {
+        code: ref inner_content,
+        lock: ref requirements_o,
+    }, ScriptMetadata {
         language,
         envs,
         codebase,
-    } = match job.job_kind {
+    }) = match job.job_kind {
         JobKind::Preview => {
             let codebase = match job.script_hash.map(|x| x.0) {
                 Some(PREVIEW_IS_CODEBASE_HASH) => Some(job.id.to_string()),
@@ -2342,61 +2326,102 @@ async fn handle_code_execution_job(
                 _ => None,
             };
 
-            ContentReqLangEnvs {
-                content: raw_code.unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: raw_lock,
-                language: job.language.to_owned(),
-                envs: None,
+            arc_script = cache::job::fetch_raw_script(db, &job.id, raw_lock, raw_code).await?;
+            raw_metadata = ScriptMetadata {
+                language: job.language,
                 codebase,
-            }
+                envs: None,
+            };
+            (arc_script.as_ref(), &raw_metadata)
         }
         JobKind::Script_Hub => {
-            get_hub_script_content_and_requirements(job.script_path.clone(), Some(db)).await?
-        }
-        JobKind::Script => {
-            get_script_content_by_hash(
-                &job.script_hash.unwrap_or(ScriptHash(0)),
-                &job.workspace_id,
-                db,
-            )
-            .await?
-        }
-        JobKind::FlowScript => {
-            let (lockfile, content) = cache::flow::fetch_script(
-                db,
-                FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0),
-            )
-            .await?;
-            ContentReqLangEnvs {
+            let ContentReqLangEnvs {
                 content,
                 lockfile,
-                language: job.language.to_owned(),
+                language,
+                envs,
+                codebase,
+            } = get_hub_script_content_and_requirements(job.script_path.as_ref(), Some(db)).await?;
+            raw_script = ScriptData {
+                code: content,
+                lock: lockfile,
+            };
+            raw_metadata = ScriptMetadata {
+                language,
+                envs,
+                codebase,
+            };
+            (&raw_script, &raw_metadata)
+        }
+        JobKind::Script => {
+            (arc_script, arc_metadata) = cache::script::fetch(db, job.script_hash.unwrap_or(ScriptHash(0))).await?;
+            (arc_script.as_ref(), arc_metadata.as_ref())
+        }
+        JobKind::FlowScript => {
+            arc_script = cache::flow::fetch_script(db, FlowNodeId(job.script_hash.unwrap_or(ScriptHash(0)).0)).await?;
+            raw_metadata = ScriptMetadata {
+                language: job.language,
                 envs: None,
                 codebase: None,
-            }
+            };
+            (arc_script.as_ref(), &raw_metadata)
         }
         JobKind::AppScript => {
-            let (lockfile, content) = cache::app::fetch_script(
+            arc_script = cache::app::fetch_script(
                 db,
                 AppScriptId(job.script_hash.unwrap_or(ScriptHash(0)).0),
             )
             .await?;
-            ContentReqLangEnvs {
-                content,
-                lockfile,
-                language: job.language.to_owned(),
+            raw_metadata = ScriptMetadata {
+                language: job.language,
                 envs: None,
                 codebase: None,
-            }
+            };
+            (arc_script.as_ref(), &raw_metadata)
         }
         JobKind::DeploymentCallback => {
-            get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
+            let script_path = job.script_path
+                .as_ref()
+                .ok_or_else(|| Error::InternalErr(format!("expected script path")))?;
+            if script_path.starts_with("hub/") {
+                let ContentReqLangEnvs {
+                    content,
+                    lockfile,
+                    language,
+                    envs,
+                    codebase,
+                } = get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
+                raw_script = ScriptData {
+                    code: content,
+                    lock: lockfile,
+                };
+                raw_metadata = ScriptMetadata {
+                    language,
+                    envs,
+                    codebase,
+                };
+                (&raw_script, &raw_metadata)
+            } else {
+                let hash = sqlx::query_scalar!(
+                    "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND
+                    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL",
+                    script_path,
+                    &job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .ok_or_else(|| Error::InternalErr(format!("expected script hash")))?;
+            
+                (arc_script, arc_metadata) = cache::script::fetch(db, ScriptHash(hash)).await?;
+                (arc_script.as_ref(), arc_metadata.as_ref())
+            }
         }
         _ => unreachable!(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
 
+    let language = *language;
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
             job,
@@ -2526,7 +2551,7 @@ async fn handle_code_execution_job(
             job,
             &client,
             env_code,
-            inner_content,
+            inner_content.clone(),
             db,
             mem_peak,
             canceled_by,
@@ -2572,7 +2597,7 @@ mount {{
 
     // println!("handle lang job {:?}",  SystemTime::now());
 
-    let envs = build_envs(envs)?;
+    let envs = build_envs(envs.as_ref())?;
 
     let result: error::Result<Box<RawValue>> = match language {
         None => {
@@ -2582,7 +2607,7 @@ mount {{
         }
         Some(ScriptLang::Python3) => {
             handle_python_job(
-                requirements_o,
+                requirements_o.as_ref(),
                 job_dir,
                 worker_dir,
                 worker_name,
@@ -2602,7 +2627,7 @@ mount {{
         }
         Some(ScriptLang::Deno) => {
             handle_deno_job(
-                requirements_o,
+                requirements_o.as_ref(),
                 mem_peak,
                 canceled_by,
                 job,
@@ -2620,8 +2645,8 @@ mount {{
         }
         Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
             handle_bun_job(
-                requirements_o,
-                codebase,
+                requirements_o.as_ref(),
+                codebase.as_ref(),
                 mem_peak,
                 canceled_by,
                 job,
@@ -2647,7 +2672,7 @@ mount {{
                 client,
                 &inner_content,
                 job_dir,
-                requirements_o,
+                requirements_o.as_ref(),
                 &shared_mount,
                 base_internal_url,
                 worker_name,
@@ -2693,7 +2718,7 @@ mount {{
         }
         Some(ScriptLang::Php) => {
             handle_php_job(
-                requirements_o,
+                requirements_o.as_ref(),
                 mem_peak,
                 canceled_by,
                 job,
@@ -2718,7 +2743,7 @@ mount {{
                 client,
                 &inner_content,
                 job_dir,
-                requirements_o,
+                requirements_o.as_ref(),
                 &shared_mount,
                 base_internal_url,
                 worker_name,
@@ -2729,7 +2754,7 @@ mount {{
         }
         Some(ScriptLang::Ansible) => {
             handle_ansible_job(
-                requirements_o,
+                requirements_o.as_ref(),
                 job_dir,
                 worker_dir,
                 worker_name,
