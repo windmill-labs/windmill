@@ -1,24 +1,22 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition'
 	import ResourcePicker from '../ResourcePicker.svelte'
-	import { X, Plus, Boxes } from 'lucide-svelte'
+	import { Boxes } from 'lucide-svelte'
 	import Section from '$lib/components/Section.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
+	import Subsection from '$lib/components/Subsection.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
+	import { ResourceService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	let isValid: boolean = false
 
-	export let kafka_resource_path: string = ''
-	export let topics: string[] = ['']
-	export let group_id: string = ''
+	export let topics: string[] = []
 	export let topicsError: string = ''
+	export let group_id: string = ''
 	export let groupIdError: string = ''
+	export let kafka_resource_path: string = ''
 	export let defaultValues: Record<string, any> | undefined = undefined
-	export let dirtyGroupId: boolean = false
 	export let headless: boolean = false
 	export let args: Record<string, any> | undefined = undefined
 	export let staticInputDisabled: boolean = true
@@ -134,25 +132,42 @@
 
 	console.log(argsSchema)
 
-	function updateArgs(topics: string[], group_id: string) {
-		if (args) {
-			args.topics = topics
-			args.group_id = group_id
+	async function getResourceValue(path: string) {
+		const value = await ResourceService.getResourceValueInterpolated({
+			workspace: $workspaceStore!,
+			path
+		})
+		return value as { brokers: string[]; security: string }
+	}
+
+	async function updateArgs(resourcePath: string) {
+		if (resourcePath != '' && resourcePath != undefined) {
+			const resourceValue = await getResourceValue(resourcePath)
+			if (!resourceValue) {
+				return
+			}
+			args = {
+				...args,
+				brokers: resourceValue.brokers,
+				security: resourceValue.security
+			}
 		}
 	}
 
-	$: updateArgs(topics, group_id)
+	$: updateArgs(kafka_resource_path)
+	$: topics = args?.topics
+	$: group_id = args?.group_id
 </script>
 
 <Section label="Kafka" {headless}>
 	<div class="flex flex-col w-full gap-4">
 		<div class="block grow w-full">
-			<Label label="Connection">
+			<Subsection label="Connection">
 				<svelte:fragment slot="header">
 					{#if !staticInputDisabled}
-						<ToggleButtonGroup bind:selected>
-							<ToggleButton value="static" label="Static" small />
-							<ToggleButton value="resource" label="Resource" icon={Boxes} small />
+						<ToggleButtonGroup bind:selected class="h-full">
+							<ToggleButton value="static" label="Static" small={true} />
+							<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} />
 						</ToggleButtonGroup>
 					{/if}
 				</svelte:fragment>
@@ -160,73 +175,15 @@
 				{#if selected === 'resource'}
 					<ResourcePicker resourceType="kafka" bind:value={kafka_resource_path} {defaultValues} />
 				{:else}
-					<SchemaForm schema={connnectionSchema} bind:args bind:isValid />
+					<SchemaForm schema={connnectionSchema} bind:args bind:isValid lightHeader={true} />
 				{/if}
-			</Label>
+			</Subsection>
 		</div>
-		<label class="block grow w-full">
-			<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-				<div>
-					Topics
-					<Required required={true} />
-				</div>
-			</div>
 
-			<div class="flex flex-col gap-4 mt-1">
-				{#each topics as v, i}
-					<div class="flex w-full gap-2 items-center">
-						<input type="text" bind:value={v} />
-
-						<button
-							transition:fade|local={{ duration: 100 }}
-							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-							aria-label="Clear"
-							on:click={() => {
-								topics = topics.filter((_, index) => index !== i)
-							}}
-							class:hidden={topics.length === 1}
-						>
-							<X size={14} />
-						</button>
-					</div>
-				{/each}
-
-				<div class="flex items-baseline">
-					<Button
-						variant="border"
-						color="light"
-						size="xs"
-						on:click={() => {
-							if (topics == undefined || !Array.isArray(topics)) {
-								topics = []
-							}
-							topics = topics.concat('')
-						}}
-						startIcon={{ icon: Plus }}
-					>
-						Add topic
-					</Button>
-				</div>
-			</div>
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-				{topicsError}
-			</div>
-		</label>
-
-		<label class="block grow w-full">
-			<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-				<div>
-					Group ID
-					<Required required={true} />
-				</div>
-			</div>
-			<div class="mt-1">
-				<input type="text" bind:value={group_id} on:focus={() => (dirtyGroupId = true)} />
-			</div>
-
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-				{groupIdError}
-			</div>
-		</label>
+		<div class="block grow w-full">
+			<Subsection headless={true}>
+				<SchemaForm schema={argsSchema} bind:args bind:isValid lightHeader={true} />
+			</Subsection>
+		</div>
 	</div>
 </Section>

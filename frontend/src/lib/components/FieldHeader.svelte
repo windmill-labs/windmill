@@ -14,10 +14,18 @@
 	export let labelClass: string = ''
 	export let prettify = false
 	export let simpleTooltip: string | undefined = undefined
+	export let lightHeader = false
 </script>
 
 <div class="inline-flex flex-row items-baseline truncated">
-	<span class={twMerge(disabled ? 'text-tertiary' : '', 'font-semibold', labelClass)}>
+	<span
+		class={twMerge(
+			disabled ? 'text-tertiary' : '',
+			'font-semibold',
+			lightHeader ? 'text-secondary text-sm font-normal' : '',
+			labelClass
+		)}
+	>
 		{#if prettify}
 			{label.replace(/_/g, ' ').split(' ').map(capitalize).join(' ')}
 		{:else}
