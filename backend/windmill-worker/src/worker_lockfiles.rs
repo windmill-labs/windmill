@@ -1245,6 +1245,13 @@ async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64
     match value {
         Value::Object(object) => {
             if let Some(Value::Object(script)) = object.get_mut("inlineScript") {
+                if script
+                    .get("language")
+                    .and_then(|x| x.as_str())
+                    .is_some_and(|x| x == "frontend")
+                {
+                    return Ok(());
+                }
                 // replace `content` with an empty string:
                 let Some(Value::String(code)) = script.get_mut("content").map(std::mem::take)
                 else {
