@@ -55,7 +55,7 @@
 	$: $captureOn && handleCapture?.()
 </script>
 
-<Section label={`${captureTypeLabels[captureType]} Prototype`}>
+<Section label={`New ${captureTypeLabels[captureType]} Trigger`}>
 	<svelte:fragment slot="action">
 		<div class="flex flex-row grow w-min-0 gap-2 px-2 items-center justify-end">
 			<ConnectionIndicator {connectionInfo} />
