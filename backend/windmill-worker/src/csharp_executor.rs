@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, path::Path, process::Stdio};
 use uuid::Uuid;
+use windmill_parser_csharp::parse_csharp_reqs;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
 use itertools::Itertools;
@@ -33,22 +34,39 @@ lazy_static::lazy_static! {
 
 const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
 
-fn gen_cs_proj(code: &str, job_dir: &str) -> anyhow::Result<()> {
+fn gen_cs_proj(
+    code: &str,
+    job_dir: &str,
+    reqs: Vec<(String, Option<String>)>,
+) -> anyhow::Result<()> {
+    let pkgs = reqs
+        .into_iter()
+        .map(|(pkg, vrsion_o)| {
+            let version = vrsion_o
+                .map(|v| format!("Version=\"{v}\""))
+                .unwrap_or("".to_string());
+            format!("    <PackageReference Include=\"{pkg}\" {version}/>")
+        })
+        .join("\n");
+
     write_file(
         job_dir,
         "Main.csproj",
-        r#"<Project Sdk="Microsoft.NET.Sdk">
-
+        &format!(
+            r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
   </PropertyGroup>
+  <ItemGroup>
+{pkgs}
+  </ItemGroup>
 
 </Project>
-"#,
+"#
+        ),
     )?;
 
     write_file(job_dir, "Script.cs", code)?;
@@ -66,7 +84,8 @@ fn gen_cs_proj(code: &str, job_dir: &str) -> anyhow::Result<()> {
         .map(|x| {
             Ok(format!(
                 "        public {} {} {{ get; set; }}",
-                x.otyp.ok_or(anyhow!("Type not found for argument {}", x.name))?,
+                x.otyp
+                    .ok_or(anyhow!("Type not found for argument {}", x.name))?,
                 &x.name,
             ))
         })
@@ -173,17 +192,6 @@ async fn build_cs_proj(
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
 
-    for entry in std::fs::read_dir(job_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        // Print file or directory name
-        if let Some(name) = path.file_name() {
-            // println!("{}", name.to_string_lossy());
-            println!("{path:?}");
-        }
-    }
-
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
 
     match save_cache(
@@ -202,6 +210,18 @@ async fn build_cs_proj(
     }
 }
 
+fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> String {
+    let mut result = Vec::new();
+
+    for (i, line) in contents.lines().enumerate() {
+        if !indices_to_remove.contains(&i) {
+            result.push(line);
+        }
+    }
+
+    result.join("\n")
+}
+
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -218,8 +238,6 @@ pub async fn handle_csharp_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
-
-
 
     let hash = calculate_hash(&format!(
         "{}{}",
@@ -253,7 +271,26 @@ pub async fn handle_csharp_job(
         let logs1 = format!("{cache_logs}\n\n--- DOTNET BUILD ---\n");
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
-        gen_cs_proj(inner_content, job_dir)?;
+        let (reqs, lines_to_remove) = parse_csharp_reqs(inner_content);
+        for req in &reqs {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!(
+                    "Requirement detected: {} {}\n",
+                    req.0,
+                    req.1.as_ref().unwrap_or(&"".to_string())
+                ),
+                db,
+            )
+            .await;
+        }
+
+        let inner_content = remove_lines_from_text(inner_content, lines_to_remove);
+        let code = inner_content.as_str();
+
+
+        gen_cs_proj(code, job_dir, reqs)?;
 
         build_cs_proj(
             &job.id,
