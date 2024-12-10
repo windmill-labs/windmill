@@ -209,6 +209,7 @@
 			hideCapturesWhenEmpty={true}
 			canEdit={true}
 			on:applyArgs
+			on:updateSchema
 		/>
 	{/if}
 </div>

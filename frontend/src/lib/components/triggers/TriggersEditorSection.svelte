@@ -129,8 +129,7 @@
 				const { schema, redirect } = e.detail
 				$flowStore.schema = schema
 				if (redirect) {
-					//tabSelected = 'input'
-					console.log('dbg redirect')
+					$selectedId = 'Input'
 				}
 			}}
 			on:saveTrigger
