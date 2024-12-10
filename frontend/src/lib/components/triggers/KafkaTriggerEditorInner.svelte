@@ -65,7 +65,7 @@
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			args.kafka_resource_path = ''
+			args.kafka_resource_path = nDefaultValues?.kafka_resource_path ?? ''
 			args.group_id = nDefaultValues?.group_id ?? ''
 			args.topics = nDefaultValues?.topics ?? ['']
 			dirtyGroupId = false
@@ -142,6 +142,21 @@
 		path &&
 		args.group_id == '' &&
 		(args.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`)
+
+	function useDefaultValues() {
+		if (args.kafka_resource_path && args.kafka_resource_path != '') {
+			return false
+		}
+		if (!defaultValues) {
+			return false
+		}
+		console.log('dbg defaultValues', defaultValues)
+		return (
+			defaultValues.brokers &&
+			defaultValues.brokers.length > 0 &&
+			defaultValues.brokers.some((broker: string) => broker.trim() !== '')
+		)
+	}
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -215,7 +230,10 @@
 					</Label>
 				</div>
 
-				<KafkaTriggersConfigSection bind:args {defaultValues} />
+				<KafkaTriggersConfigSection
+					bind:args
+					defaultValues={useDefaultValues() ? defaultValues : undefined}
+				/>
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
