@@ -72,7 +72,7 @@
 					startIcon={{ icon: captureActive ? CircleStop : Play }}
 					btnClasses={captureActive ? 'text-blue-500 hover:text-blue-500' : ''}
 				>
-					Capture
+					Live test
 				</Button>
 			</AnimatedButton>
 
@@ -89,7 +89,7 @@
 							})
 						}}
 					>
-						New {captureTypeLabels[captureType]}
+						Save
 					</Button>
 					<svelte:fragment slot="text">
 						{#if disabled}
