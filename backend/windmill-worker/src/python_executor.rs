@@ -1107,7 +1107,7 @@ async fn handle_python_deps(
         let mut venv_path = handle_python_reqs(
             requirements
                 .split("\n")
-                .filter(|x| !x.starts_with("--"))
+                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
                 .collect(),
             job_id,
             w_id,
@@ -1452,7 +1452,7 @@ pub async fn handle_python_reqs(
     let mut in_cache = vec![];
     for req in requirements {
         // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') {
+        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
         }
         // TODO: Remove
