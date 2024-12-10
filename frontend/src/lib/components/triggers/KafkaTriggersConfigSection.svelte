@@ -20,6 +20,7 @@
 	export let headless: boolean = false
 	export let args: Record<string, any> | undefined = undefined
 	export let staticInputDisabled: boolean = true
+	export let path: string = ''
 
 	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
 
@@ -137,7 +138,7 @@
 			workspace: $workspaceStore!,
 			path
 		})
-		return value as { brokers: string[]; security: string }
+		return value as { brokers: string[]; security: any }
 	}
 
 	async function updateArgs(resourcePath: string) {
@@ -153,6 +154,10 @@
 			}
 		}
 	}
+
+	$: path &&
+		args &&
+		(args.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`)
 
 	$: updateArgs(kafka_resource_path)
 	$: topics = args?.topics

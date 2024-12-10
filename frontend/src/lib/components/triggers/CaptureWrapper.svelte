@@ -198,7 +198,7 @@
 				{captureActive}
 			/>
 		{:else if captureType === 'kafka'}
-			<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
+			<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 		{/if}
 
 		<CaptureTable
