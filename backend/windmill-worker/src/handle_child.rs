@@ -437,7 +437,7 @@ pub async fn handle_child(
     }
 }
 
-async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
+pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
     }
