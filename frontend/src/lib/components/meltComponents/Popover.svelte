@@ -5,6 +5,7 @@
 
 	export let open = false
 	export let closeButton: boolean = true
+	export let displayArrow: boolean = false
 
 	const {
 		elements: { trigger, content, arrow, close },
@@ -23,7 +24,9 @@
 
 {#if open}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} class="content">
-		<div use:melt={$arrow} />
+		{#if displayArrow}
+			<div use:melt={$arrow} />
+		{/if}
 		<slot name="content" />
 		{#if closeButton}
 			<button class="close" use:melt={$close}>

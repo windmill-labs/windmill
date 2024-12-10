@@ -11,9 +11,9 @@
 	export let path: string
 </script>
 
-<div class="w-[650px] flex flex-row divide-x overflow-hidden">
+<div class="w-[650px] max-h-[200px] flex flex-row divide-x">
 	<div class="w-40">
-		<div class="flex flex-col bg-surface-secondary">
+		<div class="flex flex-col bg-surface-secondary h-full">
 			<button
 				class={`${selected === 'webhook' ? 'bg-surface' : ''} p-2`}
 				on:click={() => (selected = 'webhook')}
@@ -63,6 +63,14 @@
 		</div>
 	</div>
 	<div class="grow p-2">
-		<CaptureTable captureType={selected} {isFlow} {path} addButton={true} on:openTriggers />
+		<CaptureTable
+			captureType={selected}
+			{isFlow}
+			{path}
+			addButton={true}
+			on:openTriggers
+			on:applyArgs
+			on:updateSchema
+		/>
 	</div>
 </div>

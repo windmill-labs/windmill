@@ -68,6 +68,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -624,6 +625,13 @@
 		await tick()
 		await tick()
 		args = e.detail.args ?? {}
+	}
+
+	function openTriggers(ev) {
+		metadataOpen = true
+		selectedTab = 'triggers'
+		selectedTriggerStore.set(ev.detail.kind)
+		triggerDefaultValuesStore.set(ev.detail.config)
 	}
 </script>
 
@@ -1313,6 +1321,7 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
+					<CaptureButton on:openTriggers={openTriggers} />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							color="light"
@@ -1416,12 +1425,7 @@
 			on:saveDraft={() => {
 				saveDraft()
 			}}
-			on:openTriggers={(ev) => {
-				metadataOpen = true
-				selectedTab = 'triggers'
-				selectedTriggerStore.set(ev.detail.kind)
-				triggerDefaultValuesStore.set(ev.detail.config)
-			}}
+			on:openTriggers={openTriggers}
 			on:applyArgs={applyArgs}
 			bind:editor
 			bind:this={scriptEditor}
