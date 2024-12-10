@@ -424,7 +424,7 @@ async fn postinstall(
                     .ok_or(anyhow::anyhow!("Cannot convert OsString to String"))?
                     .to_owned();
 
-                if name == "bin" || name.contains("dist-info") {
+                if name == "bin" || name == "__pycache__" || name.contains("dist-info") {
                     continue;
                 }
 
@@ -487,7 +487,7 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() {
+        if src_path.is_dir() && !src_path.is_symlink() {
             copy_dir_recursively(&src_path, &dst_path)?;
         } else {
             fs::copy(&src_path, &dst_path)?;
@@ -1107,7 +1107,7 @@ async fn handle_python_deps(
         let mut venv_path = handle_python_reqs(
             requirements
                 .split("\n")
-                .filter(|x| !x.starts_with("--"))
+                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
                 .collect(),
             job_id,
             w_id,
@@ -1452,7 +1452,7 @@ pub async fn handle_python_reqs(
     let mut in_cache = vec![];
     for req in requirements {
         // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') {
+        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
         }
         // TODO: Remove
