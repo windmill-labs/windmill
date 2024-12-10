@@ -210,7 +210,6 @@
 	export let folding = false
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
-	export let listenEmptyChanges = false
 	export let small = false
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
@@ -1147,10 +1146,8 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
-				if (ncode != '' || listenEmptyChanges) {
-					code = ncode
-					dispatch('change', code)
-				}
+				code = ncode
+				dispatch('change', code)
 			}, 500)
 
 			ataModel && clearTimeout(ataModel)
