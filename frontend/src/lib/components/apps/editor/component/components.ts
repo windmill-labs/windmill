@@ -3950,7 +3950,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: 'sm',
 					fieldType: 'select',
 					selectOptions: [
-						{ value: 'xs', label: 'Extra Small' },
+						{ value: 'xs', label: 'Extra small' },
 						{ value: 'sm', label: 'Small' }
 					]
 				},
@@ -4123,7 +4123,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	recomputeallcomponent: {
-		name: 'Recompute all',
+		name: 'Recompute All',
 		icon: RefreshCw,
 		documentationLink: `${documentationBaseUrl}/recompute_all`,
 		dims: '4:1-6:1' as AppComponentDimensions,

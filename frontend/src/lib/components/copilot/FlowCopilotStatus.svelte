@@ -131,7 +131,7 @@
 				variant={'border'}
 				nonCaptureEvent
 			>
-				AI Builder
+				AI builder
 			</Button>
 		</svelte:fragment>
 		<div class="block text-primary">

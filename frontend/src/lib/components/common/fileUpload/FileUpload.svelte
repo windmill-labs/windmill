@@ -304,7 +304,7 @@
 											icon: RefreshCcw
 										}}
 									>
-										Retry Upload
+										Retry upload
 									</Button>
 									<Button
 										size="xs2"
@@ -343,7 +343,7 @@
 											icon: Ban
 										}}
 									>
-										Cancel Upload
+										Cancel upload
 									</Button>
 								{/if}
 
@@ -418,7 +418,7 @@
 								icon: Ban
 							}}
 						>
-							Cancel All Uploads
+							Cancel all uploads
 						</Button>
 					{/if}
 					<Button

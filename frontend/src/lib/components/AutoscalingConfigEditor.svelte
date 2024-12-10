@@ -274,7 +274,7 @@
 				<ToggleButton
 					value="script"
 					size="sm"
-					label="Custom Script"
+					label="Custom script"
 					tooltip="Run a custom script to scale your worker group"
 				/>
 				<ToggleButton position="center" disabled value="ecs" size="sm" label="ECS (soon)" />
@@ -349,7 +349,7 @@
 		{:else}
 			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2">
 				<ToggleButton value="dryrun" size="sm" label="Dry run" />
-				<ToggleButton value="script" size="sm" label="Custom Script" />
+				<ToggleButton value="script" size="sm" label="Custom script" />
 				<ToggleButton position="center" value="ecs" size="sm" label="ECS (soon)" />
 				<ToggleButton position="right" value="nomad" size="sm" label="Nomad (soon)" />
 				<ToggleButton position="right" value="kubernetes" size="sm" label="Kubernetes (soon)" />

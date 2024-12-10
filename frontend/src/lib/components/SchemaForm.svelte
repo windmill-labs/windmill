@@ -333,7 +333,7 @@
 				startIcon={{ icon: Plus }}
 				on:click={() => variableEditor?.initNew?.()}
 			>
-				New Variable
+				New variable
 			</Button>
 		</div>
 	</ItemPicker>

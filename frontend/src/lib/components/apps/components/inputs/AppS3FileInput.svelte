@@ -75,7 +75,7 @@
 											size="xs2"
 											variant="border"
 										>
-											Copy Direct Link
+											Copy direct link
 										</Button>
 									{/if}
 									*/

@@ -98,7 +98,7 @@
 							class="!text-xs"
 						/>
 						<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
-							Create an Email-specific Token
+							Create an email-specific token
 							<Tooltip light>
 								The token will have a scope such that it can only be used to trigger this script. It
 								is safe to share as it cannot be used to impersonate you.

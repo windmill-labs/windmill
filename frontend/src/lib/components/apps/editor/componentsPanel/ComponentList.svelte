@@ -321,7 +321,7 @@
 					</div>
 				</div>
 			</ListItem>
-			<ListItem title={'Custom Components'} tooltip={'Create components in React or vanilla JS'}>
+			<ListItem title={'Custom Components'} tooltip={'Create components in React or Vanilla JS'}>
 				<div class="flex flex-wrap gap-3 py-2">
 					{#if customComponents}
 						{#each customComponents as cc (cc.path)}

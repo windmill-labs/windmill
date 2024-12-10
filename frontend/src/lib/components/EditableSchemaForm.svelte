@@ -226,7 +226,7 @@
 						label="JSON View"
 						size="xs"
 						options={{
-							right: 'JSON Editor',
+							right: 'JSON editor',
 							rightTooltip:
 								'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 						}}
@@ -551,7 +551,7 @@
 				startIcon={{ icon: Plus }}
 				on:click={() => variableEditor?.initNew?.()}
 			>
-				New Variable
+				New variable
 			</Button>
 		</div>
 	</ItemPicker>

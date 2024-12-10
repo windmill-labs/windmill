@@ -418,7 +418,7 @@ $var = json_decode(curl_exec($ch));`)
 				variableEditor.initNew()
 			}}
 		>
-			New Variable
+			New variable
 		</Button>
 	</div>
 </ItemPicker>
@@ -489,7 +489,7 @@ $res = json_decode(curl_exec($ch));`)
 			size="sm"
 			href="{base}/resources?connect_app=undefined"
 		>
-			Add Resource
+			Add resource
 		</Button>
 	</div>
 </ItemPicker>
@@ -528,7 +528,7 @@ $res = json_decode(curl_exec($ch));`)
 					spacingSize="md"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
-					>+Context Var
+					>+Context var
 				</Button>
 			{/if}
 			{#if showVarPicker && customUi?.variable != false}

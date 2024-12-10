@@ -388,7 +388,7 @@
 								close(null)
 							}}
 						>
-							Set Cron Schedule
+							Set cron schedule
 						</Button>
 					</div>
 				</CronBuilder>

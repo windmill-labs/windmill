@@ -72,7 +72,7 @@
 					size="xs"
 					startIcon={{ icon: UnplugIcon }}
 				>
-					New WS Trigger
+					New WS trigger
 				</Button>
 				{#if wsTriggers.length == 0}
 					<div class="text-xs text-secondary"> No WS triggers </div>
