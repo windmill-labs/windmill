@@ -616,6 +616,15 @@
 		}
 		return lang
 	}
+
+	async function applyArgs(e) {
+		selectedInputTab = 'main'
+		metadataOpen = false
+		// TODO: that sucks, but don't know how to avoid it
+		await tick()
+		await tick()
+		args = e.detail.args ?? {}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1212,14 +1221,7 @@
 						</TabContent>
 						<TabContent value="triggers">
 							<TriggersEditor
-								on:applyArgs={async (e) => {
-									selectedInputTab = 'main'
-									metadataOpen = false
-									// TODO: that sucks, but don't know how to avoid it
-									await tick()
-									await tick()
-									args = e.detail.args ?? {}
-								}}
+								on:applyArgs={applyArgs}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
@@ -1420,6 +1422,7 @@
 				selectedTriggerStore.set(ev.detail.kind)
 				triggerDefaultValuesStore.set(ev.detail.config)
 			}}
+			on:applyArgs={applyArgs}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}

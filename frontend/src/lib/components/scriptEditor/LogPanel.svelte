@@ -259,7 +259,7 @@
 					</div>
 				{/if}
 				{#if selectedTab === 'captures'}
-					<div class="h-full">
+					<div class="h-full px-2">
 						<CaptureTable
 							captureType={'all'}
 							hasPreprocessor={false}

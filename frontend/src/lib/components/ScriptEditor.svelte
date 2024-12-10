@@ -481,6 +481,7 @@
 								{diffEditor}
 								{args}
 								{path}
+								on:applyArgs
 							>
 								{#if scriptProgress}
 									<!-- Put to the slot in logpanel -->
